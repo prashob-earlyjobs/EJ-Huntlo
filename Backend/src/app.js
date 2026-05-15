@@ -3,11 +3,29 @@ const cors = require("cors");
 
 const apiRoutes = require("./routes");
 
+const DEFAULT_CORS_ORIGINS = [
+  "http://localhost:3000",
+  "http://localhost:3001",
+  "https://dev.huntlo.online",
+  "https://huntlo.online",
+  "https://www.huntlo.online",
+];
+
+function parseCorsOrigins() {
+  const raw = process.env.CORS_ORIGINS;
+  if (!raw || !String(raw).trim()) return DEFAULT_CORS_ORIGINS;
+  const parsed = String(raw)
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  return parsed.length > 0 ? parsed : DEFAULT_CORS_ORIGINS;
+}
+
 const app = express();
 
 app.use(
   cors({
-    origin: ["http://localhost:3000","http://localhost:3001"],
+    origin: parseCorsOrigins(),
   })
 );
 app.use(express.json());
