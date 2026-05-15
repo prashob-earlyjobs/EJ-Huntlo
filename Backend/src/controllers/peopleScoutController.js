@@ -9,17 +9,17 @@ const {
 } = require("../utils/contactReveal");
 const { logApi, safeJsonPreview } = require("../utils/logger");
 const { incrementUserUsage } = require("../utils/incrementUserUsage");
+const { assertQuotaAvailableByUserId } = require("../services/planQuotas");
+const { respondIfQuotaExceeded } = require("../utils/quotaHttp");
 
-function bumpScoutRevealUsage(userId, revealType) {
+async function bumpScoutRevealUsage(userId, revealType) {
   if (!userId || !mongoose.Types.ObjectId.isValid(String(userId))) return;
   const uid = String(userId);
-  const p =
-    revealType === "EMAIL"
-      ? incrementUserUsage(uid, "emailUnveils")
-      : revealType === "PHONE"
-        ? incrementUserUsage(uid, "mobileUnveils")
-        : Promise.resolve();
-  void p.catch(() => {});
+  if (revealType === "EMAIL") {
+    await incrementUserUsage(uid, "emailUnveils");
+  } else if (revealType === "PHONE") {
+    await incrementUserUsage(uid, "mobileUnveils");
+  }
 }
 
 function clampInt(n, min, max, fallback) {
@@ -242,6 +242,16 @@ const revealPeopleScoutContact = async (req, res) => {
       linkedinKeyLen: linkedinKey.length,
     });
 
+    try {
+      await assertQuotaAvailableByUserId(
+        userId,
+        revealType === "EMAIL" ? "emailUnveils" : "mobileUnveils"
+      );
+    } catch (quotaErr) {
+      if (respondIfQuotaExceeded(res, quotaErr)) return;
+      throw quotaErr;
+    }
+
     const cached = await PeopleScoutRevealedContact.findOne({
       userId: new mongoose.Types.ObjectId(userId),
       linkedinProfileUrl: linkedinKey,
@@ -262,7 +272,7 @@ const revealPeopleScoutContact = async (req, res) => {
         revealType,
         count: cachedValid.length,
       });
-      bumpScoutRevealUsage(userId, revealType);
+      await bumpScoutRevealUsage(userId, revealType);
       return res.status(200).json({
         success: true,
         source: "cache",
@@ -303,7 +313,7 @@ const revealPeopleScoutContact = async (req, res) => {
         revealType,
       });
 
-      bumpScoutRevealUsage(userId, revealType);
+      await bumpScoutRevealUsage(userId, revealType);
       return res.status(200).json({
         success: true,
         source: "profile_snapshot",
@@ -354,7 +364,7 @@ const revealPeopleScoutContact = async (req, res) => {
       cachedToDb: values.length > 0,
     });
 
-    bumpScoutRevealUsage(userId, revealType);
+    await bumpScoutRevealUsage(userId, revealType);
     return res.status(200).json({
       success: true,
       source: "futurejobs",
@@ -365,6 +375,7 @@ const revealPeopleScoutContact = async (req, res) => {
       futureJobs: fj,
     });
   } catch (error) {
+    if (respondIfQuotaExceeded(res, error)) return;
     const status = error.statusCode || 500;
     logApi("candidates/scout-people/reveal-contact", "error", {
       status,
@@ -410,6 +421,13 @@ const lookupPeopleScout = async (req, res) => {
       queryLabelLen: String(parsed.queryLabel || "").length,
     });
 
+    try {
+      await assertQuotaAvailableByUserId(userId, "linkedinLookups");
+    } catch (quotaErr) {
+      if (respondIfQuotaExceeded(res, quotaErr)) return;
+      throw quotaErr;
+    }
+
     const fj = await scoutPeopleLookup(parsed.payload);
     const d = fj?.data && typeof fj.data === "object" ? fj.data : null;
     const profile = d?.profile;
@@ -446,7 +464,7 @@ const lookupPeopleScout = async (req, res) => {
       fjStatus: typeof fj?.status === "string" ? fj.status : "",
     });
 
-    void incrementUserUsage(String(userId), "linkedinLookups").catch(() => {});
+    await incrementUserUsage(String(userId), "linkedinLookups");
 
     return res.status(200).json({
       success: true,
@@ -460,6 +478,7 @@ const lookupPeopleScout = async (req, res) => {
         : { scoutId },
     });
   } catch (error) {
+    if (respondIfQuotaExceeded(res, error)) return;
     const status = error.statusCode || 500;
     logApi("candidates/scout-people/lookup", "error", {
       userId: req.auth?.userId,

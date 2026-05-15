@@ -48,6 +48,12 @@ const userSchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
+    planId: {
+      type: String,
+      default: "starter",
+      trim: true,
+      maxlength: 40,
+    },
     usageCandidateSearches: { type: Number, default: 0, min: 0 },
     usageEmailUnveils: { type: Number, default: 0, min: 0 },
     usageCandidateUnveils: { type: Number, default: 0, min: 0 },

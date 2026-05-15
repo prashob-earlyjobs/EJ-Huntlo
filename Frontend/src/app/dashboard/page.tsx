@@ -6,15 +6,6 @@ import { useRouter } from "next/navigation";
 
 import { authHeaders, getStoredAuth } from "@/lib/auth";
 
-type CreditLedgerRow = {
-  id: string;
-  delta: number;
-  balanceBefore: number;
-  balanceAfter: number;
-  reason: string;
-  createdAt: string;
-};
-
 type SourcingSessionRow = {
   id: string;
   futureJobsSessionId: string;
@@ -220,21 +211,6 @@ const userSidebarItems = [
       </svg>
     ),
   },
-  {
-    label: "Settings",
-    subtitle: "Credits & account",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
-        <path
-          d="M12 15.5C13.93 15.5 15.5 13.93 15.5 12C15.5 10.07 13.93 8.5 12 8.5C10.07 8.5 8.5 10.07 8.5 12C8.5 13.93 10.07 15.5 12 15.5ZM19.4 15A1.7 1.7 0 0 0 19.74 16.87L19.8 16.93A2 2 0 1 1 16.97 19.76L16.91 19.7A1.7 1.7 0 0 0 15.04 19.36 1.7 1.7 0 0 0 14 20.93V21A2 2 0 1 1 10 21V20.93A1.7 1.7 0 0 0 8.96 19.36 1.7 1.7 0 0 0 7.09 19.7L7.03 19.76A2 2 0 1 1 4.2 16.93L4.26 16.87A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3.03 13.96H3A2 2 0 1 1 3 9.96H3.03A1.7 1.7 0 0 0 4.6 8.92 1.7 1.7 0 0 0 4.26 7.05L4.2 6.99A2 2 0 1 1 7.03 4.16L7.09 4.22A1.7 1.7 0 0 0 8.96 4.56H9.03A1.7 1.7 0 0 0 10 3V2.93A2 2 0 1 1 14 2.93V3A1.7 1.7 0 0 0 15.04 4.56 1.7 1.7 0 0 0 16.91 4.22L16.97 4.16A2 2 0 1 1 19.8 6.99L19.74 7.05A1.7 1.7 0 0 0 19.4 8.92V8.96A1.7 1.7 0 0 0 20.97 10H21A2 2 0 1 1 21 14H20.97A1.7 1.7 0 0 0 19.4 15Z"
-          stroke="currentColor"
-          strokeWidth="1.2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    ),
-  },
 ];
 
 type SessionResultDoc = {
@@ -246,13 +222,62 @@ type SessionResultDoc = {
     region?: string;
     years_of_experience_raw?: number;
     linkedin_profile_url?: string;
-    current_employers_object?: { company_name?: string; job_title?: string }[];
+    profile_picture_permalink?: string;
+    skills?: string[];
+    current_employers_object?: {
+      company_name?: string;
+      job_title?: string;
+      company_linkedin_profile_url?: string;
+    }[];
   };
   profileAnalysis?: {
-    highlights?: { Category?: string; Highlight?: string }[];
+    highlights?: {
+      Category?: string;
+      Highlight?: string;
+      ReasonForHighlight?: string;
+    }[];
     recommendation?: string;
+    analysis?: {
+      keyStrengths?: { observation?: string; evidence?: string }[];
+      keyWeaknesses?: { observation?: string; evidence?: string }[];
+    };
   };
 };
+
+function sessionDocToCandidateRow(
+  doc: SessionResultDoc,
+  idx: number,
+  sessionId: string | null
+): CandidateRow {
+  const highlights = doc.profileAnalysis?.highlights ?? [];
+  const current = doc.profile?.current_employers_object?.[0];
+  return {
+    id: doc._id || `session-doc-${idx}`,
+    sourcingSessionId: doc.sourcingSessionId || sessionId || "",
+    linkedin_profile_url: doc.profile?.linkedin_profile_url || "",
+    name: doc.profile?.name || "Unnamed candidate",
+    role: current?.job_title || "Role unavailable",
+    currentCompany: current?.company_name || "",
+    experience:
+      typeof doc.profile?.years_of_experience_raw === "number"
+        ? `${doc.profile.years_of_experience_raw} years`
+        : "—",
+    location: doc.profile?.region || "Location unavailable",
+    skills:
+      Array.isArray(doc.profile?.skills) && doc.profile.skills.length > 0
+        ? doc.profile.skills.slice(0, 8).join(", ")
+        : "—",
+    finalScore: typeof doc.finalScore === "number" ? doc.finalScore : null,
+    highlights: highlights
+      .map((h) => String(h.Highlight || "").trim())
+      .filter((h) => h !== ""),
+    recommendation: doc.profileAnalysis?.recommendation || "",
+    rawDoc: doc,
+    status: "Available",
+    email: "",
+    phone: "",
+  };
+}
 
 type CandidateRow = {
   name: string;
@@ -682,6 +707,78 @@ function peopleScoutNameInitials(name: string) {
   return name.slice(0, 2).toUpperCase() || "?";
 }
 
+/** Tailwind classes for match score badges on a 0–5 scale. */
+function candidateScoreBadgeClass(score: number): string {
+  const base = "rounded-full px-2.5 py-1 text-[11px] font-semibold";
+  if (score >= 4.5) return `${base} bg-emerald-100 text-emerald-800`;
+  if (score >= 4) return `${base} bg-green-100 text-green-800`;
+  if (score >= 3.5) return `${base} bg-lime-100 text-lime-900`;
+  if (score >= 3) return `${base} bg-amber-100 text-amber-900`;
+  if (score >= 2.5) return `${base} bg-orange-100 text-orange-800`;
+  if (score >= 2) return `${base} bg-orange-100 text-orange-900`;
+  return `${base} bg-red-100 text-red-800`;
+}
+
+function formatCandidateScore(score: number): string {
+  const rounded = Math.round(score * 100) / 100;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/\.?0+$/, "");
+}
+
+function AiGeneratedBadge({ className = "" }: { className?: string }) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700 ${className}`}
+      title="This text was generated by AI and may need verification"
+    >
+      <svg viewBox="0 0 24 24" fill="none" className="h-3 w-3" aria-hidden>
+        <path
+          d="M12 2L13.5 8.5L20 10L13.5 11.5L12 18L10.5 11.5L4 10L10.5 8.5L12 2Z"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M19 14L19.8 17L22 17.8L19.8 18.6L19 21.5L18.2 18.6L16 17.8L18.2 17L19 14Z"
+          stroke="currentColor"
+          strokeWidth="1.2"
+          strokeLinejoin="round"
+        />
+      </svg>
+      AI generated
+    </span>
+  );
+}
+
+function AiRecommendationBlock({
+  text,
+  compact = false,
+}: {
+  text: string;
+  compact?: boolean;
+}) {
+  return (
+    <div className={compact ? "mt-3" : undefined}>
+      <div className="mb-1.5 flex flex-wrap items-center gap-2">
+        <span
+          className={`font-semibold uppercase tracking-[0.1em] text-slate-500 ${
+            compact ? "text-[10px]" : "text-xs"
+          }`}
+        >
+          AI recommendation
+        </span>
+        <AiGeneratedBadge />
+      </div>
+      <p
+        className={`rounded-lg border border-violet-100/80 bg-violet-50/40 leading-relaxed text-slate-700 ${
+          compact ? "px-3 py-2 text-xs" : "px-3 py-3 text-sm"
+        }`}
+      >
+        {text}
+      </p>
+    </div>
+  );
+}
+
 function PeopleScoutRecentSearchAvatar({
   name,
   thumbnailUrl,
@@ -716,6 +813,50 @@ function PeopleScoutRecentSearchAvatar({
   return (
     <div
       className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-slate-300 bg-linear-to-br from-slate-100 to-slate-200 text-xs font-semibold tracking-tight text-slate-600"
+      aria-hidden
+    >
+      {peopleScoutNameInitials(name)}
+    </div>
+  );
+}
+
+function SessionCandidateGridAvatar({
+  name,
+  photoUrl,
+}: {
+  name: string;
+  photoUrl?: string;
+}) {
+  const [imgFailed, setImgFailed] = useState(false);
+  const url = typeof photoUrl === "string" ? photoUrl.trim() : "";
+  const showImage = Boolean(url) && !imgFailed;
+
+  useEffect(() => {
+    setImgFailed(false);
+  }, [url]);
+
+  if (showImage) {
+    return (
+      <div
+        className="relative h-14 w-14 shrink-0 overflow-hidden rounded-full bg-slate-100 ring-2 ring-slate-200 ring-offset-2 ring-offset-white"
+        aria-hidden
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element -- external profile CDN URLs */}
+        <img
+          src={url}
+          alt=""
+          className="h-full w-full object-cover object-center"
+          loading="lazy"
+          decoding="async"
+          onError={() => setImgFailed(true)}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-linear-to-br from-slate-100 to-slate-200 text-sm font-semibold tracking-tight text-slate-600 ring-2 ring-slate-200 ring-offset-2 ring-offset-white"
       aria-hidden
     >
       {peopleScoutNameInitials(name)}
@@ -820,6 +961,336 @@ function PeopleScoutProfileSummaryRow({
   );
 }
 
+function SessionCandidateDetailDrawer({
+  open,
+  doc,
+  candidate,
+  onClose,
+  onRevealEmail,
+  onRevealPhone,
+  onToggleSave,
+  isSaved,
+  isSaveBusy,
+  displayedEmail,
+  displayedPhone,
+  emailRevealed,
+  phoneRevealed,
+}: {
+  open: boolean;
+  doc: SessionResultDoc;
+  candidate: CandidateRow;
+  onClose: () => void;
+  onRevealEmail: () => void;
+  onRevealPhone: () => void;
+  onToggleSave: () => void;
+  isSaved: boolean;
+  isSaveBusy: boolean;
+  displayedEmail: string;
+  displayedPhone: string;
+  emailRevealed: boolean;
+  phoneRevealed: boolean;
+}) {
+  const [imgFailed, setImgFailed] = useState(false);
+  const profile = doc.profile;
+  const name = profile?.name || "Unnamed candidate";
+  const photoUrl =
+    typeof profile?.profile_picture_permalink === "string"
+      ? profile.profile_picture_permalink.trim()
+      : "";
+  const linkedinUrl =
+    typeof profile?.linkedin_profile_url === "string"
+      ? profile.linkedin_profile_url.trim()
+      : "";
+  const employers = Array.isArray(profile?.current_employers_object)
+    ? profile.current_employers_object
+    : [];
+  const skills = Array.isArray(profile?.skills) ? profile.skills : [];
+  const highlights = doc.profileAnalysis?.highlights ?? [];
+  const strengths = doc.profileAnalysis?.analysis?.keyStrengths ?? [];
+  const weaknesses = doc.profileAnalysis?.analysis?.keyWeaknesses ?? [];
+  const showImage = Boolean(photoUrl) && !imgFailed;
+
+  useEffect(() => {
+    if (!open) return;
+    setImgFailed(false);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  const primaryRole = employers[0]?.job_title || candidate.role;
+  const primaryCompany = employers[0]?.company_name || candidate.currentCompany;
+
+  return (
+    <div
+      className={`fixed inset-0 z-113 transition-opacity duration-300 ${
+        open ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
+      }`}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${name} profile details`}
+      aria-hidden={!open}
+    >
+      <button
+        type="button"
+        aria-label="Close candidate details"
+        className="absolute inset-0 bg-slate-900/40"
+        onClick={onClose}
+      />
+      <aside
+        className={`absolute right-0 top-0 h-full w-full max-w-xl overflow-y-auto border-l border-slate-200 bg-white shadow-2xl transition-transform duration-300 ease-out ${
+          open ? "translate-x-0" : "translate-x-full"
+        }`}
+      >
+        <div className="sticky top-0 z-10 border-b border-slate-200 bg-white px-5 py-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                Candidate profile
+              </p>
+              <h3 className="mt-1 text-lg font-semibold text-black">{name}</h3>
+              <p className="mt-0.5 text-sm text-slate-600">
+                {primaryRole}
+                {primaryCompany ? ` · ${primaryCompany}` : ""}
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {typeof doc.finalScore === "number" ? (
+                <span className={candidateScoreBadgeClass(doc.finalScore)}>
+                  {formatCandidateScore(doc.finalScore)}/5
+                </span>
+              ) : null}
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+                aria-label="Close"
+              >
+                <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
+                  <path
+                    d="M18 6L6 18M6 6L18 18"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div
+            className={`mt-3 grid w-full gap-2 ${
+              linkedinUrl ? "grid-cols-3" : "grid-cols-2"
+            }`}
+          >
+            {linkedinUrl ? (
+              <a
+                href={linkedinUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex min-w-0 items-center justify-center gap-1 rounded-lg border border-slate-300 bg-slate-50 px-2 py-1.5 text-center text-[11px] font-semibold text-slate-800 transition hover:bg-slate-100 sm:text-xs"
+              >
+                LinkedIn
+              </a>
+            ) : null}
+            <button
+              type="button"
+              onClick={onRevealEmail}
+              className="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold text-slate-800 transition hover:bg-slate-50 sm:text-xs"
+            >
+              Reveal email
+            </button>
+            <button
+              type="button"
+              onClick={onRevealPhone}
+              className="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold text-slate-800 transition hover:bg-slate-50 sm:text-xs"
+            >
+              Reveal phone
+            </button>
+          </div>
+          {(emailRevealed && displayedEmail) || (phoneRevealed && displayedPhone) ? (
+            <div className="mt-3 space-y-1 border-t border-slate-100 pt-3 text-xs text-slate-700">
+              {emailRevealed && displayedEmail ? (
+                <p>
+                  <span className="font-semibold text-slate-500">Email </span>
+                  {displayedEmail}
+                </p>
+              ) : null}
+              {phoneRevealed && displayedPhone ? (
+                <p>
+                  <span className="font-semibold text-slate-500">Phone </span>
+                  {displayedPhone}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="space-y-6 px-5 py-5 pb-10">
+          <section className="flex items-start gap-4 border-b border-slate-100 pb-6">
+            {showImage ? (
+              <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-full bg-slate-100 ring-2 ring-slate-200">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={photoUrl}
+                  alt=""
+                  className="h-full w-full object-cover"
+                  onError={() => setImgFailed(true)}
+                />
+              </div>
+            ) : (
+              <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-full bg-slate-100 text-2xl font-semibold text-slate-600">
+                {peopleScoutNameInitials(name)}
+              </div>
+            )}
+            <div className="min-w-0 flex-1 text-sm text-slate-700">
+              <p>{profile?.region || candidate.location}</p>
+              {typeof profile?.years_of_experience_raw === "number" ? (
+                <p className="mt-1 text-slate-600">
+                  {profile.years_of_experience_raw} years experience
+                </p>
+              ) : null}
+            </div>
+          </section>
+
+          {employers.length > 0 ? (
+            <section>
+              <h4 className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                Current roles
+              </h4>
+              <ul className="mt-3 space-y-3">
+                {employers.map((emp, i) => (
+                  <li
+                    key={`${emp.company_name}-${emp.job_title}-${i}`}
+                    className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2"
+                  >
+                    <p className="font-medium text-slate-900">{emp.job_title || "—"}</p>
+                    <p className="text-sm text-slate-700">{emp.company_name || "—"}</p>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+
+          {skills.length > 0 ? (
+            <section>
+              <h4 className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                Skills
+              </h4>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {skills.map((skill) => (
+                  <span
+                    key={skill}
+                    className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-700"
+                  >
+                    {skill}
+                  </span>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {highlights.length > 0 ? (
+            <section>
+              <h4 className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                Highlights
+              </h4>
+              <ul className="mt-3 space-y-2">
+                {highlights.map((h, i) => (
+                  <li
+                    key={`${h.Category}-${i}`}
+                    className="rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2 text-sm"
+                  >
+                    {h.Category ? (
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-800">
+                        {h.Category}
+                      </span>
+                    ) : null}
+                    <p className="font-medium text-slate-900">{h.Highlight || "—"}</p>
+                    {h.ReasonForHighlight ? (
+                      <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                        {h.ReasonForHighlight}
+                      </p>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+
+          {doc.profileAnalysis?.recommendation ? (
+            <section>
+              <AiRecommendationBlock text={doc.profileAnalysis.recommendation} />
+            </section>
+          ) : null}
+
+          {strengths.length > 0 ? (
+            <section>
+              <h4 className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                Key strengths
+              </h4>
+              <ul className="mt-3 space-y-3">
+                {strengths.map((s, i) => (
+                  <li key={`strength-${i}`} className="text-sm">
+                    {s.observation ? (
+                      <p className="font-medium text-slate-900">{s.observation}</p>
+                    ) : null}
+                    {s.evidence ? (
+                      <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                        {s.evidence}
+                      </p>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+
+          {weaknesses.length > 0 ? (
+            <section>
+              <h4 className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                Areas to review
+              </h4>
+              <ul className="mt-3 space-y-3">
+                {weaknesses.map((w, i) => (
+                  <li key={`weakness-${i}`} className="text-sm">
+                    {w.observation ? (
+                      <p className="font-medium text-slate-900">{w.observation}</p>
+                    ) : null}
+                    {w.evidence ? (
+                      <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                        {w.evidence}
+                      </p>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+
+          <section className="border-t border-slate-200 pt-4">
+            <button
+              type="button"
+              onClick={onToggleSave}
+              disabled={isSaveBusy}
+              className={`inline-flex w-full items-center justify-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-semibold transition disabled:opacity-60 ${
+                isSaved
+                  ? "border-black bg-black text-white hover:bg-slate-900"
+                  : "border-slate-300 bg-white text-slate-800 hover:bg-slate-50"
+              }`}
+            >
+              {isSaveBusy ? "Saving…" : isSaved ? "Saved to list" : "Save candidate"}
+            </button>
+          </section>
+        </div>
+      </aside>
+    </div>
+  );
+}
+
 export default function UserDashboardPage() {
   const router = useRouter();
   const [aiPrompt, setAiPrompt] = useState("");
@@ -833,18 +1304,19 @@ export default function UserDashboardPage() {
   const [revealedPhone, setRevealedPhone] = useState<string[]>([]);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [showAdminLink, setShowAdminLink] = useState(false);
-  const [creditBalance, setCreditBalance] = useState<number>(0);
-  const [myCreditLedger, setMyCreditLedger] = useState<CreditLedgerRow[]>([]);
-  const [creditHistoryLoading, setCreditHistoryLoading] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState("");
   const [profilesWarning, setProfilesWarning] = useState("");
-  const [showSearchSummaryModal, setShowSearchSummaryModal] = useState(false);
   const [searchSummary, setSearchSummary] = useState<SearchSummaryState | null>(
     null
   );
-  const [viewResultsLoading, setViewResultsLoading] = useState(false);
   const [sessionResultDocs, setSessionResultDocs] = useState<SessionResultDoc[]>([]);
+  const [selectedSessionDetailDoc, setSelectedSessionDetailDoc] =
+    useState<SessionResultDoc | null>(null);
+  const [selectedSessionDetailCandidate, setSelectedSessionDetailCandidate] =
+    useState<CandidateRow | null>(null);
+  const [isSessionCandidateDrawerOpen, setIsSessionCandidateDrawerOpen] =
+    useState(false);
   const [sessionResultError, setSessionResultError] = useState("");
   const [sessionResultPage, setSessionResultPage] = useState(1);
   const [sessionResultTotalPages, setSessionResultTotalPages] = useState<number | null>(
@@ -878,6 +1350,14 @@ export default function UserDashboardPage() {
   );
   const [sourcingSessionsLoading, setSourcingSessionsLoading] = useState(false);
   const [sourcingSessionsError, setSourcingSessionsError] = useState("");
+  const [workspaceCandidates, setWorkspaceCandidates] = useState<CandidateRow[]>([]);
+  const [workspaceCandidatesPage, setWorkspaceCandidatesPage] = useState(1);
+  const [workspaceCandidatesTotalDocs, setWorkspaceCandidatesTotalDocs] = useState(0);
+  const [workspaceCandidatesTotalPages, setWorkspaceCandidatesTotalPages] = useState(1);
+  const [workspaceCandidatesLoading, setWorkspaceCandidatesLoading] = useState(false);
+  const [workspaceCandidatesError, setWorkspaceCandidatesError] = useState("");
+  const [workspaceCandidatesRefresh, setWorkspaceCandidatesRefresh] = useState(0);
+  const WORKSPACE_CANDIDATES_LIMIT = 20;
   const [revealedContactValues, setRevealedContactValues] = useState<
     Record<string, { email?: string; phone?: string }>
   >({});
@@ -896,6 +1376,8 @@ export default function UserDashboardPage() {
     mobileUnveils: 0,
     linkedinLookups: 0,
   }));
+  const [userPlanId, setUserPlanId] = useState("starter");
+  const [userPlanName, setUserPlanName] = useState("Starter");
   const [utilisationHistory, setUtilisationHistory] = useState<UtilisationHistoryRow[]>([]);
   const [utilisationHistoryLoading, setUtilisationHistoryLoading] = useState(false);
   const [peopleScoutProfile, setPeopleScoutProfile] = useState<PeopleScoutProfile | null>(
@@ -974,33 +1456,7 @@ export default function UserDashboardPage() {
       return;
     }
     setShowAdminLink(auth.role === "admin");
-    setCreditBalance(typeof auth.credits === "number" ? auth.credits : 0);
   }, [router]);
-
-  useEffect(() => {
-    if (activeTab !== "Settings") return;
-    const auth = getStoredAuth();
-    if (!auth?.token) return;
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
-    setCreditHistoryLoading(true);
-    fetch(`${apiBase}/api/users/me/credits/history?limit=50`, {
-      headers: authHeaders(auth.token),
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.success && Array.isArray(data.history)) {
-          setMyCreditLedger(data.history);
-        } else {
-          setMyCreditLedger([]);
-        }
-      })
-      .catch(() => {
-        setMyCreditLedger([]);
-      })
-      .finally(() => {
-        setCreditHistoryLoading(false);
-      });
-  }, [activeTab]);
 
   useEffect(() => {
     if (activeTab !== "My Profile") return;
@@ -1247,27 +1703,24 @@ export default function UserDashboardPage() {
             success?: boolean;
             user?: Record<string, unknown>;
             utilisation?: unknown;
+            plan?: { planId?: unknown; planName?: unknown };
           };
-          if (meData.success && meData.user && typeof meData.user === "object") {
-            const u = meData.user;
-            const creditsRaw = u.credits;
-            if (typeof creditsRaw === "number" && Number.isFinite(creditsRaw)) {
-              const c = Math.max(0, Math.floor(creditsRaw));
-              setCreditBalance(c);
-              try {
-                const raw = localStorage.getItem("authUser");
-                if (raw && auth?.token) {
-                  const prev = JSON.parse(raw) as Record<string, unknown>;
-                  localStorage.setItem(
-                    "authUser",
-                    JSON.stringify({ ...prev, credits: c, token: auth.token })
-                  );
-                }
-              } catch {
-                /* ignore */
-              }
-            }
+          if (meData.success && meData.utilisation != null) {
             setPlanUtilisation(parseUtilisationPayload(meData.utilisation));
+          }
+          if (meData.success) {
+            const pid =
+              typeof meData.plan?.planId === "string"
+                ? meData.plan.planId
+                : typeof meData.user?.planId === "string"
+                  ? meData.user.planId
+                  : "starter";
+            const pname =
+              typeof meData.plan?.planName === "string"
+                ? meData.plan.planName
+                : pid;
+            setUserPlanId(pid);
+            setUserPlanName(pname);
           }
         }
       })
@@ -1392,40 +1845,58 @@ export default function UserDashboardPage() {
     return list.filter((c) => String(c.saveListId || "") === saveListFilter);
   })();
 
-  const allCandidatesByKey = new Map<string, CandidateRow>();
-  for (const session of sourcingSessions) {
-    for (const c of session.candidatePreview) {
-      const row: CandidateRow = {
-        id: c.id || undefined,
-        sourcingSessionId: c.sourcingSessionId || session.futureJobsSessionId,
-        linkedin_profile_url: c.linkedin_profile_url || "",
-        name: c.name || "Unknown",
-        role: c.role || "—",
-        experience: "—",
-        location: c.location || "—",
-        skills: "—",
-        status: c.status || "Available",
-        email: "",
-        phone: "",
-      };
-      allCandidatesByKey.set(candidateRowKey(row), row);
+  const loadWorkspaceCandidates = async (page: number) => {
+    const auth = getStoredAuth();
+    if (!auth?.token) {
+      setWorkspaceCandidates([]);
+      setWorkspaceCandidatesError("Please sign in again.");
+      return;
     }
-  }
-  const allCandidatesForWorkspace = Array.from(allCandidatesByKey.values());
-  const allCandidatesDisplay = allCandidatesForWorkspace;
-  const candidatesPageList = hasSearched ? searchedCandidates : allCandidatesDisplay;
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+    setWorkspaceCandidatesLoading(true);
+    setWorkspaceCandidatesError("");
+    try {
+      const url = `${apiBase}/api/candidates/all?page=${page}&limit=${WORKSPACE_CANDIDATES_LIMIT}`;
+      const res = await fetch(url, { headers: authHeaders(auth.token) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(
+          typeof data.message === "string" ? data.message : "Failed to load candidates"
+        );
+      }
+      const list = Array.isArray(data.candidates)
+        ? (data.candidates as CandidateRow[])
+        : [];
+      setWorkspaceCandidates(list);
+      const pg = data.profilesPagination as
+        | {
+            totalDocs?: number;
+            totalPages?: number;
+            page?: number;
+          }
+        | undefined;
+      setWorkspaceCandidatesTotalDocs(
+        typeof pg?.totalDocs === "number" ? pg.totalDocs : list.length
+      );
+      setWorkspaceCandidatesTotalPages(
+        typeof pg?.totalPages === "number" ? Math.max(1, pg.totalPages) : 1
+      );
+      setWorkspaceCandidatesPage(typeof pg?.page === "number" ? pg.page : page);
+    } catch (err) {
+      setWorkspaceCandidates([]);
+      setWorkspaceCandidatesError(
+        err instanceof Error ? err.message : "Could not load candidates"
+      );
+    } finally {
+      setWorkspaceCandidatesLoading(false);
+    }
+  };
 
   useEffect(() => {
-    if (!showSearchSummaryModal) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !viewResultsLoading) {
-        setShowSearchSummaryModal(false);
-        setViewResultsLoading(false);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [showSearchSummaryModal, viewResultsLoading]);
+    if (activeTab !== "Candidates") return;
+    void loadWorkspaceCandidates(workspaceCandidatesPage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh when search completes
+  }, [activeTab, workspaceCandidatesPage, workspaceCandidatesRefresh]);
 
   useEffect(() => {
     if (
@@ -1755,11 +2226,107 @@ export default function UserDashboardPage() {
     }
   };
 
+  const applySessionProfilesFromSearchResponse = (
+    data: Record<string, unknown>,
+    backTab: string
+  ) => {
+    const fjProfiles = data.futureJobsProfiles as
+      | { data?: { docs?: SessionResultDoc[] } }
+      | undefined;
+    const docs = Array.isArray(fjProfiles?.data?.docs) ? fjProfiles.data.docs : [];
+    setSessionResultDocs(docs);
+    setSessionResultsFromDb(false);
+
+    const pg = data.profilesPagination as
+      | {
+          totalPages?: number;
+          hasNextPage?: boolean;
+          totalDocs?: number;
+        }
+      | undefined;
+    const initialPage = typeof data.page === "number" ? data.page : 1;
+    setSessionResultPage(initialPage);
+    setSessionResultTotalPages(
+      typeof pg?.totalPages === "number" ? pg.totalPages : null
+    );
+    setSessionResultHasNext(
+      typeof pg?.hasNextPage === "boolean"
+        ? pg.hasNextPage
+        : typeof pg?.totalPages === "number"
+          ? initialPage < pg.totalPages
+          : false
+    );
+
+    const list = Array.isArray(data.candidates)
+      ? (data.candidates as CandidateRow[])
+      : [];
+    setSearchedCandidates(list);
+
+    const warn =
+      (typeof data.profilesFetchError === "string" && data.profilesFetchError) ||
+      (typeof data.fetchMoreError === "string" && data.fetchMoreError
+        ? `fetch-more: ${data.fetchMoreError}`
+        : "");
+    if (warn) setProfilesWarning(warn);
+
+    setSearchSummary((prev) =>
+      prev
+        ? {
+            ...prev,
+            candidateCount: list.length,
+            totalDocs:
+              typeof prev.totalDocs === "number"
+                ? prev.totalDocs
+                : typeof pg?.totalDocs === "number"
+                  ? pg.totalDocs
+                  : prev.totalDocs,
+            page: typeof data.page === "number" ? data.page : 1,
+            limit: typeof data.limit === "number" ? data.limit : prev.limit,
+            totalPages:
+              typeof pg?.totalPages === "number" ? pg.totalPages : null,
+            hasNextPage:
+              typeof pg?.hasNextPage === "boolean" ? pg.hasNextPage : null,
+            profilesFetchError: warn || prev.profilesFetchError,
+          }
+        : prev
+    );
+
+    setHasSearched(true);
+    setSessionResultsBackTab(backTab);
+    setActiveTab("Session Results");
+    setSessionResultError("");
+    setWorkspaceCandidatesPage(1);
+    setWorkspaceCandidatesRefresh((n) => n + 1);
+  };
+
+  const loadSessionProfilesFirstPage = async (
+    sessionId: string,
+    limit: number,
+    token: string,
+    backTab: string
+  ) => {
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+    const sid = encodeURIComponent(sessionId);
+    const url = `${apiBase}/api/candidates/session/${sid}/profiles?page=1&limit=${limit}&fetchMore=0`;
+    const res = await fetch(url, {
+      method: "GET",
+      headers: authHeaders(token),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) {
+      throw new Error(
+        typeof data.message === "string" ? data.message : "Failed to load profiles"
+      );
+    }
+    applySessionProfilesFromSearchResponse(data as Record<string, unknown>, backTab);
+  };
+
   const handleSearch = async () => {
     const prompt = aiPrompt.trim();
     setHasSearched(true);
     setSearchError("");
     setProfilesWarning("");
+    setSessionResultError("");
 
     const auth = getStoredAuth();
     if (!auth?.token) {
@@ -1769,6 +2336,7 @@ export default function UserDashboardPage() {
     }
 
     const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+    const backTab = activeTab;
     setSearchLoading(true);
     try {
       const res = await fetch(`${apiBase}/api/candidates/search`, {
@@ -1790,154 +2358,63 @@ export default function UserDashboardPage() {
           ? data.profilesFetchError
           : "";
       setProfilesWarning(warn);
-      const displayList: CandidateRow[] = list;
-      setSearchedCandidates(displayList);
+      setSearchedCandidates(list);
 
       const pg = data.profilesPagination;
       const totalDisplayCount =
         typeof data.futureJobs?.data?.sourcing?.total_display_count === "number"
           ? data.futureJobs.data.sourcing.total_display_count
           : null;
+      const sessionId =
+        typeof data.futureJobs?.data?.session?._id === "string"
+          ? data.futureJobs.data.session._id
+          : null;
+      const limit = typeof data.limit === "number" ? data.limit : 20;
+
       setSearchSummary({
-        candidateCount: displayList.length,
+        candidateCount: list.length,
         totalDocs:
           totalDisplayCount ??
           (typeof pg?.totalDocs === "number" ? pg.totalDocs : null),
         page: typeof data.page === "number" ? data.page : 1,
-        limit: typeof data.limit === "number" ? data.limit : 20,
+        limit,
         totalPages:
           typeof pg?.totalPages === "number" ? pg.totalPages : null,
         hasNextPage:
           typeof pg?.hasNextPage === "boolean" ? pg.hasNextPage : null,
-        sessionId:
-          typeof data.futureJobs?.data?.session?._id === "string"
-            ? data.futureJobs.data.session._id
-            : null,
+        sessionId,
         sourcingStatus:
           typeof data.futureJobs?.status === "string"
             ? data.futureJobs.status
             : null,
         profilesFetchError: warn || null,
       });
-      setShowSearchSummaryModal(true);
+
+      if (!sessionId) {
+        setSearchError("Search completed but no sourcing session was returned.");
+        return;
+      }
+
+      const docsFromSearch = Array.isArray(data.futureJobsProfiles?.data?.docs)
+        ? (data.futureJobsProfiles.data.docs as SessionResultDoc[])
+        : [];
+
+      if (docsFromSearch.length > 0) {
+        applySessionProfilesFromSearchResponse(
+          data as Record<string, unknown>,
+          backTab
+        );
+      } else {
+        await loadSessionProfilesFirstPage(sessionId, limit, auth.token, backTab);
+      }
     } catch (err) {
       setSearchError(
         err instanceof Error ? err.message : "Unable to complete search"
       );
       setSearchedCandidates([]);
-      setShowSearchSummaryModal(false);
       setSearchSummary(null);
     } finally {
       setSearchLoading(false);
-    }
-  };
-
-  const closeSearchSummaryModal = () => {
-    setShowSearchSummaryModal(false);
-    setViewResultsLoading(false);
-  };
-
-  /**
-   * Loads profiles from Future Jobs via our backend: POST …/fetch-more (optional) then GET …/profiles.
-   */
-  const handleViewResults = async () => {
-    if (!searchSummary?.sessionId) {
-      closeSearchSummaryModal();
-      return;
-    }
-
-    setViewResultsLoading(true);
-    setSessionResultError("");
-
-    const auth = getStoredAuth();
-    if (!auth?.token) {
-      setSearchError("Please sign in again to load profiles.");
-      closeSearchSummaryModal();
-      setViewResultsLoading(false);
-      return;
-    }
-
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
-    const sid = encodeURIComponent(searchSummary.sessionId);
-    const limit = searchSummary.limit;
-    const url = `${apiBase}/api/candidates/session/${sid}/profiles?page=1&limit=${limit}&fetchMore=0`;
-
-    try {
-      const res = await fetch(url, {
-        method: "GET",
-        headers: authHeaders(auth.token),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.success) {
-        throw new Error(
-          typeof data.message === "string" ? data.message : "Failed to load profiles"
-        );
-      }
-
-      const docs = Array.isArray(data.futureJobsProfiles?.data?.docs)
-        ? (data.futureJobsProfiles.data.docs as SessionResultDoc[])
-        : [];
-      setSessionResultDocs(docs);
-      setSessionResultsFromDb(false);
-      const pg = data.profilesPagination;
-      const initialPage = typeof data.page === "number" ? data.page : 1;
-      setSessionResultPage(initialPage);
-      setSessionResultTotalPages(
-        typeof pg?.totalPages === "number" ? pg.totalPages : null
-      );
-      setSessionResultHasNext(
-        typeof pg?.hasNextPage === "boolean"
-          ? pg.hasNextPage
-          : typeof pg?.totalPages === "number"
-            ? initialPage < pg.totalPages
-            : false
-      );
-
-      const list = Array.isArray(data.candidates)
-        ? (data.candidates as CandidateRow[])
-        : [];
-      setSearchedCandidates(list);
-
-      const warn =
-        (typeof data.profilesFetchError === "string" && data.profilesFetchError) ||
-        (typeof data.fetchMoreError === "string" && data.fetchMoreError
-          ? `fetch-more: ${data.fetchMoreError}`
-          : "");
-      setProfilesWarning(warn);
-
-      setSearchSummary((prev) =>
-        prev
-          ? {
-              ...prev,
-              candidateCount: list.length,
-              totalDocs:
-                typeof prev.totalDocs === "number"
-                  ? prev.totalDocs
-                  : typeof pg?.totalDocs === "number"
-                    ? pg.totalDocs
-                    : prev.totalDocs,
-              page: typeof data.page === "number" ? data.page : 1,
-              limit: typeof data.limit === "number" ? data.limit : prev.limit,
-              totalPages:
-                typeof pg?.totalPages === "number" ? pg.totalPages : null,
-              hasNextPage:
-                typeof pg?.hasNextPage === "boolean" ? pg.hasNextPage : null,
-              profilesFetchError: warn || null,
-            }
-          : prev
-      );
-
-      setHasSearched(true);
-      setSessionResultsBackTab(activeTab);
-      setActiveTab("Session Results");
-      closeSearchSummaryModal();
-    } catch (err) {
-      setSessionResultError(
-        err instanceof Error ? err.message : "Could not load session profiles"
-      );
-      closeSearchSummaryModal();
-    } finally {
-      setViewResultsLoading(false);
     }
   };
 
@@ -2388,6 +2865,18 @@ export default function UserDashboardPage() {
     void revealContact(candidate, "PHONE");
   };
 
+  const openSessionCandidateDetail = (doc: SessionResultDoc, candidate: CandidateRow) => {
+    setSelectedSessionDetailDoc(doc);
+    setSelectedSessionDetailCandidate(candidate);
+    setIsSessionCandidateDrawerOpen(true);
+  };
+
+  const closeSessionCandidateDetail = () => {
+    setIsSessionCandidateDrawerOpen(false);
+    setSelectedSessionDetailDoc(null);
+    setSelectedSessionDetailCandidate(null);
+  };
+
   const getDisplayedEmail = (candidate: CandidateRow) => {
     const key = candidateRowKey(candidate);
     return revealedContactValues[key]?.email || candidate.email || "";
@@ -2469,15 +2958,6 @@ export default function UserDashboardPage() {
             ))}
           </nav>
 
-          <div className="mt-auto border-t border-slate-200 pt-5">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
-              Credits
-            </p>
-            <p className="mt-1 text-2xl font-semibold tabular-nums text-black">
-              {creditBalance}
-            </p>
-            <p className="mt-0.5 text-xs text-slate-500">Available balance</p>
-          </div>
         </aside>
 
         <section className="flex min-w-0 flex-1 flex-col">
@@ -2488,11 +2968,6 @@ export default function UserDashboardPage() {
                   User Workspace
                 </p>
                 <h2 className="mt-1 text-2xl font-semibold text-black">{activeTab}</h2>
-                <p className="mt-2 text-xs text-slate-500 lg:hidden">
-                  <span className="inline-flex rounded-full bg-slate-100 px-3 py-1.5 font-semibold tabular-nums text-slate-900">
-                    Credits: {creditBalance}
-                  </span>
-                </p>
               </div>
               <div className="flex shrink-0 flex-wrap items-center gap-2">
                 {showAdminLink ? (
@@ -2712,35 +3187,6 @@ export default function UserDashboardPage() {
                     <p className="mt-1 text-sm text-slate-600">
                       Detailed candidate results loaded from the selected sourcing session.
                     </p>
-                    <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
-                      <span>
-                        Page {sessionResultPage}
-                        {sessionResultTotalPages != null ? ` of ${sessionResultTotalPages}` : ""}
-                      </span>
-                      <select
-                        value={saveTargetListId}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setSaveTargetListId(v);
-                          try {
-                            if (!v) localStorage.removeItem("ejhunter_save_target_list_id");
-                            else localStorage.setItem("ejhunter_save_target_list_id", v);
-                          } catch {
-                            /* ignore */
-                          }
-                        }}
-                        disabled={saveListsLoading}
-                        className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] text-slate-800"
-                        aria-label="List for new saves"
-                      >
-                        <option value="">Save to: General</option>
-                        {saveLists.map((l) => (
-                          <option key={l.id} value={l.id}>
-                            Save to: {l.name}
-                          </option>
-                        ))}
-                      </select>
-                    </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <button
@@ -2796,53 +3242,70 @@ export default function UserDashboardPage() {
                       {sessionResultDocs.map((doc, idx) => {
                         const highlights = doc.profileAnalysis?.highlights ?? [];
                         const current = doc.profile?.current_employers_object?.[0];
-                        const revealCandidate: CandidateRow = {
-                          id: doc._id || `session-doc-${idx}`,
-                          sourcingSessionId: doc.sourcingSessionId || searchSummary?.sessionId || "",
-                          linkedin_profile_url: doc.profile?.linkedin_profile_url || "",
-                          name: doc.profile?.name || "Unnamed candidate",
-                          role: current?.job_title || "Role unavailable",
-                          currentCompany: current?.company_name || "",
-                          experience:
-                            typeof doc.profile?.years_of_experience_raw === "number"
-                              ? `${doc.profile.years_of_experience_raw} years`
-                              : "—",
-                          location: doc.profile?.region || "Location unavailable",
-                          skills: "—",
-                          finalScore: typeof doc.finalScore === "number" ? doc.finalScore : null,
-                          highlights: highlights
-                            .map((h) => String(h.Highlight || "").trim())
-                            .filter((h) => h !== ""),
-                          recommendation: doc.profileAnalysis?.recommendation || "",
-                          rawDoc: doc,
-                          status: "Available",
-                          email: "",
-                          phone: "",
-                        };
+                        const revealCandidate = sessionDocToCandidateRow(
+                          doc,
+                          idx,
+                          searchSummary?.sessionId ?? null
+                        );
                         const sessionCandidateKey = candidateIdentityKey(revealCandidate);
                         const isSavedSessionCandidate =
                           savedSessionCandidateKeys.includes(sessionCandidateKey);
                         const isSaveBusy = saveCandidateBusyKeys.includes(sessionCandidateKey);
+                        const isDetailOpen =
+                          isSessionCandidateDrawerOpen &&
+                          selectedSessionDetailDoc?._id === doc._id;
+                        const candidateName = doc.profile?.name || "Unnamed candidate";
+                        const candidatePhotoUrl =
+                          typeof doc.profile?.profile_picture_permalink === "string"
+                            ? doc.profile.profile_picture_permalink.trim()
+                            : "";
+                        const sessionLinkedinUrl =
+                          typeof revealCandidate.linkedin_profile_url === "string"
+                            ? revealCandidate.linkedin_profile_url.trim()
+                            : "";
                         return (
                           <article
                             key={doc._id || `session-doc-${idx}`}
-                            className="rounded-xl border border-slate-200 bg-white p-4"
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => openSessionCandidateDetail(doc, revealCandidate)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                openSessionCandidateDetail(doc, revealCandidate);
+                              }
+                            }}
+                            className={`cursor-pointer rounded-xl border bg-white p-4 text-left transition hover:border-slate-400 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 ${
+                              isDetailOpen
+                                ? "border-black ring-2 ring-black/10"
+                                : "border-slate-200"
+                            }`}
                           >
-                            <div className="flex items-start justify-between gap-3">
-                              <div>
-                                <h4 className="text-base font-semibold text-slate-900">
-                                  {doc.profile?.name || "Unnamed candidate"}
-                                </h4>
-                                <p className="mt-1 text-xs text-slate-600">
-                                  {current?.job_title || "Role unavailable"}
-                                  {current?.company_name ? ` · ${current.company_name}` : ""}
-                                </p>
+                            <div className="flex items-start gap-3">
+                              <SessionCandidateGridAvatar
+                                name={candidateName}
+                                photoUrl={candidatePhotoUrl}
+                              />
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <h4 className="text-base font-semibold text-slate-900">
+                                      {candidateName}
+                                    </h4>
+                                    <p className="mt-1 text-xs text-slate-600">
+                                      {current?.job_title || "Role unavailable"}
+                                      {current?.company_name ? ` · ${current.company_name}` : ""}
+                                    </p>
+                                  </div>
+                                  {typeof doc.finalScore === "number" ? (
+                                    <span
+                                      className={`shrink-0 ${candidateScoreBadgeClass(doc.finalScore)}`}
+                                    >
+                                      Score {formatCandidateScore(doc.finalScore)}/5
+                                    </span>
+                                  ) : null}
+                                </div>
                               </div>
-                              {typeof doc.finalScore === "number" ? (
-                                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700">
-                                  Score {doc.finalScore}/5
-                                </span>
-                              ) : null}
                             </div>
 
                             <p className="mt-2 text-xs text-slate-600">
@@ -2867,24 +3330,42 @@ export default function UserDashboardPage() {
                             ) : null}
 
                             {doc.profileAnalysis?.recommendation ? (
-                              <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs leading-relaxed text-slate-700">
-                                {doc.profileAnalysis.recommendation}
-                              </p>
+                              <AiRecommendationBlock
+                                text={doc.profileAnalysis.recommendation}
+                                compact
+                              />
                             ) : null}
 
-                            <div className="mt-3 border-t border-slate-200 pt-3">
-                              <div className="flex flex-wrap gap-2">
+                            <div
+                              className="mt-3 border-t border-slate-200 pt-3"
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => e.stopPropagation()}
+                            >
+                              <div
+                                className={`grid gap-1.5 ${
+                                  sessionLinkedinUrl ? "grid-cols-4" : "grid-cols-3"
+                                }`}
+                              >
                                 <button
                                   type="button"
-                                  onClick={() => void toggleSaveCandidate(revealCandidate)}
+                                  title="Save candidate"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    void toggleSaveCandidate(revealCandidate);
+                                  }}
                                   disabled={isSaveBusy}
-                                  className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition ${
+                                  className={`inline-flex w-full min-w-0 items-center justify-center gap-1 rounded-md border px-1.5 py-1.5 text-[10px] font-medium leading-tight transition sm:text-[11px] ${
                                     isSavedSessionCandidate
                                       ? "border-black bg-black text-white hover:bg-slate-900"
                                       : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
                                   } disabled:opacity-60`}
                                 >
-                                  <svg viewBox="0 0 24 24" fill="none" className="h-3.5 w-3.5">
+                                  <svg
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    className="h-3.5 w-3.5 shrink-0"
+                                    aria-hidden
+                                  >
                                     <path
                                       d="M19 21L12 16L5 21V5C5 4.45 5.45 4 6 4H18C18.55 4 19 4.45 19 5V21Z"
                                       stroke="currentColor"
@@ -2893,18 +3374,29 @@ export default function UserDashboardPage() {
                                       strokeLinejoin="round"
                                     />
                                   </svg>
-                                  {isSaveBusy
-                                    ? "Saving..."
-                                    : isSavedSessionCandidate
-                                      ? "Saved"
-                                      : "Save Candidate"}
+                                  <span className="min-w-0 truncate">
+                                    {isSaveBusy
+                                      ? "Saving..."
+                                      : isSavedSessionCandidate
+                                        ? "Saved"
+                                        : "Save Candidate"}
+                                  </span>
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => revealEmail(revealCandidate)}
-                                  className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+                                  title="Reveal email"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    revealEmail(revealCandidate);
+                                  }}
+                                  className="inline-flex w-full min-w-0 items-center justify-center gap-1 rounded-md border border-slate-300 bg-white px-1.5 py-1.5 text-[10px] font-medium leading-tight text-slate-700 transition hover:bg-slate-100 sm:text-[11px]"
                                 >
-                                  <svg viewBox="0 0 24 24" fill="none" className="h-3.5 w-3.5">
+                                  <svg
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    className="h-3.5 w-3.5 shrink-0"
+                                    aria-hidden
+                                  >
                                     <path
                                       d="M4 6H20V18H4V6ZM4 7L12 13L20 7"
                                       stroke="currentColor"
@@ -2913,14 +3405,23 @@ export default function UserDashboardPage() {
                                       strokeLinejoin="round"
                                     />
                                   </svg>
-                                  Reveal Email
+                                  <span className="min-w-0 truncate">Reveal Email</span>
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => revealPhone(revealCandidate)}
-                                  className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+                                  title="Reveal mobile"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    revealPhone(revealCandidate);
+                                  }}
+                                  className="inline-flex w-full min-w-0 items-center justify-center gap-1 rounded-md border border-slate-300 bg-white px-1.5 py-1.5 text-[10px] font-medium leading-tight text-slate-700 transition hover:bg-slate-100 sm:text-[11px]"
                                 >
-                                  <svg viewBox="0 0 24 24" fill="none" className="h-3.5 w-3.5">
+                                  <svg
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    className="h-3.5 w-3.5 shrink-0"
+                                    aria-hidden
+                                  >
                                     <path
                                       d="M22 16.92V19.92C22 20.47 21.55 20.92 21 20.92C10.51 20.92 2 12.41 2 1.92C2 1.37 2.45 0.92 3 0.92H6C6.47 0.92 6.88 1.25 6.98 1.71L7.78 5.31C7.86 5.7 7.74 6.11 7.46 6.39L5.42 8.43C6.76 11.13 8.95 13.32 11.65 14.66L13.69 12.62C13.97 12.34 14.38 12.22 14.77 12.3L18.37 13.1C18.83 13.2 19.16 13.61 19.16 14.08V16.92"
                                       stroke="currentColor"
@@ -2929,8 +3430,28 @@ export default function UserDashboardPage() {
                                       strokeLinejoin="round"
                                     />
                                   </svg>
-                                  Reveal Mobile
+                                  <span className="min-w-0 truncate">Reveal Mobile</span>
                                 </button>
+                                {sessionLinkedinUrl ? (
+                                  <a
+                                    href={sessionLinkedinUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    title="Open LinkedIn profile"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="inline-flex w-full min-w-0 items-center justify-center gap-1 rounded-md border border-slate-300 bg-slate-50 px-1.5 py-1.5 text-[10px] font-medium leading-tight text-slate-700 transition hover:bg-slate-100 sm:text-[11px]"
+                                  >
+                                    <svg
+                                      viewBox="0 0 24 24"
+                                      className="h-3.5 w-3.5 shrink-0"
+                                      fill="currentColor"
+                                      aria-hidden
+                                    >
+                                      <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" />
+                                    </svg>
+                                    <span className="min-w-0 truncate">LinkedIn</span>
+                                  </a>
+                                ) : null}
                               </div>
                               {revealedEmail.includes(candidateRowKey(revealCandidate)) ? (
                                 <p className="mt-2 text-xs text-slate-600">
@@ -3561,18 +4082,22 @@ export default function UserDashboardPage() {
                           strokeLinejoin="round"
                         />
                       </svg>
-                      {hasSearched ? "Search result candidates" : "All candidates"}
+                      All searched candidates
                     </h3>
                     <p className="mt-1 text-sm text-slate-600">
-                      {hasSearched
-                        ? "Candidates loaded from your selected search/session."
-                        : "Browse every candidate in your workspace. Reveal contact details when needed."}
+                      Every candidate from all your sourcing searches, newest first.
                     </p>
                   </div>
                   <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-                    Total: {candidatesPageList.length}
+                    Total: {workspaceCandidatesTotalDocs}
                   </span>
                 </div>
+
+                {workspaceCandidatesError ? (
+                  <p className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    {workspaceCandidatesError}
+                  </p>
+                ) : null}
 
                 <div className="mt-6 flex-1 overflow-x-auto">
                   <table className="w-full min-w-[900px] border-collapse text-left">
@@ -3588,20 +4113,29 @@ export default function UserDashboardPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {candidatesPageList.length === 0 ? (
+                      {workspaceCandidatesLoading ? (
                         <tr>
                           <td
                             colSpan={7}
                             className="py-10 text-center text-sm text-slate-600"
                           >
-                            No candidates to show yet. Run a search or open a session from Search
-                            history.
+                            Loading candidates…
+                          </td>
+                        </tr>
+                      ) : workspaceCandidates.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={7}
+                            className="py-10 text-center text-sm text-slate-600"
+                          >
+                            No candidates yet. Run a search to discover profiles — they will
+                            appear here across all your sessions.
                           </td>
                         </tr>
                       ) : (
-                        candidatesPageList.map((candidate) => (
+                        workspaceCandidates.map((candidate) => (
                         <tr
-                          key={candidateRowKey(candidate)}
+                          key={candidateIdentityKey(candidate) || candidateRowKey(candidate)}
                           className="border-b border-slate-100 text-sm last:border-b-0"
                         >
                           <td className="py-4 pl-2">
@@ -3677,6 +4211,43 @@ export default function UserDashboardPage() {
                     </tbody>
                   </table>
                 </div>
+
+                {workspaceCandidatesTotalPages > 1 ? (
+                  <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-4">
+                    <p className="text-sm text-slate-600">
+                      Page {workspaceCandidatesPage} of {workspaceCandidatesTotalPages}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={
+                          workspaceCandidatesLoading || workspaceCandidatesPage <= 1
+                        }
+                        onClick={() =>
+                          setWorkspaceCandidatesPage((p) => Math.max(1, p - 1))
+                        }
+                        className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Previous
+                      </button>
+                      <button
+                        type="button"
+                        disabled={
+                          workspaceCandidatesLoading ||
+                          workspaceCandidatesPage >= workspaceCandidatesTotalPages
+                        }
+                        onClick={() =>
+                          setWorkspaceCandidatesPage((p) =>
+                            Math.min(workspaceCandidatesTotalPages, p + 1)
+                          )
+                        }
+                        className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
               </section>
             ) : activeTab === "Saved" ? (
               <section className="premium-card flex h-full min-w-0 max-w-full w-full flex-col rounded-2xl p-6">
@@ -3828,8 +4399,8 @@ export default function UserDashboardPage() {
                             </div>
                           </div>
                           {typeof candidate.finalScore === "number" ? (
-                            <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700">
-                              Score {candidate.finalScore}/5
+                            <span className={candidateScoreBadgeClass(candidate.finalScore)}>
+                              Score {formatCandidateScore(candidate.finalScore)}/5
                             </span>
                           ) : null}
                         </div>
@@ -3851,9 +4422,7 @@ export default function UserDashboardPage() {
                           <p className="mt-1 text-sm text-slate-600">{candidate.skills}</p>
                         )}
                         {candidate.recommendation ? (
-                          <p className="mt-3 rounded-lg bg-white px-3 py-2 text-xs leading-relaxed text-slate-700">
-                            {candidate.recommendation}
-                          </p>
+                          <AiRecommendationBlock text={candidate.recommendation} compact />
                         ) : null}
                         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                           <span className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-700">
@@ -3968,7 +4537,7 @@ export default function UserDashboardPage() {
                     {userPricingPlans && userPricingPlans.tiers.length > 0 ? (
                       <>
                     <p className="mt-4 max-w-2xl text-sm text-slate-600">{userPricingPlans.intro}</p>
-                    <div className="mt-8 grid gap-6 lg:grid-cols-3">
+                    <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                       {userPricingPlans.tiers.map((tier) => {
                         const quotaLines = [
                           pricingQuotaDisplayLabel(tier.searches, "searches"),
@@ -4054,8 +4623,9 @@ export default function UserDashboardPage() {
                         Utilisation
                       </h4>
                       <p className="mt-1 text-xs text-slate-500">
-                        Remaining allowance vs your plan quota (Starter limits, or the first plan if
-                        Starter is not listed). Each value is{" "}
+                        Remaining allowance vs your{" "}
+                        <span className="font-medium text-slate-700">{userPlanName}</span> plan
+                        quota. Each value is{" "}
                         <span className="font-medium text-slate-700">remaining / limit</span>.
                       </p>
                       <div className="mt-3 overflow-x-auto rounded-xl border border-slate-200">
@@ -4069,7 +4639,7 @@ export default function UserDashboardPage() {
                           <tbody className="text-slate-800">
                             {(() => {
                               const quotaTier =
-                                userPricingPlans?.tiers.find((t) => t.id === "starter") ??
+                                userPricingPlans?.tiers.find((t) => t.id === userPlanId) ??
                                 userPricingPlans?.tiers[0] ??
                                 null;
                               return (
@@ -4183,91 +4753,6 @@ export default function UserDashboardPage() {
                   </>
                 )}
               </section>
-            ) : activeTab === "Settings" ? (
-              <section className="premium-card flex h-full min-w-0 max-w-full w-full flex-col rounded-2xl p-6">
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div>
-                    <h3 className="flex items-center gap-2 text-lg font-semibold text-black">
-                      <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-                        <path
-                          d="M12 15.5C13.93 15.5 15.5 13.93 15.5 12C15.5 10.07 13.93 8.5 12 8.5C10.07 8.5 8.5 10.07 8.5 12C8.5 13.93 10.07 15.5 12 15.5ZM19.4 15A1.7 1.7 0 0 0 19.74 16.87L19.8 16.93A2 2 0 1 1 16.97 19.76L16.91 19.7A1.7 1.7 0 0 0 15.04 19.36 1.7 1.7 0 0 0 14 20.93V21A2 2 0 1 1 10 21V20.93A1.7 1.7 0 0 0 8.96 19.36 1.7 1.7 0 0 0 7.09 19.7L7.03 19.76A2 2 0 1 1 4.2 16.93L4.26 16.87A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3.03 13.96H3A2 2 0 1 1 3 9.96H3.03A1.7 1.7 0 0 0 4.6 8.92 1.7 1.7 0 0 0 4.26 7.05L4.2 6.99A2 2 0 1 1 7.03 4.16L7.09 4.22A1.7 1.7 0 0 0 8.96 4.56H9.03A1.7 1.7 0 0 0 10 3V2.93A2 2 0 1 1 14 2.93V3A1.7 1.7 0 0 0 15.04 4.56 1.7 1.7 0 0 0 16.91 4.22L16.97 4.16A2 2 0 1 1 19.8 6.99L19.74 7.05A1.7 1.7 0 0 0 19.4 8.92V8.96A1.7 1.7 0 0 0 20.97 10H21A2 2 0 1 1 21 14H20.97A1.7 1.7 0 0 0 19.4 15Z"
-                          stroke="currentColor"
-                          strokeWidth="1.2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                      Settings
-                    </h3>
-                    <p className="mt-1 text-sm text-slate-600">
-                      Credits and account activity. Open this tab to refresh your ledger from the server.
-                    </p>
-                  </div>
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-6 py-4 text-center">
-                    <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                      Current balance
-                    </p>
-                    <p className="mt-1 text-3xl font-semibold tabular-nums text-black">
-                      {creditBalance}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-500">credits</p>
-                  </div>
-                </div>
-
-                <div className="mt-8">
-                  <h4 className="text-sm font-semibold text-black">Credit history</h4>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Each change to your balance is recorded here (signup, admin updates, and future usage).
-                  </p>
-                  <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200">
-                    <table className="w-full min-w-[520px] border-collapse text-left text-sm">
-                      <thead>
-                        <tr className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-                          <th className="py-3 pl-4 font-semibold">Date</th>
-                          <th className="py-3 font-semibold">Change</th>
-                          <th className="py-3 font-semibold">Balance</th>
-                          <th className="py-3 pr-4 font-semibold">Type</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {creditHistoryLoading ? (
-                          <tr>
-                            <td colSpan={4} className="py-10 text-center text-slate-500">
-                              Loading history…
-                            </td>
-                          </tr>
-                        ) : myCreditLedger.length === 0 ? (
-                          <tr>
-                            <td colSpan={4} className="py-10 text-center text-sm text-slate-500">
-                              No credit activity yet.
-                            </td>
-                          </tr>
-                        ) : (
-                          myCreditLedger.map((row) => (
-                            <tr
-                              key={row.id}
-                              className="border-b border-slate-100 text-slate-800 last:border-b-0"
-                            >
-                              <td className="py-3 pl-4 whitespace-nowrap text-xs">
-                                {new Date(row.createdAt).toLocaleString()}
-                              </td>
-                              <td className="py-3 font-medium tabular-nums">
-                                {row.delta > 0 ? `+${row.delta}` : row.delta}
-                              </td>
-                              <td className="py-3 tabular-nums text-slate-600">
-                                {row.balanceBefore} → {row.balanceAfter}
-                              </td>
-                              <td className="py-3 pr-4 capitalize text-slate-600">
-                                {row.reason.replace(/_/g, " ")}
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </section>
             ) : (
               <section className="premium-card flex h-full min-w-0 max-w-full w-full flex-col rounded-2xl p-6">
                 <h3 className="text-lg font-semibold text-black">{activeTab}</h3>
@@ -4280,89 +4765,6 @@ export default function UserDashboardPage() {
           </div>
         </section>
       </div>
-
-      {showSearchSummaryModal && searchSummary ? (
-        <div
-          className="fixed inset-0 z-100 flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="search-summary-title"
-        >
-          <button
-            type="button"
-            className="absolute inset-0 bg-slate-900/50"
-            onClick={() => (viewResultsLoading ? undefined : closeSearchSummaryModal())}
-            aria-label="Close dialog"
-            disabled={viewResultsLoading}
-          />
-          <div className="relative w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-500">
-                  Search complete
-                </p>
-                <h2
-                  id="search-summary-title"
-                  className="mt-1 text-xl font-semibold text-black"
-                >
-                  {(searchSummary.totalDocs ?? searchSummary.candidateCount)}{" "}
-                  {(searchSummary.totalDocs ?? searchSummary.candidateCount) === 1
-                    ? "candidate"
-                    : "candidates"}{" "}
-                  found
-                </h2>
-                {searchSummary.totalDocs != null &&
-                searchSummary.totalDocs > searchSummary.candidateCount ? (
-                  <p className="mt-1 text-sm text-slate-600">
-                    Showing {searchSummary.candidateCount} of{" "}
-                    {searchSummary.totalDocs} in this sourcing session.
-                  </p>
-                ) : null}
-              </div>
-              <button
-                type="button"
-                onClick={() => (viewResultsLoading ? undefined : closeSearchSummaryModal())}
-                disabled={viewResultsLoading}
-                className="shrink-0 rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 disabled:opacity-40"
-                aria-label="Close"
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  className="h-5 w-5"
-                  aria-hidden
-                >
-                  <path
-                    d="M18 6L6 18M6 6L18 18"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </button>
-            </div>
-
-            {searchSummary.profilesFetchError ? (
-              <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-950">
-                Session was created, but profiles could not be loaded:{" "}
-                {searchSummary.profilesFetchError}
-              </p>
-            ) : null}
-
-            <div className="mt-6 flex justify-end">
-              <button
-                type="button"
-                onClick={() => void handleViewResults()}
-                disabled={viewResultsLoading}
-                className="rounded-lg bg-black px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
-              >
-                {viewResultsLoading ? "Loading profiles…" : "View results"}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
 
       <div
         className={`fixed inset-0 z-110 transition-opacity duration-300 ${
@@ -4732,6 +5134,32 @@ export default function UserDashboardPage() {
             </div>
           </aside>
         </div>
+
+      {selectedSessionDetailDoc && selectedSessionDetailCandidate ? (
+        <SessionCandidateDetailDrawer
+          open={isSessionCandidateDrawerOpen}
+          doc={selectedSessionDetailDoc}
+          candidate={selectedSessionDetailCandidate}
+          onClose={closeSessionCandidateDetail}
+          onRevealEmail={() => revealEmail(selectedSessionDetailCandidate)}
+          onRevealPhone={() => revealPhone(selectedSessionDetailCandidate)}
+          onToggleSave={() => void toggleSaveCandidate(selectedSessionDetailCandidate)}
+          isSaved={savedSessionCandidateKeys.includes(
+            candidateIdentityKey(selectedSessionDetailCandidate)
+          )}
+          isSaveBusy={saveCandidateBusyKeys.includes(
+            candidateIdentityKey(selectedSessionDetailCandidate)
+          )}
+          displayedEmail={getDisplayedEmail(selectedSessionDetailCandidate)}
+          displayedPhone={getDisplayedPhone(selectedSessionDetailCandidate)}
+          emailRevealed={revealedEmail.includes(
+            candidateRowKey(selectedSessionDetailCandidate)
+          )}
+          phoneRevealed={revealedPhone.includes(
+            candidateRowKey(selectedSessionDetailCandidate)
+          )}
+        />
+      ) : null}
 
       {peopleScoutProfile ? (
         <div

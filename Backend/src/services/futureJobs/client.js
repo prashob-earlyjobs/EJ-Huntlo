@@ -215,6 +215,104 @@ const getSourcingSessionProfiles = async (
   return data;
 };
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function profilesResponseDocCount(profilesRes) {
+  const docs = profilesRes?.data?.docs;
+  return Array.isArray(docs) ? docs.length : 0;
+}
+
+function profilesResponseTotalDocs(profilesRes) {
+  const n = profilesRes?.data?.totalDocs;
+  return typeof n === "number" && Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Poll GET …/profiles until docs exist or timeout. Future Jobs often returns empty
+ * docs immediately after session create while profileMatchingStatus is "processing".
+ *
+ * @param {string} sessionId
+ * @param {{ page?: number, limit?: number, maxWaitMs?: number, intervalMs?: number, expectedProfileCount?: number|null, profileMatchingStatus?: string|null }} [opts]
+ */
+async function getSourcingSessionProfilesWhenReady(
+  sessionId,
+  {
+    page = 1,
+    limit = 20,
+    maxWaitMs = 90000,
+    intervalMs = 3000,
+    expectedProfileCount = null,
+    profileMatchingStatus = null,
+  } = {},
+) {
+  const expected =
+    typeof expectedProfileCount === "number" && Number.isFinite(expectedProfileCount)
+      ? Math.max(0, Math.floor(expectedProfileCount))
+      : null;
+  const status =
+    typeof profileMatchingStatus === "string"
+      ? profileMatchingStatus.trim().toLowerCase()
+      : "";
+  const shouldPoll =
+    expected > 0 ||
+    status === "processing" ||
+    status === "pending" ||
+    status === "in_progress";
+
+  if (!shouldPoll) {
+    return getSourcingSessionProfiles(sessionId, { page, limit });
+  }
+
+  const started = Date.now();
+  let attempt = 0;
+  let lastRes = null;
+
+  while (Date.now() - started <= maxWaitMs) {
+    attempt += 1;
+    lastRes = await getSourcingSessionProfiles(sessionId, { page, limit });
+    const docCount = profilesResponseDocCount(lastRes);
+    const totalDocs = profilesResponseTotalDocs(lastRes);
+
+    if (docCount > 0 || totalDocs > 0) {
+      logOutbound("futurejobs", "profiles ready after poll", {
+        sessionId,
+        attempt,
+        waitedMs: Date.now() - started,
+        docCount,
+        totalDocs,
+      });
+      return lastRes;
+    }
+
+    if (Date.now() - started + intervalMs > maxWaitMs) {
+      break;
+    }
+
+    logOutbound("futurejobs", "profiles empty — waiting for matching", {
+      sessionId,
+      attempt,
+      waitedMs: Date.now() - started,
+      expectedProfileCount: expected,
+      profileMatchingStatus: status || undefined,
+      nextPollInMs: intervalMs,
+    });
+    await sleep(intervalMs);
+  }
+
+  logOutbound("futurejobs", "profiles poll timeout — returning last response", {
+    sessionId,
+    attempt,
+    waitedMs: Date.now() - started,
+    expectedProfileCount: expected,
+  });
+  return (
+    lastRes ||
+    (await getSourcingSessionProfiles(sessionId, { page, limit }))
+  );
+}
+
 /**
  * POST /wl/sourcing-session/:sessionId/fetch-more — ask Future Jobs to load more candidates into the session.
  * @param {string} sessionId
@@ -598,6 +696,7 @@ const scoutPeopleRevealContact = async (linkedinProfileUrl, revealType) => {
 module.exports = {
   createSourcingSession,
   getSourcingSessionProfiles,
+  getSourcingSessionProfilesWhenReady,
   fetchMoreSourcingSession,
   revealSourcingSessionContact,
   scoutPeopleLookup,

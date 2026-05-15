@@ -133,33 +133,158 @@ type TeamUserRow = {
   fullName: string;
   email: string;
   role: "user" | "admin";
-  credits: number;
+  planId: string;
 };
 
-type CreditLedgerRow = {
+type PricingPlanOption = {
   id: string;
-  balanceBefore: number;
-  balanceAfter: number;
-  delta: number;
-  reason: string;
+  name: string;
+};
+
+type UtilisationHistoryRow = {
+  id: string;
+  action: string;
+  amount: number;
+  createdAt: string;
+};
+
+type TeamUtilisationHistoryRow = UtilisationHistoryRow & {
+  user: { id: string; fullName: string; email: string } | null;
+};
+
+type PlanHistoryRow = {
+  id: string;
+  planIdBefore: string;
+  planIdAfter: string;
   performedBy: { fullName: string; email: string } | null;
   createdAt: string;
 };
 
-const creditReasonLabel = (reason: string) => {
-  switch (reason) {
-    case "signup":
-      return "Sign up";
-    case "admin_create":
-      return "Created by admin";
-    case "admin_delta":
-      return "Admin adjust";
-    case "admin_set":
-      return "Admin set balance";
-    default:
-      return reason;
-  }
+type UserPlanDetailsState = {
+  planId: string;
+  planName: string;
+  limits: {
+    searches: number | null;
+    candidateUnlocks: number | null;
+    verifiedEmails: number | null;
+    phoneNumbers: number | null;
+  };
+  utilisation: {
+    candidateSearches: number;
+    emailUnveils: number;
+    candidateUnveils: number;
+    mobileUnveils: number;
+    linkedinLookups: number;
+  };
 };
+
+function quotaRemainingDisplay(used: number, limit: number | null | undefined): string {
+  const u = Math.max(0, Math.floor(Number(used) || 0));
+  if (typeof limit === "number" && Number.isFinite(limit) && limit > 0) {
+    const L = Math.floor(limit);
+    return `${Math.max(0, L - u)}/${L}`;
+  }
+  return "—/—";
+}
+
+function utilisationQuotaActionLabel(action: string): string {
+  switch (action) {
+    case "candidateSearches":
+      return "Candidate search";
+    case "emailUnveils":
+      return "Email unveil";
+    case "candidateUnveils":
+      return "Candidate unveil";
+    case "mobileUnveils":
+      return "Mobile unveil";
+    case "linkedinLookups":
+      return "LinkedIn search";
+    default:
+      return action || "Activity";
+  }
+}
+
+function parseUtilisationHistory(raw: unknown): UtilisationHistoryRow[] {
+  if (!Array.isArray(raw)) return [];
+  const rows: UtilisationHistoryRow[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const o = item as Record<string, unknown>;
+    const id = typeof o.id === "string" ? o.id : "";
+    const action = typeof o.action === "string" ? o.action : "";
+    const amount =
+      typeof o.amount === "number" && Number.isFinite(o.amount)
+        ? Math.max(1, Math.floor(o.amount))
+        : 1;
+    let createdAt = "";
+    if (typeof o.createdAt === "string") createdAt = o.createdAt;
+    if (!id || !createdAt) continue;
+    rows.push({ id, action, amount, createdAt });
+  }
+  return rows;
+}
+
+function parseTeamUtilisationHistory(raw: unknown): TeamUtilisationHistoryRow[] {
+  if (!Array.isArray(raw)) return [];
+  const rows: TeamUtilisationHistoryRow[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const o = item as Record<string, unknown>;
+    const id = typeof o.id === "string" ? o.id : "";
+    const action = typeof o.action === "string" ? o.action : "";
+    const amount =
+      typeof o.amount === "number" && Number.isFinite(o.amount)
+        ? Math.max(1, Math.floor(o.amount))
+        : 1;
+    let createdAt = "";
+    if (typeof o.createdAt === "string") createdAt = o.createdAt;
+    if (!id || !createdAt) continue;
+
+    let user: TeamUtilisationHistoryRow["user"] = null;
+    if (o.user && typeof o.user === "object") {
+      const u = o.user as Record<string, unknown>;
+      const uid = typeof u.id === "string" ? u.id : "";
+      const fullName = typeof u.fullName === "string" ? u.fullName : "";
+      const email = typeof u.email === "string" ? u.email : "";
+      if (uid && fullName) {
+        user = { id: uid, fullName, email };
+      }
+    }
+
+    rows.push({ id, action, amount, createdAt, user });
+  }
+  return rows;
+}
+
+function parsePlanHistory(raw: unknown): PlanHistoryRow[] {
+  if (!Array.isArray(raw)) return [];
+  const rows: PlanHistoryRow[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const o = item as Record<string, unknown>;
+    const id = typeof o.id === "string" ? o.id : "";
+    let createdAt = "";
+    if (typeof o.createdAt === "string") createdAt = o.createdAt;
+    if (!id || !createdAt) continue;
+    const pb = o.performedBy;
+    let performedBy: PlanHistoryRow["performedBy"] = null;
+    if (pb && typeof pb === "object") {
+      const p = pb as Record<string, unknown>;
+      performedBy = {
+        fullName: typeof p.fullName === "string" ? p.fullName : "",
+        email: typeof p.email === "string" ? p.email : "",
+      };
+    }
+    rows.push({
+      id,
+      planIdBefore: typeof o.planIdBefore === "string" ? o.planIdBefore : "",
+      planIdAfter: typeof o.planIdAfter === "string" ? o.planIdAfter : "",
+      performedBy,
+      createdAt,
+    });
+  }
+  return rows;
+}
 
 type PricingTierForm = {
   id: string;
@@ -269,17 +394,27 @@ export default function AdminDashboardPage() {
     password: "",
     confirmPassword: "",
     role: "user" as "user" | "admin",
-    initialCredits: "",
+    planId: "starter",
   });
-  const [creditsModalUser, setCreditsModalUser] = useState<TeamUserRow | null>(
+  const [pricingPlanOptions, setPricingPlanOptions] = useState<PricingPlanOption[]>([]);
+  const [planDraftId, setPlanDraftId] = useState("starter");
+  const [planSaving, setPlanSaving] = useState(false);
+  const [manageModalUser, setManageModalUser] = useState<TeamUserRow | null>(null);
+  const [planManageError, setPlanManageError] = useState("");
+  const [utilisationHistory, setUtilisationHistory] = useState<UtilisationHistoryRow[]>([]);
+  const [utilisationHistoryLoading, setUtilisationHistoryLoading] = useState(false);
+  const [teamUtilisationHistory, setTeamUtilisationHistory] = useState<
+    TeamUtilisationHistoryRow[]
+  >([]);
+  const [teamUtilisationHistoryLoading, setTeamUtilisationHistoryLoading] =
+    useState(false);
+  const [teamUtilisationFilterUserId, setTeamUtilisationFilterUserId] = useState("");
+  const [planChangeHistory, setPlanChangeHistory] = useState<PlanHistoryRow[]>([]);
+  const [planChangeHistoryLoading, setPlanChangeHistoryLoading] = useState(false);
+  const [userPlanDetails, setUserPlanDetails] = useState<UserPlanDetailsState | null>(
     null
   );
-  const [creditDelta, setCreditDelta] = useState("");
-  const [creditSetTotal, setCreditSetTotal] = useState("");
-  const [creditsSaving, setCreditsSaving] = useState(false);
-  const [creditsAdjustError, setCreditsAdjustError] = useState("");
-  const [creditLedger, setCreditLedger] = useState<CreditLedgerRow[]>([]);
-  const [creditLedgerLoading, setCreditLedgerLoading] = useState(false);
+  const [userPlanDetailsLoading, setUserPlanDetailsLoading] = useState(false);
   const [pricingForm, setPricingForm] = useState<PricingPlansFormState | null>(null);
   const [pricingLoading, setPricingLoading] = useState(false);
   const [pricingSaving, setPricingSaving] = useState(false);
@@ -287,29 +422,6 @@ export default function AdminDashboardPage() {
   const [pricingSuccess, setPricingSuccess] = useState("");
 
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
-
-  const loadCreditLedger = useCallback(
-    async (userId: string, token: string) => {
-      setCreditLedgerLoading(true);
-      try {
-        const res = await fetch(
-          `${apiBase}/api/users/${userId}/credits/history?limit=50`,
-          { headers: authHeaders(token) }
-        );
-        const data = await res.json();
-        if (data.success && Array.isArray(data.history)) {
-          setCreditLedger(data.history);
-        } else {
-          setCreditLedger([]);
-        }
-      } catch {
-        setCreditLedger([]);
-      } finally {
-        setCreditLedgerLoading(false);
-      }
-    },
-    [apiBase]
-  );
 
   const loadUsers = useCallback(
     async (token: string) => {
@@ -327,13 +439,39 @@ export default function AdminDashboardPage() {
           (data.users as TeamUserRow[]).map((u) => ({
             ...u,
             role: u.role === "admin" ? "admin" : "user",
-            credits: typeof u.credits === "number" ? u.credits : 0,
+            planId: typeof u.planId === "string" && u.planId.trim() ? u.planId.trim() : "starter",
           }))
         );
       } catch (e) {
         setUsersError(e instanceof Error ? e.message : "Failed to load users");
       } finally {
         setUsersLoading(false);
+      }
+    },
+    [apiBase]
+  );
+
+  const loadTeamUtilisationHistory = useCallback(
+    async (token: string, userIdFilter = "") => {
+      setTeamUtilisationHistoryLoading(true);
+      try {
+        const params = new URLSearchParams({ limit: "100" });
+        if (userIdFilter.trim()) {
+          params.set("userId", userIdFilter.trim());
+        }
+        const res = await fetch(
+          `${apiBase}/api/users/admin/utilisation/history?${params.toString()}`,
+          { headers: authHeaders(token) }
+        );
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(data.message || "Failed to load team utilisation history");
+        }
+        setTeamUtilisationHistory(parseTeamUtilisationHistory(data.history));
+      } catch {
+        setTeamUtilisationHistory([]);
+      } finally {
+        setTeamUtilisationHistoryLoading(false);
       }
     },
     [apiBase]
@@ -353,13 +491,92 @@ export default function AdminDashboardPage() {
     loadUsers(session.token);
   }, [router, loadUsers]);
 
+  const loadUserManageData = useCallback(
+    async (userId: string, token: string) => {
+      setUtilisationHistoryLoading(true);
+      setPlanChangeHistoryLoading(true);
+      setUserPlanDetailsLoading(true);
+      try {
+        const headers = authHeaders(token);
+        const [utilRes, planHistRes, planDetailsRes] = await Promise.all([
+          fetch(`${apiBase}/api/users/${userId}/utilisation/history?limit=50`, { headers }),
+          fetch(`${apiBase}/api/users/${userId}/plan/history?limit=50`, { headers }),
+          fetch(`${apiBase}/api/users/${userId}/plan`, { headers }),
+        ]);
+        const [utilData, planHistData, planDetailsData] = await Promise.all([
+          utilRes.json(),
+          planHistRes.json(),
+          planDetailsRes.json(),
+        ]);
+
+        if (utilData.success && Array.isArray(utilData.history)) {
+          setUtilisationHistory(parseUtilisationHistory(utilData.history));
+        } else {
+          setUtilisationHistory([]);
+        }
+
+        if (planHistData.success && Array.isArray(planHistData.history)) {
+          setPlanChangeHistory(parsePlanHistory(planHistData.history));
+        } else {
+          setPlanChangeHistory([]);
+        }
+
+        if (planDetailsData.success && planDetailsData.plan && planDetailsData.utilisation) {
+          const p = planDetailsData.plan as Record<string, unknown>;
+          const lim = (p.limits && typeof p.limits === "object"
+            ? p.limits
+            : {}) as Record<string, unknown>;
+          const u = planDetailsData.utilisation as Record<string, unknown>;
+          const num = (k: string) =>
+            typeof u[k] === "number" && Number.isFinite(u[k])
+              ? Math.max(0, Math.floor(u[k] as number))
+              : 0;
+          const limNum = (k: string) =>
+            typeof lim[k] === "number" && Number.isFinite(lim[k])
+              ? Math.floor(lim[k] as number)
+              : null;
+          setUserPlanDetails({
+            planId: typeof p.planId === "string" ? p.planId : "starter",
+            planName: typeof p.planName === "string" ? p.planName : "Plan",
+            limits: {
+              searches: limNum("searches"),
+              candidateUnlocks: limNum("candidateUnlocks"),
+              verifiedEmails: limNum("verifiedEmails"),
+              phoneNumbers: limNum("phoneNumbers"),
+            },
+            utilisation: {
+              candidateSearches: num("candidateSearches"),
+              emailUnveils: num("emailUnveils"),
+              candidateUnveils: num("candidateUnveils"),
+              mobileUnveils: num("mobileUnveils"),
+              linkedinLookups: num("linkedinLookups"),
+            },
+          });
+        } else {
+          setUserPlanDetails(null);
+        }
+      } catch {
+        setUtilisationHistory([]);
+        setPlanChangeHistory([]);
+        setUserPlanDetails(null);
+      } finally {
+        setUtilisationHistoryLoading(false);
+        setPlanChangeHistoryLoading(false);
+        setUserPlanDetailsLoading(false);
+      }
+    },
+    [apiBase]
+  );
+
   useEffect(() => {
-    if (!creditsModalUser || !auth) {
-      setCreditLedger([]);
+    if (!manageModalUser || !auth) {
+      setUtilisationHistory([]);
+      setPlanChangeHistory([]);
+      setUserPlanDetails(null);
       return;
     }
-    void loadCreditLedger(creditsModalUser.id, auth.token);
-  }, [creditsModalUser, auth, loadCreditLedger]);
+    void loadUserManageData(manageModalUser.id, auth.token);
+  }, [manageModalUser, auth, loadUserManageData]);
 
   useEffect(() => {
     if (activeTab !== "Plans & pricing") return;
@@ -421,8 +638,8 @@ export default function AdminDashboardPage() {
         confirmPassword: createForm.confirmPassword,
         role: createForm.role,
       };
-      if (createForm.initialCredits.trim() !== "") {
-        payload.credits = Number(createForm.initialCredits);
+      if (createForm.planId.trim()) {
+        payload.planId = createForm.planId.trim();
       }
 
       const res = await fetch(`${apiBase}/api/users/admin/create`, {
@@ -442,7 +659,7 @@ export default function AdminDashboardPage() {
         password: "",
         confirmPassword: "",
         role: "user",
-        initialCredits: "",
+        planId: pricingPlanOptions[0]?.id || "starter",
       });
       setIsCreateUserModalOpen(false);
       await loadUsers(auth.token);
@@ -493,64 +710,70 @@ export default function AdminDashboardPage() {
     });
   };
 
-  const openCreditsModal = (user: TeamUserRow) => {
-    setCreditsModalUser(user);
-    setCreditDelta("");
-    setCreditSetTotal(String(user.credits));
-    setCreditsAdjustError("");
+  const planNameForId = (planId: string) =>
+    pricingPlanOptions.find((p) => p.id === planId)?.name || planId;
+
+  const loadPricingPlanOptions = useCallback(async () => {
+    try {
+      const res = await fetch(`${apiBase}/api/pricing-plans`);
+      const data = await res.json();
+      if (data.success && data.plans?.tiers && Array.isArray(data.plans.tiers)) {
+        setPricingPlanOptions(
+          data.plans.tiers
+            .map((t: { id?: unknown; name?: unknown }) => ({
+              id: typeof t.id === "string" ? t.id : "",
+              name: typeof t.name === "string" ? t.name : "Plan",
+            }))
+            .filter((t: PricingPlanOption) => t.id)
+        );
+      }
+    } catch {
+      setPricingPlanOptions([]);
+    }
+  }, [apiBase]);
+
+  useEffect(() => {
+    if (activeTab !== "Users") return;
+    void loadPricingPlanOptions();
+  }, [activeTab, loadPricingPlanOptions]);
+
+  useEffect(() => {
+    if (activeTab !== "Users" || !auth) return;
+    void loadTeamUtilisationHistory(auth.token, teamUtilisationFilterUserId);
+  }, [activeTab, auth, teamUtilisationFilterUserId, loadTeamUtilisationHistory]);
+
+  const openManageUserModal = (user: TeamUserRow) => {
+    setManageModalUser(user);
+    setPlanDraftId(user.planId || "starter");
+    setPlanManageError("");
   };
 
-  const applyCreditsPatch = async (
-    body: Record<string, string | number>
-  ) => {
-    if (!auth || !creditsModalUser) return;
-    const targetUserId = creditsModalUser.id;
-    setCreditsAdjustError("");
-    setCreditsSaving(true);
+  const handleSaveUserPlan = async () => {
+    if (!auth || !manageModalUser) return;
+    setPlanManageError("");
+    setPlanSaving(true);
     try {
-      const res = await fetch(`${apiBase}/api/users/${targetUserId}/credits`, {
+      const res = await fetch(`${apiBase}/api/users/${manageModalUser.id}/plan`, {
         method: "PATCH",
         headers: authHeaders(auth.token),
-        body: JSON.stringify(body),
+        body: JSON.stringify({ planId: planDraftId }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
-        throw new Error(data.message || "Could not update credits");
+        throw new Error(data.message || "Could not update plan");
       }
-      if (data.user && typeof data.user.credits === "number") {
-        setCreditsModalUser((prev) =>
-          prev ? { ...prev, credits: data.user.credits } : null
-        );
-        setCreditSetTotal(String(data.user.credits));
-      }
-      setCreditDelta("");
+      const nextPlanId =
+        typeof data.user?.planId === "string" ? data.user.planId : planDraftId;
+      setManageModalUser((prev) => (prev ? { ...prev, planId: nextPlanId } : null));
+      setPlanDraftId(nextPlanId);
       await loadUsers(auth.token);
-      await loadCreditLedger(targetUserId, auth.token);
+      await loadUserManageData(manageModalUser.id, auth.token);
+      await loadTeamUtilisationHistory(auth.token, teamUtilisationFilterUserId);
     } catch (err) {
-      setCreditsAdjustError(
-        err instanceof Error ? err.message : "Update failed"
-      );
+      setPlanManageError(err instanceof Error ? err.message : "Plan update failed");
     } finally {
-      setCreditsSaving(false);
+      setPlanSaving(false);
     }
-  };
-
-  const handleApplyDelta = async () => {
-    const n = Number(creditDelta);
-    if (!Number.isFinite(n)) {
-      setCreditsAdjustError("Enter a valid number for adjust amount");
-      return;
-    }
-    await applyCreditsPatch({ delta: n });
-  };
-
-  const handleSetCreditsTotal = async () => {
-    const n = Number(creditSetTotal);
-    if (!Number.isFinite(n) || n < 0) {
-      setCreditsAdjustError("Enter a valid non-negative balance");
-      return;
-    }
-    await applyCreditsPatch({ credits: n });
   };
 
   if (!auth) {
@@ -672,7 +895,7 @@ export default function AdminDashboardPage() {
                         <th className="py-3 font-semibold">Name</th>
                         <th className="py-3 font-semibold">Email</th>
                         <th className="py-3 font-semibold">Role</th>
-                        <th className="py-3 font-semibold">Credits</th>
+                        <th className="py-3 font-semibold">Plan</th>
                         <th className="py-3 font-semibold">Actions</th>
                       </tr>
                     </thead>
@@ -694,16 +917,16 @@ export default function AdminDashboardPage() {
                             </td>
                             <td className="py-4 text-slate-700">{user.email}</td>
                             <td className="py-4 text-slate-700">{roleLabel(user.role)}</td>
-                            <td className="py-4 font-medium tabular-nums text-slate-900">
-                              {user.credits}
+                            <td className="py-4 text-slate-700">
+                              {planNameForId(user.planId)}
                             </td>
                             <td className="py-4">
                               <button
                                 type="button"
-                                onClick={() => openCreditsModal(user)}
+                                onClick={() => openManageUserModal(user)}
                                 className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 transition hover:bg-slate-50"
                               >
-                                Manage credits
+                                Manage
                               </button>
                             </td>
                           </tr>
@@ -711,6 +934,88 @@ export default function AdminDashboardPage() {
                       )}
                     </tbody>
                   </table>
+                </div>
+
+                <div className="mt-8 border-t border-slate-200 pt-6">
+                  <div className="flex flex-wrap items-end justify-between gap-3">
+                    <div>
+                      <h4 className="text-sm font-semibold text-black">
+                        Plan quota usage history (all users)
+                      </h4>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Recent searches and unveils across the team. Each row is logged when a
+                        user consumes plan quota.
+                      </p>
+                    </div>
+                    <select
+                      value={teamUtilisationFilterUserId}
+                      onChange={(e) => setTeamUtilisationFilterUserId(e.target.value)}
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black focus:ring-2 focus:ring-slate-300"
+                    >
+                      <option value="">All users</option>
+                      {teamUsers.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.fullName}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="mt-3 max-h-72 overflow-auto rounded-lg border border-slate-200">
+                    <table className="w-full min-w-[560px] border-collapse text-left text-xs">
+                      <thead className="sticky top-0 bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
+                        <tr>
+                          <th className="px-2 py-2 font-semibold">When</th>
+                          <th className="px-2 py-2 font-semibold">User</th>
+                          <th className="px-2 py-2 font-semibold">Activity</th>
+                          <th className="px-2 py-2 text-right font-semibold">Units</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {teamUtilisationHistoryLoading ? (
+                          <tr>
+                            <td colSpan={4} className="px-2 py-6 text-center text-slate-500">
+                              Loading…
+                            </td>
+                          </tr>
+                        ) : teamUtilisationHistory.length === 0 ? (
+                          <tr>
+                            <td colSpan={4} className="px-2 py-6 text-center text-slate-500">
+                              No plan quota usage logged yet.
+                            </td>
+                          </tr>
+                        ) : (
+                          teamUtilisationHistory.map((row) => (
+                            <tr
+                              key={row.id}
+                              className="border-t border-slate-100 text-slate-800"
+                            >
+                              <td className="whitespace-nowrap px-2 py-2">
+                                {new Date(row.createdAt).toLocaleString()}
+                              </td>
+                              <td className="px-2 py-2">
+                                {row.user ? (
+                                  <span className="block">
+                                    <span className="font-medium">{row.user.fullName}</span>
+                                    <span className="block text-[10px] text-slate-500">
+                                      {row.user.email}
+                                    </span>
+                                  </span>
+                                ) : (
+                                  "—"
+                                )}
+                              </td>
+                              <td className="px-2 py-2">
+                                {utilisationQuotaActionLabel(row.action)}
+                              </td>
+                              <td className="px-2 py-2 text-right font-medium tabular-nums text-red-600">
+                                −{row.amount}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </article>
             ) : activeTab === "Candidates" ? (
@@ -1099,20 +1404,26 @@ export default function AdminDashboardPage() {
                     <option value="user">User</option>
                     <option value="admin">Admin</option>
                   </select>
-                  <input
-                    type="number"
-                    min={0}
-                    step={1}
-                    placeholder="Starting credits (optional, default 0)"
-                    value={createForm.initialCredits}
+                  <select
+                    className="rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-black focus:ring-2 focus:ring-slate-300 md:col-span-2"
+                    value={createForm.planId}
                     onChange={(e) =>
                       setCreateForm((f) => ({
                         ...f,
-                        initialCredits: e.target.value,
+                        planId: e.target.value,
                       }))
                     }
-                    className="rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-black focus:ring-2 focus:ring-slate-300 md:col-span-2"
-                  />
+                  >
+                    {pricingPlanOptions.length === 0 ? (
+                      <option value="starter">Starter</option>
+                    ) : (
+                      pricingPlanOptions.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))
+                    )}
+                  </select>
 
                   {createError ? (
                     <p className="md:col-span-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -1144,27 +1455,27 @@ export default function AdminDashboardPage() {
             </div>
           ) : null}
 
-          {creditsModalUser ? (
+          {manageModalUser ? (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
               <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <h3 className="text-xl font-semibold text-black">
-                      Manage credits
-                    </h3>
+                    <h3 className="text-xl font-semibold text-black">Manage user</h3>
                     <p className="mt-1 text-sm text-slate-600">
-                      {creditsModalUser.fullName} — current balance{" "}
+                      {manageModalUser.fullName} — plan{" "}
                       <span className="font-semibold text-black">
-                        {creditsModalUser.credits}
+                        {planNameForId(manageModalUser.planId)}
                       </span>
                     </p>
                   </div>
                   <button
                     type="button"
                     onClick={() => {
-                      setCreditsModalUser(null);
-                      setCreditsAdjustError("");
-                      setCreditLedger([]);
+                      setManageModalUser(null);
+                      setPlanManageError("");
+                      setUtilisationHistory([]);
+                      setPlanChangeHistory([]);
+                      setUserPlanDetails(null);
                     }}
                     className="rounded-md border border-slate-300 px-3 py-1 text-sm text-slate-700 hover:bg-slate-50"
                   >
@@ -1175,133 +1486,217 @@ export default function AdminDashboardPage() {
                 <div className="mt-5 space-y-4">
                   <div>
                     <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
-                      Add or subtract
+                      Pricing plan
                     </label>
                     <div className="flex flex-wrap gap-2">
-                      <input
-                        type="number"
-                        step={1}
-                        placeholder="e.g. 50 or -10"
-                        value={creditDelta}
-                        onChange={(e) => setCreditDelta(e.target.value)}
+                      <select
+                        value={planDraftId}
+                        onChange={(e) => setPlanDraftId(e.target.value)}
                         className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm outline-none focus:border-black focus:ring-2 focus:ring-slate-300"
-                      />
+                      >
+                        {pricingPlanOptions.length === 0 ? (
+                          <option value="starter">Starter</option>
+                        ) : (
+                          pricingPlanOptions.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name}
+                            </option>
+                          ))
+                        )}
+                      </select>
                       <button
                         type="button"
-                        disabled={creditsSaving}
-                        onClick={() => void handleApplyDelta()}
+                        disabled={planSaving}
+                        onClick={() => void handleSaveUserPlan()}
                         className="rounded-lg bg-black px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
                       >
-                        Apply
+                        {planSaving ? "Saving…" : "Save plan"}
                       </button>
                     </div>
                     <p className="mt-1 text-xs text-slate-500">
-                      Positive adds credits; negative removes (cannot go below 0).
+                      Controls search and unveil quotas for this user.
                     </p>
                   </div>
 
-                  <div className="border-t border-slate-200 pt-4">
-                    <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
-                      Set exact balance
-                    </label>
-                    <div className="flex flex-wrap gap-2">
-                      <input
-                        type="number"
-                        min={0}
-                        step={1}
-                        value={creditSetTotal}
-                        onChange={(e) => setCreditSetTotal(e.target.value)}
-                        className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm outline-none focus:border-black focus:ring-2 focus:ring-slate-300"
-                      />
-                      <button
-                        type="button"
-                        disabled={creditsSaving}
-                        onClick={() => void handleSetCreditsTotal()}
-                        className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 transition hover:bg-slate-50 disabled:opacity-60"
-                      >
-                        Set balance
-                      </button>
-                    </div>
-                  </div>
-
-                  {creditsAdjustError ? (
+                  {planManageError ? (
                     <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                      {creditsAdjustError}
+                      {planManageError}
                     </p>
                   ) : null}
                 </div>
 
-                <div className="mt-6 border-t border-slate-200 pt-5">
-                  <h4 className="text-sm font-semibold text-black">
-                    Credit history (from DB)
-                  </h4>
-                  <p className="mt-1 text-xs text-slate-500">
-                    New rows are stored each time balance changes (signup, admin
-                    create, admin adjustments).
-                  </p>
-                  <div className="mt-3 max-h-56 overflow-auto rounded-lg border border-slate-200">
-                    <table className="w-full min-w-[560px] border-collapse text-left text-xs">
-                      <thead className="sticky top-0 bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
-                        <tr>
-                          <th className="px-2 py-2 font-semibold">When</th>
-                          <th className="px-2 py-2 font-semibold">Δ</th>
-                          <th className="px-2 py-2 font-semibold">Before</th>
-                          <th className="px-2 py-2 font-semibold">After</th>
-                          <th className="px-2 py-2 font-semibold">Reason</th>
-                          <th className="px-2 py-2 font-semibold">By</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {creditLedgerLoading ? (
-                          <tr>
-                            <td
-                              colSpan={6}
-                              className="px-2 py-6 text-center text-slate-500"
-                            >
-                              Loading history…
-                            </td>
-                          </tr>
-                        ) : creditLedger.length === 0 ? (
-                          <tr>
-                            <td
-                              colSpan={6}
-                              className="px-2 py-6 text-center text-slate-500"
-                            >
-                              No history rows yet for this user.
-                            </td>
-                          </tr>
-                        ) : (
-                          creditLedger.map((row) => (
-                            <tr
-                              key={row.id}
-                              className="border-t border-slate-100 text-slate-800"
-                            >
-                              <td className="whitespace-nowrap px-2 py-2">
-                                {new Date(row.createdAt).toLocaleString()}
-                              </td>
-                              <td className="px-2 py-2 font-medium tabular-nums">
-                                {row.delta > 0 ? `+${row.delta}` : row.delta}
-                              </td>
-                              <td className="px-2 py-2 tabular-nums">
-                                {row.balanceBefore}
-                              </td>
-                              <td className="px-2 py-2 tabular-nums">
-                                {row.balanceAfter}
-                              </td>
-                              <td className="px-2 py-2">
-                                {creditReasonLabel(row.reason)}
-                              </td>
-                              <td className="max-w-[140px] truncate px-2 py-2 text-slate-600">
-                                {row.performedBy
-                                  ? row.performedBy.email
-                                  : "—"}
+                <div className="mt-6 space-y-6 border-t border-slate-200 pt-5">
+                  <div>
+                    <h4 className="text-sm font-semibold text-black">Plan quota (remaining / limit)</h4>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Based on the user&apos;s assigned plan. Search pool is shared between
+                      candidate search and LinkedIn lookup.
+                    </p>
+                    {userPlanDetailsLoading ? (
+                      <p className="mt-3 text-sm text-slate-500">Loading quota…</p>
+                    ) : userPlanDetails ? (
+                      <div className="mt-3 overflow-x-auto rounded-lg border border-slate-200">
+                        <table className="w-full min-w-[400px] border-collapse text-left text-xs">
+                          <thead>
+                            <tr className="border-b border-slate-200 bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
+                              <th className="px-3 py-2 font-semibold">Activity</th>
+                              <th className="px-3 py-2 text-right font-semibold">Remaining / limit</th>
+                            </tr>
+                          </thead>
+                          <tbody className="text-slate-800">
+                            <tr className="border-b border-slate-100">
+                              <td className="px-3 py-2">Candidate search</td>
+                              <td className="px-3 py-2 text-right tabular-nums">
+                                {quotaRemainingDisplay(
+                                  userPlanDetails.utilisation.candidateSearches,
+                                  userPlanDetails.limits.searches
+                                )}
                               </td>
                             </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
+                            <tr className="border-b border-slate-100">
+                              <td className="px-3 py-2">Email unveil</td>
+                              <td className="px-3 py-2 text-right tabular-nums">
+                                {quotaRemainingDisplay(
+                                  userPlanDetails.utilisation.emailUnveils,
+                                  userPlanDetails.limits.verifiedEmails
+                                )}
+                              </td>
+                            </tr>
+                            <tr className="border-b border-slate-100">
+                              <td className="px-3 py-2">Candidate unveil</td>
+                              <td className="px-3 py-2 text-right tabular-nums">
+                                {quotaRemainingDisplay(
+                                  userPlanDetails.utilisation.candidateUnveils,
+                                  userPlanDetails.limits.candidateUnlocks
+                                )}
+                              </td>
+                            </tr>
+                            <tr className="border-b border-slate-100">
+                              <td className="px-3 py-2">Mobile unveil</td>
+                              <td className="px-3 py-2 text-right tabular-nums">
+                                {quotaRemainingDisplay(
+                                  userPlanDetails.utilisation.mobileUnveils,
+                                  userPlanDetails.limits.phoneNumbers
+                                )}
+                              </td>
+                            </tr>
+                            <tr>
+                              <td className="px-3 py-2">LinkedIn search</td>
+                              <td className="px-3 py-2 text-right tabular-nums">
+                                {quotaRemainingDisplay(
+                                  userPlanDetails.utilisation.linkedinLookups,
+                                  userPlanDetails.limits.searches
+                                )}
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <p className="mt-3 text-sm text-slate-500">Quota unavailable.</p>
+                    )}
                   </div>
+
+                  <div>
+                    <h4 className="text-sm font-semibold text-black">Plan quota usage history</h4>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Each row is logged when the user searches or unveils contact data.
+                    </p>
+                    <div className="mt-3 max-h-48 overflow-auto rounded-lg border border-slate-200">
+                      <table className="w-full min-w-[400px] border-collapse text-left text-xs">
+                        <thead className="sticky top-0 bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
+                          <tr>
+                            <th className="px-2 py-2 font-semibold">When</th>
+                            <th className="px-2 py-2 font-semibold">Activity</th>
+                            <th className="px-2 py-2 text-right font-semibold">Units</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {utilisationHistoryLoading ? (
+                            <tr>
+                              <td colSpan={3} className="px-2 py-6 text-center text-slate-500">
+                                Loading…
+                              </td>
+                            </tr>
+                          ) : utilisationHistory.length === 0 ? (
+                            <tr>
+                              <td colSpan={3} className="px-2 py-6 text-center text-slate-500">
+                                No plan quota usage logged yet.
+                              </td>
+                            </tr>
+                          ) : (
+                            utilisationHistory.map((row) => (
+                              <tr key={row.id} className="border-t border-slate-100 text-slate-800">
+                                <td className="whitespace-nowrap px-2 py-2">
+                                  {new Date(row.createdAt).toLocaleString()}
+                                </td>
+                                <td className="px-2 py-2">
+                                  {utilisationQuotaActionLabel(row.action)}
+                                </td>
+                                <td className="px-2 py-2 text-right font-medium tabular-nums text-red-600">
+                                  −{row.amount}
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h4 className="text-sm font-semibold text-black">Plan assignment history</h4>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Recorded when an admin assigns or changes this user&apos;s pricing plan.
+                    </p>
+                    <div className="mt-3 max-h-40 overflow-auto rounded-lg border border-slate-200">
+                      <table className="w-full min-w-[480px] border-collapse text-left text-xs">
+                        <thead className="sticky top-0 bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
+                          <tr>
+                            <th className="px-2 py-2 font-semibold">When</th>
+                            <th className="px-2 py-2 font-semibold">From</th>
+                            <th className="px-2 py-2 font-semibold">To</th>
+                            <th className="px-2 py-2 font-semibold">By</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {planChangeHistoryLoading ? (
+                            <tr>
+                              <td colSpan={4} className="px-2 py-6 text-center text-slate-500">
+                                Loading…
+                              </td>
+                            </tr>
+                          ) : planChangeHistory.length === 0 ? (
+                            <tr>
+                              <td colSpan={4} className="px-2 py-6 text-center text-slate-500">
+                                No plan changes recorded yet.
+                              </td>
+                            </tr>
+                          ) : (
+                            planChangeHistory.map((row) => (
+                              <tr key={row.id} className="border-t border-slate-100 text-slate-800">
+                                <td className="whitespace-nowrap px-2 py-2">
+                                  {new Date(row.createdAt).toLocaleString()}
+                                </td>
+                                <td className="px-2 py-2">
+                                  {row.planIdBefore
+                                    ? planNameForId(row.planIdBefore)
+                                    : "—"}
+                                </td>
+                                <td className="px-2 py-2 font-medium">
+                                  {planNameForId(row.planIdAfter)}
+                                </td>
+                                <td className="max-w-[140px] truncate px-2 py-2 text-slate-600">
+                                  {row.performedBy?.email || "—"}
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
                 </div>
               </div>
             </div>

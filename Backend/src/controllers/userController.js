@@ -7,7 +7,15 @@ const UsageHistory = require("../models/UsageHistory");
 const UserSession = require("../models/UserSession");
 const { signToken, verifyToken } = require("../utils/jwt");
 const { recordCreditHistory } = require("../utils/recordCreditHistory");
-const { utilisationFromUser } = require("../utils/incrementUserUsage");
+const { recordPlanHistory } = require("../utils/recordPlanHistory");
+const PlanHistory = require("../models/PlanHistory");
+const { utilisationFromUser } = require("../utils/userUsage");
+const {
+  getDefaultPlanId,
+  getUserPlanSummary,
+  validatePlanIdExists,
+  getEnrichedTiers,
+} = require("../services/planQuotas");
 
 const normalizeCredits = (user) =>
   Math.max(0, Math.floor(Number(user?.credits ?? 0)));
@@ -21,6 +29,10 @@ const sanitizeUser = (user) => ({
   email: user.email,
   role: user.role === "admin" ? "admin" : "user",
   credits: normalizeCredits(user),
+  planId:
+    typeof user.planId === "string" && user.planId.trim()
+      ? user.planId.trim()
+      : "starter",
   passwordChangedAt: user.passwordChangedAt || null,
   createdAt: user.createdAt,
   updatedAt: user.updatedAt,
@@ -122,6 +134,8 @@ const registerUser = async (req, res) => {
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
+    const tiers = await getEnrichedTiers();
+    const defaultPlanId = getDefaultPlanId(tiers);
 
     const user = await User.create({
       fullName,
@@ -130,6 +144,7 @@ const registerUser = async (req, res) => {
       email: email.toLowerCase(),
       password: hashedPassword,
       role: "user",
+      planId: defaultPlanId,
     });
 
     await recordCreditHistory({
@@ -307,6 +322,7 @@ const createUserByAdmin = async (req, res) => {
       confirmPassword,
       role,
       credits: initialCredits,
+      planId: incomingPlanId,
     } = req.body;
 
     if (
@@ -352,6 +368,14 @@ const createUserByAdmin = async (req, res) => {
       });
     }
 
+    const planCheck = await validatePlanIdExists(incomingPlanId);
+    if (!planCheck.ok) {
+      return res.status(400).json({
+        success: false,
+        message: planCheck.message,
+      });
+    }
+
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const user = await User.create({
@@ -362,6 +386,7 @@ const createUserByAdmin = async (req, res) => {
       password: hashedPassword,
       role: targetRole,
       credits: startingCredits,
+      planId: planCheck.planId,
     });
 
     const adminId = req.auth?.userId;
@@ -370,6 +395,13 @@ const createUserByAdmin = async (req, res) => {
       balanceBefore: 0,
       balanceAfter: startingCredits,
       reason: "admin_create",
+      performedBy: adminId ? new mongoose.Types.ObjectId(adminId) : null,
+    });
+
+    await recordPlanHistory({
+      userId: user._id,
+      planIdBefore: "",
+      planIdAfter: planCheck.planId,
       performedBy: adminId ? new mongoose.Types.ObjectId(adminId) : null,
     });
 
@@ -382,6 +414,76 @@ const createUserByAdmin = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to create user",
+      error: error.message,
+    });
+  }
+};
+
+const updateUserPlan = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { planId } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user id",
+      });
+    }
+
+    if (planId === undefined || planId === null || String(planId).trim() === "") {
+      return res.status(400).json({
+        success: false,
+        message: "planId is required",
+      });
+    }
+
+    const planCheck = await validatePlanIdExists(planId);
+    if (!planCheck.ok) {
+      return res.status(400).json({
+        success: false,
+        message: planCheck.message,
+      });
+    }
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    const planIdBefore =
+      typeof user.planId === "string" && user.planId.trim() ? user.planId.trim() : "";
+    const planIdAfter = planCheck.planId;
+
+    if (planIdBefore !== planIdAfter) {
+      user.planId = planIdAfter;
+      await user.save();
+
+      const actorId = req.auth?.userId;
+      await recordPlanHistory({
+        userId: user._id,
+        planIdBefore,
+        planIdAfter,
+        performedBy: actorId ? new mongoose.Types.ObjectId(actorId) : null,
+      });
+    }
+
+    const plan = await getUserPlanSummary(user);
+
+    return res.status(200).json({
+      success: true,
+      message:
+        planIdBefore === planIdAfter ? "Plan unchanged" : "User plan updated",
+      user: sanitizeUser(user),
+      plan,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update user plan",
       error: error.message,
     });
   }
@@ -425,6 +527,64 @@ const sanitizeUsageHistoryEntry = (doc) => ({
   amount: Math.max(1, Math.floor(Number(doc.amount) || 1)),
   createdAt: doc.createdAt,
 });
+
+const sanitizeUsageHistoryEntryWithUser = (doc) => {
+  const base = sanitizeUsageHistoryEntry(doc);
+  const user = doc.userId;
+  const populated =
+    user &&
+    typeof user === "object" &&
+    user._id &&
+    user.fullName !== undefined;
+
+  return {
+    ...base,
+    user: populated
+      ? {
+          id: user._id.toString(),
+          fullName: user.fullName,
+          email: user.email,
+        }
+      : null,
+  };
+};
+
+const getAllUtilisationHistory = async (req, res) => {
+  try {
+    const limit = Math.min(
+      200,
+      Math.max(1, parseInt(String(req.query.limit || "100"), 10) || 100)
+    );
+    const filter = {};
+    const userIdFilter = String(req.query.userId || "").trim();
+    if (userIdFilter) {
+      if (!mongoose.Types.ObjectId.isValid(userIdFilter)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid user id filter",
+        });
+      }
+      filter.userId = userIdFilter;
+    }
+
+    const entries = await UsageHistory.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .populate("userId", "fullName email")
+      .lean();
+
+    return res.status(200).json({
+      success: true,
+      history: entries.map(sanitizeUsageHistoryEntryWithUser),
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch team utilisation history",
+      error: error.message,
+    });
+  }
+};
 
 const getMyUtilisationHistory = async (req, res) => {
   try {
@@ -491,6 +651,131 @@ const getUserCreditHistory = async (req, res) => {
   }
 };
 
+const sanitizePlanHistoryEntry = (entry) => {
+  const pb = entry.performedBy;
+  const populated =
+    pb &&
+    typeof pb === "object" &&
+    pb.fullName !== undefined &&
+    pb.email !== undefined;
+
+  return {
+    id: entry._id.toString(),
+    planIdBefore: entry.planIdBefore || "",
+    planIdAfter: entry.planIdAfter || "",
+    performedBy: populated
+      ? {
+          id: pb._id.toString(),
+          fullName: pb.fullName,
+          email: pb.email,
+        }
+      : null,
+    createdAt: entry.createdAt,
+  };
+};
+
+const getUserUtilisationHistory = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const limit = Math.min(
+      100,
+      Math.max(1, parseInt(String(req.query.limit || "50"), 10) || 50)
+    );
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user id",
+      });
+    }
+
+    const entries = await UsageHistory.find({ userId: id })
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+
+    return res.status(200).json({
+      success: true,
+      history: entries.map(sanitizeUsageHistoryEntry),
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch utilisation history",
+      error: error.message,
+    });
+  }
+};
+
+const getUserPlanHistory = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const limit = Math.min(
+      100,
+      Math.max(1, parseInt(String(req.query.limit || "50"), 10) || 50)
+    );
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user id",
+      });
+    }
+
+    const entries = await PlanHistory.find({ userId: id })
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .populate("performedBy", "fullName email");
+
+    return res.status(200).json({
+      success: true,
+      history: entries.map(sanitizePlanHistoryEntry),
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch plan history",
+      error: error.message,
+    });
+  }
+};
+
+const getUserPlanDetails = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user id",
+      });
+    }
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    const plan = await getUserPlanSummary(user);
+    const utilisation = utilisationFromUser(user);
+
+    return res.status(200).json({
+      success: true,
+      user: sanitizeUser(user),
+      plan,
+      utilisation,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch user plan details",
+      error: error.message,
+    });
+  }
+};
+
 const logoutUser = async (req, res) => {
   try {
     const uid = req.auth?.userId;
@@ -532,10 +817,13 @@ const getMyProfile = async (req, res) => {
       });
     }
 
+    const plan = await getUserPlanSummary(user);
+
     return res.status(200).json({
       success: true,
       user: sanitizeUser(user),
       utilisation: utilisationFromUser(user),
+      plan,
       security: {
         passwordChangedAt: user.passwordChangedAt || user.updatedAt || null,
         activeSessions: await getActiveSessionCount(user._id),
@@ -714,9 +1002,14 @@ module.exports = {
   listUsers,
   createUserByAdmin,
   updateUserCredits,
+  updateUserPlan,
   getMyCreditHistory,
   getMyUtilisationHistory,
+  getAllUtilisationHistory,
   getUserCreditHistory,
+  getUserUtilisationHistory,
+  getUserPlanHistory,
+  getUserPlanDetails,
   logoutUser,
   getMyProfile,
   updateMyProfile,

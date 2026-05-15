@@ -430,8 +430,17 @@ const updatePricingPlans = async (req, res) => {
   }
 };
 
+async function getEnrichedTiers() {
+  await migrateFromLegacyIfNeeded();
+  await ensurePricingDataSeeded();
+  await ensureMetaIfPlansExist();
+  const payload = await loadPlansFromDatabase();
+  return payload.plans.tiers;
+}
+
 module.exports = {
   getPricingPlans,
   updatePricingPlans,
   DEFAULT_PRICING_PLANS,
+  getEnrichedTiers,
 };

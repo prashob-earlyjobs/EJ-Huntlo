@@ -1,6 +1,7 @@
 const {
   createSourcingSession,
   getSourcingSessionProfiles,
+  getSourcingSessionProfilesWhenReady,
   fetchMoreSourcingSession,
   revealSourcingSessionContact,
   scoutPeopleLookup,
@@ -13,6 +14,7 @@ const { mapFjDocToCandidate } = require("./mapProfile");
 module.exports = {
   createSourcingSession,
   getSourcingSessionProfiles,
+  getSourcingSessionProfilesWhenReady,
   fetchMoreSourcingSession,
   revealSourcingSessionContact,
   scoutPeopleLookup,

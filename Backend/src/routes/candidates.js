@@ -4,6 +4,7 @@ const {
   searchCandidates,
   loadSessionProfiles,
   loadStoredSessionCandidates,
+  listAllSourcedCandidates,
   listSourcingSessions,
   listRecentSearches,
   revealCandidateContact,
@@ -23,6 +24,7 @@ const {
 const router = express.Router();
 
 router.post("/search", authenticate, searchCandidates);
+router.get("/all", authenticate, listAllSourcedCandidates);
 router.get("/sessions", authenticate, listSourcingSessions);
 router.get("/recent-searches", authenticate, listRecentSearches);
 router.get("/save-lists", authenticate, listSaveLists);

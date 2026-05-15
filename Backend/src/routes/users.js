@@ -6,9 +6,14 @@ const {
   logoutUser,
   createUserByAdmin,
   updateUserCredits,
+  updateUserPlan,
   getMyCreditHistory,
   getMyUtilisationHistory,
+  getAllUtilisationHistory,
   getUserCreditHistory,
+  getUserUtilisationHistory,
+  getUserPlanHistory,
+  getUserPlanDetails,
   getMyProfile,
   updateMyProfile,
   changeMyPassword,
@@ -26,6 +31,12 @@ router.patch("/me/password", authenticate, changeMyPassword);
 
 router.get("/me/credits/history", authenticate, getMyCreditHistory);
 router.get("/me/utilisation/history", authenticate, getMyUtilisationHistory);
+router.get(
+  "/admin/utilisation/history",
+  authenticate,
+  requireAdmin,
+  getAllUtilisationHistory
+);
 
 router.patch(
   "/:id/credits",
@@ -33,11 +44,35 @@ router.patch(
   requireAdmin,
   updateUserCredits
 );
+router.patch(
+  "/:id/plan",
+  authenticate,
+  requireAdmin,
+  updateUserPlan
+);
 router.get(
   "/:id/credits/history",
   authenticate,
   requireAdmin,
   getUserCreditHistory
+);
+router.get(
+  "/:id/utilisation/history",
+  authenticate,
+  requireAdmin,
+  getUserUtilisationHistory
+);
+router.get(
+  "/:id/plan/history",
+  authenticate,
+  requireAdmin,
+  getUserPlanHistory
+);
+router.get(
+  "/:id/plan",
+  authenticate,
+  requireAdmin,
+  getUserPlanDetails
 );
 router.post("/admin/create", authenticate, requireAdmin, createUserByAdmin);
 router.get("/", authenticate, requireAdmin, listUsers);

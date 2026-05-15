@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 const {
   createSourcingSession,
   getSourcingSessionProfiles,
+  getSourcingSessionProfilesWhenReady,
   fetchMoreSourcingSession,
   revealSourcingSessionContact,
   buildSourcingSessionPayloadFromPrompt,
@@ -18,17 +19,17 @@ const {
   extractRevealValues,
 } = require("../utils/contactReveal");
 const { incrementUserUsage } = require("../utils/incrementUserUsage");
+const { assertQuotaAvailableByUserId } = require("../services/planQuotas");
+const { respondIfQuotaExceeded } = require("../utils/quotaHttp");
 
-function bumpSourcingRevealUsage(userId, revealType) {
+async function bumpSourcingRevealUsage(userId, revealType) {
   if (!userId || !mongoose.Types.ObjectId.isValid(String(userId))) return;
   const uid = String(userId);
-  const p =
-    revealType === "EMAIL"
-      ? incrementUserUsage(uid, "emailUnveils")
-      : revealType === "PHONE"
-        ? incrementUserUsage(uid, "mobileUnveils")
-        : Promise.resolve();
-  void p.catch(() => {});
+  if (revealType === "EMAIL") {
+    await incrementUserUsage(uid, "emailUnveils");
+  } else if (revealType === "PHONE") {
+    await incrementUserUsage(uid, "mobileUnveils");
+  }
 }
 
 function clampInt(n, min, max, fallback) {
@@ -179,6 +180,15 @@ const searchCandidates = async (req, res) => {
     const page = clampInt(req.body?.page, 1, 100, 1);
     const limit = clampInt(req.body?.limit, 1, 100, 20);
 
+    if (userId && mongoose.Types.ObjectId.isValid(String(userId))) {
+      try {
+        await assertQuotaAvailableByUserId(userId, "candidateSearches");
+      } catch (quotaErr) {
+        if (respondIfQuotaExceeded(res, quotaErr)) return;
+        throw quotaErr;
+      }
+    }
+
     const futureJobs = await createSourcingSession(payload);
 
     const sessionId = futureJobs?.data?.session?._id;
@@ -209,9 +219,26 @@ const searchCandidates = async (req, res) => {
           limit,
         });
 
-        const profilesRes = await getSourcingSessionProfiles(
+        const sourcingMeta = futureJobs?.data?.sourcing;
+        const profilesRes = await getSourcingSessionProfilesWhenReady(
           String(sessionId),
-          { page, limit }
+          {
+            page,
+            limit,
+            expectedProfileCount:
+              typeof sourcingMeta?.total_display_count === "number"
+                ? sourcingMeta.total_display_count
+                : typeof sourcingMeta?.newProfilesCount === "number"
+                  ? sourcingMeta.newProfilesCount
+                  : null,
+            profileMatchingStatus:
+              typeof sourcingMeta?.profileMatchingStatus === "string"
+                ? sourcingMeta.profileMatchingStatus
+                : typeof futureJobs?.data?.session?.profileMatchingStatus ===
+                    "string"
+                  ? futureJobs.data.session.profileMatchingStatus
+                  : null,
+          }
         );
         futureJobsProfiles = profilesRes;
         await persistCandidateDetails({
@@ -284,9 +311,13 @@ const searchCandidates = async (req, res) => {
             typeof futureJobs?.status === "string" ? futureJobs.status : "",
           totalDocs:
             profilesPagination != null &&
-            typeof profilesPagination.totalDocs === "number"
+            typeof profilesPagination.totalDocs === "number" &&
+            profilesPagination.totalDocs > 0
               ? profilesPagination.totalDocs
-              : null,
+              : typeof futureJobs?.data?.sourcing?.total_display_count ===
+                  "number"
+                ? futureJobs.data.sourcing.total_display_count
+                : null,
           candidateCountFirstPage: candidates.length,
           candidatePreview: candidates.slice(0, 20).map((c) => ({
             id: c.id || "",
@@ -309,7 +340,7 @@ const searchCandidates = async (req, res) => {
     }
 
     if (userId && mongoose.Types.ObjectId.isValid(String(userId))) {
-      void incrementUserUsage(String(userId), "candidateSearches").catch(() => {});
+      await incrementUserUsage(String(userId), "candidateSearches");
     }
 
     return res.status(200).json({
@@ -325,6 +356,7 @@ const searchCandidates = async (req, res) => {
       futureJobs,
     });
   } catch (error) {
+    if (respondIfQuotaExceeded(res, error)) return;
     const status = error.statusCode || 500;
     logApi("candidates/search", "error", {
       userId,
@@ -370,7 +402,7 @@ const loadSessionProfiles = async (req, res) => {
       userId: new mongoose.Types.ObjectId(userId),
       futureJobsSessionId: sessionId,
     })
-      .select("_id")
+      .select("_id totalDocs")
       .lean();
 
     if (!owned) {
@@ -418,10 +450,32 @@ const loadSessionProfiles = async (req, res) => {
       }
     }
 
-    const profilesRes = await getSourcingSessionProfiles(sessionId, {
-      page,
-      limit,
-    });
+    let profilesRes = await getSourcingSessionProfiles(sessionId, { page, limit });
+    const initialDocCount = Array.isArray(profilesRes?.data?.docs)
+      ? profilesRes.data.docs.length
+      : 0;
+    const initialTotalDocs =
+      typeof profilesRes?.data?.totalDocs === "number"
+        ? profilesRes.data.totalDocs
+        : 0;
+
+    if (
+      page === 1 &&
+      !fetchMore &&
+      initialDocCount === 0 &&
+      initialTotalDocs === 0
+    ) {
+      const expectedFromSession =
+        typeof owned?.totalDocs === "number" && owned.totalDocs > 0
+          ? owned.totalDocs
+          : 1;
+      profilesRes = await getSourcingSessionProfilesWhenReady(sessionId, {
+        page,
+        limit,
+        expectedProfileCount: expectedFromSession,
+        profileMatchingStatus: "processing",
+      });
+    }
     await persistCandidateDetails({
       userId,
       sourcingSessionId: sessionId,
@@ -584,6 +638,110 @@ const loadStoredSessionCandidates = async (req, res) => {
       success: false,
       message: error.message || "Failed to load stored session candidates",
       details: error.details,
+    });
+  }
+};
+
+/**
+ * GET /api/candidates/all
+ * All persisted sourced candidates for the authenticated user (all searches), paginated.
+ * Query: page (default 1), limit (1–100, default 20), sessionId (optional filter)
+ */
+const listAllSourcedCandidates = async (req, res) => {
+  const userId = req.auth?.userId;
+  try {
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    const page = clampInt(req.query.page, 1, 100000, 1);
+    const limit = clampInt(req.query.limit, 1, 100, 20);
+    const skip = (page - 1) * limit;
+
+    const filter = {
+      userId: new mongoose.Types.ObjectId(userId),
+    };
+
+    const sessionFilter =
+      req.query.sessionId != null && String(req.query.sessionId).trim() !== ""
+        ? String(req.query.sessionId).trim()
+        : "";
+    if (sessionFilter) {
+      filter.sourcingSessionId = sessionFilter;
+    }
+
+    const [totalDocs, rows] = await Promise.all([
+      SourcedCandidateDetail.countDocuments(filter),
+      SourcedCandidateDetail.find(filter)
+        .sort({ updatedAt: -1, _id: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+    ]);
+
+    const detailedDocs = rows
+      .map((r) => r?.rawDoc)
+      .filter((d) => d && typeof d === "object");
+    const candidates = rows
+      .map((row) => {
+        const mapped = mapFjDocToCandidate(row?.rawDoc);
+        if (!mapped) return null;
+        if (!mapped.sourcingSessionId && row.sourcingSessionId) {
+          mapped.sourcingSessionId = String(row.sourcingSessionId);
+        }
+        if (
+          mapped.finalScore == null &&
+          typeof row.finalScore === "number" &&
+          !Number.isNaN(row.finalScore)
+        ) {
+          mapped.finalScore = row.finalScore;
+        }
+        return mapped;
+      })
+      .filter(Boolean);
+
+    const totalPages = Math.max(1, Math.ceil(totalDocs / limit));
+    const profilesPagination = {
+      totalDocs,
+      page,
+      limit,
+      totalPages,
+      hasNextPage: page < totalPages,
+      hasPrevPage: page > 1,
+      nextPage: page < totalPages ? page + 1 : null,
+      prevPage: page > 1 ? page - 1 : null,
+    };
+
+    logApi("candidates/all", "success", {
+      userId,
+      page,
+      limit,
+      totalDocs,
+      returned: candidates.length,
+      sessionFilter: sessionFilter || undefined,
+    });
+
+    return res.status(200).json({
+      success: true,
+      page,
+      limit,
+      candidates,
+      detailedDocs,
+      profilesPagination,
+    });
+  } catch (error) {
+    const status = error.statusCode || 500;
+    logApi("candidates/all", "error", {
+      userId,
+      status,
+      message: error.message,
+    });
+    return res.status(status).json({
+      success: false,
+      message: error.message || "Failed to load candidates",
     });
   }
 };
@@ -765,6 +923,16 @@ const revealCandidateContact = async (req, res) => {
       revealType,
     });
 
+    try {
+      await assertQuotaAvailableByUserId(
+        userId,
+        revealType === "EMAIL" ? "emailUnveils" : "mobileUnveils"
+      );
+    } catch (quotaErr) {
+      if (respondIfQuotaExceeded(res, quotaErr)) return;
+      throw quotaErr;
+    }
+
     // 1) Check in our DB first.
     const cached = await RevealedContact.findOne({
       userId: new mongoose.Types.ObjectId(userId),
@@ -787,7 +955,7 @@ const revealCandidateContact = async (req, res) => {
         revealType,
         count: cachedValidValues.length,
       });
-      bumpSourcingRevealUsage(userId, revealType);
+      await bumpSourcingRevealUsage(userId, revealType);
       return res.status(200).json({
         success: true,
         source: "cache",
@@ -829,7 +997,7 @@ const revealCandidateContact = async (req, res) => {
       count: values.length,
     });
 
-    bumpSourcingRevealUsage(userId, revealType);
+    await bumpSourcingRevealUsage(userId, revealType);
     return res.status(200).json({
       success: true,
       source: "futurejobs",
@@ -839,6 +1007,7 @@ const revealCandidateContact = async (req, res) => {
       futureJobs: fj,
     });
   } catch (error) {
+    if (respondIfQuotaExceeded(res, error)) return;
     const status = error.statusCode || 500;
     logApi("candidates/reveal-contact", "error", {
       userId,
@@ -1080,6 +1249,13 @@ const saveCandidate = async (req, res) => {
       });
     }
 
+    try {
+      await assertQuotaAvailableByUserId(userId, "candidateUnveils");
+    } catch (quotaErr) {
+      if (respondIfQuotaExceeded(res, quotaErr)) return;
+      throw quotaErr;
+    }
+
     const baseFilter = {
       userId: new mongoose.Types.ObjectId(userId),
       sourcingSessionId,
@@ -1113,7 +1289,7 @@ const saveCandidate = async (req, res) => {
     );
 
     if (userId && mongoose.Types.ObjectId.isValid(String(userId))) {
-      void incrementUserUsage(String(userId), "candidateUnveils").catch(() => {});
+      await incrementUserUsage(String(userId), "candidateUnveils");
     }
 
     return res.status(200).json({
@@ -1137,6 +1313,7 @@ const saveCandidate = async (req, res) => {
       },
     });
   } catch (error) {
+    if (respondIfQuotaExceeded(res, error)) return;
     return res.status(500).json({
       success: false,
       message: error.message || "Failed to save candidate",
@@ -1195,6 +1372,7 @@ module.exports = {
   searchCandidates,
   loadSessionProfiles,
   loadStoredSessionCandidates,
+  listAllSourcedCandidates,
   listSourcingSessions,
   listRecentSearches,
   revealCandidateContact,

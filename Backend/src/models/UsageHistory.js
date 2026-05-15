@@ -33,5 +33,6 @@ const usageHistorySchema = new mongoose.Schema(
 );
 
 usageHistorySchema.index({ userId: 1, createdAt: -1 });
+usageHistorySchema.index({ createdAt: -1 });
 
 module.exports = mongoose.model("UsageHistory", usageHistorySchema);
