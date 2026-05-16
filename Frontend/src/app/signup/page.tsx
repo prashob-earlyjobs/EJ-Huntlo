@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 
 import { getStoredAuth } from "@/lib/auth";
+import { postAuthPath } from "@/lib/onboarding";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -23,7 +24,7 @@ export default function SignupPage() {
   useEffect(() => {
     const auth = getStoredAuth();
     if (auth) {
-      router.replace(auth.role === "admin" ? "/admin/dashboard" : "/dashboard");
+      router.replace(postAuthPath(auth));
     }
   }, [router]);
 
@@ -65,7 +66,12 @@ export default function SignupPage() {
         );
         setSuccessMessage("Account created. Redirecting...");
         setTimeout(() => {
-          router.push("/dashboard");
+          router.push(
+            postAuthPath({
+              role: data.user.role === "admin" ? "admin" : "user",
+              onboardingCompleted: Boolean(data.user.onboardingCompleted),
+            })
+          );
         }, 600);
       } else {
         setSuccessMessage("Account created successfully. Redirecting to login...");

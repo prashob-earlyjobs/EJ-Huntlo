@@ -16,6 +16,7 @@ const {
   getUserPlanDetails,
   getMyProfile,
   updateMyProfile,
+  completeMyOnboarding,
   changeMyPassword,
 } = require("../controllers/userController");
 const { authenticate, requireAdmin } = require("../middleware/auth");
@@ -27,6 +28,7 @@ router.post("/login", loginUser);
 router.post("/logout", authenticate, logoutUser);
 router.get("/me", authenticate, getMyProfile);
 router.patch("/me", authenticate, updateMyProfile);
+router.patch("/me/onboarding", authenticate, completeMyOnboarding);
 router.patch("/me/password", authenticate, changeMyPassword);
 
 router.get("/me/credits/history", authenticate, getMyCreditHistory);

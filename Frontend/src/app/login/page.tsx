@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 
 import { getStoredAuth } from "@/lib/auth";
+import { postAuthPath } from "@/lib/onboarding";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -16,7 +17,7 @@ export default function LoginPage() {
   useEffect(() => {
     const auth = getStoredAuth();
     if (auth) {
-      router.replace(auth.role === "admin" ? "/admin/dashboard" : "/dashboard");
+      router.replace(postAuthPath(auth));
     }
   }, [router]);
 
@@ -50,7 +51,10 @@ export default function LoginPage() {
         JSON.stringify({ ...data.user, token: data.token })
       );
       router.push(
-        data.user.role === "admin" ? "/admin/dashboard" : "/dashboard"
+        postAuthPath({
+          role: data.user.role === "admin" ? "admin" : "user",
+          onboardingCompleted: Boolean(data.user.onboardingCompleted),
+        })
       );
     } catch (error) {
       setErrorMessage(

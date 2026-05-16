@@ -4,7 +4,14 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { CandidateFilterDrawer } from "@/components/CandidateFilterDrawer";
 import { authHeaders, getStoredAuth } from "@/lib/auth";
+import { postAuthPath } from "@/lib/onboarding";
+import {
+  DEFAULT_CANDIDATE_FILTER_FORM,
+  mergeFilterForm,
+  type CandidateFilterForm,
+} from "@/lib/sourcingFilters";
 
 type SourcingSessionRow = {
   id: string;
@@ -1339,6 +1346,16 @@ export default function UserDashboardPage() {
   const [sessionResultsFromDb, setSessionResultsFromDb] = useState(false);
   const [sessionResultsBackTab, setSessionResultsBackTab] = useState("Search Candidates");
   const [isFilterDrawerOpen, setIsFilterDrawerOpen] = useState(false);
+  const [candidateFilterForm, setCandidateFilterForm] = useState<CandidateFilterForm>(
+    DEFAULT_CANDIDATE_FILTER_FORM
+  );
+  const [filterSearchPrompt, setFilterSearchPrompt] = useState("");
+  const [pendingSearchSessionId, setPendingSearchSessionId] = useState<string | null>(null);
+  const [pendingSessionPayload, setPendingSessionPayload] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
+  const [applyFiltersLoading, setApplyFiltersLoading] = useState(false);
   const [isPeopleScoutDrawerOpen, setIsPeopleScoutDrawerOpen] = useState(false);
   const [peopleScoutRevealEmail, setPeopleScoutRevealEmail] = useState(false);
   const [peopleScoutRevealPhone, setPeopleScoutRevealPhone] = useState(false);
@@ -1453,6 +1470,10 @@ export default function UserDashboardPage() {
     const auth = getStoredAuth();
     if (!auth) {
       router.replace("/login");
+      return;
+    }
+    if (!auth.onboardingCompleted && auth.role !== "admin") {
+      router.replace("/onboarding");
       return;
     }
     setShowAdminLink(auth.role === "admin");
@@ -2321,100 +2342,128 @@ export default function UserDashboardPage() {
     applySessionProfilesFromSearchResponse(data as Record<string, unknown>, backTab);
   };
 
-  const handleSearch = async () => {
+  const handleSearch = () => {
     const prompt = aiPrompt.trim();
-    setHasSearched(true);
     setSearchError("");
-    setProfilesWarning("");
     setSessionResultError("");
+
+    if (!prompt) {
+      setSearchError("Enter a search prompt first.");
+      return;
+    }
 
     const auth = getStoredAuth();
     if (!auth?.token) {
       setSearchError("Please sign in again to search.");
-      setSearchedCandidates([]);
+      return;
+    }
+
+    setFilterSearchPrompt(prompt);
+    setCandidateFilterForm(DEFAULT_CANDIDATE_FILTER_FORM);
+    setPendingSearchSessionId(null);
+    setPendingSessionPayload(null);
+    setIsFilterDrawerOpen(true);
+  };
+
+  const handleApplySearchFilters = async () => {
+    const prompt = (filterSearchPrompt || aiPrompt).trim();
+    if (!prompt) {
+      setSearchError("Enter a search prompt first.");
+      return;
+    }
+
+    const auth = getStoredAuth();
+    if (!auth?.token) {
+      setSearchError("Please sign in again to search.");
       return;
     }
 
     const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
-    const backTab = activeTab;
-    setSearchLoading(true);
+    const backTab = activeTab === "Session Results" ? sessionResultsBackTab : activeTab;
+    setApplyFiltersLoading(true);
+    setSearchError("");
+    setSessionResultError("");
+    setProfilesWarning("");
+
     try {
-      const res = await fetch(`${apiBase}/api/candidates/search`, {
+      const res = await fetch(`${apiBase}/api/candidates/search/apply`, {
         method: "POST",
         headers: authHeaders(auth.token),
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({
+          prompt,
+          filterForm: candidateFilterForm,
+          page: 1,
+          limit: searchSummary?.limit ?? 20,
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
         throw new Error(
-          typeof data.message === "string" ? data.message : "Search failed"
+          typeof data.message === "string" ? data.message : "Failed to load candidates"
         );
       }
-      const list = Array.isArray(data.candidates)
-        ? (data.candidates as CandidateRow[])
-        : [];
-      const warn =
-        typeof data.profilesFetchError === "string" && data.profilesFetchError
-          ? data.profilesFetchError
-          : "";
-      setProfilesWarning(warn);
-      setSearchedCandidates(list);
 
-      const pg = data.profilesPagination;
-      const totalDisplayCount =
-        typeof data.futureJobs?.data?.sourcing?.total_display_count === "number"
-          ? data.futureJobs.data.sourcing.total_display_count
-          : null;
       const sessionId =
-        typeof data.futureJobs?.data?.session?._id === "string"
-          ? data.futureJobs.data.session._id
-          : null;
-      const limit = typeof data.limit === "number" ? data.limit : 20;
-
-      setSearchSummary({
-        candidateCount: list.length,
-        totalDocs:
-          totalDisplayCount ??
-          (typeof pg?.totalDocs === "number" ? pg.totalDocs : null),
-        page: typeof data.page === "number" ? data.page : 1,
-        limit,
-        totalPages:
-          typeof pg?.totalPages === "number" ? pg.totalPages : null,
-        hasNextPage:
-          typeof pg?.hasNextPage === "boolean" ? pg.hasNextPage : null,
-        sessionId,
-        sourcingStatus:
-          typeof data.futureJobs?.status === "string"
-            ? data.futureJobs.status
-            : null,
-        profilesFetchError: warn || null,
-      });
+        typeof data.sessionId === "string"
+          ? data.sessionId
+          : typeof data.futureJobs?.data?.session?._id === "string"
+            ? data.futureJobs.data.session._id
+            : null;
 
       if (!sessionId) {
         setSearchError("Search completed but no sourcing session was returned.");
         return;
       }
 
-      const docsFromSearch = Array.isArray(data.futureJobsProfiles?.data?.docs)
-        ? (data.futureJobsProfiles.data.docs as SessionResultDoc[])
+      if (typeof data.profilesFetchError === "string" && data.profilesFetchError) {
+        setProfilesWarning(data.profilesFetchError);
+      }
+
+      setPendingSearchSessionId(sessionId);
+      if (data.sessionPayload && typeof data.sessionPayload === "object") {
+        setPendingSessionPayload(data.sessionPayload as Record<string, unknown>);
+      }
+      if (data.filterForm && typeof data.filterForm === "object") {
+        setCandidateFilterForm(
+          mergeFilterForm(
+            DEFAULT_CANDIDATE_FILTER_FORM,
+            data.filterForm as Partial<CandidateFilterForm>
+          )
+        );
+      }
+
+      const docsFromApply = Array.isArray(
+        (data as { futureJobsProfiles?: { data?: { docs?: unknown[] } } })
+          .futureJobsProfiles?.data?.docs
+      )
+        ? ((data as { futureJobsProfiles: { data: { docs: SessionResultDoc[] } } })
+            .futureJobsProfiles.data.docs)
         : [];
 
-      if (docsFromSearch.length > 0) {
+      if (docsFromApply.length > 0) {
         applySessionProfilesFromSearchResponse(
           data as Record<string, unknown>,
           backTab
         );
       } else {
-        await loadSessionProfilesFirstPage(sessionId, limit, auth.token, backTab);
+        await loadSessionProfilesFirstPage(
+          sessionId,
+          typeof data.limit === "number" ? data.limit : 20,
+          auth.token,
+          backTab
+        );
       }
+
+      setIsFilterDrawerOpen(false);
+      setHasSearched(true);
+      setWorkspaceCandidatesRefresh((n) => n + 1);
     } catch (err) {
-      setSearchError(
-        err instanceof Error ? err.message : "Unable to complete search"
-      );
-      setSearchedCandidates([]);
-      setSearchSummary(null);
+      const message =
+        err instanceof Error ? err.message : "Could not apply filters";
+      setSessionResultError(message);
+      setSearchError(message);
     } finally {
-      setSearchLoading(false);
+      setApplyFiltersLoading(false);
     }
   };
 
@@ -3068,8 +3117,8 @@ export default function UserDashboardPage() {
                   <div className="flex justify-end">
                     <button
                       type="button"
-                      onClick={() => void handleSearch()}
-                      disabled={searchLoading || aiPrompt.trim().length === 0}
+                      onClick={handleSearch}
+                      disabled={aiPrompt.trim().length === 0}
                       className="inline-flex items-center gap-2 rounded-lg bg-black px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
                     >
                       <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
@@ -4529,6 +4578,17 @@ export default function UserDashboardPage() {
                     </p>
                     <h3 className="mt-1 text-lg font-semibold text-black">Plans and pricing</h3>
                   </div>
+                  {!userPricingPlansLoading ? (
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-emerald-800">
+                        Your current plan
+                      </p>
+                      <p className="mt-0.5 text-sm font-semibold text-emerald-950">
+                        {userPricingPlans?.tiers.find((t) => t.id === userPlanId)?.name ??
+                          userPlanName}
+                      </p>
+                    </div>
+                  ) : null}
                 </div>
                 {userPricingPlansLoading ? (
                   <p className="mt-8 text-sm text-slate-500">Loading pricing and account…</p>
@@ -4539,6 +4599,7 @@ export default function UserDashboardPage() {
                     <p className="mt-4 max-w-2xl text-sm text-slate-600">{userPricingPlans.intro}</p>
                     <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                       {userPricingPlans.tiers.map((tier) => {
+                        const isCurrentPlan = tier.id === userPlanId;
                         const quotaLines = [
                           pricingQuotaDisplayLabel(tier.searches, "searches"),
                           pricingQuotaDisplayLabel(tier.candidateUnlocks, "unlocks"),
@@ -4549,19 +4610,25 @@ export default function UserDashboardPage() {
                         <article
                           key={tier.id || tier.name}
                           className={
-                            tier.isPopular
-                              ? "relative flex flex-col rounded-2xl border-2 border-black bg-slate-50 p-6 shadow-md ring-1 ring-black/5"
-                              : "flex flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
+                            isCurrentPlan
+                              ? "relative flex flex-col rounded-2xl border-2 border-emerald-600 bg-emerald-50/50 p-6 shadow-md ring-1 ring-emerald-600/20"
+                              : tier.isPopular
+                                ? "relative flex flex-col rounded-2xl border-2 border-black bg-slate-50 p-6 shadow-md ring-1 ring-black/5"
+                                : "flex flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
                           }
                         >
-                          {tier.isPopular ? (
+                          {isCurrentPlan ? (
+                            <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-emerald-600 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-white">
+                              Current plan
+                            </span>
+                          ) : tier.isPopular ? (
                             <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-black px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-white">
                               {tier.popularBadge || "⭐ Most Popular"}
                             </span>
                           ) : null}
                           <h4
                             className={
-                              tier.isPopular
+                              isCurrentPlan || tier.isPopular
                                 ? "mt-2 text-base font-semibold text-black"
                                 : "text-base font-semibold text-black"
                             }
@@ -4766,374 +4833,20 @@ export default function UserDashboardPage() {
         </section>
       </div>
 
-      <div
-        className={`fixed inset-0 z-110 transition-opacity duration-300 ${
-          isFilterDrawerOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
-        }`}
-        role="dialog"
-        aria-modal="true"
-        aria-hidden={!isFilterDrawerOpen}
-      >
-          <button
-            type="button"
-            aria-label="Close filter panel"
-            className="absolute inset-0 bg-slate-900/40"
-            onClick={() => setIsFilterDrawerOpen(false)}
-          />
-          <aside
-            className={`absolute right-0 top-0 h-full w-full max-w-md overflow-y-auto border-l border-slate-200 bg-white shadow-2xl transition-transform duration-300 ease-out ${
-              isFilterDrawerOpen ? "translate-x-0" : "translate-x-full"
-            }`}
-          >
-            <div className="sticky top-0 z-10 border-b border-slate-200 bg-white px-5 py-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                    Candidate filters
-                  </p>
-                  <h3 className="mt-1 text-lg font-semibold text-black">Edit filter</h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsFilterDrawerOpen(false)}
-                  className="rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
-                  aria-label="Close filter panel"
-                >
-                  <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-                    <path
-                      d="M18 6L6 18M6 6L18 18"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-4 px-4 py-4">
-              <section className="rounded-xl border border-slate-200">
-                <h4 className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold uppercase tracking-[0.12em] text-slate-700">
-                  General
-                </h4>
-                <div className="space-y-4 px-4 py-4">
-                  <label className="block text-sm text-slate-700">
-                    Search Type
-                    <select className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black">
-                      <option>Flexible</option>
-                      <option>Strict</option>
-                    </select>
-                  </label>
-                  <label className="block text-sm text-slate-700">
-                    Select Region
-                    <input
-                      type="text"
-                      defaultValue="India"
-                      className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
-                    />
-                  </label>
-                  <label className="block text-sm text-slate-700">
-                    Current Title
-                    <input
-                      type="text"
-                      defaultValue="DevOps Engineer"
-                      className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
-                    />
-                  </label>
-                  <label className="block text-sm text-slate-700">
-                    Years of Experience
-                    <div className="mt-1 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-                      <input
-                        type="number"
-                        defaultValue={4}
-                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
-                      />
-                      <span className="text-slate-500">to</span>
-                      <input
-                        type="number"
-                        defaultValue={6}
-                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
-                      />
-                    </div>
-                  </label>
-                  <label className="block text-sm text-slate-700">
-                    Keyword (Skills)
-                    <input
-                      type="text"
-                      defaultValue="DevOps"
-                      className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
-                    />
-                  </label>
-                  <label className="block text-sm text-slate-700">
-                    Seniority Level
-                    <input
-                      type="text"
-                      placeholder="e.g. Senior"
-                      className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
-                    />
-                  </label>
-                </div>
-              </section>
-
-              <section className="rounded-xl border border-slate-200">
-                <h4 className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold uppercase tracking-[0.12em] text-slate-700">
-                  Location
-                </h4>
-                <div className="space-y-4 px-4 py-4">
-                  <label className="block text-sm text-slate-700">
-                    Location
-                    <input
-                      type="text"
-                      defaultValue="Hyderabad, Telangana, India"
-                      className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
-                    />
-                  </label>
-                  <label className="flex items-center gap-2 text-sm text-slate-700">
-                    <input type="checkbox" className="h-4 w-4 rounded border-slate-300" />
-                    Search other regions too
-                  </label>
-                </div>
-              </section>
-
-              <section className="rounded-xl border border-slate-200">
-                <h4 className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold uppercase tracking-[0.12em] text-slate-700">
-                  Industry
-                </h4>
-                <div className="px-4 py-4">
-                  <label className="block text-sm text-slate-700">
-                    Industry
-                    <input
-                      type="text"
-                      placeholder="e.g. IT Services"
-                      className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
-                    />
-                  </label>
-                </div>
-              </section>
-
-              <section className="rounded-xl border border-slate-200">
-                <h4 className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold uppercase tracking-[0.12em] text-slate-700">
-                  Education
-                </h4>
-                <div className="space-y-4 px-4 py-4">
-                  <input
-                    type="text"
-                    placeholder="School"
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Field of Study"
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Degree"
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Certifications"
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Honors & Awards"
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
-                  />
-                </div>
-              </section>
-
-              <section className="rounded-xl border border-slate-200">
-                <h4 className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold uppercase tracking-[0.12em] text-slate-700">
-                  Company
-                </h4>
-                <div className="space-y-4 px-4 py-4">
-                  <input
-                    type="text"
-                    placeholder="Current Company"
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Years at Company"
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Past Company"
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Past Title"
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Company Type"
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Company Headquarters"
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Company Focus"
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Funding Stage"
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
-                  />
-                  <label className="block text-sm text-slate-700">
-                    Headcount Growth (6-month %)
-                    <div className="mt-1 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-                      <input
-                        type="number"
-                        placeholder="Min"
-                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
-                      />
-                      <span className="text-slate-500">to</span>
-                      <input
-                        type="number"
-                        placeholder="Max"
-                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
-                      />
-                    </div>
-                  </label>
-                  <label className="block text-sm text-slate-700">
-                    Company Headcount
-                    <div className="mt-1 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-                      <input
-                        type="number"
-                        placeholder="Min"
-                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
-                      />
-                      <span className="text-slate-500">to</span>
-                      <input
-                        type="number"
-                        placeholder="Max"
-                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
-                      />
-                    </div>
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Annual Revenue"
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Total Funding Raised"
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
-                  />
-                  <label className="block text-sm text-slate-700">
-                    Year Founded
-                    <div className="mt-1 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-                      <input
-                        type="number"
-                        placeholder="Min"
-                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
-                      />
-                      <span className="text-slate-500">to</span>
-                      <input
-                        type="number"
-                        placeholder="Max"
-                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
-                      />
-                    </div>
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Recently Funded"
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
-                  />
-                </div>
-              </section>
-
-              <section className="rounded-xl border border-slate-200">
-                <h4 className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold uppercase tracking-[0.12em] text-slate-700">
-                  Nuances
-                </h4>
-                <div className="space-y-2 px-4 py-4 text-sm text-slate-700">
-                  <label className="flex items-center gap-2">
-                    <input type="checkbox" className="h-4 w-4 rounded border-slate-300" />
-                    Frequent Job Switch
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input type="checkbox" className="h-4 w-4 rounded border-slate-300" />
-                    Recently Changed Job
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input type="checkbox" className="h-4 w-4 rounded border-slate-300" />
-                    Large Employment Gaps
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input type="checkbox" className="h-4 w-4 rounded border-slate-300" />
-                    No Career Progression
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input type="checkbox" className="h-4 w-4 rounded border-slate-300" />
-                    Grammar & Spelling Issues in Profile
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input type="checkbox" className="h-4 w-4 rounded border-slate-300" />
-                    Overlapping Full-Time Jobs
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input type="checkbox" className="h-4 w-4 rounded border-slate-300" />
-                    Unspecified Dates or Locations
-                  </label>
-                </div>
-              </section>
-            </div>
-
-            <div className="sticky bottom-0 border-t border-slate-200 bg-white px-4 py-3">
-              <div className="flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsFilterDrawerOpen(false)}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                >
-                  <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
-                    <path
-                      d="M18 6L6 18M6 6L18 18"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsFilterDrawerOpen(false);
-                    setActiveTab("Search Candidates");
-                  }}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-black bg-black px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-900"
-                >
-                  <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
-                    <path
-                      d="M20 6L9 17L4 12"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                  Apply filters
-                </button>
-              </div>
-            </div>
-          </aside>
-        </div>
+      <CandidateFilterDrawer
+        open={isFilterDrawerOpen}
+        form={candidateFilterForm}
+        searchPrompt={filterSearchPrompt || aiPrompt}
+        onChange={(patch) =>
+          setCandidateFilterForm((prev) => mergeFilterForm(prev, patch))
+        }
+        onClose={() => {
+          if (!applyFiltersLoading) setIsFilterDrawerOpen(false);
+        }}
+        onApply={() => void handleApplySearchFilters()}
+        applyLoading={applyFiltersLoading}
+        title="Set search filters"
+      />
 
       {selectedSessionDetailDoc && selectedSessionDetailCandidate ? (
         <SessionCandidateDetailDrawer

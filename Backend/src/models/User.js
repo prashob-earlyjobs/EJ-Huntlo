@@ -59,6 +59,34 @@ const userSchema = new mongoose.Schema(
     usageCandidateUnveils: { type: Number, default: 0, min: 0 },
     usageMobileUnveils: { type: Number, default: 0, min: 0 },
     usageLinkedinLookups: { type: Number, default: 0, min: 0 },
+    onboardingCompleted: {
+      type: Boolean,
+      default: false,
+    },
+    onboardingCompanyType: {
+      type: String,
+      default: "",
+      trim: true,
+      maxlength: 64,
+    },
+    onboardingHiringChallenges: {
+      type: [String],
+      default: [],
+    },
+    onboardingOutreachChannels: {
+      type: [String],
+      default: [],
+    },
+    onboardingHiringVolume: {
+      type: String,
+      default: "",
+      trim: true,
+      maxlength: 32,
+    },
+    onboardingCompletedAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,

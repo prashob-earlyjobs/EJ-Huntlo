@@ -2,6 +2,8 @@ const express = require("express");
 const { authenticate } = require("../middleware/auth");
 const {
   searchCandidates,
+  createSearchSession,
+  applySearchFilters,
   loadSessionProfiles,
   loadStoredSessionCandidates,
   listAllSourcedCandidates,
@@ -24,6 +26,8 @@ const {
 const router = express.Router();
 
 router.post("/search", authenticate, searchCandidates);
+router.post("/search/create", authenticate, createSearchSession);
+router.post("/search/apply", authenticate, applySearchFilters);
 router.get("/all", authenticate, listAllSourcedCandidates);
 router.get("/sessions", authenticate, listSourcingSessions);
 router.get("/recent-searches", authenticate, listRecentSearches);

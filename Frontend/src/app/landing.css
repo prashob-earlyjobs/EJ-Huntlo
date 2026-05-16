@@ -1,0 +1,122 @@
+/* Landing page — ported from code.html */
+
+.landing-page {
+  --landing-primary: #0050cb;
+  --landing-background: #faf9ff;
+  --landing-on-surface: #141b2b;
+  --landing-on-surface-variant: #434654;
+  --landing-outline-variant: #c3c6d6;
+  --landing-surface-container-low: #f1f3ff;
+  --landing-surface-container-lowest: #ffffff;
+  --landing-surface-container: #e9edff;
+  --landing-surface-container-high: #e1e8fe;
+  --landing-primary-fixed: #dae1ff;
+  --landing-primary-fixed-dim: #b3c5ff;
+  --landing-secondary: #505f76;
+  --landing-secondary-container: #d4e3ff;
+  --landing-secondary-fixed-dim: #b8c7e2;
+  --landing-tertiary: #3e4346;
+  --landing-tertiary-container: #555a5d;
+  --landing-on-primary: #ffffff;
+  --landing-on-primary-fixed-variant: #003fa4;
+
+  background-color: var(--landing-background);
+  color: var(--landing-on-surface);
+  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+}
+
+.landing-page h1,
+.landing-page h2,
+.landing-page h3,
+.landing-page h4 {
+  font-family: var(--font-syne), ui-sans-serif, system-ui, sans-serif;
+}
+
+.landing-glass-panel {
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.landing-ambient-shadow {
+  box-shadow: 0 32px 64px -12px rgba(0, 80, 203, 0.12);
+}
+
+.landing-subtle-border {
+  border: 1px solid #e5e7eb;
+}
+
+.landing-animate-float {
+  animation: landing-float 6s ease-in-out infinite;
+}
+
+@keyframes landing-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+.landing-workflow-line {
+  stroke-dasharray: 8;
+  animation: landing-dash 10s linear infinite;
+}
+
+@keyframes landing-dash {
+  to {
+    stroke-dashoffset: -100;
+  }
+}
+
+.landing-glow-node {
+  box-shadow: 0 0 20px rgba(0, 80, 203, 0.4);
+}
+
+.landing-typing-effect {
+  overflow: hidden;
+  border-right: 0.15em solid var(--landing-primary);
+  white-space: nowrap;
+  animation:
+    landing-typing 3.5s steps(40, end),
+    landing-blink-caret 0.75s step-end infinite;
+}
+
+@keyframes landing-typing {
+  from {
+    width: 0;
+  }
+  to {
+    width: 100%;
+  }
+}
+
+@keyframes landing-blink-caret {
+  from,
+  to {
+    border-color: transparent;
+  }
+  50% {
+    border-color: var(--landing-primary);
+  }
+}
+
+.landing-metric-counter {
+  font-variant-numeric: tabular-nums;
+}
+
+.landing-pipeline-dash {
+  animation: landing-dash 2s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-animate-float,
+  .landing-workflow-line,
+  .landing-typing-effect,
+  .landing-pipeline-dash {
+    animation: none;
+  }
+}

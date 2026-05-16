@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Huntlo | World-Class AI Recruiting Infrastructure</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Syne:wght@600;700;800&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "surface-dim": "#d3d9f0",
+                    "on-tertiary-fixed": "#171c1f",
+                    "surface-container-low": "#f1f3ff",
+                    "secondary-container": "#d4e3ff",
+                    "tertiary-fixed-dim": "#c3c7ca",
+                    "on-secondary-fixed-variant": "#39485e",
+                    "tertiary": "#3e4346",
+                    "surface-container": "#e9edff",
+                    "on-tertiary-container": "#cdd1d5",
+                    "on-primary-fixed": "#001849",
+                    "inverse-surface": "#293041",
+                    "on-error-container": "#93000a",
+                    "primary-container": "#0050cb",
+                    "secondary-fixed": "#d4e3ff",
+                    "primary-fixed": "#dae1ff",
+                    "on-primary-container": "#c1cfff",
+                    "on-secondary-fixed": "#0c1c30",
+                    "secondary-fixed-dim": "#b8c7e2",
+                    "inverse-primary": "#b3c5ff",
+                    "primary-fixed-dim": "#b3c5ff",
+                    "inverse-on-surface": "#edf0ff",
+                    "on-background": "#141b2b",
+                    "on-surface-variant": "#434654",
+                    "surface-tint": "#0054d6",
+                    "surface-container-highest": "#dce2f9",
+                    "outline": "#737685",
+                    "on-secondary": "#ffffff",
+                    "on-error": "#ffffff",
+                    "on-secondary-container": "#56657c",
+                    "error": "#ba1a1a",
+                    "error-container": "#ffdad6",
+                    "surface-container-lowest": "#ffffff",
+                    "surface-variant": "#dce2f9",
+                    "glass-bg": "rgba(255, 255, 255, 0.7)",
+                    "on-primary-fixed-variant": "#003fa4",
+                    "on-tertiary-fixed-variant": "#42474a",
+                    "tertiary-fixed": "#dfe3e6",
+                    "on-primary": "#ffffff",
+                    "on-surface": "#141b2b",
+                    "on-tertiary": "#ffffff",
+                    "background": "#faf9ff",
+                    "surface-bright": "#faf9ff",
+                    "surface-container-high": "#e1e8fe",
+                    "primary": "#0050CB",
+                    "outline-variant": "#c3c6d6",
+                    "secondary": "#505f76",
+                    "tertiary-container": "#555a5d",
+                    "surface": "#faf9ff"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px",
+                    "2xl": "1rem",
+                    "3xl": "1.5rem"
+            },
+            "spacing": {
+                    "unit": "4px",
+                    "margin-desktop": "64px",
+                    "stack-lg": "32px",
+                    "margin-mobile": "16px",
+                    "margin-tablet": "32px",
+                    "stack-sm": "8px",
+                    "gutter": "24px",
+                    "stack-md": "16px"
+            },
+            "fontFamily": {
+                    "body-lg": ["Inter"],
+                    "body-md": ["Inter"],
+                    "headline-lg": ["Syne"],
+                    "headline-md": ["Syne"],
+                    "display-lg": ["Syne"],
+                    "display-hero": ["Syne"],
+                    "label-sm": ["Inter"],
+                    "label-md": ["Inter"]
+            },
+            "fontSize": {
+                    "display-hero": ["72px", {"lineHeight": "1.05", "letterSpacing": "-0.03em", "fontWeight": "700"}],
+                    "display-lg": ["48px", {"lineHeight": "1.1", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                    "headline-lg": ["32px", {"lineHeight": "1.2", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                    "headline-md": ["20px", {"lineHeight": "1.3", "letterSpacing": "0.01em", "fontWeight": "600"}],
+                    "body-lg": ["18px", {"lineHeight": "1.6", "fontWeight": "400"}],
+                    "body-md": ["16px", {"lineHeight": "1.5", "fontWeight": "400"}],
+                    "label-sm": ["12px", {"lineHeight": "1", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                    "label-md": ["14px", {"lineHeight": "1", "letterSpacing": "0.02em", "fontWeight": "500"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .glass-panel { background: rgba(255, 255, 255, 0.75); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); border: 1px solid rgba(255, 255, 255, 0.3); }
+        .ambient-shadow { box-shadow: 0 32px 64px -12px rgba(0, 80, 203, 0.12); }
+        .subtle-border { border: 1px solid #E5E7EB; }
+        .animate-float { animation: float 6s ease-in-out infinite; }
+        @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+        .workflow-line { stroke-dasharray: 8; animation: dash 10s linear infinite; }
+        @keyframes dash { to { stroke-dashoffset: -100; } }
+        .glow-node { box-shadow: 0 0 20px rgba(0, 80, 203, 0.4); }
+        .typing-effect { overflow: hidden; border-right: .15em solid #0050CB; white-space: nowrap; animation: typing 3.5s steps(40, end), blink-caret .75s step-end infinite; }
+        @keyframes typing { from { width: 0 } to { width: 100% } }
+        @keyframes blink-caret { from, to { border-color: transparent } 50% { border-color: #0050CB; } }
+        .metric-counter { font-variant-numeric: tabular-nums; }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body-md antialiased overflow-x-hidden selection:bg-primary-container selection:text-on-primary-container">
+<nav class="sticky top-0 w-full z-[100] glass-panel border-b border-outline-variant/30 transition-all duration-300">
+<div class="flex justify-between items-center w-full px-margin-mobile md:px-margin-desktop py-4 max-w-7xl mx-auto">
+<div class="flex items-center gap-2 cursor-pointer">
+<img alt="Huntlo Logo" class="h-8 w-auto" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCYFPOzNNK21A0vog7-ypCRsaY6b4qDvxINoYKD2H3DX3YiXJrK6QziQPAlDKaVmZpy2GhnrRha9RFvBzDh7isHvWDyfQwXavfykCqtignW8jEqWGvpoDRQFZEGEQI21LSAUu2REV-S3iPmM2FzqkhtE3V81VdxIkShSmjdzlZOzYkIUF3fddc4_F7lA3M7-LIIaaTyEDAcWjxqj5k-Zi0ygjW68eYB8hqpAGhF-v8cyLo2sm1BCVO3a3xk7hLW_gSI-ffwigshCz7L"/>
+</div>
+<div class="hidden md:flex items-center gap-8">
+<a class="text-on-surface-variant font-medium text-label-md hover:text-primary transition-colors" href="#solutions">Solutions</a>
+<a class="text-on-surface-variant font-medium text-label-md hover:text-primary transition-colors" href="#product">Product</a>
+<a class="text-on-surface-variant font-medium text-label-md hover:text-primary transition-colors" href="#company">Company</a>
+<a class="text-on-surface-variant font-medium text-label-md hover:text-primary transition-colors" href="#pricing">Pricing</a>
+</div>
+<div class="hidden md:flex items-center gap-4">
+<button class="text-on-surface font-label-md font-medium hover:text-primary transition-colors">Sign In</button>
+<button class="bg-primary text-on-primary font-label-md px-6 py-2.5 rounded-full hover:bg-on-primary-fixed-variant transition-all duration-200 shadow-lg shadow-primary/10">Get Started</button>
+</div>
+<button class="md:hidden text-on-surface p-2">
+<span class="material-symbols-outlined">menu</span>
+</button>
+</div>
+</nav>
+<!-- Hero Section -->
+<section class="relative pt-24 pb-48 px-margin-mobile md:px-margin-desktop overflow-hidden min-h-[95vh] flex flex-col items-center">
+<div class="absolute inset-0 z-0 opacity-40 pointer-events-none">
+<div class="absolute top-[-10%] right-[-5%] w-[800px] h-[800px] bg-primary-fixed rounded-full blur-[160px] mix-blend-multiply"></div>
+<div class="absolute bottom-[10%] left-[-10%] w-[600px] h-[600px] bg-secondary-fixed rounded-full blur-[140px] mix-blend-multiply"></div>
+</div>
+<div class="relative z-10 max-w-5xl mx-auto text-center mb-24">
+<div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary/5 subtle-border mb-8 animate-fade-in">
+<span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+<span class="font-label-sm text-label-sm text-primary uppercase tracking-widest">Huntlo Infrastructure 3.0</span>
+</div>
+<h1 class="font-display-hero text-[48px] md:text-[76px] leading-[1.05] tracking-tight text-on-surface mb-8">
+            The AI <span class="text-transparent bg-clip-text bg-gradient-to-r from-primary to-surface-tint">Neural Layer</span><br/>for Global Recruiting
+        </h1>
+<p class="font-body-lg text-body-lg text-on-surface-variant max-w-2xl mx-auto mb-12 opacity-80">
+            Orchestrate entire talent pipelines with autonomous agents. The infrastructure that powers the world's highest-performing engineering teams.
+        </p>
+<div class="flex flex-col sm:flex-row items-center justify-center gap-4">
+<button class="w-full sm:w-auto bg-primary text-on-primary font-label-md px-10 py-4 rounded-full hover:bg-on-primary-fixed-variant transition-all hover:-translate-y-1 shadow-2xl shadow-primary/30">
+                Deploy AI Workforce
+            </button>
+<button class="w-full sm:w-auto glass-panel text-on-surface font-label-md px-10 py-4 rounded-full hover:bg-surface-container-low transition-all flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-[20px]">play_circle</span>
+                Watch Architecture
+            </button>
+</div>
+</div>
+<!-- Live AI Workflow Visualization -->
+<div class="relative w-full max-w-6xl mx-auto mt-12 group">
+<div class="absolute -inset-10 bg-gradient-to-b from-primary/10 to-transparent rounded-[40px] blur-3xl opacity-50"></div>
+<div class="relative glass-panel rounded-[32px] p-8 aspect-video w-full flex flex-col justify-center items-center overflow-hidden ambient-shadow">
+<svg class="w-full h-full max-h-[500px]" fill="none" viewbox="0 0 1000 500" xmlns="http://www.w3.org/2000/svg">
+<!-- Grid Lines -->
+<defs>
+<pattern height="40" id="grid" patternunits="userSpaceOnUse" width="40">
+<path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(0,80,203,0.05)" stroke-width="1"></path>
+</pattern>
+</defs>
+<rect fill="url(#grid)" height="500" width="1000"></rect>
+<!-- Connection Paths -->
+<path class="workflow-line opacity-20" d="M150 250 C 300 250, 400 150, 500 150" stroke="#0050CB" stroke-width="2"></path>
+<path class="workflow-line opacity-20" d="M150 250 C 300 250, 400 350, 500 350" stroke="#0050CB" stroke-width="2"></path>
+<path class="workflow-line opacity-20" d="M500 150 C 650 150, 750 250, 850 250" stroke="#0050CB" stroke-width="2"></path>
+<path class="workflow-line opacity-20" d="M500 350 C 650 350, 750 250, 850 250" stroke="#0050CB" stroke-width="2"></path>
+<!-- Nodes -->
+<!-- Source Node -->
+<g class="animate-float" style="animation-delay: 0s;">
+<circle cx="150" cy="250" fill="white" r="40" stroke="#0050CB" stroke-width="1"></circle>
+<text fill="#56657c" font-family="Inter" font-size="12" text-anchor="middle" x="150" y="310">Global Search</text>
+<path d="M140 240 L160 260 M160 240 L140 260" stroke="#0050CB" stroke-width="2"></path>
+</g>
+<!-- AI Orchestrator Node -->
+<g class="animate-float" style="animation-delay: 1s;">
+<circle class="glow-node" cx="500" cy="250" fill="#0050CB" r="60"></circle>
+<path d="M485 240 L515 240 M485 250 L515 250 M485 260 L515 260" stroke="white" stroke-linecap="round" stroke-width="3"></path>
+<text fill="#0050CB" font-family="Syne" font-size="14" font-weight="600" text-anchor="middle" x="500" y="330">AI AGENT LAYER</text>
+</g>
+<!-- Enrichment Nodes -->
+<circle class="animate-pulse" cx="500" cy="150" fill="#0050CB" r="10"></circle>
+<circle class="animate-pulse" cx="500" cy="350" fill="#0050CB" r="10"></circle>
+<!-- Output Node -->
+<g class="animate-float" style="animation-delay: 2s;">
+<rect fill="white" height="60" rx="12" stroke="#0050CB" stroke-width="1" width="80" x="810" y="220"></rect>
+<text fill="#56657c" font-family="Inter" font-size="12" text-anchor="middle" x="850" y="310">Verified Leads</text>
+</g>
+<!-- Flowing Data Particles -->
+<circle fill="#0050CB" r="4">
+<animatemotion dur="4s" path="M150 250 C 300 250, 400 150, 500 150" repeatcount="indefinite"></animatemotion>
+</circle>
+<circle fill="#0050CB" r="4">
+<animatemotion begin="1s" dur="5s" path="M150 250 C 300 250, 400 350, 500 350" repeatcount="indefinite"></animatemotion>
+</circle>
+<circle fill="#0050CB" r="4">
+<animatemotion begin="2s" dur="3s" path="M500 250 C 650 250, 750 250, 850 250" repeatcount="indefinite"></animatemotion>
+</circle>
+</svg>
+<!-- Overlay floating UI tags -->
+<div class="absolute top-10 left-10 glass-panel px-4 py-2 rounded-xl text-xs font-mono text-primary flex items-center gap-2 border border-primary/20">
+<span class="w-2 h-2 bg-green-500 rounded-full"></span> AGENT_RUNNING: sourcing_engine_v4
+            </div>
+<div class="absolute bottom-10 right-10 glass-panel px-4 py-2 rounded-xl text-xs font-mono text-primary flex items-center gap-2 border border-primary/20">
+                PIPELINE_EFFICIENCY: 98.4%
+            </div>
+</div>
+</div>
+</section>
+<!-- AI Recruiter Agents Section -->
+<section class="py-32 px-margin-mobile md:px-margin-desktop bg-surface-container-lowest">
+<div class="max-w-7xl mx-auto flex flex-col items-center">
+<div class="text-center mb-20 max-w-3xl">
+<h2 class="font-display-lg text-display-lg text-on-surface mb-6">Autonomous Recruiter Agents</h2>
+<p class="font-body-lg text-on-surface-variant">Don't just use tools. Deploy agents that think, search, and engage just like your best recruiters.</p>
+</div>
+<div class="w-full max-w-4xl glass-panel p-8 rounded-[32px] ambient-shadow relative">
+<div class="flex items-center gap-4 p-4 bg-surface-container-low rounded-2xl border border-primary/10 mb-12">
+<div class="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-white">
+<span class="material-symbols-outlined text-[20px]">smart_toy</span>
+</div>
+<div class="flex-grow">
+<div class="text-sm font-semibold text-primary mb-1">Huntlo Agent Beta</div>
+<div class="font-mono text-on-surface-variant text-sm typing-effect max-w-fit">Find senior backend engineers in Bangalore with Fintech experience...</div>
+</div>
+<button class="bg-primary text-white text-xs font-bold px-4 py-2 rounded-lg">EXECUTE</button>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+<div class="p-6 bg-white/50 rounded-2xl border border-outline-variant/30 group hover:border-primary/40 transition-all cursor-default">
+<div class="w-12 h-12 rounded-xl bg-primary-container/20 flex items-center justify-center mb-4 text-primary group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined">search_insights</span>
+</div>
+<h4 class="font-headline-md text-base mb-2">Semantic Orchestrator</h4>
+<p class="text-sm text-on-surface-variant opacity-70">Maps complex job requirements to latent talent patterns across multiple data siloes.</p>
+</div>
+<div class="p-6 bg-white/50 rounded-2xl border border-outline-variant/30 group hover:border-primary/40 transition-all cursor-default">
+<div class="w-12 h-12 rounded-xl bg-secondary-container/20 flex items-center justify-center mb-4 text-secondary group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined">forum</span>
+</div>
+<h4 class="font-headline-md text-base mb-2">Cognitive Engagement</h4>
+<p class="text-sm text-on-surface-variant opacity-70">Personalizes every touchpoint based on the candidate's career trajectory and interests.</p>
+</div>
+<div class="p-6 bg-white/50 rounded-2xl border border-outline-variant/30 group hover:border-primary/40 transition-all cursor-default">
+<div class="w-12 h-12 rounded-xl bg-tertiary-container/20 flex items-center justify-center mb-4 text-tertiary group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined">auto_graph</span>
+</div>
+<h4 class="font-headline-md text-base mb-2">Continuous Learning</h4>
+<p class="text-sm text-on-surface-variant opacity-70">The system gets smarter with every hire, refining search parameters automatically.</p>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Bento Feature Grid -->
+<section class="py-32 px-margin-mobile md:px-margin-desktop bg-background" id="product">
+<div class="max-w-7xl mx-auto">
+<div class="mb-16">
+<h2 class="font-display-lg text-display-lg text-on-surface mb-4">Precision Engineered Features</h2>
+<p class="font-body-lg text-on-surface-variant max-w-2xl">A modular ecosystem for the modern hiring architecture.</p>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-12 gap-6 auto-rows-[280px]">
+<!-- AI Semantic Search (Large) -->
+<div class="md:col-span-8 bg-surface-container-lowest rounded-[32px] p-10 border border-outline-variant/30 ambient-shadow relative overflow-hidden group">
+<div class="relative z-10 max-w-md">
+<div class="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center mb-6 text-primary">
+<span class="material-symbols-outlined">psychology</span>
+</div>
+<h3 class="font-headline-lg text-2xl text-on-surface mb-3">AI Semantic Search</h3>
+<p class="font-body-md text-on-surface-variant opacity-80">Our proprietary LLM understands intent, not just keywords. Search across 800M+ profiles using natural language descriptions of your ideal candidate.</p>
+</div>
+<!-- Graphic -->
+<div class="absolute right-0 bottom-0 w-1/2 h-full opacity-20 group-hover:opacity-100 transition-opacity translate-y-10 group-hover:translate-y-4 duration-500">
+<div class="w-full h-full bg-gradient-to-tl from-primary/20 to-transparent rounded-tl-[40px] p-8 border-l border-t border-primary/20">
+<div class="space-y-4">
+<div class="h-4 bg-primary/30 rounded w-full"></div>
+<div class="h-4 bg-primary/20 rounded w-5/6"></div>
+<div class="h-4 bg-primary/10 rounded w-4/6"></div>
+</div>
+</div>
+</div>
+</div>
+<!-- WhatsApp Workflows (Small/Vertical) -->
+<div class="md:col-span-4 bg-primary rounded-[32px] p-10 relative overflow-hidden flex flex-col justify-between text-on-primary group shadow-xl shadow-primary/20">
+<div class="absolute -top-12 -right-12 w-48 h-48 bg-white/10 rounded-full blur-3xl group-hover:scale-125 transition-transform duration-700"></div>
+<div>
+<div class="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center mb-6 backdrop-blur-md">
+<span class="material-symbols-outlined">chat_bubble</span>
+</div>
+<h3 class="font-headline-lg text-2xl mb-3">WhatsApp Workflows</h3>
+<p class="font-body-md text-primary-fixed-dim">Reach talent where they respond. 3x higher response rates than email sequences.</p>
+</div>
+<div class="flex items-center gap-2 font-label-sm text-xs uppercase tracking-widest bg-white/10 w-fit px-3 py-1 rounded-full">
+                    92% Open Rate
+                </div>
+</div>
+<!-- AI Personalization (Small) -->
+<div class="md:col-span-4 bg-surface-container-lowest rounded-[32px] p-8 border border-outline-variant/30 flex flex-col justify-center items-center text-center group hover:bg-surface-container-low transition-colors">
+<div class="w-14 h-14 bg-secondary-container/30 rounded-2xl flex items-center justify-center mb-6 text-secondary group-hover:rotate-12 transition-transform">
+<span class="material-symbols-outlined text-[32px]">auto_awesome</span>
+</div>
+<h3 class="font-headline-md text-xl text-on-surface mb-2">Hyper-Personalization</h3>
+<p class="text-sm text-on-surface-variant">Automated outreach that reads like it was written by a human expert.</p>
+</div>
+<!-- Analytics (Small) -->
+<div class="md:col-span-4 bg-surface-container-lowest rounded-[32px] p-8 border border-outline-variant/30 flex flex-col justify-center items-center text-center group hover:bg-surface-container-low transition-colors">
+<div class="w-14 h-14 bg-tertiary-container/30 rounded-2xl flex items-center justify-center mb-6 text-tertiary group-hover:-rotate-12 transition-transform">
+<span class="material-symbols-outlined text-[32px]">analytics</span>
+</div>
+<h3 class="font-headline-md text-xl text-on-surface mb-2">Real-time Insights</h3>
+<p class="text-sm text-on-surface-variant">Track every conversion and funnel drop-off with pixel-perfect precision.</p>
+</div>
+<!-- Recruiting Sequences (Medium) -->
+<div class="md:col-span-4 bg-surface-container-low rounded-[32px] p-10 border border-outline-variant/30 relative overflow-hidden group">
+<div class="relative z-10">
+<div class="w-12 h-12 bg-on-surface/5 rounded-xl flex items-center justify-center mb-6 text-on-surface">
+<span class="material-symbols-outlined">reorder</span>
+</div>
+<h3 class="font-headline-lg text-2xl text-on-surface mb-3">Multi-touch Sequences</h3>
+<p class="font-body-md text-on-surface-variant">Coordinate email, WhatsApp, and LinkedIn touchpoints in a single flow.</p>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Why Huntlo Exists (Split Screen) -->
+<section class="py-32 px-margin-mobile md:px-margin-desktop bg-surface-container-lowest overflow-hidden">
+<div class="max-w-7xl mx-auto">
+<div class="flex flex-col md:flex-row gap-12 items-center">
+<div class="w-full md:w-1/2 p-12 bg-surface-container-low rounded-[40px] opacity-60">
+<h4 class="font-label-sm text-on-surface-variant mb-8 uppercase tracking-widest">Traditional Recruiting</h4>
+<div class="space-y-6">
+<div class="flex items-center gap-4 text-on-surface-variant/70 italic">
+<span class="material-symbols-outlined">grid_on</span> Static Spreadsheets &amp; Notes
+                    </div>
+<div class="flex items-center gap-4 text-on-surface-variant/70 italic">
+<span class="material-symbols-outlined">schedule</span> 4-6 Hours Manual Sourcing / Day
+                    </div>
+<div class="flex items-center gap-4 text-on-surface-variant/70 italic">
+<span class="material-symbols-outlined">mail_outline</span> Generic Templates &amp; Low Replies
+                    </div>
+<div class="flex items-center gap-4 text-on-surface-variant/70 italic">
+<span class="material-symbols-outlined">warning</span> Fragmented Data &amp; Missed Talent
+                    </div>
+</div>
+</div>
+<div class="w-full md:w-1/2 p-12 bg-primary rounded-[40px] text-on-primary shadow-2xl shadow-primary/40 relative overflow-hidden">
+<div class="absolute top-0 right-0 p-8 opacity-20">
+<span class="material-symbols-outlined text-[120px]">bolt</span>
+</div>
+<h4 class="font-label-sm text-primary-fixed mb-8 uppercase tracking-widest">The Huntlo Way</h4>
+<div class="space-y-6">
+<div class="flex items-center gap-4 font-semibold">
+<span class="material-symbols-outlined text-primary-fixed">auto_fix_high</span> Unified AI Infrastructure
+                    </div>
+<div class="flex items-center gap-4 font-semibold">
+<span class="material-symbols-outlined text-primary-fixed">speed</span> Instant Sourcing &amp; Automation
+                    </div>
+<div class="flex items-center gap-4 font-semibold">
+<span class="material-symbols-outlined text-primary-fixed">star</span> Personalized High-Intent Outreach
+                    </div>
+<div class="flex items-center gap-4 font-semibold">
+<span class="material-symbols-outlined text-primary-fixed">hub</span> Global Talent Node Connectivity
+                    </div>
+</div>
+<div class="mt-12 bg-white/10 p-6 rounded-2xl backdrop-blur-md">
+<div class="text-3xl font-display-lg">+300%</div>
+<div class="text-sm opacity-80">Productivity Uplift</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Live Workflow Preview (Animated Pipeline) -->
+<section class="py-32 px-margin-mobile md:px-margin-desktop bg-background">
+<div class="max-w-5xl mx-auto text-center mb-20">
+<h2 class="font-display-lg text-display-lg text-on-surface mb-4">Live Pipeline Visualization</h2>
+<p class="text-on-surface-variant">The engine behind 10,000+ monthly hires.</p>
+</div>
+<div class="max-w-7xl mx-auto relative flex flex-col md:flex-row items-center justify-between gap-4">
+<!-- Stage 1 -->
+<div class="w-full md:w-1/5 glass-panel p-6 rounded-2xl flex flex-col items-center text-center gap-4 border-b-4 border-primary/20">
+<span class="material-symbols-outlined text-primary">search</span>
+<div class="font-bold text-sm">SEARCH</div>
+<div class="text-[10px] text-on-surface-variant opacity-60">AI scanning 800M+ nodes</div>
+</div>
+<div class="hidden md:block flex-grow h-[2px] bg-gradient-to-r from-primary/20 to-primary/40 relative overflow-hidden">
+<div class="absolute inset-0 bg-primary w-1/4 animate-[dash_2s_linear_infinite]"></div>
+</div>
+<!-- Stage 2 -->
+<div class="w-full md:w-1/5 glass-panel p-6 rounded-2xl flex flex-col items-center text-center gap-4 border-b-4 border-primary/40">
+<span class="material-symbols-outlined text-primary">verified</span>
+<div class="font-bold text-sm">ENRICH</div>
+<div class="text-[10px] text-on-surface-variant opacity-60">Validating career intent</div>
+</div>
+<div class="hidden md:block flex-grow h-[2px] bg-gradient-to-r from-primary/40 to-primary/60 relative overflow-hidden">
+<div class="absolute inset-0 bg-primary w-1/4 animate-[dash_2s_linear_infinite_0.5s]"></div>
+</div>
+<!-- Stage 3 -->
+<div class="w-full md:w-1/5 glass-panel p-6 rounded-2xl flex flex-col items-center text-center gap-4 border-b-4 border-primary/60">
+<span class="material-symbols-outlined text-primary">forward_to_inbox</span>
+<div class="font-bold text-sm">OUTREACH</div>
+<div class="text-[10px] text-on-surface-variant opacity-60">Hyper-personalized sends</div>
+</div>
+<div class="hidden md:block flex-grow h-[2px] bg-gradient-to-r from-primary/60 to-primary/80 relative overflow-hidden">
+<div class="absolute inset-0 bg-primary w-1/4 animate-[dash_2s_linear_infinite_1s]"></div>
+</div>
+<!-- Stage 4 -->
+<div class="w-full md:w-1/5 glass-panel p-6 rounded-2xl flex flex-col items-center text-center gap-4 border-b-4 border-primary">
+<span class="material-symbols-outlined text-primary">how_to_reg</span>
+<div class="font-bold text-sm">REPLY</div>
+<div class="text-[10px] text-on-surface-variant opacity-60">High-intent conversation</div>
+</div>
+</div>
+</section>
+<!-- Recruiting Outcomes -->
+<section class="py-32 px-margin-mobile md:px-margin-desktop bg-surface-container-low">
+<div class="max-w-7xl mx-auto">
+<h2 class="font-display-lg text-display-lg text-center mb-16">Unprecedented Efficiency</h2>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+<div class="bg-white p-10 rounded-[40px] text-center ambient-shadow transform hover:-translate-y-2 transition-transform duration-500">
+<div class="text-5xl font-bold text-primary mb-4 metric-counter">3X</div>
+<h4 class="font-headline-md text-on-surface mb-2">Faster Discovery</h4>
+<p class="text-on-surface-variant text-sm">Reduce time-to-source from days to minutes.</p>
+</div>
+<div class="bg-white p-10 rounded-[40px] text-center ambient-shadow transform hover:-translate-y-2 transition-transform duration-500 delay-75">
+<div class="text-5xl font-bold text-primary mb-4 metric-counter">45%</div>
+<h4 class="font-headline-md text-on-surface mb-2">Lower Cost/Hire</h4>
+<p class="text-on-surface-variant text-sm">Cut agency fees and manual labor overhead.</p>
+</div>
+<div class="bg-white p-10 rounded-[40px] text-center ambient-shadow transform hover:-translate-y-2 transition-transform duration-500 delay-150">
+<div class="text-5xl font-bold text-primary mb-4 metric-counter">82%</div>
+<h4 class="font-headline-md text-on-surface mb-2">Reply Rate</h4>
+<p class="text-on-surface-variant text-sm">Engineered outreach that actually converts.</p>
+</div>
+</div>
+</div>
+</section>
+<!-- Enterprise Infrastructure -->
+<section class="py-32 px-margin-mobile md:px-margin-desktop bg-background overflow-hidden relative">
+<div class="max-w-7xl mx-auto relative z-10">
+<div class="text-center mb-20">
+<h2 class="font-display-lg text-display-lg text-on-surface mb-4">Enterprise-Grade Infrastructure</h2>
+<p class="text-on-surface-variant">Built for the security and scale of global corporations.</p>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+<div class="p-8 glass-panel rounded-3xl animate-float" style="animation-delay: 0s;">
+<span class="material-symbols-outlined text-primary text-[40px] mb-6">security</span>
+<h4 class="font-headline-md mb-4">SOC2 Type II</h4>
+<p class="text-on-surface-variant text-sm">Bank-level data protection and rigorous compliance standards for your talent data.</p>
+</div>
+<div class="p-8 glass-panel rounded-3xl animate-float" style="animation-delay: 1s;">
+<span class="material-symbols-outlined text-primary text-[40px] mb-6">database</span>
+<h4 class="font-headline-md mb-4">Elastic Scalability</h4>
+<p class="text-on-surface-variant text-sm">Scale from 1 to 100,000+ hires per year without hitting architectural bottlenecks.</p>
+</div>
+<div class="p-8 glass-panel rounded-3xl animate-float" style="animation-delay: 2s;">
+<span class="material-symbols-outlined text-primary text-[40px] mb-6">api</span>
+<h4 class="font-headline-md mb-4">Custom AI Infra</h4>
+<p class="text-on-surface-variant text-sm">Deploy proprietary models or integrate existing enterprise tech stacks via robust APIs.</p>
+</div>
+</div>
+</div>
+</section>
+<!-- Pricing -->
+<section class="py-32 px-margin-mobile md:px-margin-desktop bg-surface-container-lowest" id="pricing">
+<div class="max-w-7xl mx-auto">
+<div class="text-center mb-16">
+<h2 class="font-display-lg text-display-lg text-on-surface mb-6">Transparent Infrastructure Pricing</h2>
+<!-- Segmented Control -->
+<div class="inline-flex p-1 bg-surface-container-low rounded-full mb-12">
+<button class="px-8 py-2 bg-white rounded-full text-sm font-semibold shadow-sm text-primary">Source</button>
+<button class="px-8 py-2 rounded-full text-sm font-semibold text-on-surface-variant hover:text-on-surface transition-colors">Interview</button>
+<button class="px-8 py-2 rounded-full text-sm font-semibold text-on-surface-variant hover:text-on-surface transition-colors">Engage</button>
+</div>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl mx-auto">
+<!-- Starter -->
+<div class="p-10 rounded-[32px] bg-white border border-outline-variant/30 flex flex-col transform hover:scale-[1.02] transition-transform duration-300">
+<h3 class="font-headline-lg text-xl mb-2">Team</h3>
+<div class="mb-8">
+<span class="text-4xl font-bold text-on-surface">$299</span>
+<span class="text-on-surface-variant">/mo</span>
+</div>
+<ul class="space-y-4 mb-12 flex-grow">
+<li class="flex items-center gap-3 text-sm text-on-surface-variant">
+<span class="material-symbols-outlined text-primary text-base">check</span> 3 User Seats
+                    </li>
+<li class="flex items-center gap-3 text-sm text-on-surface-variant">
+<span class="material-symbols-outlined text-primary text-base">check</span> 5,000 AI Credits
+                    </li>
+<li class="flex items-center gap-3 text-sm text-on-surface-variant">
+<span class="material-symbols-outlined text-primary text-base">check</span> Standard Integrations
+                    </li>
+</ul>
+<button class="w-full py-4 rounded-full bg-surface-container-low font-bold hover:bg-surface-container-high transition-colors">Start Deploying</button>
+</div>
+<!-- Professional -->
+<div class="p-10 rounded-[32px] bg-primary text-on-primary flex flex-col relative transform scale-105 shadow-2xl shadow-primary/30 z-10">
+<div class="absolute top-0 right-0 bg-white/20 text-[10px] font-bold uppercase px-4 py-1 rounded-bl-2xl rounded-tr-[32px] tracking-widest">Recommended</div>
+<h3 class="font-headline-lg text-xl mb-2">Growth</h3>
+<div class="mb-8 text-white">
+<span class="text-4xl font-bold">$799</span>
+<span class="opacity-70">/mo</span>
+</div>
+<ul class="space-y-4 mb-12 flex-grow">
+<li class="flex items-center gap-3 text-sm">
+<span class="material-symbols-outlined text-primary-fixed text-base">check</span> 10 User Seats
+                    </li>
+<li class="flex items-center gap-3 text-sm">
+<span class="material-symbols-outlined text-primary-fixed text-base">check</span> Unlimited AI Search
+                    </li>
+<li class="flex items-center gap-3 text-sm">
+<span class="material-symbols-outlined text-primary-fixed text-base">check</span> WhatsApp Workflows
+                    </li>
+<li class="flex items-center gap-3 text-sm">
+<span class="material-symbols-outlined text-primary-fixed text-base">check</span> Custom AI Fine-tuning
+                    </li>
+</ul>
+<button class="w-full py-4 rounded-full bg-white text-primary font-bold hover:bg-surface-bright transition-colors shadow-lg">Scale Faster</button>
+</div>
+<!-- Enterprise -->
+<div class="p-10 rounded-[32px] bg-white border border-outline-variant/30 flex flex-col transform hover:scale-[1.02] transition-transform duration-300">
+<h3 class="font-headline-lg text-xl mb-2">Enterprise</h3>
+<div class="mb-8">
+<span class="text-4xl font-bold text-on-surface">Custom</span>
+</div>
+<ul class="space-y-4 mb-12 flex-grow">
+<li class="flex items-center gap-3 text-sm text-on-surface-variant">
+<span class="material-symbols-outlined text-primary text-base">check</span> Unlimited Seats
+                    </li>
+<li class="flex items-center gap-3 text-sm text-on-surface-variant">
+<span class="material-symbols-outlined text-primary text-base">check</span> Dedicated Node Hosting
+                    </li>
+<li class="flex items-center gap-3 text-sm text-on-surface-variant">
+<span class="material-symbols-outlined text-primary text-base">check</span> 24/7 Priority Infra Support
+                    </li>
+</ul>
+<button class="w-full py-4 rounded-full bg-surface-container-low font-bold hover:bg-surface-container-high transition-colors">Contact Architecture</button>
+</div>
+</div>
+</div>
+</section>
+<!-- Final CTA -->
+<section class="py-48 px-margin-mobile md:px-margin-desktop bg-primary relative overflow-hidden text-center text-on-primary">
+<div class="absolute inset-0 opacity-20 pointer-events-none">
+<div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[1200px] h-[1200px] bg-white rounded-full blur-[200px]"></div>
+</div>
+<div class="max-w-4xl mx-auto relative z-10">
+<h2 class="font-display-lg text-[40px] md:text-[64px] mb-8 leading-tight">Ready to build the future of your talent team?</h2>
+<p class="font-body-lg mb-12 opacity-80 max-w-2xl mx-auto text-lg">Join 500+ high-growth companies deploying AI infrastructure for recruiting.</p>
+<div class="flex flex-col sm:flex-row items-center justify-center gap-6">
+<button class="w-full sm:w-auto bg-white text-primary font-bold px-12 py-5 rounded-full hover:bg-surface-bright transition-all hover:scale-105 shadow-2xl">Deploy Now - Free Trial</button>
+<button class="w-full sm:w-auto bg-white/10 text-white font-bold px-12 py-5 rounded-full hover:bg-white/20 border border-white/20 transition-all">Book Technical Demo</button>
+</div>
+</div>
+</section>
+<!-- Footer -->
+<footer class="w-full py-20 bg-surface-container-lowest border-t border-outline-variant/30">
+<div class="grid grid-cols-1 md:grid-cols-4 gap-gutter px-margin-mobile md:px-margin-desktop max-w-7xl mx-auto">
+<div class="col-span-1">
+<img alt="Huntlo Logo" class="h-8 w-auto mb-6 opacity-80 grayscale" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCYFPOzNNK21A0vog7-ypCRsaY6b4qDvxINoYKD2H3DX3YiXJrK6QziQPAlDKaVmZpy2GhnrRha9RFvBzDh7isHvWDyfQwXavfykCqtignW8jEqWGvpoDRQFZEGEQI21LSAUu2REV-S3iPmM2FzqkhtE3V81VdxIkShSmjdzlZOzYkIUF3fddc4_F7lA3M7-LIIaaTyEDAcWjxqj5k-Zi0ygjW68eYB8hqpAGhF-v8cyLo2sm1BCVO3a3xk7hLW_gSI-ffwigshCz7L"/>
+<p class="text-xs text-on-surface-variant leading-relaxed">The operating layer for modern recruiting. High-performance infrastructure for global talent acquisition.</p>
+</div>
+<div class="col-span-1 flex flex-col gap-4">
+<h4 class="text-xs font-bold uppercase tracking-widest text-on-surface">Infrastructure</h4>
+<a class="text-sm text-on-surface-variant hover:text-primary transition-colors" href="#">Huntlo Source</a>
+<a class="text-sm text-on-surface-variant hover:text-primary transition-colors" href="#">Huntlo Agent</a>
+<a class="text-sm text-on-surface-variant hover:text-primary transition-colors" href="#">API Docs</a>
+</div>
+<div class="col-span-1 flex flex-col gap-4">
+<h4 class="text-xs font-bold uppercase tracking-widest text-on-surface">Company</h4>
+<a class="text-sm text-on-surface-variant hover:text-primary transition-colors" href="#">Architecture</a>
+<a class="text-sm text-on-surface-variant hover:text-primary transition-colors" href="#">Security</a>
+<a class="text-sm text-on-surface-variant hover:text-primary transition-colors" href="#">Status</a>
+</div>
+<div class="col-span-1 flex flex-col gap-4">
+<h4 class="text-xs font-bold uppercase tracking-widest text-on-surface">Support</h4>
+<a class="text-sm text-on-surface-variant hover:text-primary transition-colors" href="#">Help Center</a>
+<a class="text-sm text-on-surface-variant hover:text-primary transition-colors" href="#">Contact Sales</a>
+<a class="text-sm text-on-surface-variant hover:text-primary transition-colors" href="#">Privacy</a>
+</div>
+</div>
+<div class="max-w-7xl mx-auto px-margin-mobile md:px-margin-desktop mt-20 pt-8 border-t border-outline-variant/10 text-[10px] text-on-surface-variant opacity-60 text-center uppercase tracking-[0.2em]">
+        © 2024 Huntlo AI Infrastructure. All rights reserved.
+    </div>
+</footer>
+</body></html>

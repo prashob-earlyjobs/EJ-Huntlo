@@ -33,10 +33,51 @@ const sanitizeUser = (user) => ({
     typeof user.planId === "string" && user.planId.trim()
       ? user.planId.trim()
       : "starter",
+  onboardingCompleted: Boolean(user.onboardingCompleted),
+  onboarding: {
+    companyType:
+      typeof user.onboardingCompanyType === "string" ? user.onboardingCompanyType : "",
+    hiringChallenges: Array.isArray(user.onboardingHiringChallenges)
+      ? user.onboardingHiringChallenges
+      : [],
+    outreachChannels: Array.isArray(user.onboardingOutreachChannels)
+      ? user.onboardingOutreachChannels
+      : [],
+    hiringVolume:
+      typeof user.onboardingHiringVolume === "string" ? user.onboardingHiringVolume : "",
+    completedAt: user.onboardingCompletedAt || null,
+  },
   passwordChangedAt: user.passwordChangedAt || null,
   createdAt: user.createdAt,
   updatedAt: user.updatedAt,
 });
+
+const VALID_COMPANY_TYPES = new Set([
+  "recruitment_agency",
+  "startup",
+  "enterprise_gcc",
+  "staffing_firm",
+  "executive_search",
+]);
+
+const VALID_HIRING_CHALLENGES = new Set([
+  "finding_qualified",
+  "low_response",
+  "manual_outreach",
+  "screening",
+  "followups",
+  "high_volume",
+]);
+
+const VALID_OUTREACH_CHANNELS = new Set([
+  "whatsapp",
+  "email",
+  "linkedin",
+  "calls",
+  "sms",
+]);
+
+const VALID_HIRING_VOLUMES = new Set(["1_5", "5_20", "20_100", "100_plus"]);
 
 const issueAuthPayload = async (req, user) => {
   const tokenId = randomUUID();
@@ -914,6 +955,89 @@ const updateMyProfile = async (req, res) => {
   }
 };
 
+const completeMyOnboarding = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid session",
+      });
+    }
+
+    const user = await User.findById(uid);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    const body = req.body || {};
+    const companyType =
+      typeof body.companyType === "string" ? body.companyType.trim() : "";
+    const hiringVolume =
+      typeof body.hiringVolume === "string" ? body.hiringVolume.trim() : "";
+
+    if (!VALID_COMPANY_TYPES.has(companyType)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid company type",
+      });
+    }
+    if (!VALID_HIRING_VOLUMES.has(hiringVolume)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid hiring volume",
+      });
+    }
+
+    const hiringChallenges = Array.isArray(body.hiringChallenges)
+      ? body.hiringChallenges
+          .filter((v) => typeof v === "string" && VALID_HIRING_CHALLENGES.has(v.trim()))
+          .map((v) => v.trim())
+      : [];
+    const outreachChannels = Array.isArray(body.outreachChannels)
+      ? body.outreachChannels
+          .filter((v) => typeof v === "string" && VALID_OUTREACH_CHANNELS.has(v.trim()))
+          .map((v) => v.trim())
+      : [];
+
+    if (hiringChallenges.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Select at least one hiring challenge",
+      });
+    }
+    if (outreachChannels.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Select at least one outreach channel",
+      });
+    }
+
+    user.onboardingCompanyType = companyType;
+    user.onboardingHiringChallenges = hiringChallenges;
+    user.onboardingOutreachChannels = outreachChannels;
+    user.onboardingHiringVolume = hiringVolume;
+    user.onboardingCompleted = true;
+    user.onboardingCompletedAt = new Date();
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Onboarding completed",
+      user: sanitizeUser(user),
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to save onboarding",
+      error: error.message,
+    });
+  }
+};
+
 const changeMyPassword = async (req, res) => {
   try {
     const uid = req.auth?.userId;
@@ -1013,5 +1137,6 @@ module.exports = {
   logoutUser,
   getMyProfile,
   updateMyProfile,
+  completeMyOnboarding,
   changeMyPassword,
 };

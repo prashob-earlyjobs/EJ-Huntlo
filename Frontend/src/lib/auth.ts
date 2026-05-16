@@ -7,6 +7,7 @@ export type StoredAuth = {
   email: string;
   role: "user" | "admin";
   credits?: number;
+  onboardingCompleted?: boolean;
   passwordChangedAt?: string;
   token: string;
   createdAt?: string;

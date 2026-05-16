@@ -1,0 +1,36 @@
+@import "./landing.css";
+
+.onboarding-page {
+  --landing-primary: #0050cb;
+  --landing-background: #f9f9ff;
+  --landing-on-surface: #141b2b;
+  --landing-on-surface-variant: #424656;
+  --landing-outline-variant: #c2c6d8;
+
+  background-color: var(--landing-background);
+  color: var(--landing-on-surface);
+  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+}
+
+.onboarding-page h1,
+.onboarding-page h2,
+.onboarding-page h3,
+.onboarding-page h4 {
+  font-family: var(--font-syne), ui-sans-serif, system-ui, sans-serif;
+}
+
+.onboarding-glow-shadow {
+  box-shadow: 0 4px 20px rgba(80, 95, 118, 0.1);
+}
+
+.onboarding-glass-panel {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.onboarding-option-selected {
+  border-color: #0050cb !important;
+  background-color: #e9edff !important;
+  box-shadow: 0 0 0 1px rgba(0, 80, 203, 1);
+}

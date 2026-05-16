@@ -1,0 +1,450 @@
+"use client";
+
+import type { CandidateFilterForm } from "@/lib/sourcingFilters";
+
+type Props = {
+  open: boolean;
+  form: CandidateFilterForm;
+  searchPrompt?: string;
+  onChange: (patch: Partial<CandidateFilterForm>) => void;
+  onClose: () => void;
+  onApply: () => void;
+  applyLoading?: boolean;
+  title?: string;
+};
+
+const inputClass =
+  "mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black";
+const smallInputClass =
+  "rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black";
+
+export function CandidateFilterDrawer({
+  open,
+  form,
+  searchPrompt = "",
+  onChange,
+  onClose,
+  onApply,
+  applyLoading = false,
+  title = "Set search filters",
+}: Props) {
+  const set = (patch: Partial<CandidateFilterForm>) => onChange(patch);
+
+  return (
+    <div
+      className={`fixed inset-0 z-110 transition-opacity duration-300 ${
+        open ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
+      }`}
+      role="dialog"
+      aria-modal="true"
+      aria-hidden={!open}
+    >
+      <button
+        type="button"
+        aria-label="Close filter panel"
+        className="absolute inset-0 bg-slate-900/40"
+        onClick={onClose}
+      />
+      <aside
+        className={`absolute right-0 top-0 h-full w-full max-w-md overflow-y-auto border-l border-slate-200 bg-white shadow-2xl transition-transform duration-300 ease-out ${
+          open ? "translate-x-0" : "translate-x-full"
+        }`}
+      >
+        <div className="sticky top-0 z-10 border-b border-slate-200 bg-white px-5 py-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                Candidate filters
+              </p>
+              <h3 className="mt-1 text-lg font-semibold text-black">{title}</h3>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+              aria-label="Close filter panel"
+            >
+              <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
+                <path
+                  d="M18 6L6 18M6 6L18 18"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div className="space-y-4 px-4 py-4">
+          {searchPrompt.trim() ? (
+            <section className="rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                AI prompt
+              </p>
+              <p className="mt-1 text-sm leading-relaxed text-slate-700">{searchPrompt}</p>
+            </section>
+          ) : null}
+
+          <section className="rounded-xl border border-slate-200">
+            <h4 className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold uppercase tracking-[0.12em] text-slate-700">
+              General
+            </h4>
+            <div className="space-y-4 px-4 py-4">
+              <label className="block text-sm text-slate-700">
+                Search Type
+                <select
+                  className={inputClass}
+                  value={form.searchType}
+                  onChange={(e) => set({ searchType: e.target.value })}
+                >
+                  <option value="">—</option>
+                  <option value="Flexible">Flexible</option>
+                  <option value="Strict">Strict</option>
+                </select>
+              </label>
+              <label className="block text-sm text-slate-700">
+                Select Region
+                <input
+                  type="text"
+                  className={inputClass}
+                  value={form.selectRegion}
+                  onChange={(e) => set({ selectRegion: e.target.value })}
+                />
+              </label>
+              <label className="block text-sm text-slate-700">
+                Current Title
+                <input
+                  type="text"
+                  className={inputClass}
+                  value={form.currentTitle}
+                  onChange={(e) => set({ currentTitle: e.target.value })}
+                />
+              </label>
+              <label className="block text-sm text-slate-700">
+                Years of Experience
+                <div className="mt-1 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+                  <input
+                    type="number"
+                    className={smallInputClass}
+                    value={form.yearsExpMin}
+                    onChange={(e) => set({ yearsExpMin: e.target.value })}
+                  />
+                  <span className="text-slate-500">to</span>
+                  <input
+                    type="number"
+                    className={smallInputClass}
+                    value={form.yearsExpMax}
+                    onChange={(e) => set({ yearsExpMax: e.target.value })}
+                  />
+                </div>
+              </label>
+              <label className="block text-sm text-slate-700">
+                Keyword (Skills)
+                <input
+                  type="text"
+                  className={inputClass}
+                  value={form.keywordSkills}
+                  onChange={(e) => set({ keywordSkills: e.target.value })}
+                />
+              </label>
+              <label className="block text-sm text-slate-700">
+                Seniority Level
+                <input
+                  type="text"
+                  placeholder="e.g. Senior"
+                  className={inputClass}
+                  value={form.seniorityLevel}
+                  onChange={(e) => set({ seniorityLevel: e.target.value })}
+                />
+              </label>
+            </div>
+          </section>
+
+          <section className="rounded-xl border border-slate-200">
+            <h4 className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold uppercase tracking-[0.12em] text-slate-700">
+              Location
+            </h4>
+            <div className="space-y-4 px-4 py-4">
+              <label className="block text-sm text-slate-700">
+                Location
+                <input
+                  type="text"
+                  className={inputClass}
+                  value={form.location}
+                  onChange={(e) => set({ location: e.target.value })}
+                />
+              </label>
+              <label className="flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-slate-300"
+                  checked={form.searchOtherRegions}
+                  onChange={(e) => set({ searchOtherRegions: e.target.checked })}
+                />
+                Search other regions too
+              </label>
+            </div>
+          </section>
+
+          <section className="rounded-xl border border-slate-200">
+            <h4 className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold uppercase tracking-[0.12em] text-slate-700">
+              Industry
+            </h4>
+            <div className="px-4 py-4">
+              <label className="block text-sm text-slate-700">
+                Industry
+                <input
+                  type="text"
+                  placeholder="e.g. IT Services"
+                  className={inputClass}
+                  value={form.industry}
+                  onChange={(e) => set({ industry: e.target.value })}
+                />
+              </label>
+            </div>
+          </section>
+
+          <section className="rounded-xl border border-slate-200">
+            <h4 className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold uppercase tracking-[0.12em] text-slate-700">
+              Education
+            </h4>
+            <div className="space-y-4 px-4 py-4">
+              <input
+                type="text"
+                placeholder="School"
+                className={inputClass.replace("mt-1 ", "")}
+                value={form.school}
+                onChange={(e) => set({ school: e.target.value })}
+              />
+              <input
+                type="text"
+                placeholder="Field of Study"
+                className={inputClass.replace("mt-1 ", "")}
+                value={form.fieldOfStudy}
+                onChange={(e) => set({ fieldOfStudy: e.target.value })}
+              />
+              <input
+                type="text"
+                placeholder="Degree"
+                className={inputClass.replace("mt-1 ", "")}
+                value={form.degree}
+                onChange={(e) => set({ degree: e.target.value })}
+              />
+              <input
+                type="text"
+                placeholder="Certifications"
+                className={inputClass.replace("mt-1 ", "")}
+                value={form.certifications}
+                onChange={(e) => set({ certifications: e.target.value })}
+              />
+              <input
+                type="text"
+                placeholder="Honors & Awards"
+                className={inputClass.replace("mt-1 ", "")}
+                value={form.honorsAwards}
+                onChange={(e) => set({ honorsAwards: e.target.value })}
+              />
+            </div>
+          </section>
+
+          <section className="rounded-xl border border-slate-200">
+            <h4 className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold uppercase tracking-[0.12em] text-slate-700">
+              Company
+            </h4>
+            <div className="space-y-4 px-4 py-4">
+              <input
+                type="text"
+                placeholder="Current Company"
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
+                value={form.currentCompany}
+                onChange={(e) => set({ currentCompany: e.target.value })}
+              />
+              <input
+                type="text"
+                placeholder="Years at Company"
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
+                value={form.yearsAtCompany}
+                onChange={(e) => set({ yearsAtCompany: e.target.value })}
+              />
+              <input
+                type="text"
+                placeholder="Past Company"
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
+                value={form.pastCompany}
+                onChange={(e) => set({ pastCompany: e.target.value })}
+              />
+              <input
+                type="text"
+                placeholder="Past Title"
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
+                value={form.pastTitle}
+                onChange={(e) => set({ pastTitle: e.target.value })}
+              />
+              <input
+                type="text"
+                placeholder="Company Type"
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
+                value={form.companyType}
+                onChange={(e) => set({ companyType: e.target.value })}
+              />
+              <input
+                type="text"
+                placeholder="Company Headquarters"
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
+                value={form.companyHeadquarters}
+                onChange={(e) => set({ companyHeadquarters: e.target.value })}
+              />
+              <input
+                type="text"
+                placeholder="Company Focus"
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
+                value={form.companyFocus}
+                onChange={(e) => set({ companyFocus: e.target.value })}
+              />
+              <input
+                type="text"
+                placeholder="Funding Stage"
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
+                value={form.fundingStage}
+                onChange={(e) => set({ fundingStage: e.target.value })}
+              />
+              <label className="block text-sm text-slate-700">
+                Headcount Growth (6-month %)
+                <div className="mt-1 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+                  <input
+                    type="number"
+                    placeholder="Min"
+                    className={smallInputClass}
+                    value={form.headcountGrowthMin}
+                    onChange={(e) => set({ headcountGrowthMin: e.target.value })}
+                  />
+                  <span className="text-slate-500">to</span>
+                  <input
+                    type="number"
+                    placeholder="Max"
+                    className={smallInputClass}
+                    value={form.headcountGrowthMax}
+                    onChange={(e) => set({ headcountGrowthMax: e.target.value })}
+                  />
+                </div>
+              </label>
+              <label className="block text-sm text-slate-700">
+                Company Headcount
+                <div className="mt-1 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+                  <input
+                    type="number"
+                    placeholder="Min"
+                    className={smallInputClass}
+                    value={form.companyHeadcountMin}
+                    onChange={(e) => set({ companyHeadcountMin: e.target.value })}
+                  />
+                  <span className="text-slate-500">to</span>
+                  <input
+                    type="number"
+                    placeholder="Max"
+                    className={smallInputClass}
+                    value={form.companyHeadcountMax}
+                    onChange={(e) => set({ companyHeadcountMax: e.target.value })}
+                  />
+                </div>
+              </label>
+              <input
+                type="text"
+                placeholder="Annual Revenue"
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
+                value={form.annualRevenue}
+                onChange={(e) => set({ annualRevenue: e.target.value })}
+              />
+              <input
+                type="text"
+                placeholder="Total Funding Raised"
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
+                value={form.totalFundingRaised}
+                onChange={(e) => set({ totalFundingRaised: e.target.value })}
+              />
+              <label className="block text-sm text-slate-700">
+                Year Founded
+                <div className="mt-1 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+                  <input
+                    type="number"
+                    placeholder="Min"
+                    className={smallInputClass}
+                    value={form.yearFoundedMin}
+                    onChange={(e) => set({ yearFoundedMin: e.target.value })}
+                  />
+                  <span className="text-slate-500">to</span>
+                  <input
+                    type="number"
+                    placeholder="Max"
+                    className={smallInputClass}
+                    value={form.yearFoundedMax}
+                    onChange={(e) => set({ yearFoundedMax: e.target.value })}
+                  />
+                </div>
+              </label>
+              <input
+                type="text"
+                placeholder="Recently Funded"
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
+                value={form.recentlyFunded}
+                onChange={(e) => set({ recentlyFunded: e.target.value })}
+              />
+            </div>
+          </section>
+
+          <section className="rounded-xl border border-slate-200">
+            <h4 className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold uppercase tracking-[0.12em] text-slate-700">
+              Nuances
+            </h4>
+            <div className="space-y-2 px-4 py-4 text-sm text-slate-700">
+              {(
+                [
+                  ["frequentJobSwitch", "Frequent Job Switch"],
+                  ["recentlyChangedJob", "Recently Changed Job"],
+                  ["largeEmploymentGaps", "Large Employment Gaps"],
+                  ["noCareerProgression", "No Career Progression"],
+                  ["grammarSpellingIssues", "Grammar & Spelling Issues in Profile"],
+                  ["overlappingFullTimeJobs", "Overlapping Full-Time Jobs"],
+                  ["unspecifiedDatesOrLocations", "Unspecified Dates or Locations"],
+                ] as const
+              ).map(([key, label]) => (
+                <label key={key} className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-slate-300"
+                    checked={form[key]}
+                    onChange={(e) => set({ [key]: e.target.checked } as Partial<CandidateFilterForm>)}
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+          </section>
+        </div>
+
+        <div className="sticky bottom-0 border-t border-slate-200 bg-white px-4 py-3">
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={applyLoading}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={onApply}
+              disabled={applyLoading}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-black bg-black px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-900 disabled:opacity-60"
+            >
+                  {applyLoading ? "Creating search…" : "Apply filters"}
+            </button>
+          </div>
+        </div>
+      </aside>
+    </div>
+  );
+}

@@ -117,6 +117,84 @@ const createSourcingSession = async (body) => {
 };
 
 /**
+ * PATCH /wl/sourcing-session/:sessionId — update session filters/queries before profile fetch.
+ * @param {string} sessionId
+ * @param {object} body — session fields (queries, jdDetail, sessionTitle, nuances, …)
+ */
+const updateSourcingSession = async (sessionId, body) => {
+  const { baseUrl, apiKey } = getFutureJobsConfig();
+
+  try {
+    assertFutureJobsApiKey(apiKey);
+  } catch (e) {
+    logOutbound("futurejobs", "updateSourcingSession aborted — missing API key", {});
+    throw e;
+  }
+
+  const sid = String(sessionId || "").trim();
+  if (!sid) {
+    const err = new Error("sessionId is required");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const url = `${baseUrl}/wl/sourcing-session/${encodeURIComponent(sid)}`;
+  const authHeaders = buildFjAuthHeaders(apiKey);
+
+  logOutbound("futurejobs", "request PATCH /wl/sourcing-session/:id", {
+    url,
+    sessionId: sid,
+    bodyPreview: safeJsonPreview(body),
+  });
+
+  const started = Date.now();
+  const res = await fetch(url, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders,
+    },
+    body: JSON.stringify(body),
+  });
+
+  const elapsedMs = Date.now() - started;
+  const text = await res.text();
+  let data;
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { raw: text, parseError: true };
+  }
+
+  if (!res.ok) {
+    logOutbound("futurejobs", "update session response error", {
+      httpStatus: res.status,
+      elapsedMs,
+      message: data.message || data.status || data.error,
+      bodyPreview: safeJsonPreview(data),
+    });
+    const msg =
+      data.message ||
+      data.status ||
+      data.error ||
+      `Future Jobs update session HTTP ${res.status}`;
+    const err = new Error(msg);
+    err.statusCode = res.status === 404 ? 404 : 502;
+    err.details = data;
+    throw err;
+  }
+
+  logOutbound("futurejobs", "update session response ok", {
+    httpStatus: res.status,
+    elapsedMs,
+    status: data.status,
+    sessionId: sid,
+  });
+
+  return data;
+};
+
+/**
  * GET /wl/sourcing-session/:sessionId/profiles — paginated profiles for a session.
  * @param {string} sessionId
  * @param {{ page?: number, limit?: number }} [opts]
@@ -695,6 +773,7 @@ const scoutPeopleRevealContact = async (linkedinProfileUrl, revealType) => {
 
 module.exports = {
   createSourcingSession,
+  updateSourcingSession,
   getSourcingSessionProfiles,
   getSourcingSessionProfilesWhenReady,
   fetchMoreSourcingSession,
