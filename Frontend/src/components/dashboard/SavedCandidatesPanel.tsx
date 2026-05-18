@@ -15,6 +15,7 @@ import {
   type SessionResultCardData,
   type SessionResultHighlight,
 } from "@/components/dashboard/SessionResultCandidateCard";
+import { RevealContactIconButton } from "@/components/dashboard/RevealContactIconButton";
 import { SavedCandidatesSkeleton } from "@/components/dashboard/SavedCandidatesSkeleton";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 type SavedRawDoc = {
@@ -67,7 +68,7 @@ export type SavedCandidateRow = {
   saveListId?: string;
 };
 
-function SavedIconAction({
+export function SavedIconAction({
   tip,
   children,
 }: {
@@ -88,7 +89,7 @@ function listLabel(saveListId: string, saveLists: SaveListRow[]): string {
 
 type SavedListSelectOption = { value: string; label: string };
 
-function SavedListSelect({
+export function SavedListSelect({
   value,
   onChange,
   disabled,
@@ -195,6 +196,8 @@ type Props = {
   saveBusyKeys: string[];
   revealedEmailKeys: string[];
   revealedPhoneKeys: string[];
+  isRevealEmailBusy: (candidate: SavedCandidateRow) => boolean;
+  isRevealPhoneBusy: (candidate: SavedCandidateRow) => boolean;
   onOpenDetail?: (candidate: SavedCandidateRow) => void;
   onUnsave: (candidate: SavedCandidateRow) => void;
   onMoveList: (candidate: SavedCandidateRow, listId: string) => void;
@@ -230,6 +233,8 @@ export function SavedCandidatesPanel({
   saveBusyKeys,
   revealedEmailKeys,
   revealedPhoneKeys,
+  isRevealEmailBusy,
+  isRevealPhoneBusy,
   onOpenDetail,
   onUnsave,
   onMoveList,
@@ -275,7 +280,8 @@ export function SavedCandidatesPanel({
   }, [listsMenuOpen]);
 
   return (
-    <section className="dashboard-card flex h-full min-w-0 max-w-full w-full flex-col p-6">
+    <section className="dashboard-card dashboard-card--fill flex h-full min-w-0 max-w-full w-full flex-col p-6">
+      <div className="dashboard-card-panel-header">
       <div className="dashboard-results-toolbar dashboard-results-toolbar--saved">
         <div>
           <h3 className="flex items-center gap-2 dashboard-section-title">
@@ -394,6 +400,9 @@ export function SavedCandidatesPanel({
           </div>
         </div>
       </div>
+      </div>
+
+      <div className="dashboard-card-body-scroll">
       {loading ? (
         <SavedCandidatesSkeleton count={6} />
       ) : totalSavedCount === 0 ? (
@@ -471,42 +480,30 @@ export function SavedCandidatesPanel({
                         role="group"
                         aria-label="Saved candidate actions"
                       >
-                        <SavedIconAction
+                        <RevealContactIconButton
+                          icon="mail"
                           tip={
                             emailRevealed
                               ? getDisplayedEmail(candidate) || "Email"
                               : "Reveal email"
                           }
-                        >
-                          <button
-                            type="button"
-                            aria-label="Reveal email"
-                            onClick={() => onRevealEmail(candidate)}
-                            className={`dashboard-table-icon-btn dashboard-table-icon-btn--sm${
-                              emailRevealed ? " dashboard-table-icon-btn--active" : ""
-                            }`}
-                          >
-                            <MaterialIcon name="mail" />
-                          </button>
-                        </SavedIconAction>
-                        <SavedIconAction
+                          ariaLabel="Reveal email"
+                          revealed={emailRevealed}
+                          busy={isRevealEmailBusy(candidate)}
+                          onClick={() => onRevealEmail(candidate)}
+                        />
+                        <RevealContactIconButton
+                          icon="call"
                           tip={
                             phoneRevealed
                               ? getDisplayedPhone(candidate) || "Phone"
                               : "Reveal phone"
                           }
-                        >
-                          <button
-                            type="button"
-                            aria-label="Reveal phone"
-                            onClick={() => onRevealPhone(candidate)}
-                            className={`dashboard-table-icon-btn dashboard-table-icon-btn--sm${
-                              phoneRevealed ? " dashboard-table-icon-btn--active" : ""
-                            }`}
-                          >
-                            <MaterialIcon name="call" />
-                          </button>
-                        </SavedIconAction>
+                          ariaLabel="Reveal phone"
+                          revealed={phoneRevealed}
+                          busy={isRevealPhoneBusy(candidate)}
+                          onClick={() => onRevealPhone(candidate)}
+                        />
                         {candidate.linkedin_profile_url ? (
                           <SavedIconAction tip="Open LinkedIn">
                             <a
@@ -602,6 +599,7 @@ export function SavedCandidatesPanel({
         ) : null}
         </>
       )}
+      </div>
     </section>
   );
 }

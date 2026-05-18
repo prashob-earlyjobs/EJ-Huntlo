@@ -151,7 +151,6 @@ function HistoryTableSkeleton() {
               </td>
               <td>
                 <div className="dashboard-shimmer h-4 w-48 max-w-full" />
-                <div className="dashboard-shimmer mt-2 h-3 w-32" />
               </td>
               <td>
                 <div className="flex flex-wrap gap-1.5">
@@ -283,9 +282,6 @@ export function SearchHistoryTable({
                   <p className="dashboard-table-prompt line-clamp-2" title={label}>
                     {label}
                   </p>
-                  <p className="dashboard-table-meta truncate" title={row.futureJobsSessionId}>
-                    {row.futureJobsSessionId}
-                  </p>
                 </td>
                 <td className="max-w-[16rem]">
                   {row.candidatePreview.length === 0 ? (
@@ -312,9 +308,6 @@ export function SearchHistoryTable({
                 <td className="tabular-nums">
                   <span className="dashboard-table-metric">
                     {row.totalDocs != null ? row.totalDocs.toLocaleString() : "—"}
-                  </span>
-                  <span className="dashboard-table-metric-label">
-                    {row.candidateCountFirstPage} on page 1
                   </span>
                 </td>
                 <td>

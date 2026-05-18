@@ -113,7 +113,8 @@ export function PeopleScoutPanel({
   };
 
   return (
-    <section className="dashboard-card flex h-full min-w-0 max-w-full w-full flex-col p-6">
+    <section className="dashboard-card dashboard-card--fill flex h-full min-w-0 max-w-full w-full flex-col p-6">
+      <div className="dashboard-card-panel-header">
       <div className="dashboard-results-toolbar">
         <div>
           <h3 className="flex items-center gap-2 dashboard-section-title">
@@ -130,7 +131,9 @@ export function PeopleScoutPanel({
           </span>
         ) : null}
       </div>
+      </div>
 
+      <div className="dashboard-card-body-scroll">
       <div className="dashboard-people-scout-hero mt-6">
         <p className="dashboard-people-scout-greeting">
           Hey {firstName}, who are you looking for?
@@ -258,6 +261,7 @@ export function PeopleScoutPanel({
             ))}
           </div>
         )}
+      </div>
       </div>
     </section>
   );

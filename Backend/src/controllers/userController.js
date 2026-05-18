@@ -1,5 +1,7 @@
 const bcrypt = require("bcryptjs");
 const { randomUUID } = require("crypto");
+const fs = require("fs/promises");
+const path = require("path");
 const mongoose = require("mongoose");
 const User = require("../models/User");
 const CreditHistory = require("../models/CreditHistory");
@@ -26,6 +28,8 @@ const sanitizeUser = (user) => ({
   companyName: user.companyName,
   mobile: user.mobile,
   location: typeof user.location === "string" ? user.location : "",
+  profilePhotoUrl:
+    typeof user.profilePhotoUrl === "string" ? user.profilePhotoUrl.trim() : "",
   email: user.email,
   role: user.role === "admin" ? "admin" : "user",
   credits: normalizeCredits(user),
@@ -1073,6 +1077,115 @@ const completeMyOnboarding = async (req, res) => {
   }
 };
 
+const deleteStoredProfilePhoto = async (relativeUrl) => {
+  if (typeof relativeUrl !== "string" || !relativeUrl.trim()) return;
+  const normalized = relativeUrl.trim();
+  if (!normalized.startsWith("/uploads/profile-photos/")) return;
+  const filename = path.basename(normalized);
+  if (!filename || filename.includes("..")) return;
+  const fullPath = path.join(__dirname, "../uploads/profile-photos", filename);
+  try {
+    await fs.unlink(fullPath);
+  } catch {
+    // ignore missing files
+  }
+};
+
+const uploadMyProfilePhoto = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) {
+      if (req.file?.path) {
+        await fs.unlink(req.file.path).catch(() => {});
+      }
+      return res.status(400).json({
+        success: false,
+        message: "Invalid session",
+      });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "Photo file is required",
+      });
+    }
+
+    const user = await User.findById(uid);
+    if (!user) {
+      await fs.unlink(req.file.path).catch(() => {});
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    const previousPhoto = user.profilePhotoUrl;
+    const relativePath = `/uploads/profile-photos/${req.file.filename}`;
+    user.profilePhotoUrl = relativePath;
+    await user.save();
+
+    if (previousPhoto && previousPhoto !== relativePath) {
+      await deleteStoredProfilePhoto(previousPhoto);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Profile photo updated",
+      user: sanitizeUser(user),
+    });
+  } catch (error) {
+    if (req.file?.path) {
+      await fs.unlink(req.file.path).catch(() => {});
+    }
+    return res.status(500).json({
+      success: false,
+      message: "Failed to upload profile photo",
+      error: error.message,
+    });
+  }
+};
+
+const removeMyProfilePhoto = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid session",
+      });
+    }
+
+    const user = await User.findById(uid);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    const previousPhoto = user.profilePhotoUrl;
+    user.profilePhotoUrl = "";
+    await user.save();
+
+    if (previousPhoto) {
+      await deleteStoredProfilePhoto(previousPhoto);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Profile photo removed",
+      user: sanitizeUser(user),
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to remove profile photo",
+      error: error.message,
+    });
+  }
+};
+
 const changeMyPassword = async (req, res) => {
   try {
     const uid = req.auth?.userId;
@@ -1172,6 +1285,8 @@ module.exports = {
   logoutUser,
   getMyProfile,
   updateMyProfile,
+  uploadMyProfilePhoto,
+  removeMyProfilePhoto,
   completeMyOnboarding,
   changeMyPassword,
 };

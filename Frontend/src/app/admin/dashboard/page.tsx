@@ -790,11 +790,17 @@ export default function AdminDashboardPage() {
       <div className="flex min-h-screen w-full">
         <aside className="dashboard-sidebar hidden lg:block">
           <p className="dashboard-sidebar-label">Admin Panel</p>
-          <Link href="/admin/dashboard" className="mt-3 inline-block">
-            <LandingLogo className="h-10 w-auto" priority />
-          </Link>
+          <div className="dashboard-sidebar-brand mt-3">
+            <Link
+              href="/admin/dashboard"
+              className="dashboard-sidebar-brand-link"
+              aria-label="Huntlo admin home"
+            >
+              <LandingLogo className="dashboard-sidebar-logo" priority />
+            </Link>
+          </div>
 
-          <nav className="mt-8 space-y-2">
+          <nav className="dashboard-sidebar-nav space-y-2">
             {sidebarItems.map((item) => (
               <button
                 key={item.label}

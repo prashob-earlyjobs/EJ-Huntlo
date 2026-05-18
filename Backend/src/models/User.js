@@ -22,6 +22,12 @@ const userSchema = new mongoose.Schema(
       default: "",
       trim: true,
     },
+    profilePhotoUrl: {
+      type: String,
+      default: "",
+      trim: true,
+      maxlength: 512,
+    },
     email: {
       type: String,
       required: true,

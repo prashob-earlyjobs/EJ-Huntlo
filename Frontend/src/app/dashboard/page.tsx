@@ -22,11 +22,17 @@ import {
 } from "@/components/dashboard/MyProfilePanel";
 import { DashboardOverviewPanel } from "@/components/dashboard/DashboardOverviewPanel";
 import { PlansPricingPanel } from "@/components/dashboard/PlansPricingPanel";
+import { CandidatePoolPanel } from "@/components/dashboard/CandidatePoolPanel";
+import {
+  SearchCandidatesPanel,
+  type RecentAiSearchItem,
+} from "@/components/dashboard/SearchCandidatesPanel";
+import { IntegrationsPanel } from "@/components/dashboard/IntegrationsPanel";
 import { SavedCandidatesPanel } from "@/components/dashboard/SavedCandidatesPanel";
-import { WorkspaceCandidatesTable } from "@/components/dashboard/WorkspaceCandidatesTable";
 import { LandingLogo } from "@/components/landing/LandingLogo";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { authHeaders, getStoredAuth } from "@/lib/auth";
+import { authUploadHeaders, resolveProfilePhotoUrl } from "@/lib/profilePhoto";
 import {
   parseDashboardOverviewPayload,
   type DashboardOverviewData,
@@ -135,8 +141,9 @@ const userSidebarItems = [
     ),
   },
   {
-    label: "Candidates",
-    subtitle: "View available profiles",
+    label: "Candidate pool",
+    subtitle: "View all Searched Candidates",
+    tabKey: "Candidates",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
         <path
@@ -201,6 +208,21 @@ const userSidebarItems = [
     ),
   },
   {
+    label: "Integrations",
+    subtitle: "Gmail, WhatsApp, Calendar",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
+        <path
+          d="M12 2V6M12 18V22M2 12H6M18 12H22M5.64 5.64L8.46 8.46M15.54 15.54L18.36 18.36M5.64 18.36L8.46 15.54M15.54 8.46L18.36 5.64"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+        />
+        <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.8" />
+      </svg>
+    ),
+  },
+  {
     label: "Plans and pricing",
     subtitle: "Compare plans and limits",
     icon: (
@@ -235,6 +257,8 @@ const userSidebarItems = [
     ),
   },
 ];
+
+const DASHBOARD_SIDEBAR_COLLAPSED_KEY = "ejhunter_dashboard_sidebar_collapsed";
 
 const userProfileSidebarItem = {
   label: "My Profile",
@@ -289,6 +313,86 @@ type SessionResultDoc = {
     };
   };
 };
+
+function buildCandidateRowRawDoc(candidate: CandidateRow): SessionResultDoc {
+  const yearsMatch = candidate.experience.match(/(\d+)/);
+  const years = yearsMatch ? Number(yearsMatch[1]) : undefined;
+  const skills =
+    candidate.skills && candidate.skills !== "—"
+      ? candidate.skills
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : [];
+
+  return {
+    _id: candidate.id,
+    sourcingSessionId: candidate.sourcingSessionId,
+    finalScore: candidate.finalScore ?? undefined,
+    profile: {
+      name: candidate.name,
+      region: candidate.location,
+      linkedin_profile_url: candidate.linkedin_profile_url,
+      years_of_experience_raw: Number.isFinite(years) ? years : undefined,
+      skills,
+      current_employers_object:
+        candidate.role && candidate.role !== "—"
+          ? [
+              {
+                job_title: candidate.role,
+                company_name: candidate.currentCompany || undefined,
+              },
+            ]
+          : undefined,
+    },
+    profileAnalysis: {
+      recommendation: candidate.recommendation || undefined,
+      highlights: Array.isArray(candidate.highlights)
+        ? candidate.highlights.map((h) => ({ Highlight: h }))
+        : undefined,
+    },
+  };
+}
+
+function mergeWorkspaceCandidatesWithDetailedDocs(
+  candidates: CandidateRow[],
+  detailedDocs: SessionResultDoc[]
+): CandidateRow[] {
+  const byId = new Map<string, SessionResultDoc>();
+  const byLinkedIn = new Map<string, SessionResultDoc>();
+
+  for (const doc of detailedDocs) {
+    if (doc?._id) byId.set(String(doc._id), doc);
+    const linkedin = doc.profile?.linkedin_profile_url?.trim();
+    if (linkedin) byLinkedIn.set(linkedin, doc);
+  }
+
+  return candidates.map((candidate) => {
+    if (candidate.rawDoc && typeof candidate.rawDoc === "object") {
+      return candidate;
+    }
+
+    const id = String(candidate.id || "").trim();
+    let doc = id ? byId.get(id) : undefined;
+    if (!doc && candidate.linkedin_profile_url) {
+      doc = byLinkedIn.get(candidate.linkedin_profile_url.trim());
+    }
+
+    const rawDoc = doc || buildCandidateRowRawDoc(candidate);
+    return { ...candidate, rawDoc };
+  });
+}
+
+function openCandidateProfileDetail(
+  candidate: CandidateRow,
+  openDetail: (doc: SessionResultDoc, candidate: CandidateRow) => void
+) {
+  const doc =
+    candidate.rawDoc && typeof candidate.rawDoc === "object"
+      ? (candidate.rawDoc as SessionResultDoc)
+      : buildCandidateRowRawDoc(candidate);
+  openDetail(doc, { ...candidate, rawDoc: doc });
+}
 
 function sessionDocToCandidateRow(
   doc: SessionResultDoc,
@@ -421,11 +525,7 @@ type SearchSummaryState = {
   profilesFetchError: string | null;
 };
 
-type RecentSearchItem = {
-  id: string;
-  text: string;
-  createdAt?: string;
-};
+type RecentSearchItem = RecentAiSearchItem;
 
 type SaveListRow = {
   id: string;
@@ -609,7 +709,36 @@ const emptyMyProfileForm: MyProfileFormState = {
   phone: "",
   location: "",
   role: "User",
+  profilePhotoUrl: "",
 };
+
+function sidebarProfileIcon(fullName: string, profilePhotoUrl: string) {
+  const photoSrc = resolveProfilePhotoUrl(profilePhotoUrl);
+  if (photoSrc) {
+    return (
+      <span className="dashboard-sidebar-profile-avatar dashboard-sidebar-profile-avatar--photo">
+        <img src={photoSrc} alt="" />
+      </span>
+    );
+  }
+  return (
+    <span className="dashboard-sidebar-profile-avatar">
+      {peopleScoutNameInitials(fullName || "?").slice(0, 2)}
+    </span>
+  );
+}
+
+function persistAuthProfilePhoto(profilePhotoUrl: string) {
+  const auth = getStoredAuth();
+  if (!auth) return;
+  localStorage.setItem(
+    "authUser",
+    JSON.stringify({
+      ...auth,
+      profilePhotoUrl,
+    })
+  );
+}
 
 const buildPeopleScoutProfileFromRecentUser = (
   user: PeopleScoutRecentUser
@@ -896,6 +1025,8 @@ function SessionCandidateDetailDrawer({
   displayedPhone,
   emailRevealed,
   phoneRevealed,
+  emailRevealBusy,
+  phoneRevealBusy,
 }: {
   open: boolean;
   doc: SessionResultDoc;
@@ -910,6 +1041,8 @@ function SessionCandidateDetailDrawer({
   displayedPhone: string;
   emailRevealed: boolean;
   phoneRevealed: boolean;
+  emailRevealBusy: boolean;
+  phoneRevealBusy: boolean;
 }) {
   const [imgFailed, setImgFailed] = useState(false);
   const profile = doc.profile;
@@ -1023,34 +1156,66 @@ function SessionCandidateDetailDrawer({
             <button
               type="button"
               onClick={onRevealEmail}
-              className={`dashboard-drawer-action${emailRevealed ? " dashboard-drawer-action--active" : ""}`}
+              disabled={emailRevealBusy}
+              aria-busy={emailRevealBusy}
+              className={`dashboard-drawer-action${emailRevealed ? " dashboard-drawer-action--active" : ""}${
+                emailRevealBusy ? " dashboard-drawer-action--loading" : ""
+              }`}
             >
               <span className="dashboard-drawer-action-icon" aria-hidden>
-                <MaterialIcon name="mail" className="text-[20px]" />
+                {emailRevealBusy ? (
+                  <span className="dashboard-reveal-spinner" />
+                ) : (
+                  <MaterialIcon name="mail" className="text-[20px]" />
+                )}
               </span>
               <span className="dashboard-drawer-action-body">
                 <span className="dashboard-drawer-action-label">
-                  {emailRevealed ? "Email revealed" : "Reveal email"}
+                  {emailRevealBusy
+                    ? "Revealing email…"
+                    : emailRevealed
+                      ? "Email revealed"
+                      : "Reveal email"}
                 </span>
                 <span className="dashboard-drawer-action-hint">
-                  {emailRevealed ? "Shown below" : "Tap to reveal"}
+                  {emailRevealBusy
+                    ? "Please wait"
+                    : emailRevealed
+                      ? "Shown below"
+                      : "Tap to reveal"}
                 </span>
               </span>
             </button>
             <button
               type="button"
               onClick={onRevealPhone}
-              className={`dashboard-drawer-action${phoneRevealed ? " dashboard-drawer-action--active" : ""}`}
+              disabled={phoneRevealBusy}
+              aria-busy={phoneRevealBusy}
+              className={`dashboard-drawer-action${phoneRevealed ? " dashboard-drawer-action--active" : ""}${
+                phoneRevealBusy ? " dashboard-drawer-action--loading" : ""
+              }`}
             >
               <span className="dashboard-drawer-action-icon" aria-hidden>
-                <MaterialIcon name="call" className="text-[20px]" />
+                {phoneRevealBusy ? (
+                  <span className="dashboard-reveal-spinner" />
+                ) : (
+                  <MaterialIcon name="call" className="text-[20px]" />
+                )}
               </span>
               <span className="dashboard-drawer-action-body">
                 <span className="dashboard-drawer-action-label">
-                  {phoneRevealed ? "Phone revealed" : "Reveal phone"}
+                  {phoneRevealBusy
+                    ? "Revealing phone…"
+                    : phoneRevealed
+                      ? "Phone revealed"
+                      : "Reveal phone"}
                 </span>
                 <span className="dashboard-drawer-action-hint">
-                  {phoneRevealed ? "Shown below" : "Tap to reveal"}
+                  {phoneRevealBusy
+                    ? "Please wait"
+                    : phoneRevealed
+                      ? "Shown below"
+                      : "Tap to reveal"}
                 </span>
               </span>
             </button>
@@ -1239,8 +1404,10 @@ export default function UserDashboardPage() {
   const [hasSearched, setHasSearched] = useState(false);
   const [revealedEmail, setRevealedEmail] = useState<string[]>([]);
   const [revealedPhone, setRevealedPhone] = useState<string[]>([]);
+  const [revealContactBusyKeys, setRevealContactBusyKeys] = useState<string[]>([]);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const profileMenuRef = useRef<HTMLDivElement>(null);
   const [showAdminLink, setShowAdminLink] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -1312,11 +1479,18 @@ export default function UserDashboardPage() {
   const [workspaceCandidatesLoading, setWorkspaceCandidatesLoading] = useState(false);
   const [workspaceCandidatesError, setWorkspaceCandidatesError] = useState("");
   const [workspaceCandidatesRefresh, setWorkspaceCandidatesRefresh] = useState(0);
-  const WORKSPACE_CANDIDATES_LIMIT = 20;
+  const [workspaceSessionFilter, setWorkspaceSessionFilter] = useState("__all__");
+  const [workspaceSearchInput, setWorkspaceSearchInput] = useState("");
+  const [workspaceSearchQuery, setWorkspaceSearchQuery] = useState("");
+  const [workspaceCandidatesTotalAllDocs, setWorkspaceCandidatesTotalAllDocs] = useState(0);
+  const [workspaceCandidatesTotalInScope, setWorkspaceCandidatesTotalInScope] = useState(0);
+  const WORKSPACE_CANDIDATES_LIMIT = 12;
   const [revealedContactValues, setRevealedContactValues] = useState<
     Record<string, { email?: string; phone?: string }>
   >({});
   const [recentSearches, setRecentSearches] = useState<RecentSearchItem[]>([]);
+  const [recentSearchesLoading, setRecentSearchesLoading] = useState(false);
+  const [recentSearchesRefresh, setRecentSearchesRefresh] = useState(0);
   const [highlightSessionId, setHighlightSessionId] = useState("");
   const [peopleScoutLoading, setPeopleScoutLoading] = useState(false);
   const [peopleScoutError, setPeopleScoutError] = useState("");
@@ -1350,6 +1524,7 @@ export default function UserDashboardPage() {
   const [myProfileForm, setMyProfileForm] = useState<MyProfileFormState>(emptyMyProfileForm);
   const [myProfileLoading, setMyProfileLoading] = useState(false);
   const [myProfileSaving, setMyProfileSaving] = useState(false);
+  const [myProfilePhotoUploading, setMyProfilePhotoUploading] = useState(false);
   const [myProfileError, setMyProfileError] = useState("");
   const [myProfileSuccess, setMyProfileSuccess] = useState("");
   const [myProfileSecurity, setMyProfileSecurity] = useState<MyProfileSecurityState>({
@@ -1411,7 +1586,7 @@ export default function UserDashboardPage() {
   }, [activeTab]);
 
   useEffect(() => {
-    if (activeTab !== "Saved" && activeTab !== "Session Results") return;
+    if (activeTab !== "Saved" && activeTab !== "Session Results" && activeTab !== "Candidates") return;
     const auth = getStoredAuth();
     if (!auth?.token) return;
     const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
@@ -1461,6 +1636,17 @@ export default function UserDashboardPage() {
       return;
     }
     setShowAdminLink(auth.role === "admin");
+    setMyProfileForm((prev) => ({
+      ...prev,
+      fullName: auth.fullName || "",
+      companyName: auth.companyName || "",
+      email: auth.email || "",
+      phone: auth.mobile || "",
+      location: auth.location || "",
+      role: auth.role === "admin" ? "Admin" : "User",
+      profilePhotoUrl:
+        typeof auth.profilePhotoUrl === "string" ? auth.profilePhotoUrl : "",
+    }));
   }, [router]);
 
   useEffect(() => {
@@ -1489,7 +1675,12 @@ export default function UserDashboardPage() {
           phone: typeof data.user.mobile === "string" ? data.user.mobile : "",
           location: typeof data.user.location === "string" ? data.user.location : "",
           role: data.user.role === "admin" ? "Admin" : "User",
+          profilePhotoUrl:
+            typeof data.user.profilePhotoUrl === "string" ? data.user.profilePhotoUrl : "",
         });
+        persistAuthProfilePhoto(
+          typeof data.user.profilePhotoUrl === "string" ? data.user.profilePhotoUrl : ""
+        );
         const passwordChangedAt =
           typeof data.security?.passwordChangedAt === "string"
             ? data.security.passwordChangedAt
@@ -1546,6 +1737,7 @@ export default function UserDashboardPage() {
     const auth = getStoredAuth();
     if (!auth?.token) return;
     const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+    setRecentSearchesLoading(true);
 
     fetch(`${apiBase}/api/candidates/recent-searches?limit=6`, {
       headers: authHeaders(auth.token),
@@ -1556,18 +1748,32 @@ export default function UserDashboardPage() {
           throw new Error("Failed to load recent searches");
         }
         const list = data.searches
-          .map((s: { id?: unknown; text?: unknown; createdAt?: unknown }) => ({
-            id: typeof s.id === "string" ? s.id : "",
-            text: typeof s.text === "string" ? s.text.trim() : "",
-            createdAt: typeof s.createdAt === "string" ? s.createdAt : undefined,
-          }))
+          .map(
+            (s: {
+              id?: unknown;
+              futureJobsSessionId?: unknown;
+              text?: unknown;
+              totalDocs?: unknown;
+              createdAt?: unknown;
+            }) => ({
+              id: typeof s.id === "string" ? s.id : "",
+              futureJobsSessionId:
+                typeof s.futureJobsSessionId === "string" ? s.futureJobsSessionId.trim() : "",
+              text: typeof s.text === "string" ? s.text.trim() : "",
+              totalDocs: typeof s.totalDocs === "number" ? s.totalDocs : null,
+              createdAt: typeof s.createdAt === "string" ? s.createdAt : undefined,
+            })
+          )
           .filter((x: RecentSearchItem) => x.id && x.text);
         setRecentSearches(list);
       })
       .catch(() => {
         setRecentSearches([]);
+      })
+      .finally(() => {
+        setRecentSearchesLoading(false);
       });
-  }, [activeTab]);
+  }, [activeTab, recentSearchesRefresh]);
 
   useEffect(() => {
     if (activeTab !== "People Scout") return;
@@ -1849,7 +2055,16 @@ export default function UserDashboardPage() {
     setSavedCandidatesPage(1);
   };
 
-  const loadWorkspaceCandidates = async (page: number) => {
+  const handleWorkspaceSessionFilterChange = (value: string) => {
+    setWorkspaceSessionFilter(value);
+    setWorkspaceCandidatesPage(1);
+  };
+
+  const loadWorkspaceCandidates = async (
+    page: number,
+    sessionFilter: string,
+    searchQuery: string
+  ) => {
     const auth = getStoredAuth();
     if (!auth?.token) {
       setWorkspaceCandidates([]);
@@ -1859,8 +2074,20 @@ export default function UserDashboardPage() {
     const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
     setWorkspaceCandidatesLoading(true);
     setWorkspaceCandidatesError("");
+    setWorkspaceCandidates([]);
     try {
-      const url = `${apiBase}/api/candidates/all?page=${page}&limit=${WORKSPACE_CANDIDATES_LIMIT}`;
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(WORKSPACE_CANDIDATES_LIMIT),
+      });
+      if (sessionFilter !== "__all__") {
+        params.set("sessionId", sessionFilter);
+      }
+      const trimmedSearch = searchQuery.trim();
+      if (trimmedSearch) {
+        params.set("q", trimmedSearch);
+      }
+      const url = `${apiBase}/api/candidates/all?${params.toString()}`;
       const res = await fetch(url, { headers: authHeaders(auth.token) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
@@ -1871,7 +2098,10 @@ export default function UserDashboardPage() {
       const list = Array.isArray(data.candidates)
         ? (data.candidates as CandidateRow[])
         : [];
-      setWorkspaceCandidates(list);
+      const detailedDocs = Array.isArray(data.detailedDocs)
+        ? (data.detailedDocs as SessionResultDoc[])
+        : [];
+      setWorkspaceCandidates(mergeWorkspaceCandidatesWithDetailedDocs(list, detailedDocs));
       const pg = data.profilesPagination as
         | {
             totalDocs?: number;
@@ -1879,9 +2109,17 @@ export default function UserDashboardPage() {
             page?: number;
           }
         | undefined;
-      setWorkspaceCandidatesTotalDocs(
-        typeof pg?.totalDocs === "number" ? pg.totalDocs : list.length
-      );
+      const totalDocs =
+        typeof pg?.totalDocs === "number" ? pg.totalDocs : list.length;
+      const totalInScope =
+        typeof data.totalInScope === "number" ? data.totalInScope : totalDocs;
+      setWorkspaceCandidatesTotalDocs(totalDocs);
+      setWorkspaceCandidatesTotalInScope(totalInScope);
+      if (!trimmedSearch) {
+        if (sessionFilter === "__all__") {
+          setWorkspaceCandidatesTotalAllDocs(totalDocs);
+        }
+      }
       setWorkspaceCandidatesTotalPages(
         typeof pg?.totalPages === "number" ? Math.max(1, pg.totalPages) : 1
       );
@@ -1898,9 +2136,28 @@ export default function UserDashboardPage() {
 
   useEffect(() => {
     if (activeTab !== "Candidates") return;
-    void loadWorkspaceCandidates(workspaceCandidatesPage);
+    const timer = window.setTimeout(() => {
+      setWorkspaceSearchQuery(workspaceSearchInput.trim());
+      setWorkspaceCandidatesPage(1);
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [workspaceSearchInput, activeTab]);
+
+  useEffect(() => {
+    if (activeTab !== "Candidates") return;
+    void loadWorkspaceCandidates(
+      workspaceCandidatesPage,
+      workspaceSessionFilter,
+      workspaceSearchQuery
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh when search completes
-  }, [activeTab, workspaceCandidatesPage, workspaceCandidatesRefresh]);
+  }, [
+    activeTab,
+    workspaceCandidatesPage,
+    workspaceSessionFilter,
+    workspaceSearchQuery,
+    workspaceCandidatesRefresh,
+  ]);
 
   useEffect(() => {
     if (
@@ -1922,6 +2179,30 @@ export default function UserDashboardPage() {
       setHighlightSessionId(item.id);
     }
     setActiveTab("Search history");
+  };
+
+  const openRecentAiSearch = (item: RecentSearchItem) => {
+    if (item.futureJobsSessionId) {
+      void openSessionFromHistory(
+        {
+          id: item.id,
+          futureJobsSessionId: item.futureJobsSessionId,
+          prompt: item.text,
+          sessionTitle: "",
+          usingSessionOverride: false,
+          futureJobsStatus: "",
+          totalDocs: item.totalDocs,
+          candidateCountFirstPage: 0,
+          candidatePreview: [],
+          profilesFetchError: null,
+          createdAt: item.createdAt || "",
+          updatedAt: item.createdAt || "",
+        },
+        "Search Candidates"
+      );
+      return;
+    }
+    goToSearchHistory(item);
   };
 
   const handlePeopleScoutSearch = async () => {
@@ -2111,8 +2392,89 @@ export default function UserDashboardPage() {
       phone: auth?.mobile || "",
       location: auth?.location || "",
       role: auth?.role === "admin" ? "Admin" : "User",
+      profilePhotoUrl:
+        typeof auth?.profilePhotoUrl === "string" ? auth.profilePhotoUrl : "",
     });
     setIsEditingProfile(false);
+  };
+
+  const onUploadMyProfilePhoto = async (file: File) => {
+    const auth = getStoredAuth();
+    if (!auth?.token) {
+      setMyProfileError("Please sign in again to update profile photo.");
+      return;
+    }
+    if (!file.type.startsWith("image/")) {
+      setMyProfileError("Please choose a JPEG, PNG, WebP, or GIF image.");
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setMyProfileError("Profile photo must be 2 MB or smaller.");
+      return;
+    }
+
+    setMyProfileError("");
+    setMyProfileSuccess("");
+    setMyProfilePhotoUploading(true);
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+    try {
+      const body = new FormData();
+      body.append("photo", file);
+      const res = await fetch(`${apiBase}/api/users/me/photo`, {
+        method: "POST",
+        headers: authUploadHeaders(auth.token),
+        body,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success || !data.user) {
+        throw new Error(
+          typeof data.message === "string" ? data.message : "Failed to upload photo"
+        );
+      }
+      const profilePhotoUrl =
+        typeof data.user.profilePhotoUrl === "string" ? data.user.profilePhotoUrl : "";
+      setMyProfileForm((prev) => ({ ...prev, profilePhotoUrl }));
+      const updatedAuth = { ...auth, ...data.user, token: auth.token };
+      localStorage.setItem("authUser", JSON.stringify(updatedAuth));
+      setMyProfileSuccess("Profile photo updated.");
+    } catch (err) {
+      setMyProfileError(err instanceof Error ? err.message : "Could not upload photo");
+    } finally {
+      setMyProfilePhotoUploading(false);
+    }
+  };
+
+  const onRemoveMyProfilePhoto = async () => {
+    const auth = getStoredAuth();
+    if (!auth?.token) {
+      setMyProfileError("Please sign in again to update profile photo.");
+      return;
+    }
+
+    setMyProfileError("");
+    setMyProfileSuccess("");
+    setMyProfilePhotoUploading(true);
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+    try {
+      const res = await fetch(`${apiBase}/api/users/me/photo`, {
+        method: "DELETE",
+        headers: authHeaders(auth.token),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success || !data.user) {
+        throw new Error(
+          typeof data.message === "string" ? data.message : "Failed to remove photo"
+        );
+      }
+      setMyProfileForm((prev) => ({ ...prev, profilePhotoUrl: "" }));
+      const updatedAuth = { ...auth, ...data.user, token: auth.token };
+      localStorage.setItem("authUser", JSON.stringify(updatedAuth));
+      setMyProfileSuccess("Profile photo removed.");
+    } catch (err) {
+      setMyProfileError(err instanceof Error ? err.message : "Could not remove photo");
+    } finally {
+      setMyProfilePhotoUploading(false);
+    }
   };
 
   const onSaveMyProfile = async () => {
@@ -2152,6 +2514,8 @@ export default function UserDashboardPage() {
         phone: data.user.mobile || "",
         location: data.user.location || "",
         role: data.user.role === "admin" ? "Admin" : "User",
+        profilePhotoUrl:
+          typeof data.user.profilePhotoUrl === "string" ? data.user.profilePhotoUrl : "",
       });
       const passwordChangedAt =
         typeof data.security?.passwordChangedAt === "string"
@@ -2438,6 +2802,7 @@ export default function UserDashboardPage() {
       setIsFilterDrawerOpen(false);
       setHasSearched(true);
       setWorkspaceCandidatesRefresh((n) => n + 1);
+      setRecentSearchesRefresh((n) => n + 1);
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Could not apply filters";
@@ -2804,11 +3169,18 @@ export default function UserDashboardPage() {
     }
   };
 
+  const revealContactBusyKey = (candidate: CandidateRow, revealType: "EMAIL" | "PHONE") =>
+    `${candidateRowKey(candidate)}:${revealType}`;
+
+  const isRevealContactBusy = (candidate: CandidateRow, revealType: "EMAIL" | "PHONE") =>
+    revealContactBusyKeys.includes(revealContactBusyKey(candidate, revealType));
+
   const revealContact = async (
     candidate: CandidateRow,
     revealType: "EMAIL" | "PHONE"
   ) => {
     const key = candidateRowKey(candidate);
+    const busyKey = revealContactBusyKey(candidate, revealType);
     if (revealType === "EMAIL") {
       setRevealedEmail((prev) => (prev.includes(key) ? prev : [...prev, key]));
     } else {
@@ -2832,6 +3204,10 @@ export default function UserDashboardPage() {
       setSearchError("Please sign in again to reveal contacts.");
       return;
     }
+
+    setRevealContactBusyKeys((prev) =>
+      prev.includes(busyKey) ? prev : [...prev, busyKey]
+    );
 
     const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
     try {
@@ -2875,6 +3251,8 @@ export default function UserDashboardPage() {
       setProfilesWarning(
         err instanceof Error ? err.message : "Could not reveal contact"
       );
+    } finally {
+      setRevealContactBusyKeys((prev) => prev.filter((k) => k !== busyKey));
     }
   };
 
@@ -2906,6 +3284,28 @@ export default function UserDashboardPage() {
   const getDisplayedPhone = (candidate: CandidateRow) => {
     const key = candidateRowKey(candidate);
     return revealedContactValues[key]?.phone || candidate.phone || "";
+  };
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(DASHBOARD_SIDEBAR_COLLAPSED_KEY);
+      if (stored === "1") setSidebarCollapsed(true);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const toggleSidebarCollapsed = () => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(DASHBOARD_SIDEBAR_COLLAPSED_KEY, next ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      if (next) setProfileMenuOpen(false);
+      return next;
+    });
   };
 
   useEffect(() => {
@@ -2956,40 +3356,67 @@ export default function UserDashboardPage() {
   return (
     <main className="dashboard-page">
       <div className="dashboard-shell flex min-w-0 w-full">
-        <aside className="dashboard-sidebar hidden flex-col lg:flex">
+        <aside
+          className={`dashboard-sidebar hidden flex-col lg:flex${
+            sidebarCollapsed ? " dashboard-sidebar--collapsed" : ""
+          }`}
+        >
           <div className="dashboard-sidebar-brand">
-            <Link href="/dashboard" className="inline-block">
-              <LandingLogo className="h-10 w-auto" priority />
-            </Link>
+            <div className="dashboard-sidebar-brand-head">
+              <Link
+                href="/dashboard"
+                className="dashboard-sidebar-brand-link"
+                aria-label="Huntlo dashboard home"
+              >
+                <LandingLogo className="dashboard-sidebar-logo" priority />
+              </Link>
+              <button
+                type="button"
+                className="dashboard-sidebar-toggle"
+                onClick={toggleSidebarCollapsed}
+                aria-expanded={!sidebarCollapsed}
+                aria-label={sidebarCollapsed ? "Expand menu" : "Collapse menu"}
+                title={sidebarCollapsed ? "Expand menu" : "Collapse menu"}
+              >
+                <MaterialIcon
+                  name={sidebarCollapsed ? "left_panel_open" : "left_panel_close"}
+                  className="dashboard-sidebar-toggle-icon"
+                />
+              </button>
+            </div>
           </div>
 
-          <nav className="dashboard-sidebar-nav mt-8">
+          <nav className="dashboard-sidebar-nav">
             <div className="dashboard-sidebar-nav-scroll">
               <div className="space-y-2">
-              {userSidebarItems.map((item) => (
+              {userSidebarItems.map((item) => {
+                const tabKey = "tabKey" in item && typeof item.tabKey === "string" ? item.tabKey : item.label;
+                return (
                 <button
-                  key={item.label}
+                  key={tabKey}
                   type="button"
-                  onClick={() => setActiveTab(item.label)}
+                  onClick={() => setActiveTab(tabKey)}
+                  title={sidebarCollapsed ? item.label : undefined}
                   className={`dashboard-nav-item w-full ${
-                    activeTab === item.label ? "dashboard-nav-item--active" : ""
+                    activeTab === tabKey ? "dashboard-nav-item--active" : ""
                   }`}
                 >
                   <span className="flex items-start gap-3">
                     <span
                       className={`dashboard-nav-icon ${
-                        activeTab === item.label ? "dashboard-nav-icon--active" : ""
+                        activeTab === tabKey ? "dashboard-nav-icon--active" : ""
                       }`}
                     >
                       {item.icon}
                     </span>
-                    <span>
+                    <span className="dashboard-nav-item-text min-w-0">
                       <span className="block text-sm font-medium">{item.label}</span>
                       <span className="dashboard-nav-subtitle">{item.subtitle}</span>
                     </span>
                   </span>
                 </button>
-              ))}
+              );
+              })}
               </div>
             </div>
 
@@ -2998,6 +3425,7 @@ export default function UserDashboardPage() {
                 <button
                   type="button"
                   onClick={() => setActiveTab(userProfileSidebarItem.label)}
+                  title={sidebarCollapsed ? userProfileSidebarItem.label : undefined}
                   className={`dashboard-nav-item min-w-0 flex-1 ${
                     activeTab === userProfileSidebarItem.label
                       ? "dashboard-nav-item--active"
@@ -3012,9 +3440,12 @@ export default function UserDashboardPage() {
                           : ""
                       }`}
                     >
-                      {userProfileSidebarItem.icon}
+                      {sidebarProfileIcon(
+                        myProfileForm.fullName,
+                        myProfileForm.profilePhotoUrl
+                      )}
                     </span>
-                    <span className="min-w-0 text-left">
+                    <span className="dashboard-nav-item-text min-w-0 text-left">
                       <span className="block truncate text-sm font-medium">
                         {userProfileSidebarItem.label}
                       </span>
@@ -3034,6 +3465,7 @@ export default function UserDashboardPage() {
                   aria-expanded={profileMenuOpen}
                   aria-haspopup="menu"
                   aria-label="Account options"
+                  title="Account options"
                 >
                   <MaterialIcon name="more_vert" className="text-[1.25rem]" />
                 </button>
@@ -3070,22 +3502,6 @@ export default function UserDashboardPage() {
         </aside>
 
         <section className="dashboard-main-panel">
-          <header className="dashboard-header shrink-0">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="dashboard-header-eyebrow">User Workspace</p>
-                <h2 className="dashboard-header-title">{activeTab}</h2>
-              </div>
-              {showAdminLink ? (
-                <div className="flex shrink-0 flex-wrap items-center gap-2 lg:hidden">
-                  <Link href="/admin/dashboard" className="dashboard-btn-secondary">
-                    Admin panel
-                  </Link>
-                </div>
-              ) : null}
-            </div>
-          </header>
-
           <div className="dashboard-main-scroll">
             {activeTab === "Dashboard" ? (
               <DashboardOverviewPanel
@@ -3115,186 +3531,22 @@ export default function UserDashboardPage() {
                 }}
               />
             ) : activeTab === "Search Candidates" ? (
-              <section className="dashboard-card flex h-full min-w-0 max-w-full w-full flex-col p-6">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <h3 className="flex items-center gap-2 dashboard-section-title">
-                      <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-                        <path
-                          d="M11 19C15.42 19 19 15.42 19 11C19 6.58 15.42 3 11 3C6.58 3 3 6.58 3 11C3 15.42 6.58 19 11 19Z"
-                          stroke="currentColor"
-                          strokeWidth="1.8"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                        <path
-                          d="M21 21L16.65 16.65"
-                          stroke="currentColor"
-                          strokeWidth="1.8"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                      Search Candidates
-                    </h3>
-                    <p className="mt-1 dashboard-text-body">
-                      Give AI prompt and search candidate keywords.
-                    </p>
-                  </div>
-                  <span className="dashboard-badge">
-                    Results:{" "}
-                    {hasSearched
-                      ? (searchSummary?.totalDocs ?? searchedCandidates.length)
-                      : 0}
-                  </span>
-                </div>
-
-                <div className="mt-4 space-y-4">
-                  <div>
-                    <label
-                      htmlFor="aiPrompt"
-                      className="mb-2 block text-sm font-medium text-slate-700"
-                    >
-                      <span className="inline-flex items-center gap-1.5">
-                        <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
-                          <path
-                            d="M12 3L14.5 8.5L20 11L14.5 13.5L12 19L9.5 13.5L4 11L9.5 8.5L12 3Z"
-                            stroke="currentColor"
-                            strokeWidth="1.7"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                        AI prompt
-                      </span>
-                    </label>
-                    <textarea
-                      id="aiPrompt"
-                      value={aiPrompt}
-                      onChange={(event) => setAiPrompt(event.target.value)}
-                      placeholder="Example: Find candidates with 3+ years Node.js experience in Hyderabad who can join in 30 days."
-                      rows={6}
-                      disabled={searchLoading}
-                      className="w-full dashboard-textarea text-sm disabled:cursor-not-allowed"
-                    />
-                  </div>
-
-                  <div className="flex justify-end">
-                    <button
-                      type="button"
-                      onClick={handleSearch}
-                      disabled={aiPrompt.trim().length === 0}
-                      className="dashboard-btn-primary px-5 py-2.5 disabled:opacity-60"
-                    >
-                      <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
-                        <path
-                          d="M11 19C15.42 19 19 15.42 19 11C19 6.58 15.42 3 11 3C6.58 3 3 6.58 3 11C3 15.42 6.58 19 11 19Z"
-                          stroke="currentColor"
-                          strokeWidth="1.8"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                        <path
-                          d="M21 21L16.65 16.65"
-                          stroke="currentColor"
-                          strokeWidth="1.8"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                      {searchLoading ? "Searching…" : "Search"}
-                    </button>
-                  </div>
-
-                  {searchError ? (
-                    <p className="dashboard-alert-error">
-                      {searchError}
-                    </p>
-                  ) : null}
-                  {profilesWarning ? (
-                    <p className="dashboard-alert-warning">
-                      Session created, but profiles could not be loaded:{" "}
-                      {profilesWarning}
-                    </p>
-                  ) : null}
-
-                  {searchLoading ? (
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-semibold text-slate-900">
-                            Searching candidates with AI
-                          </p>
-                          <p className="mt-1 text-xs text-slate-600">
-                            Analyzing prompt, creating sourcing session, and matching profiles.
-                          </p>
-                        </div>
-                        <div className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700">
-                          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-500 [animation-delay:-0.2s]" />
-                          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-500 [animation-delay:-0.1s]" />
-                          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-500" />
-                        </div>
-                      </div>
-
-                      <div className="mt-4">
-                        <div className="h-2 overflow-hidden rounded-full bg-slate-200">
-                          <div className="h-full w-2/3 animate-pulse rounded-full bg-slate-500" />
-                        </div>
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-
-                <div className="mt-8 w-full min-w-0 border-t border-slate-200 pt-6">
-                  <h4 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.12em] text-slate-500">
-                    <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
-                      <path
-                        d="M12 8V12L15 15M12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22Z"
-                        stroke="currentColor"
-                        strokeWidth="1.8"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                    Recent Searches
-                  </h4>
-                  {recentSearches.length === 0 ? (
-                    <p className="mt-3 text-sm text-slate-500">No recent searches yet.</p>
-                  ) : (
-                  <ul className="mt-3 w-full min-w-0 space-y-2">
-                    {recentSearches.map((item) => (
-                      <li
-                        key={item.id}
-                        className="w-full min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50"
-                      >
-                        <button
-                          type="button"
-                          onClick={() => goToSearchHistory(item)}
-                          className="grid min-w-0 w-full grid-cols-[auto_minmax(0,1fr)] items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-100"
-                        >
-                          <svg
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            className="h-4 w-4 shrink-0 text-slate-500"
-                          >
-                            <path
-                              d="M9 18L15 12L9 6"
-                              stroke="currentColor"
-                              strokeWidth="1.8"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                          </svg>
-                          <span className="min-w-0 truncate">{item.text}</span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                  )}
-                </div>
-              </section>
+              <SearchCandidatesPanel
+                userDisplayName={myProfileForm.fullName}
+                aiPrompt={aiPrompt}
+                onAiPromptChange={setAiPrompt}
+                onSearch={handleSearch}
+                searchLoading={searchLoading || applyFiltersLoading}
+                searchError={searchError}
+                profilesWarning={profilesWarning}
+                recentSearches={recentSearches}
+                recentLoading={recentSearchesLoading}
+                onOpenRecent={openRecentAiSearch}
+                onViewAllHistory={() => setActiveTab("Search history")}
+              />
             ) : activeTab === "Session Results" ? (
-              <section className="dashboard-card flex h-full min-w-0 max-w-full w-full flex-col p-6">
+              <section className="dashboard-card dashboard-card--fill flex h-full min-w-0 max-w-full w-full flex-col p-6">
+                <div className="dashboard-card-panel-header">
                 <div className="dashboard-results-toolbar">
                   <div>
                     <h3 className="flex items-center gap-2 dashboard-section-title">
@@ -3340,7 +3592,9 @@ export default function UserDashboardPage() {
                     </button>
                   </div>
                 </div>
+                </div>
 
+                <div className="dashboard-card-body-scroll">
                 {sessionResultError ? (
                   <p className="mt-4 dashboard-alert-error">
                     {sessionResultError}
@@ -3400,6 +3654,8 @@ export default function UserDashboardPage() {
                           typeof revealCandidate.linkedin_profile_url === "string"
                             ? revealCandidate.linkedin_profile_url.trim()
                             : "";
+                        const emailRevealBusy = isRevealContactBusy(revealCandidate, "EMAIL");
+                        const phoneRevealBusy = isRevealContactBusy(revealCandidate, "PHONE");
                         return (
                           <article
                             key={doc._id || `session-doc-${idx}`}
@@ -3520,52 +3776,72 @@ export default function UserDashboardPage() {
                                 <button
                                   type="button"
                                   title="Reveal email"
+                                  disabled={emailRevealBusy}
+                                  aria-busy={emailRevealBusy}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     revealEmail(revealCandidate);
                                   }}
-                                  className="dashboard-btn-secondary w-full min-w-0 px-1.5 py-1.5 text-[10px] sm:text-[11px]"
+                                  className={`dashboard-btn-secondary inline-flex w-full min-w-0 items-center justify-center gap-1 px-1.5 py-1.5 text-[10px] sm:text-[11px]${
+                                    emailRevealBusy ? " dashboard-drawer-action--loading" : ""
+                                  }`}
                                 >
-                                  <svg
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    className="h-3.5 w-3.5 shrink-0"
-                                    aria-hidden
-                                  >
-                                    <path
-                                      d="M4 6H20V18H4V6ZM4 7L12 13L20 7"
-                                      stroke="currentColor"
-                                      strokeWidth="1.8"
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                    />
-                                  </svg>
-                                  <span className="min-w-0 truncate">Reveal Email</span>
+                                  {emailRevealBusy ? (
+                                    <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
+                                  ) : (
+                                    <svg
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      className="h-3.5 w-3.5 shrink-0"
+                                      aria-hidden
+                                    >
+                                      <path
+                                        d="M4 6H20V18H4V6ZM4 7L12 13L20 7"
+                                        stroke="currentColor"
+                                        strokeWidth="1.8"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                      />
+                                    </svg>
+                                  )}
+                                  <span className="min-w-0 truncate">
+                                    {emailRevealBusy ? "Revealing…" : "Reveal Email"}
+                                  </span>
                                 </button>
                                 <button
                                   type="button"
                                   title="Reveal mobile"
+                                  disabled={phoneRevealBusy}
+                                  aria-busy={phoneRevealBusy}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     revealPhone(revealCandidate);
                                   }}
-                                  className="inline-flex w-full min-w-0 items-center justify-center gap-1 rounded-md border border-slate-300 bg-white px-1.5 py-1.5 text-[10px] font-medium leading-tight text-slate-700 transition hover:bg-slate-100 sm:text-[11px]"
+                                  className={`inline-flex w-full min-w-0 items-center justify-center gap-1 rounded-md border border-slate-300 bg-white px-1.5 py-1.5 text-[10px] font-medium leading-tight text-slate-700 transition hover:bg-slate-100 sm:text-[11px]${
+                                    phoneRevealBusy ? " dashboard-drawer-action--loading" : ""
+                                  }`}
                                 >
-                                  <svg
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    className="h-3.5 w-3.5 shrink-0"
-                                    aria-hidden
-                                  >
-                                    <path
-                                      d="M22 16.92V19.92C22 20.47 21.55 20.92 21 20.92C10.51 20.92 2 12.41 2 1.92C2 1.37 2.45 0.92 3 0.92H6C6.47 0.92 6.88 1.25 6.98 1.71L7.78 5.31C7.86 5.7 7.74 6.11 7.46 6.39L5.42 8.43C6.76 11.13 8.95 13.32 11.65 14.66L13.69 12.62C13.97 12.34 14.38 12.22 14.77 12.3L18.37 13.1C18.83 13.2 19.16 13.61 19.16 14.08V16.92"
-                                      stroke="currentColor"
-                                      strokeWidth="1.5"
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                    />
-                                  </svg>
-                                  <span className="min-w-0 truncate">Reveal Mobile</span>
+                                  {phoneRevealBusy ? (
+                                    <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
+                                  ) : (
+                                    <svg
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      className="h-3.5 w-3.5 shrink-0"
+                                      aria-hidden
+                                    >
+                                      <path
+                                        d="M22 16.92V19.92C22 20.47 21.55 20.92 21 20.92C10.51 20.92 2 12.41 2 1.92C2 1.37 2.45 0.92 3 0.92H6C6.47 0.92 6.88 1.25 6.98 1.71L7.78 5.31C7.86 5.7 7.74 6.11 7.46 6.39L5.42 8.43C6.76 11.13 8.95 13.32 11.65 14.66L13.69 12.62C13.97 12.34 14.38 12.22 14.77 12.3L18.37 13.1C18.83 13.2 19.16 13.61 19.16 14.08V16.92"
+                                        stroke="currentColor"
+                                        strokeWidth="1.5"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                      />
+                                    </svg>
+                                  )}
+                                  <span className="min-w-0 truncate">
+                                    {phoneRevealBusy ? "Revealing…" : "Reveal Mobile"}
+                                  </span>
                                 </button>
                                 {sessionLinkedinUrl ? (
                                   <a
@@ -3626,6 +3902,7 @@ export default function UserDashboardPage() {
                     ) : null}
                   </>
                 ) : null}
+                </div>
               </section>
             ) : activeTab === "People Scout" ? (
               <PeopleScoutPanel
@@ -3652,7 +3929,10 @@ export default function UserDashboardPage() {
                 passwordUpdateLoading={passwordUpdateLoading}
                 peopleScoutProfileName={peopleScoutProfile?.name}
                 peopleScoutLoading={peopleScoutLoading}
+                photoUploading={myProfilePhotoUploading}
                 onFieldChange={onMyProfileFieldChange}
+                onPhotoUpload={(file) => void onUploadMyProfilePhoto(file)}
+                onPhotoRemove={() => void onRemoveMyProfilePhoto()}
                 onEdit={onEditMyProfile}
                 onCancel={onCancelMyProfileEdit}
                 onSave={() => void onSaveMyProfile()}
@@ -3660,7 +3940,8 @@ export default function UserDashboardPage() {
                 onUpdatePassword={() => void handleUpdatePassword()}
               />
             ) : activeTab === "Search history" ? (
-              <section className="dashboard-card flex h-full min-w-0 max-w-full w-full flex-col p-6">
+              <section className="dashboard-card dashboard-card--fill flex h-full min-w-0 max-w-full w-full flex-col p-6">
+                <div className="dashboard-card-panel-header">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <h3 className="flex items-center gap-2 dashboard-section-title">
@@ -3694,7 +3975,9 @@ export default function UserDashboardPage() {
                     </span>
                   ) : null}
                 </div>
+                </div>
 
+                <div className="dashboard-card-body-scroll">
                 <SearchHistoryTable
                   rows={sourcingSessions}
                   loading={sourcingSessionsLoading}
@@ -3704,58 +3987,62 @@ export default function UserDashboardPage() {
                   onOpenSession={(row) => void openSessionFromHistory(row)}
                   onGoToSearch={() => setActiveTab("Search Candidates")}
                 />
+                </div>
 
               </section>
             ) : activeTab === "Candidates" ? (
-              <section className="dashboard-card flex h-full min-w-0 max-w-full w-full flex-col p-6">
-                <div className="dashboard-results-toolbar">
-                  <div>
-                    <h3 className="flex items-center gap-2 dashboard-section-title">
-                      <MaterialIcon name="groups" className="text-xl text-[#0050cb]" />
-                      All searched candidates
-                    </h3>
-                    <p className="mt-1 dashboard-text-body">
-                      Every candidate from all your sourcing searches, newest first.
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="dashboard-badge tabular-nums">
-                      {workspaceCandidatesTotalDocs.toLocaleString()} total
-                    </span>
-                    {workspaceCandidatesTotalPages > 1 ? (
-                      <span className="dashboard-badge tabular-nums">
-                        Page {workspaceCandidatesPage} of {workspaceCandidatesTotalPages}
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-
-                <WorkspaceCandidatesTable
-                  candidates={workspaceCandidates}
-                  loading={workspaceCandidatesLoading}
-                  error={workspaceCandidatesError}
-                  totalDocs={workspaceCandidatesTotalDocs}
-                  page={workspaceCandidatesPage}
-                  totalPages={workspaceCandidatesTotalPages}
-                  onPageChange={setWorkspaceCandidatesPage}
-                  rowKey={candidateRowKey}
-                  revealedEmailKeys={revealedEmail}
-                  revealedPhoneKeys={revealedPhone}
-                  onRevealEmail={revealEmail}
-                  onRevealPhone={revealPhone}
-                  getDisplayedEmail={getDisplayedEmail}
-                  getDisplayedPhone={getDisplayedPhone}
-                  onOpenDetail={(candidate) => {
-                    if (candidate.rawDoc) {
-                      openSessionCandidateDetail(
-                        candidate.rawDoc as SessionResultDoc,
-                        candidate as CandidateRow
-                      );
-                    }
-                  }}
-                  onGoToSearch={() => setActiveTab("Search Candidates")}
-                />
-              </section>
+              <CandidatePoolPanel
+                candidates={workspaceCandidates}
+                totalDocs={workspaceCandidatesTotalDocs}
+                totalAllDocs={
+                  workspaceSessionFilter === "__all__"
+                    ? workspaceCandidatesTotalAllDocs
+                    : workspaceCandidatesTotalInScope
+                }
+                totalInScope={workspaceCandidatesTotalInScope}
+                searchInput={workspaceSearchInput}
+                searchQuery={workspaceSearchQuery}
+                onSearchInputChange={setWorkspaceSearchInput}
+                loading={workspaceCandidatesLoading}
+                error={workspaceCandidatesError}
+                page={workspaceCandidatesPage}
+                totalPages={workspaceCandidatesTotalPages}
+                onPageChange={setWorkspaceCandidatesPage}
+                sessionFilter={workspaceSessionFilter}
+                onSessionFilterChange={handleWorkspaceSessionFilterChange}
+                sessions={sourcingSessions.map((session) => ({
+                  id: session.futureJobsSessionId,
+                  label:
+                    session.prompt.trim() ||
+                    session.sessionTitle.trim() ||
+                    "Untitled search",
+                }))}
+                sessionsLoading={sourcingSessionsLoading}
+                rowKey={candidateRowKey}
+                identityKey={candidateIdentityKey}
+                saveBusyKeys={saveCandidateBusyKeys}
+                savedKeys={savedSessionCandidateKeys}
+                revealedEmailKeys={revealedEmail}
+                revealedPhoneKeys={revealedPhone}
+                isRevealEmailBusy={(candidate) =>
+                  isRevealContactBusy(candidate as CandidateRow, "EMAIL")
+                }
+                isRevealPhoneBusy={(candidate) =>
+                  isRevealContactBusy(candidate as CandidateRow, "PHONE")
+                }
+                onRevealEmail={revealEmail}
+                onRevealPhone={revealPhone}
+                getDisplayedEmail={getDisplayedEmail}
+                getDisplayedPhone={getDisplayedPhone}
+                onToggleSave={(candidate) => void toggleSaveCandidate(candidate as CandidateRow)}
+                onOpenDetail={(candidate) =>
+                  openCandidateProfileDetail(
+                    candidate as CandidateRow,
+                    openSessionCandidateDetail
+                  )
+                }
+                onGoToSearch={() => setActiveTab("Search Candidates")}
+              />
             ) : activeTab === "Saved" ? (
               <SavedCandidatesPanel
                 candidates={savedCandidatesList}
@@ -3790,6 +4077,12 @@ export default function UserDashboardPage() {
                 saveBusyKeys={saveCandidateBusyKeys}
                 revealedEmailKeys={revealedEmail}
                 revealedPhoneKeys={revealedPhone}
+                isRevealEmailBusy={(candidate) =>
+                  isRevealContactBusy(candidate as CandidateRow, "EMAIL")
+                }
+                isRevealPhoneBusy={(candidate) =>
+                  isRevealContactBusy(candidate as CandidateRow, "PHONE")
+                }
                 onOpenDetail={(candidate) => {
                   if (candidate.rawDoc) {
                     openSessionCandidateDetail(
@@ -3808,6 +4101,8 @@ export default function UserDashboardPage() {
                 getDisplayedPhone={(candidate) => getDisplayedPhone(candidate as CandidateRow)}
                 onGoToSessionResults={() => setActiveTab("Session Results")}
               />
+            ) : activeTab === "Integrations" ? (
+              <IntegrationsPanel />
             ) : activeTab === "Plans and pricing" ? (
               <PlansPricingPanel
                 loading={userPricingPlansLoading}
@@ -3872,6 +4167,14 @@ export default function UserDashboardPage() {
           )}
           phoneRevealed={revealedPhone.includes(
             candidateRowKey(selectedSessionDetailCandidate)
+          )}
+          emailRevealBusy={isRevealContactBusy(
+            selectedSessionDetailCandidate,
+            "EMAIL"
+          )}
+          phoneRevealBusy={isRevealContactBusy(
+            selectedSessionDetailCandidate,
+            "PHONE"
           )}
         />
       ) : null}

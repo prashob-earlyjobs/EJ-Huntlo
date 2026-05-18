@@ -1,7 +1,9 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { MyProfileSkeleton } from "@/components/dashboard/MyProfileSkeleton";
+import { resolveProfilePhotoUrl } from "@/lib/profilePhoto";
 
 export type MyProfileFormState = {
   fullName: string;
@@ -10,6 +12,7 @@ export type MyProfileFormState = {
   phone: string;
   location: string;
   role: string;
+  profilePhotoUrl: string;
 };
 
 export type MyProfileSecurityState = {
@@ -52,7 +55,10 @@ type Props = {
   passwordUpdateLoading: boolean;
   peopleScoutProfileName?: string;
   peopleScoutLoading?: boolean;
+  photoUploading?: boolean;
   onFieldChange: (field: keyof MyProfileFormState, value: string) => void;
+  onPhotoUpload: (file: File) => void;
+  onPhotoRemove: () => void;
   onEdit: () => void;
   onCancel: () => void;
   onSave: () => void;
@@ -107,6 +113,91 @@ const PROFILE_FIELDS: {
   },
 ];
 
+function ProfileAvatar({
+  name,
+  photoPath,
+  isEditing,
+  photoUploading,
+  onPhotoUpload,
+  onPhotoRemove,
+}: {
+  name: string;
+  photoPath: string;
+  isEditing: boolean;
+  photoUploading: boolean;
+  onPhotoUpload: (file: File) => void;
+  onPhotoRemove: () => void;
+}) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [imgFailed, setImgFailed] = useState(false);
+  const photoUrl = resolveProfilePhotoUrl(photoPath);
+  const showPhoto = Boolean(photoUrl) && !imgFailed;
+
+  useEffect(() => {
+    setImgFailed(false);
+  }, [photoPath]);
+
+  return (
+    <div className="dashboard-profile-avatar-wrap">
+      <div
+        className={`dashboard-profile-avatar${
+          showPhoto ? " dashboard-profile-avatar--photo" : ""
+        }`}
+        aria-hidden
+      >
+        {showPhoto ? (
+          <img
+            key={photoPath}
+            src={photoUrl}
+            alt=""
+            className="dashboard-profile-avatar-img"
+            onError={() => setImgFailed(true)}
+          />
+        ) : (
+          profileInitials(name)
+        )}
+      </div>
+
+      {isEditing ? (
+        <>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif"
+            className="sr-only"
+            disabled={photoUploading}
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) onPhotoUpload(file);
+              event.target.value = "";
+            }}
+          />
+          <button
+            type="button"
+            className="dashboard-profile-avatar-action dashboard-profile-avatar-action--camera"
+            aria-label="Upload profile photo"
+            disabled={photoUploading}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <MaterialIcon name="photo_camera" className="text-base" />
+          </button>
+          {photoPath ? (
+            <button
+              type="button"
+              className="dashboard-profile-avatar-action dashboard-profile-avatar-action--remove"
+              aria-label="Remove profile photo"
+              disabled={photoUploading}
+              onClick={onPhotoRemove}
+            >
+              <MaterialIcon name="close" className="text-sm" />
+            </button>
+          ) : null}
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 export function MyProfilePanel({
   form,
   security,
@@ -119,7 +210,10 @@ export function MyProfilePanel({
   passwordUpdateLoading,
   peopleScoutProfileName,
   peopleScoutLoading,
+  photoUploading = false,
   onFieldChange,
+  onPhotoUpload,
+  onPhotoRemove,
   onEdit,
   onCancel,
   onSave,
@@ -130,7 +224,8 @@ export function MyProfilePanel({
   const roleLabel = form.role === "Admin" ? "Admin" : "Recruiter";
 
   return (
-    <section className="dashboard-card flex h-full min-w-0 max-w-full w-full flex-col p-6">
+    <section className="dashboard-card dashboard-card--fill flex h-full min-w-0 max-w-full w-full flex-col p-6">
+      <div className="dashboard-card-panel-header shrink-0">
       <div className="dashboard-results-toolbar dashboard-results-toolbar--profile">
         <div>
           <h3 className="flex items-center gap-2 dashboard-section-title">
@@ -177,15 +272,22 @@ export function MyProfilePanel({
       {success ? (
         <p className="mt-4 dashboard-alert-success">{success}</p>
       ) : null}
+      </div>
 
+      <div className="dashboard-card-body-scroll">
       {loading ? (
         <MyProfileSkeleton />
       ) : (
         <div className="dashboard-profile-body">
           <div className="dashboard-profile-hero">
-            <div className="dashboard-profile-avatar" aria-hidden>
-              {profileInitials(form.fullName)}
-            </div>
+            <ProfileAvatar
+              name={form.fullName}
+              photoPath={form.profilePhotoUrl}
+              isEditing={isEditing}
+              photoUploading={photoUploading}
+              onPhotoUpload={onPhotoUpload}
+              onPhotoRemove={onPhotoRemove}
+            />
             <div className="dashboard-profile-hero-text min-w-0 flex-1">
               <p className="dashboard-profile-hero-name truncate">{displayName}</p>
               <p className="dashboard-profile-hero-meta truncate">
@@ -347,6 +449,7 @@ export function MyProfilePanel({
           </div>
         </div>
       )}
+      </div>
     </section>
   );
 }

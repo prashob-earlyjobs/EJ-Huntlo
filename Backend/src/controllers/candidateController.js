@@ -51,6 +51,31 @@ function parseQueryBool(value, defaultValue = false) {
   return defaultValue;
 }
 
+function escapeRegexLiteral(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Case-insensitive match on stored candidate fields (name, role, company, skills, etc.). */
+function buildSourcedCandidateSearchFilter(searchRaw) {
+  const q = typeof searchRaw === "string" ? searchRaw.trim() : "";
+  if (!q) return null;
+  const regex = new RegExp(escapeRegexLiteral(q), "i");
+  return {
+    $or: [
+      { name: regex },
+      { linkedinProfileUrl: regex },
+      { "rawDoc.profile.name": regex },
+      { "rawDoc.profile.region": regex },
+      { "rawDoc.profile.linkedin_profile_url": regex },
+      { "rawDoc.profile.skills": regex },
+      { "rawDoc.profile.current_employers_object.job_title": regex },
+      { "rawDoc.profile.current_employers_object.company_name": regex },
+      { "rawDoc.profileAnalysis.recommendation": regex },
+      { "rawDoc.profileAnalysis.highlights.Highlight": regex },
+    ],
+  };
+}
+
 /**
  * Map Future Jobs GET …/profiles JSON → candidates list + pagination snapshot.
  */
@@ -1011,7 +1036,7 @@ const loadStoredSessionCandidates = async (req, res) => {
 /**
  * GET /api/candidates/all
  * All persisted sourced candidates for the authenticated user (all searches), paginated.
- * Query: page (default 1), limit (1–100, default 20), sessionId (optional filter)
+ * Query: page (default 1), limit (1–100, default 20), sessionId (optional), q (optional search)
  */
 const listAllSourcedCandidates = async (req, res) => {
   const userId = req.auth?.userId;
@@ -1027,20 +1052,30 @@ const listAllSourcedCandidates = async (req, res) => {
     const limit = clampInt(req.query.limit, 1, 100, 20);
     const skip = (page - 1) * limit;
 
-    const filter = {
-      userId: new mongoose.Types.ObjectId(userId),
-    };
-
     const sessionFilter =
       req.query.sessionId != null && String(req.query.sessionId).trim() !== ""
         ? String(req.query.sessionId).trim()
         : "";
+    const searchQ =
+      req.query.q != null
+        ? String(req.query.q).trim()
+        : req.query.search != null
+          ? String(req.query.search).trim()
+          : "";
+
+    const baseFilter = {
+      userId: new mongoose.Types.ObjectId(userId),
+    };
     if (sessionFilter) {
-      filter.sourcingSessionId = sessionFilter;
+      baseFilter.sourcingSessionId = sessionFilter;
     }
 
-    const [totalDocs, rows] = await Promise.all([
+    const searchFilter = buildSourcedCandidateSearchFilter(searchQ);
+    const filter = searchFilter ? { ...baseFilter, ...searchFilter } : baseFilter;
+
+    const [totalDocs, totalInScope, rows] = await Promise.all([
       SourcedCandidateDetail.countDocuments(filter),
+      SourcedCandidateDetail.countDocuments(baseFilter),
       SourcedCandidateDetail.find(filter)
         .sort({ updatedAt: -1, _id: -1 })
         .skip(skip)
@@ -1086,14 +1121,18 @@ const listAllSourcedCandidates = async (req, res) => {
       page,
       limit,
       totalDocs,
+      totalInScope,
       returned: candidates.length,
       sessionFilter: sessionFilter || undefined,
+      searchQ: searchQ || undefined,
     });
 
     return res.status(200).json({
       success: true,
       page,
       limit,
+      search: searchQ,
+      totalInScope,
       candidates,
       detailedDocs,
       profilesPagination,
@@ -1205,12 +1244,15 @@ const listRecentSearches = async (req, res) => {
     const searches = docs
       .map((d) => ({
         id: d._id.toString(),
+        futureJobsSessionId:
+          typeof d.futureJobsSessionId === "string" ? d.futureJobsSessionId.trim() : "",
         text:
           typeof d.prompt === "string" && d.prompt.trim()
             ? d.prompt.trim()
             : typeof d.sessionTitle === "string" && d.sessionTitle.trim()
               ? d.sessionTitle.trim()
               : "",
+        totalDocs: typeof d.totalDocs === "number" ? d.totalDocs : null,
         createdAt: d.createdAt,
       }))
       .filter((x) => x.text !== "");

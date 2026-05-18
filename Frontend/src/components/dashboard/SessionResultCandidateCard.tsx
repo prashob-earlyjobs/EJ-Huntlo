@@ -32,6 +32,10 @@ export type SessionResultCardData = {
   highlights?: SessionResultHighlight[];
   recommendation?: string;
   strengths?: SessionResultStrength[];
+  /** Pool grid only: one-line skills before highlight chips. */
+  compactSkills?: string;
+  /** Pool grid only: 2-line about summary after skills/highlights. */
+  compactAbout?: string;
 };
 
 type Props = {
@@ -134,6 +138,7 @@ export function SessionResultCandidateCard({
                     ? "dashboard-candidate-name--compact text-[0.9375rem] font-semibold leading-snug text-[#141b2b]"
                     : "text-base font-semibold text-[#141b2b]"
                 }
+                title={compact ? data.name : undefined}
               >
                 {data.name}
               </h2>
@@ -144,6 +149,7 @@ export function SessionResultCandidateCard({
                       ? "dashboard-candidate-role--compact mt-0.5 text-xs text-[#424656]"
                       : "mt-0.5 text-xs text-[#424656]"
                   }
+                  title={compact ? roleLine : undefined}
                 >
                   {roleLine}
                 </p>
@@ -158,13 +164,30 @@ export function SessionResultCandidateCard({
         </div>
       </div>
 
-      <p className="mt-2 text-xs text-[#424656]">
+      <p className="mt-2 min-w-0 max-w-full truncate text-xs text-[#424656]">
         {data.region || "Location unavailable"}
         {typeof data.yearsExperience === "number" ? ` · ${data.yearsExperience} years` : ""}
       </p>
 
+      {compact && data.compactSkills ? (
+        <p
+          className="dashboard-candidate-skills-compact mt-2 text-xs text-[#424656]"
+          title={data.compactSkills}
+        >
+          {data.compactSkills}
+        </p>
+      ) : null}
+
       {highlights.length > 0 ? (
-        <div className={`flex flex-wrap${compact ? " mt-2.5 gap-1.5" : " mt-3 gap-1.5"}`}>
+        <div
+          className={`min-w-0 max-w-full flex flex-wrap${
+            compact
+              ? data.compactSkills
+                ? " mt-2 gap-1.5"
+                : " mt-2.5 gap-1.5"
+              : " mt-3 gap-1.5"
+          }`}
+        >
           {highlights.slice(0, highlightLimit).map((h, i) => (
             <span
               key={`${h.Category || "h"}-${i}`}
@@ -177,6 +200,12 @@ export function SessionResultCandidateCard({
             </span>
           ))}
         </div>
+      ) : null}
+
+      {compact && data.compactAbout ? (
+        <p className="dashboard-candidate-about-compact mt-2 text-xs leading-snug text-[#424656]">
+          {data.compactAbout}
+        </p>
       ) : null}
 
       {!compact && data.recommendation ? (

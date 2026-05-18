@@ -17,6 +17,8 @@
 
 # Backend
 Backend/.env
+Backend/uploads/profile-photos/*
+!Backend/uploads/profile-photos/.gitkeep
 
 # Frontend (Next.js)
 Frontend/.next/

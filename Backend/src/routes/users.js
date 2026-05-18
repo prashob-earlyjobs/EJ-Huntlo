@@ -16,11 +16,14 @@ const {
   getUserPlanDetails,
   getMyProfile,
   updateMyProfile,
+  uploadMyProfilePhoto,
+  removeMyProfilePhoto,
   completeMyOnboarding,
   changeMyPassword,
 } = require("../controllers/userController");
 const { getMyDashboard } = require("../controllers/dashboardController");
 const { authenticate, requireAdmin } = require("../middleware/auth");
+const { profilePhotoUpload } = require("../middleware/profilePhotoUpload");
 
 const router = express.Router();
 
@@ -30,6 +33,23 @@ router.post("/logout", authenticate, logoutUser);
 router.get("/me", authenticate, getMyProfile);
 router.get("/me/dashboard", authenticate, getMyDashboard);
 router.patch("/me", authenticate, updateMyProfile);
+router.post(
+  "/me/photo",
+  authenticate,
+  (req, res, next) => {
+    profilePhotoUpload(req, res, (err) => {
+      if (err) {
+        return res.status(400).json({
+          success: false,
+          message: err.message || "Invalid photo upload",
+        });
+      }
+      next();
+    });
+  },
+  uploadMyProfilePhoto
+);
+router.delete("/me/photo", authenticate, removeMyProfilePhoto);
 router.patch("/me/onboarding", authenticate, completeMyOnboarding);
 router.patch("/me/password", authenticate, changeMyPassword);
 

@@ -4,6 +4,7 @@ export type StoredAuth = {
   companyName: string;
   mobile: string;
   location?: string;
+  profilePhotoUrl?: string;
   email: string;
   role: "user" | "admin";
   credits?: number;
