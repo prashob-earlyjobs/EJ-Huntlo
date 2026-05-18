@@ -1,12 +1,50 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { CandidateFilterDrawer } from "@/components/CandidateFilterDrawer";
+import {
+  SessionResultCandidateCard,
+  type SessionResultCardData,
+} from "@/components/dashboard/SessionResultCandidateCard";
+import { SearchHistoryTable } from "@/components/dashboard/SearchHistoryTable";
+import { SessionResultsSkeleton } from "@/components/dashboard/SessionResultsSkeleton";
+import {
+  PeopleScoutPanel,
+  type PeopleScoutRecentUser,
+} from "@/components/dashboard/PeopleScoutPanel";
+import {
+  MyProfilePanel,
+  type MyProfileFormState,
+  type MyProfileSecurityState,
+} from "@/components/dashboard/MyProfilePanel";
+import { DashboardOverviewPanel } from "@/components/dashboard/DashboardOverviewPanel";
+import { PlansPricingPanel } from "@/components/dashboard/PlansPricingPanel";
+import { SavedCandidatesPanel } from "@/components/dashboard/SavedCandidatesPanel";
+import { WorkspaceCandidatesTable } from "@/components/dashboard/WorkspaceCandidatesTable";
+import { LandingLogo } from "@/components/landing/LandingLogo";
+import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { authHeaders, getStoredAuth } from "@/lib/auth";
+import {
+  parseDashboardOverviewPayload,
+  type DashboardOverviewData,
+} from "@/lib/dashboardOverview";
+import {
+  parseUtilisationHistoryPagination,
+  parseUtilisationHistoryPayload,
+  parseUtilisationPayload,
+  UTILISATION_HISTORY_PAGE_SIZE,
+  type UserUtilisationStats,
+  type UtilisationHistoryRow,
+} from "@/lib/planUtilisation";
+import {
+  parsePricingPlansFromApi,
+  type PricingPlansPayload,
+} from "@/lib/pricingPlans";
 import { postAuthPath } from "@/lib/onboarding";
+import { candidateScoreBadgeClass, formatCandidateScore } from "@/lib/sessionResultUi";
 import {
   DEFAULT_CANDIDATE_FILTER_FORM,
   mergeFilterForm,
@@ -163,28 +201,6 @@ const userSidebarItems = [
     ),
   },
   {
-    label: "My Profile",
-    subtitle: "Professional details view",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
-        <path
-          d="M12 12C14.76 12 17 9.76 17 7C17 4.24 14.76 2 12 2C9.24 2 7 4.24 7 7C7 9.76 9.24 12 12 12Z"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <path
-          d="M4 22C4 18.69 7.58 16 12 16C16.42 16 20 18.69 20 22"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    ),
-  },
-  {
     label: "Plans and pricing",
     subtitle: "Compare plans and limits",
     icon: (
@@ -219,6 +235,29 @@ const userSidebarItems = [
     ),
   },
 ];
+
+const userProfileSidebarItem = {
+  label: "My Profile",
+  subtitle: "Professional details view",
+  icon: (
+    <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
+      <path
+        d="M12 12C14.76 12 17 9.76 17 7C17 4.24 14.76 2 12 2C9.24 2 7 4.24 7 7C7 9.76 9.24 12 12 12Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M4 22C4 18.69 7.58 16 12 16C16.42 16 20 18.69 20 22"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  ),
+};
 
 type SessionResultDoc = {
   _id?: string;
@@ -324,6 +363,52 @@ function candidateIdentityKey(candidate: {
   return `name:${String(candidate.name || "").trim().toLowerCase()}`;
 }
 
+function mapSavedApiRowToCandidate(row: {
+  candidateId?: unknown;
+  sourcingSessionId?: unknown;
+  linkedin_profile_url?: unknown;
+  name?: unknown;
+  role?: unknown;
+  currentCompany?: unknown;
+  location?: unknown;
+  experience?: unknown;
+  finalScore?: unknown;
+  highlights?: unknown;
+  recommendation?: unknown;
+  rawDoc?: unknown;
+  status?: unknown;
+  saveListId?: unknown;
+}): CandidateRow {
+  return {
+    id: typeof row.candidateId === "string" ? row.candidateId : "",
+    sourcingSessionId:
+      typeof row.sourcingSessionId === "string" ? row.sourcingSessionId : "",
+    linkedin_profile_url:
+      typeof row.linkedin_profile_url === "string" ? row.linkedin_profile_url : "",
+    name: typeof row.name === "string" ? row.name : "Unnamed candidate",
+    role: typeof row.role === "string" ? row.role : "—",
+    currentCompany: typeof row.currentCompany === "string" ? row.currentCompany : "",
+    location: typeof row.location === "string" ? row.location : "—",
+    experience: typeof row.experience === "string" ? row.experience : "—",
+    skills: "—",
+    finalScore: typeof row.finalScore === "number" ? row.finalScore : null,
+    highlights: Array.isArray(row.highlights)
+      ? row.highlights
+          .map((h: unknown) => String(h ?? "").trim())
+          .filter((h: string) => h !== "")
+      : [],
+    recommendation: typeof row.recommendation === "string" ? row.recommendation : "",
+    rawDoc:
+      row.rawDoc && typeof row.rawDoc === "object"
+        ? (row.rawDoc as SessionResultDoc)
+        : null,
+    status: typeof row.status === "string" ? row.status : "Saved",
+    email: "",
+    phone: "",
+    saveListId: typeof row.saveListId === "string" ? row.saveListId : "",
+  };
+}
+
 type SearchSummaryState = {
   candidateCount: number;
   totalDocs: number | null;
@@ -346,137 +431,6 @@ type SaveListRow = {
   id: string;
   name: string;
 };
-
-function parsePricingQuotaFromApi(v: unknown): number | null {
-  if (typeof v === "number" && Number.isFinite(v) && v >= 0) return Math.floor(v);
-  if (typeof v === "string" && v.trim()) {
-    const m = v.replace(/,/g, "").match(/\d+/);
-    if (!m) return null;
-    const n = parseInt(m[0], 10);
-    return Number.isFinite(n) && n >= 0 ? n : null;
-  }
-  return null;
-}
-
-function pricingQuotaDisplayLabel(
-  n: number | null | undefined,
-  kind: "searches" | "unlocks" | "emails" | "phones"
-): string | null {
-  if (typeof n !== "number" || !Number.isFinite(n) || n < 0) return null;
-  const q = Math.floor(n);
-  if (kind === "searches") return `${q} searches`;
-  if (kind === "unlocks") return `${q} candidate unlocks`;
-  if (kind === "emails") return `${q} verified emails`;
-  return `${q} phone numbers`;
-}
-
-type UserPricingTier = {
-  id?: string;
-  name: string;
-  primaryPrice: string;
-  secondaryPrice: string;
-  description: string;
-  searches?: number | null;
-  candidateUnlocks?: number | null;
-  verifiedEmails?: number | null;
-  phoneNumbers?: number | null;
-  features: string[];
-  isPopular?: boolean;
-  popularBadge?: string;
-};
-
-type UserPricingPlansPayload = {
-  intro: string;
-  tiers: UserPricingTier[];
-};
-
-type UserUtilisationStats = {
-  candidateSearches: number;
-  emailUnveils: number;
-  candidateUnveils: number;
-  mobileUnveils: number;
-  linkedinLookups: number;
-};
-
-function parseUtilisationPayload(raw: unknown): UserUtilisationStats {
-  const empty: UserUtilisationStats = {
-    candidateSearches: 0,
-    emailUnveils: 0,
-    candidateUnveils: 0,
-    mobileUnveils: 0,
-    linkedinLookups: 0,
-  };
-  if (!raw || typeof raw !== "object") return empty;
-  const o = raw as Record<string, unknown>;
-  const n = (key: keyof UserUtilisationStats) => {
-    const v = o[key];
-    return typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0;
-  };
-  return {
-    candidateSearches: n("candidateSearches"),
-    emailUnveils: n("emailUnveils"),
-    candidateUnveils: n("candidateUnveils"),
-    mobileUnveils: n("mobileUnveils"),
-    linkedinLookups: n("linkedinLookups"),
-  };
-}
-
-/** Remaining / limit from plan quota (e.g. 255/300). No quota → —/— */
-function quotaRemainingDisplay(used: number, limit: number | null | undefined): string {
-  const u = Math.max(0, Math.floor(Number(used) || 0));
-  if (typeof limit === "number" && Number.isFinite(limit) && limit > 0) {
-    const L = Math.floor(limit);
-    return `${Math.max(0, L - u)}/${L}`;
-  }
-  return "—/—";
-}
-
-type UtilisationHistoryRow = {
-  id: string;
-  action: string;
-  amount: number;
-  createdAt: string;
-};
-
-function parseUtilisationHistoryPayload(raw: unknown): UtilisationHistoryRow[] {
-  if (!Array.isArray(raw)) return [];
-  const rows: UtilisationHistoryRow[] = [];
-  for (const item of raw) {
-    if (!item || typeof item !== "object") continue;
-    const o = item as Record<string, unknown>;
-    const id = typeof o.id === "string" ? o.id : "";
-    const action = typeof o.action === "string" ? o.action : "";
-    const amount =
-      typeof o.amount === "number" && Number.isFinite(o.amount)
-        ? Math.max(1, Math.floor(o.amount))
-        : 1;
-    let createdAt = "";
-    const cat = o.createdAt;
-    if (typeof cat === "string") createdAt = cat;
-    else if (typeof cat === "number" && Number.isFinite(cat))
-      createdAt = new Date(cat).toISOString();
-    if (!id || !createdAt) continue;
-    rows.push({ id, action, amount, createdAt });
-  }
-  return rows;
-}
-
-function utilisationQuotaActionLabel(action: string): string {
-  switch (action) {
-    case "candidateSearches":
-      return "Candidate search";
-    case "emailUnveils":
-      return "Email unveil";
-    case "candidateUnveils":
-      return "Candidate unveil";
-    case "mobileUnveils":
-      return "Mobile unveil";
-    case "linkedinLookups":
-      return "LinkedIn search";
-    default:
-      return action ? action.replace(/([A-Z])/g, " $1").trim() : "Activity";
-  }
-}
 
 type PeopleScoutProfile = {
   name: string;
@@ -524,35 +478,6 @@ const emptyPeopleScoutProfile: PeopleScoutProfile = {
   email: "",
   phone: "",
   website: "",
-};
-
-type PeopleScoutRecentUser = {
-  id: string;
-  name: string;
-  role: string;
-  location: string;
-  company: string;
-  lastSearchedAt: string;
-  linkedinUrl: string;
-  thumbnailUrl?: string;
-  /** Raw Future Jobs profile when available (from our DB) */
-  profile?: Record<string, unknown> | null;
-  /** From recent list — used for traceability */
-  scoutId?: string;
-};
-
-type MyProfileFormState = {
-  fullName: string;
-  companyName: string;
-  email: string;
-  phone: string;
-  location: string;
-  role: string;
-};
-
-type MyProfileSecurityState = {
-  passwordChangedAt: string;
-  activeSessions: number;
 };
 
 type FjScoutEmployer = {
@@ -714,21 +639,22 @@ function peopleScoutNameInitials(name: string) {
   return name.slice(0, 2).toUpperCase() || "?";
 }
 
-/** Tailwind classes for match score badges on a 0–5 scale. */
-function candidateScoreBadgeClass(score: number): string {
-  const base = "rounded-full px-2.5 py-1 text-[11px] font-semibold";
-  if (score >= 4.5) return `${base} bg-emerald-100 text-emerald-800`;
-  if (score >= 4) return `${base} bg-green-100 text-green-800`;
-  if (score >= 3.5) return `${base} bg-lime-100 text-lime-900`;
-  if (score >= 3) return `${base} bg-amber-100 text-amber-900`;
-  if (score >= 2.5) return `${base} bg-orange-100 text-orange-800`;
-  if (score >= 2) return `${base} bg-orange-100 text-orange-900`;
-  return `${base} bg-red-100 text-red-800`;
-}
-
-function formatCandidateScore(score: number): string {
-  const rounded = Math.round(score * 100) / 100;
-  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/\.?0+$/, "");
+function sessionDocToCardData(doc: SessionResultDoc, idx: number): SessionResultCardData {
+  const current = doc.profile?.current_employers_object?.[0];
+  return {
+    id: doc._id || `session-doc-${idx}`,
+    name: doc.profile?.name || "Unnamed candidate",
+    role: current?.job_title,
+    company: current?.company_name,
+    region: doc.profile?.region,
+    yearsExperience: doc.profile?.years_of_experience_raw,
+    finalScore: doc.finalScore,
+    photoUrl: doc.profile?.profile_picture_permalink,
+    linkedinUrl: doc.profile?.linkedin_profile_url,
+    highlights: doc.profileAnalysis?.highlights,
+    recommendation: doc.profileAnalysis?.recommendation,
+    strengths: doc.profileAnalysis?.analysis?.keyStrengths,
+  };
 }
 
 function AiGeneratedBadge({ className = "" }: { className?: string }) {
@@ -764,24 +690,12 @@ function AiRecommendationBlock({
   compact?: boolean;
 }) {
   return (
-    <div className={compact ? "mt-3" : undefined}>
-      <div className="mb-1.5 flex flex-wrap items-center gap-2">
-        <span
-          className={`font-semibold uppercase tracking-[0.1em] text-slate-500 ${
-            compact ? "text-[10px]" : "text-xs"
-          }`}
-        >
-          AI recommendation
-        </span>
+    <div className={compact ? "mt-3" : "mt-4"}>
+      <div className="dashboard-ai-insight-label">
+        <span>AI recommendation</span>
         <AiGeneratedBadge />
       </div>
-      <p
-        className={`rounded-lg border border-violet-100/80 bg-violet-50/40 leading-relaxed text-slate-700 ${
-          compact ? "px-3 py-2 text-xs" : "px-3 py-3 text-sm"
-        }`}
-      >
-        {text}
-      </p>
+      <p className="dashboard-ai-insight">{text}</p>
     </div>
   );
 }
@@ -1029,10 +943,12 @@ function SessionCandidateDetailDrawer({
 
   const primaryRole = employers[0]?.job_title || candidate.role;
   const primaryCompany = employers[0]?.company_name || candidate.currentCompany;
+  const headline =
+    [primaryRole, primaryCompany].filter(Boolean).join(" · ") || candidate.location || "";
 
   return (
     <div
-      className={`fixed inset-0 z-113 transition-opacity duration-300 ${
+      className={`dashboard-overlay fixed inset-0 transition-opacity duration-300 ${
         open ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
       }`}
       role="dialog"
@@ -1043,25 +959,22 @@ function SessionCandidateDetailDrawer({
       <button
         type="button"
         aria-label="Close candidate details"
-        className="absolute inset-0 bg-slate-900/40"
+        className="dashboard-drawer-overlay absolute inset-0"
         onClick={onClose}
       />
       <aside
-        className={`absolute right-0 top-0 h-full w-full max-w-xl overflow-y-auto border-l border-slate-200 bg-white shadow-2xl transition-transform duration-300 ease-out ${
+        className={`dashboard-drawer-panel dashboard-drawer-panel--scout absolute right-0 top-0 h-full w-full overflow-y-auto transition-transform duration-300 ease-out ${
           open ? "translate-x-0" : "translate-x-full"
         }`}
       >
-        <div className="sticky top-0 z-10 border-b border-slate-200 bg-white px-5 py-4">
+        <div className="sticky top-0 z-10 border-b border-[color-mix(in_srgb,var(--dash-outline)_40%,transparent)] bg-white/95 px-5 py-4 backdrop-blur-md">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                Candidate profile
-              </p>
-              <h3 className="mt-1 text-lg font-semibold text-black">{name}</h3>
-              <p className="mt-0.5 text-sm text-slate-600">
-                {primaryRole}
-                {primaryCompany ? ` · ${primaryCompany}` : ""}
-              </p>
+              <p className="dashboard-label-upper">Session candidate</p>
+              <h3 className="mt-1 truncate dashboard-section-title">{name}</h3>
+              {headline ? (
+                <p className="mt-0.5 line-clamp-2 dashboard-text-body">{headline}</p>
+              ) : null}
             </div>
             <div className="flex shrink-0 items-center gap-2">
               {typeof doc.finalScore === "number" ? (
@@ -1072,72 +985,106 @@ function SessionCandidateDetailDrawer({
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+                className="dashboard-btn-ghost shrink-0 p-1.5"
                 aria-label="Close"
               >
-                <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-                  <path
-                    d="M18 6L6 18M6 6L18 18"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
+                <MaterialIcon name="close" className="text-xl" />
               </button>
             </div>
           </div>
-
           <div
-            className={`mt-3 grid w-full gap-2 ${
-              linkedinUrl ? "grid-cols-3" : "grid-cols-2"
+            className={`dashboard-drawer-actions ${
+              linkedinUrl ? "dashboard-drawer-actions--cols-3" : "dashboard-drawer-actions--cols-2"
             }`}
+            role="group"
+            aria-label="Candidate actions"
           >
             {linkedinUrl ? (
               <a
                 href={linkedinUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex min-w-0 items-center justify-center gap-1 rounded-lg border border-slate-300 bg-slate-50 px-2 py-1.5 text-center text-[11px] font-semibold text-slate-800 transition hover:bg-slate-100 sm:text-xs"
+                className="dashboard-drawer-action dashboard-drawer-action--linkedin"
               >
-                LinkedIn
+                <span className="dashboard-drawer-action-icon" aria-hidden>
+                  <MaterialIcon name="work" className="text-[20px]" />
+                </span>
+                <span className="dashboard-drawer-action-body">
+                  <span className="dashboard-drawer-action-label">Open LinkedIn</span>
+                  <span className="dashboard-drawer-action-hint">View public profile</span>
+                </span>
+                <MaterialIcon
+                  name="open_in_new"
+                  className="dashboard-drawer-action-trail text-[18px]"
+                  aria-hidden
+                />
               </a>
             ) : null}
             <button
               type="button"
               onClick={onRevealEmail}
-              className="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold text-slate-800 transition hover:bg-slate-50 sm:text-xs"
+              className={`dashboard-drawer-action${emailRevealed ? " dashboard-drawer-action--active" : ""}`}
             >
-              Reveal email
+              <span className="dashboard-drawer-action-icon" aria-hidden>
+                <MaterialIcon name="mail" className="text-[20px]" />
+              </span>
+              <span className="dashboard-drawer-action-body">
+                <span className="dashboard-drawer-action-label">
+                  {emailRevealed ? "Email revealed" : "Reveal email"}
+                </span>
+                <span className="dashboard-drawer-action-hint">
+                  {emailRevealed ? "Shown below" : "Tap to reveal"}
+                </span>
+              </span>
             </button>
             <button
               type="button"
               onClick={onRevealPhone}
-              className="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-semibold text-slate-800 transition hover:bg-slate-50 sm:text-xs"
+              className={`dashboard-drawer-action${phoneRevealed ? " dashboard-drawer-action--active" : ""}`}
             >
-              Reveal phone
+              <span className="dashboard-drawer-action-icon" aria-hidden>
+                <MaterialIcon name="call" className="text-[20px]" />
+              </span>
+              <span className="dashboard-drawer-action-body">
+                <span className="dashboard-drawer-action-label">
+                  {phoneRevealed ? "Phone revealed" : "Reveal phone"}
+                </span>
+                <span className="dashboard-drawer-action-hint">
+                  {phoneRevealed ? "Shown below" : "Tap to reveal"}
+                </span>
+              </span>
             </button>
           </div>
           {(emailRevealed && displayedEmail) || (phoneRevealed && displayedPhone) ? (
-            <div className="mt-3 space-y-1 border-t border-slate-100 pt-3 text-xs text-slate-700">
+            <div className="dashboard-drawer-revealed-card">
               {emailRevealed && displayedEmail ? (
-                <p>
-                  <span className="font-semibold text-slate-500">Email </span>
-                  {displayedEmail}
-                </p>
+                <div className="dashboard-drawer-revealed-row">
+                  <span className="dashboard-drawer-action-icon" aria-hidden>
+                    <MaterialIcon name="mail" className="text-base" />
+                  </span>
+                  <span className="dashboard-drawer-revealed-label">Email</span>
+                  <span className="dashboard-drawer-revealed-value">
+                    <a href={`mailto:${displayedEmail}`}>{displayedEmail}</a>
+                  </span>
+                </div>
               ) : null}
               {phoneRevealed && displayedPhone ? (
-                <p>
-                  <span className="font-semibold text-slate-500">Phone </span>
-                  {displayedPhone}
-                </p>
+                <div className="dashboard-drawer-revealed-row">
+                  <span className="dashboard-drawer-action-icon" aria-hidden>
+                    <MaterialIcon name="call" className="text-base" />
+                  </span>
+                  <span className="dashboard-drawer-revealed-label">Phone</span>
+                  <span className="dashboard-drawer-revealed-value">
+                    <a href={`tel:${displayedPhone.replace(/\s/g, "")}`}>{displayedPhone}</a>
+                  </span>
+                </div>
               ) : null}
             </div>
           ) : null}
         </div>
 
         <div className="space-y-6 px-5 py-5 pb-10">
-          <section className="flex items-start gap-4 border-b border-slate-100 pb-6">
+          <section className="flex items-start gap-4 border-b border-[color-mix(in_srgb,var(--dash-outline)_25%,transparent)] pb-6">
             {showImage ? (
               <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-full bg-slate-100 ring-2 ring-slate-200">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1153,21 +1100,17 @@ function SessionCandidateDetailDrawer({
                 {peopleScoutNameInitials(name)}
               </div>
             )}
-            <div className="min-w-0 flex-1 text-sm text-slate-700">
+            <div className="min-w-0 flex-1 dashboard-text-body">
               <p>{profile?.region || candidate.location}</p>
               {typeof profile?.years_of_experience_raw === "number" ? (
-                <p className="mt-1 text-slate-600">
-                  {profile.years_of_experience_raw} years experience
-                </p>
+                <p className="mt-1">{profile.years_of_experience_raw} years experience</p>
               ) : null}
             </div>
           </section>
 
           {employers.length > 0 ? (
             <section>
-              <h4 className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                Current roles
-              </h4>
+              <h4 className="dashboard-label-upper">Current roles</h4>
               <ul className="mt-3 space-y-3">
                 {employers.map((emp, i) => (
                   <li
@@ -1184,15 +1127,10 @@ function SessionCandidateDetailDrawer({
 
           {skills.length > 0 ? (
             <section>
-              <h4 className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                Skills
-              </h4>
-              <div className="mt-2 flex flex-wrap gap-1.5">
+              <h4 className="dashboard-label-upper">Skills</h4>
+              <div className="mt-3 flex flex-wrap gap-2">
                 {skills.map((skill) => (
-                  <span
-                    key={skill}
-                    className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-700"
-                  >
+                  <span key={skill} className="dashboard-chip">
                     {skill}
                   </span>
                 ))}
@@ -1202,9 +1140,7 @@ function SessionCandidateDetailDrawer({
 
           {highlights.length > 0 ? (
             <section>
-              <h4 className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                Highlights
-              </h4>
+              <h4 className="dashboard-label-upper">Highlights</h4>
               <ul className="mt-3 space-y-2">
                 {highlights.map((h, i) => (
                   <li
@@ -1236,9 +1172,7 @@ function SessionCandidateDetailDrawer({
 
           {strengths.length > 0 ? (
             <section>
-              <h4 className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                Key strengths
-              </h4>
+              <h4 className="dashboard-label-upper">Key strengths</h4>
               <ul className="mt-3 space-y-3">
                 {strengths.map((s, i) => (
                   <li key={`strength-${i}`} className="text-sm">
@@ -1258,9 +1192,7 @@ function SessionCandidateDetailDrawer({
 
           {weaknesses.length > 0 ? (
             <section>
-              <h4 className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                Areas to review
-              </h4>
+              <h4 className="dashboard-label-upper">Areas to review</h4>
               <ul className="mt-3 space-y-3">
                 {weaknesses.map((w, i) => (
                   <li key={`weakness-${i}`} className="text-sm">
@@ -1278,15 +1210,13 @@ function SessionCandidateDetailDrawer({
             </section>
           ) : null}
 
-          <section className="border-t border-slate-200 pt-4">
+          <section className="border-t border-[color-mix(in_srgb,var(--dash-outline)_35%,transparent)] pt-4">
             <button
               type="button"
               onClick={onToggleSave}
               disabled={isSaveBusy}
-              className={`inline-flex w-full items-center justify-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-semibold transition disabled:opacity-60 ${
-                isSaved
-                  ? "border-black bg-black text-white hover:bg-slate-900"
-                  : "border-slate-300 bg-white text-slate-800 hover:bg-slate-50"
+              className={`dashboard-btn-secondary w-full justify-center py-2.5 disabled:opacity-60 ${
+                isSaved ? "dashboard-btn-toggle-active !border-[#0050cb] !bg-[#0050cb] !text-white" : ""
               }`}
             >
               {isSaveBusy ? "Saving…" : isSaved ? "Saved to list" : "Save candidate"}
@@ -1302,7 +1232,7 @@ export default function UserDashboardPage() {
   const router = useRouter();
   const [aiPrompt, setAiPrompt] = useState("");
   const [peopleScoutQuery, setPeopleScoutQuery] = useState("");
-  const [activeTab, setActiveTab] = useState("Search Candidates");
+  const [activeTab, setActiveTab] = useState("Dashboard");
   const [searchedCandidates, setSearchedCandidates] = useState<CandidateRow[]>(
     []
   );
@@ -1310,6 +1240,8 @@ export default function UserDashboardPage() {
   const [revealedEmail, setRevealedEmail] = useState<string[]>([]);
   const [revealedPhone, setRevealedPhone] = useState<string[]>([]);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const profileMenuRef = useRef<HTMLDivElement>(null);
   const [showAdminLink, setShowAdminLink] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState("");
@@ -1333,6 +1265,12 @@ export default function UserDashboardPage() {
   const [sessionResultLoadingMore, setSessionResultLoadingMore] = useState(false);
   const [savedSessionCandidateKeys, setSavedSessionCandidateKeys] = useState<string[]>([]);
   const [savedCandidatesList, setSavedCandidatesList] = useState<CandidateRow[]>([]);
+  const [savedCandidatesLoading, setSavedCandidatesLoading] = useState(false);
+  const [savedCandidatesPage, setSavedCandidatesPage] = useState(1);
+  const [savedCandidatesTotalDocs, setSavedCandidatesTotalDocs] = useState(0);
+  const [savedCandidatesTotalPages, setSavedCandidatesTotalPages] = useState(1);
+  const [savedCandidatesTotalSavedCount, setSavedCandidatesTotalSavedCount] = useState(0);
+  const SAVED_CANDIDATES_LIMIT = 12;
   const [saveCandidateBusyKeys, setSaveCandidateBusyKeys] = useState<string[]>([]);
   const [saveLists, setSaveLists] = useState<SaveListRow[]>([]);
   const [saveListsLoading, setSaveListsLoading] = useState(false);
@@ -1384,7 +1322,7 @@ export default function UserDashboardPage() {
   const [peopleScoutError, setPeopleScoutError] = useState("");
   const [peopleScoutRecentList, setPeopleScoutRecentList] = useState<PeopleScoutRecentUser[]>([]);
   const [peopleScoutRecentLoading, setPeopleScoutRecentLoading] = useState(false);
-  const [userPricingPlans, setUserPricingPlans] = useState<UserPricingPlansPayload | null>(null);
+  const [userPricingPlans, setUserPricingPlans] = useState<PricingPlansPayload | null>(null);
   const [userPricingPlansLoading, setUserPricingPlansLoading] = useState(false);
   const [planUtilisation, setPlanUtilisation] = useState<UserUtilisationStats>(() => ({
     candidateSearches: 0,
@@ -1397,6 +1335,14 @@ export default function UserDashboardPage() {
   const [userPlanName, setUserPlanName] = useState("Starter");
   const [utilisationHistory, setUtilisationHistory] = useState<UtilisationHistoryRow[]>([]);
   const [utilisationHistoryLoading, setUtilisationHistoryLoading] = useState(false);
+  const [utilisationHistoryPage, setUtilisationHistoryPage] = useState(1);
+  const [utilisationHistoryTotalDocs, setUtilisationHistoryTotalDocs] = useState(0);
+  const [utilisationHistoryTotalPages, setUtilisationHistoryTotalPages] = useState(1);
+  const [dashboardOverview, setDashboardOverview] = useState<DashboardOverviewData | null>(
+    null
+  );
+  const [dashboardOverviewLoading, setDashboardOverviewLoading] = useState(false);
+  const [dashboardOverviewError, setDashboardOverviewError] = useState("");
   const [peopleScoutProfile, setPeopleScoutProfile] = useState<PeopleScoutProfile | null>(
     null
   );
@@ -1425,6 +1371,44 @@ export default function UserDashboardPage() {
       /* ignore */
     }
   }, []);
+
+  useEffect(() => {
+    if (activeTab !== "Dashboard") return;
+    const auth = getStoredAuth();
+    if (!auth?.token) {
+      setDashboardOverview(null);
+      setDashboardOverviewLoading(false);
+      return;
+    }
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+    setDashboardOverviewLoading(true);
+    setDashboardOverviewError("");
+    fetch(`${apiBase}/api/users/me/dashboard`, {
+      headers: authHeaders(auth.token),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (!data.success) {
+          throw new Error(
+            typeof data.message === "string" ? data.message : "Failed to load dashboard"
+          );
+        }
+        const parsed = parseDashboardOverviewPayload(data);
+        if (!parsed) {
+          throw new Error("Invalid dashboard response");
+        }
+        setDashboardOverview(parsed);
+      })
+      .catch((err) => {
+        setDashboardOverview(null);
+        setDashboardOverviewError(
+          err instanceof Error ? err.message : "Could not load dashboard"
+        );
+      })
+      .finally(() => {
+        setDashboardOverviewLoading(false);
+      });
+  }, [activeTab]);
 
   useEffect(() => {
     if (activeTab !== "Saved" && activeTab !== "Session Results") return;
@@ -1683,35 +1667,8 @@ export default function UserDashboardPage() {
             success?: boolean;
             plans?: unknown;
           };
-          if (data.success && data.plans && typeof data.plans === "object") {
-            const p = data.plans as Record<string, unknown>;
-            const intro = typeof p.intro === "string" ? p.intro : "";
-            const rawTiers = Array.isArray(p.tiers) ? p.tiers : [];
-            const tiers: UserPricingTier[] = rawTiers.map((item: unknown) => {
-              const t =
-                item && typeof item === "object" ? (item as Record<string, unknown>) : {};
-              const features = Array.isArray(t.features) ? t.features : [];
-              return {
-                id: typeof t.id === "string" ? t.id : undefined,
-                name: typeof t.name === "string" ? t.name : "Plan",
-                primaryPrice: typeof t.primaryPrice === "string" ? t.primaryPrice : "",
-                secondaryPrice: typeof t.secondaryPrice === "string" ? t.secondaryPrice : "",
-                description: typeof t.description === "string" ? t.description : "",
-                searches: parsePricingQuotaFromApi(t.searches),
-                candidateUnlocks: parsePricingQuotaFromApi(t.candidateUnlocks),
-                verifiedEmails: parsePricingQuotaFromApi(t.verifiedEmails),
-                phoneNumbers: parsePricingQuotaFromApi(t.phoneNumbers),
-                features: features
-                  .map((f) => String(f ?? "").trim())
-                  .filter((line) => line !== ""),
-                isPopular: Boolean(t.isPopular),
-                popularBadge:
-                  typeof t.popularBadge === "string" && t.popularBadge.trim()
-                    ? t.popularBadge.trim()
-                    : "⭐ Most Popular",
-              };
-            });
-            setUserPricingPlans({ intro, tiers });
+          if (data.success && data.plans) {
+            setUserPricingPlans(parsePricingPlansFromApi(data.plans));
           } else {
             setUserPricingPlans(null);
           }
@@ -1756,115 +1713,141 @@ export default function UserDashboardPage() {
     const auth = getStoredAuth();
     if (!auth?.token) {
       setUtilisationHistory([]);
+      setUtilisationHistoryTotalDocs(0);
+      setUtilisationHistoryTotalPages(1);
       setUtilisationHistoryLoading(false);
       return;
     }
     const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
     setUtilisationHistoryLoading(true);
-    fetch(`${apiBase}/api/users/me/utilisation/history?limit=50`, {
+    setUtilisationHistory([]);
+    const params = new URLSearchParams({
+      page: String(utilisationHistoryPage),
+      limit: String(UTILISATION_HISTORY_PAGE_SIZE),
+    });
+    fetch(`${apiBase}/api/users/me/utilisation/history?${params.toString()}`, {
       headers: authHeaders(auth.token),
     })
       .then((res) => res.json())
       .then((data) => {
         if (data.success && Array.isArray(data.history)) {
           setUtilisationHistory(parseUtilisationHistoryPayload(data.history));
+          const pagination = parseUtilisationHistoryPagination(data.pagination);
+          setUtilisationHistoryTotalDocs(pagination.totalDocs);
+          setUtilisationHistoryTotalPages(pagination.totalPages);
+          if (pagination.page !== utilisationHistoryPage) {
+            setUtilisationHistoryPage(pagination.page);
+          }
         } else {
           setUtilisationHistory([]);
+          setUtilisationHistoryTotalDocs(0);
+          setUtilisationHistoryTotalPages(1);
         }
       })
-      .catch(() => setUtilisationHistory([]))
+      .catch(() => {
+        setUtilisationHistory([]);
+        setUtilisationHistoryTotalDocs(0);
+        setUtilisationHistoryTotalPages(1);
+      })
       .finally(() => setUtilisationHistoryLoading(false));
-  }, [activeTab]);
+  }, [activeTab, utilisationHistoryPage]);
 
   useEffect(() => {
-    if (activeTab !== "Saved" && activeTab !== "Session Results") return;
+    if (activeTab === "Plans and pricing") {
+      setUtilisationHistoryPage(1);
+    }
+  }, [activeTab]);
+
+  const loadSavedCandidateKeys = async () => {
     const auth = getStoredAuth();
     if (!auth?.token) return;
     const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
-
-    fetch(`${apiBase}/api/candidates/saved`, {
-      headers: authHeaders(auth.token),
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        if (!data.success || !Array.isArray(data.candidates)) {
-          throw new Error("Failed to load saved candidates");
-        }
-        const mapped = data.candidates.map(
-          (row: {
-            candidateId?: unknown;
-            sourcingSessionId?: unknown;
-            linkedin_profile_url?: unknown;
-            name?: unknown;
-            role?: unknown;
-            currentCompany?: unknown;
-            location?: unknown;
-            experience?: unknown;
-            finalScore?: unknown;
-            highlights?: unknown;
-            recommendation?: unknown;
-            rawDoc?: unknown;
-            status?: unknown;
-            saveListId?: unknown;
-          }): CandidateRow => ({
-            id: typeof row.candidateId === "string" ? row.candidateId : "",
-            sourcingSessionId:
-              typeof row.sourcingSessionId === "string" ? row.sourcingSessionId : "",
-            linkedin_profile_url:
-              typeof row.linkedin_profile_url === "string" ? row.linkedin_profile_url : "",
-            name: typeof row.name === "string" ? row.name : "Unnamed candidate",
-            role: typeof row.role === "string" ? row.role : "—",
-            currentCompany:
-              typeof row.currentCompany === "string" ? row.currentCompany : "",
-            location: typeof row.location === "string" ? row.location : "—",
-            experience: typeof row.experience === "string" ? row.experience : "—",
-            skills: "—",
-            finalScore:
-              typeof row.finalScore === "number" ? row.finalScore : null,
-            highlights: Array.isArray(row.highlights)
-              ? row.highlights
-                  .map((h: unknown) => String(h ?? "").trim())
-                  .filter((h: string) => h !== "")
-              : [],
-            recommendation:
-              typeof row.recommendation === "string" ? row.recommendation : "",
-            rawDoc:
-              row.rawDoc && typeof row.rawDoc === "object"
-                ? (row.rawDoc as SessionResultDoc)
-                : null,
-            status: typeof row.status === "string" ? row.status : "Saved",
-            email: "",
-            phone: "",
-            saveListId: typeof row.saveListId === "string" ? row.saveListId : "",
-          })
-        );
-        setSavedCandidatesList(mapped);
-        setSavedSessionCandidateKeys(
-          mapped
-            .map((row: CandidateRow) => candidateIdentityKey(row))
-            .filter(
-              (k: string, idx: number, arr: string[]) =>
-                k !== "" && arr.indexOf(k) === idx
-            )
-        );
-      })
-      .catch(() => {
-        if (activeTab === "Saved") {
-          setSavedCandidatesList([]);
-        }
+    try {
+      const res = await fetch(`${apiBase}/api/candidates/saved?keysOnly=1`, {
+        headers: authHeaders(auth.token),
       });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success || !Array.isArray(data.keyRows)) {
+        throw new Error("Failed to load saved keys");
+      }
+      const keys = (data.keyRows as Parameters<typeof mapSavedApiRowToCandidate>[0][])
+        .map((row) => candidateIdentityKey(mapSavedApiRowToCandidate(row)))
+        .filter((k: string, idx: number, arr: string[]) => k !== "" && arr.indexOf(k) === idx);
+      setSavedSessionCandidateKeys(keys);
+    } catch {
+      setSavedSessionCandidateKeys([]);
+    }
+  };
+
+  const loadSavedCandidates = async (page: number, listFilter: string) => {
+    const auth = getStoredAuth();
+    if (!auth?.token) {
+      setSavedCandidatesList([]);
+      setSavedCandidatesTotalDocs(0);
+      setSavedCandidatesTotalPages(1);
+      setSavedCandidatesTotalSavedCount(0);
+      return;
+    }
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+    setSavedCandidatesLoading(true);
+    setSavedCandidatesList([]);
+    try {
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(SAVED_CANDIDATES_LIMIT),
+        listFilter,
+      });
+      const res = await fetch(`${apiBase}/api/candidates/saved?${params}`, {
+        headers: authHeaders(auth.token),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success || !Array.isArray(data.candidates)) {
+        throw new Error(
+          typeof data.message === "string" ? data.message : "Failed to load saved candidates"
+        );
+      }
+      const mapped = (data.candidates as Parameters<typeof mapSavedApiRowToCandidate>[0][]).map(
+        mapSavedApiRowToCandidate
+      );
+      setSavedCandidatesList(mapped);
+      setSavedCandidatesTotalSavedCount(
+        typeof data.totalSavedCount === "number" ? data.totalSavedCount : mapped.length
+      );
+      const pg = data.pagination as
+        | { totalDocs?: number; totalPages?: number; page?: number }
+        | undefined;
+      const totalDocs = typeof pg?.totalDocs === "number" ? pg.totalDocs : mapped.length;
+      const totalPages =
+        typeof pg?.totalPages === "number" ? Math.max(1, pg.totalPages) : 1;
+      const serverPage = typeof pg?.page === "number" ? pg.page : page;
+      setSavedCandidatesTotalDocs(totalDocs);
+      setSavedCandidatesTotalPages(totalPages);
+      setSavedCandidatesPage(serverPage);
+    } catch {
+      setSavedCandidatesList([]);
+      setSavedCandidatesTotalDocs(0);
+      setSavedCandidatesTotalPages(1);
+    } finally {
+      setSavedCandidatesLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab !== "Session Results") return;
+    void loadSavedCandidateKeys();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh keys when opening session results
   }, [activeTab]);
 
-  const savedCandidatesDisplay = savedCandidatesList;
+  useEffect(() => {
+    if (activeTab !== "Saved") return;
+    void loadSavedCandidates(savedCandidatesPage, saveListFilter);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- page/filter driven fetch
+  }, [activeTab, savedCandidatesPage, saveListFilter]);
 
-  const savedCandidatesFiltered = (() => {
-    const list = savedCandidatesDisplay;
-    if (saveListFilter === "__all__") return list;
-    if (saveListFilter === "__general__") {
-      return list.filter((c) => !String(c.saveListId || "").trim());
-    }
-    return list.filter((c) => String(c.saveListId || "") === saveListFilter);
-  })();
+  const handleSaveListFilterChange = (value: string) => {
+    setSaveListFilter(value);
+    setSavedCandidatesPage(1);
+  };
 
   const loadWorkspaceCandidates = async (page: number) => {
     const auth = getStoredAuth();
@@ -1969,8 +1952,11 @@ export default function UserDashboardPage() {
           typeof data.message === "string" ? data.message : "People Scout lookup failed"
         );
       }
-      const fjData = data.futureJobs?.data as { profile?: FjScoutProfile } | undefined;
-      setPeopleScoutProfile(mapFjProfileToPeopleScoutProfile(fjData?.profile));
+      const fjRoot = data.futureJobs as
+        | { data?: { profile?: FjScoutProfile }; profile?: FjScoutProfile }
+        | undefined;
+      const fjProfile = fjRoot?.data?.profile ?? fjRoot?.profile;
+      setPeopleScoutProfile(mapFjProfileToPeopleScoutProfile(fjProfile));
       setPeopleScoutLookupId(typeof data.lookupId === "string" ? data.lookupId : null);
       setIsPeopleScoutDrawerOpen(true);
       setPeopleScoutQuery("");
@@ -2032,22 +2018,17 @@ export default function UserDashboardPage() {
   };
 
   const openPeopleScoutDetails = (user: PeopleScoutRecentUser) => {
-    setPeopleScoutLoading(true);
-    try {
-      setPeopleScoutRevealEmail(false);
-      setPeopleScoutRevealPhone(false);
-      setPeopleScoutLookupId(typeof user.id === "string" && user.id ? user.id : null);
-      if (user.profile && typeof user.profile === "object") {
-        setPeopleScoutProfile(
-          mapFjProfileToPeopleScoutProfile(user.profile as unknown as FjScoutProfile)
-        );
-      } else {
-        setPeopleScoutProfile(buildPeopleScoutProfileFromRecentUser(user));
-      }
-      setIsPeopleScoutDrawerOpen(true);
-    } finally {
-      setPeopleScoutLoading(false);
+    setPeopleScoutRevealEmail(false);
+    setPeopleScoutRevealPhone(false);
+    setPeopleScoutLookupId(typeof user.id === "string" && user.id ? user.id : null);
+    if (user.profile && typeof user.profile === "object") {
+      setPeopleScoutProfile(
+        mapFjProfileToPeopleScoutProfile(user.profile as unknown as FjScoutProfile)
+      );
+    } else {
+      setPeopleScoutProfile(buildPeopleScoutProfileFromRecentUser(user));
     }
+    setIsPeopleScoutDrawerOpen(true);
   };
 
   const revealPeopleScoutContactFromApi = async (revealType: "EMAIL" | "PHONE") => {
@@ -2541,13 +2522,16 @@ export default function UserDashboardPage() {
     }
   };
 
-  const openSessionFromHistory = async (row: SourcingSessionRow) => {
+  const openSessionFromHistory = async (
+    row: SourcingSessionRow,
+    backTab = "Search history"
+  ) => {
     const auth = getStoredAuth();
     if (!auth?.token) {
       setSearchError("Please sign in again.");
       return;
     }
-    setSessionResultsBackTab("Search history");
+    setSessionResultsBackTab(backTab);
     setActiveTab("Session Results");
     setSearchLoading(true);
     setProfilesWarning("");
@@ -2669,26 +2653,19 @@ export default function UserDashboardPage() {
       setSavedSessionCandidateKeys((prev) =>
         isSaved ? prev.filter((x) => x !== key) : [...prev, key]
       );
-      setSavedCandidatesList((prev) => {
-        if (isSaved) {
-          return prev.filter((row) => candidateIdentityKey(row) !== key);
+      if (activeTab === "Saved") {
+        const nextPage =
+          isSaved && savedCandidatesList.length <= 1 && savedCandidatesPage > 1
+            ? savedCandidatesPage - 1
+            : savedCandidatesPage;
+        if (nextPage !== savedCandidatesPage) {
+          setSavedCandidatesPage(nextPage);
+        } else {
+          void loadSavedCandidates(savedCandidatesPage, saveListFilter);
         }
-        if (prev.some((row) => candidateIdentityKey(row) === key)) {
-          return prev;
-        }
-        const nextSaveListId =
-          typeof data.candidate?.saveListId === "string"
-            ? data.candidate.saveListId
-            : saveTargetListId.trim() || "";
-        return [
-          {
-            ...candidate,
-            status: "Saved",
-            saveListId: nextSaveListId,
-          },
-          ...prev,
-        ];
-      });
+      } else {
+        void loadSavedCandidateKeys();
+      }
     } catch (err) {
       setProfilesWarning(
         err instanceof Error ? err.message : "Could not update saved candidate"
@@ -2725,6 +2702,7 @@ export default function UserDashboardPage() {
       if (id) {
         setSaveLists((prev) => [{ id, name: listName }, ...prev]);
         setNewSaveListName("");
+        setSavedCandidatesPage(1);
         setSaveListFilter(id);
       }
     } catch (err) {
@@ -2759,12 +2737,10 @@ export default function UserDashboardPage() {
         );
       }
       setSaveLists((prev) => prev.filter((l) => l.id !== listId));
-      setSavedCandidatesList((prev) =>
-        prev.map((row) =>
-          String(row.saveListId || "") === listId ? { ...row, saveListId: "" } : row
-        )
-      );
-      if (saveListFilter === listId) setSaveListFilter("__all__");
+      if (saveListFilter === listId) {
+        setSavedCandidatesPage(1);
+        setSaveListFilter("__all__");
+      }
       if (saveTargetListId === listId) {
         setSaveTargetListId("");
         try {
@@ -2818,13 +2794,9 @@ export default function UserDashboardPage() {
           typeof data.message === "string" ? data.message : "Failed to move candidate"
         );
       }
-      const resolved =
-        typeof data.candidate?.saveListId === "string" ? data.candidate.saveListId : "";
-      setSavedCandidatesList((prev) =>
-        prev.map((row) =>
-          candidateIdentityKey(row) === key ? { ...row, saveListId: resolved } : row
-        )
-      );
+      if (activeTab === "Saved") {
+        void loadSavedCandidates(savedCandidatesPage, saveListFilter);
+      }
     } catch (err) {
       setProfilesWarning(err instanceof Error ? err.message : "Could not move candidate");
     } finally {
@@ -2936,7 +2908,29 @@ export default function UserDashboardPage() {
     return revealedContactValues[key]?.phone || candidate.phone || "";
   };
 
+  useEffect(() => {
+    if (!profileMenuOpen) return;
+
+    const onPointerDown = (event: MouseEvent) => {
+      if (!profileMenuRef.current?.contains(event.target as Node)) {
+        setProfileMenuOpen(false);
+      }
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setProfileMenuOpen(false);
+    };
+
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [profileMenuOpen]);
+
   const handleLogout = async () => {
+    setProfileMenuOpen(false);
     try {
       setIsLoggingOut(true);
       const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
@@ -2960,100 +2954,171 @@ export default function UserDashboardPage() {
   };
 
   return (
-    <main className="premium-shell min-h-screen text-slate-900">
-      <div className="flex min-h-screen min-w-0 w-full">
-        <aside className="hidden min-h-screen w-72 flex-col border-r border-slate-200 bg-white/90 p-6 backdrop-blur lg:flex">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
-              User Panel
-            </p>
-            <h1 className="mt-2 text-xl font-semibold text-black">EJHunter</h1>
+    <main className="dashboard-page">
+      <div className="dashboard-shell flex min-w-0 w-full">
+        <aside className="dashboard-sidebar hidden flex-col lg:flex">
+          <div className="dashboard-sidebar-brand">
+            <Link href="/dashboard" className="inline-block">
+              <LandingLogo className="h-10 w-auto" priority />
+            </Link>
           </div>
 
-          <nav className="mt-8 flex-1 space-y-2">
-            {userSidebarItems.map((item) => (
-              <button
-                key={item.label}
-                type="button"
-                onClick={() => setActiveTab(item.label)}
-                className={`w-full rounded-xl px-3 py-3 text-left transition ${
-                  activeTab === item.label
-                    ? "bg-black text-white"
-                    : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-                }`}
-              >
-                <span className="flex items-start gap-3">
-                  <span
-                    className={`mt-0.5 rounded-md border p-1.5 ${
-                      activeTab === item.label
-                        ? "border-white/40 text-white"
-                        : "border-slate-300 text-slate-500"
-                    }`}
-                  >
-                    {item.icon}
-                  </span>
-                  <span>
-                    <span className="block text-sm font-medium">{item.label}</span>
+          <nav className="dashboard-sidebar-nav mt-8">
+            <div className="dashboard-sidebar-nav-scroll">
+              <div className="space-y-2">
+              {userSidebarItems.map((item) => (
+                <button
+                  key={item.label}
+                  type="button"
+                  onClick={() => setActiveTab(item.label)}
+                  className={`dashboard-nav-item w-full ${
+                    activeTab === item.label ? "dashboard-nav-item--active" : ""
+                  }`}
+                >
+                  <span className="flex items-start gap-3">
                     <span
-                      className={`block text-xs ${
-                        activeTab === item.label ? "text-white/80" : "text-slate-500"
+                      className={`dashboard-nav-icon ${
+                        activeTab === item.label ? "dashboard-nav-icon--active" : ""
                       }`}
                     >
-                      {item.subtitle}
+                      {item.icon}
+                    </span>
+                    <span>
+                      <span className="block text-sm font-medium">{item.label}</span>
+                      <span className="dashboard-nav-subtitle">{item.subtitle}</span>
                     </span>
                   </span>
-                </span>
-              </button>
-            ))}
+                </button>
+              ))}
+              </div>
+            </div>
+
+            <div className="dashboard-sidebar-footer" ref={profileMenuRef}>
+              <div className="dashboard-sidebar-profile-row">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab(userProfileSidebarItem.label)}
+                  className={`dashboard-nav-item min-w-0 flex-1 ${
+                    activeTab === userProfileSidebarItem.label
+                      ? "dashboard-nav-item--active"
+                      : ""
+                  }`}
+                >
+                  <span className="flex items-start gap-3">
+                    <span
+                      className={`dashboard-nav-icon ${
+                        activeTab === userProfileSidebarItem.label
+                          ? "dashboard-nav-icon--active"
+                          : ""
+                      }`}
+                    >
+                      {userProfileSidebarItem.icon}
+                    </span>
+                    <span className="min-w-0 text-left">
+                      <span className="block truncate text-sm font-medium">
+                        {userProfileSidebarItem.label}
+                      </span>
+                      <span className="dashboard-nav-subtitle block truncate">
+                        {userProfileSidebarItem.subtitle}
+                      </span>
+                    </span>
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setProfileMenuOpen((open) => !open)}
+                  className={`dashboard-sidebar-menu-trigger${
+                    profileMenuOpen ? " dashboard-sidebar-menu-trigger--open" : ""
+                  }`}
+                  aria-expanded={profileMenuOpen}
+                  aria-haspopup="menu"
+                  aria-label="Account options"
+                >
+                  <MaterialIcon name="more_vert" className="text-[1.25rem]" />
+                </button>
+
+                {profileMenuOpen ? (
+                  <div className="dashboard-sidebar-menu" role="menu">
+                    {showAdminLink ? (
+                      <Link
+                        href="/admin/dashboard"
+                        role="menuitem"
+                        className="dashboard-sidebar-menu-item"
+                        onClick={() => setProfileMenuOpen(false)}
+                      >
+                        <MaterialIcon name="admin_panel_settings" className="text-base" />
+                        Admin panel
+                      </Link>
+                    ) : null}
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => void handleLogout()}
+                      disabled={isLoggingOut}
+                      className="dashboard-sidebar-menu-item dashboard-sidebar-menu-item--danger w-full disabled:opacity-55"
+                    >
+                      <MaterialIcon name="logout" className="text-base" />
+                      {isLoggingOut ? "Logging out…" : "Logout"}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            </div>
           </nav>
 
         </aside>
 
-        <section className="flex min-w-0 flex-1 flex-col">
-          <header className="border-b border-slate-200 bg-white/85 px-6 py-4 backdrop-blur">
+        <section className="dashboard-main-panel">
+          <header className="dashboard-header shrink-0">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
-                  User Workspace
-                </p>
-                <h2 className="mt-1 text-2xl font-semibold text-black">{activeTab}</h2>
+                <p className="dashboard-header-eyebrow">User Workspace</p>
+                <h2 className="dashboard-header-title">{activeTab}</h2>
               </div>
-              <div className="flex shrink-0 flex-wrap items-center gap-2">
-                {showAdminLink ? (
-                  <Link
-                    href="/admin/dashboard"
-                    className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-50"
-                  >
+              {showAdminLink ? (
+                <div className="flex shrink-0 flex-wrap items-center gap-2 lg:hidden">
+                  <Link href="/admin/dashboard" className="dashboard-btn-secondary">
                     Admin panel
                   </Link>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={handleLogout}
-                  disabled={isLoggingOut}
-                  className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                >
-                  <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
-                    <path
-                      d="M9 21H5C4.45 21 4 20.55 4 20V4C4 3.45 4.45 3 5 3H9M16 17L21 12L16 7M21 12H9"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                  {isLoggingOut ? "Logging out..." : "Logout"}
-                </button>
-              </div>
+                </div>
+              ) : null}
             </div>
           </header>
 
-          <div className="flex min-w-0 flex-1 p-6">
-            {activeTab === "Search Candidates" ? (
-              <section className="premium-card flex h-full min-w-0 max-w-full w-full flex-col rounded-2xl p-6">
+          <div className="dashboard-main-scroll">
+            {activeTab === "Dashboard" ? (
+              <DashboardOverviewPanel
+                loading={dashboardOverviewLoading}
+                error={dashboardOverviewError}
+                data={dashboardOverview}
+                onNavigate={setActiveTab}
+                onOpenSession={(session) => {
+                  if (!session.futureJobsSessionId.trim()) return;
+                  void openSessionFromHistory(
+                    {
+                      id: session.id,
+                      futureJobsSessionId: session.futureJobsSessionId,
+                      prompt: session.prompt,
+                      sessionTitle: session.sessionTitle,
+                      usingSessionOverride: false,
+                      futureJobsStatus: session.futureJobsStatus,
+                      totalDocs: session.totalDocs,
+                      candidateCountFirstPage: session.candidateCountFirstPage,
+                      candidatePreview: [],
+                      profilesFetchError: null,
+                      createdAt: session.createdAt,
+                      updatedAt: session.createdAt,
+                    },
+                    "Dashboard"
+                  );
+                }}
+              />
+            ) : activeTab === "Search Candidates" ? (
+              <section className="dashboard-card flex h-full min-w-0 max-w-full w-full flex-col p-6">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <h3 className="flex items-center gap-2 text-lg font-semibold text-black">
+                    <h3 className="flex items-center gap-2 dashboard-section-title">
                       <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
                         <path
                           d="M11 19C15.42 19 19 15.42 19 11C19 6.58 15.42 3 11 3C6.58 3 3 6.58 3 11C3 15.42 6.58 19 11 19Z"
@@ -3072,11 +3137,11 @@ export default function UserDashboardPage() {
                       </svg>
                       Search Candidates
                     </h3>
-                    <p className="mt-1 text-sm text-slate-600">
+                    <p className="mt-1 dashboard-text-body">
                       Give AI prompt and search candidate keywords.
                     </p>
                   </div>
-                  <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                  <span className="dashboard-badge">
                     Results:{" "}
                     {hasSearched
                       ? (searchSummary?.totalDocs ?? searchedCandidates.length)
@@ -3110,7 +3175,7 @@ export default function UserDashboardPage() {
                       placeholder="Example: Find candidates with 3+ years Node.js experience in Hyderabad who can join in 30 days."
                       rows={6}
                       disabled={searchLoading}
-                      className="w-full rounded-lg border border-slate-300 bg-white px-4 py-4 text-sm outline-none focus:border-black focus:ring-2 focus:ring-slate-300 disabled:cursor-not-allowed disabled:bg-slate-50"
+                      className="w-full dashboard-textarea text-sm disabled:cursor-not-allowed"
                     />
                   </div>
 
@@ -3119,7 +3184,7 @@ export default function UserDashboardPage() {
                       type="button"
                       onClick={handleSearch}
                       disabled={aiPrompt.trim().length === 0}
-                      className="inline-flex items-center gap-2 rounded-lg bg-black px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
+                      className="dashboard-btn-primary px-5 py-2.5 disabled:opacity-60"
                     >
                       <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
                         <path
@@ -3142,12 +3207,12 @@ export default function UserDashboardPage() {
                   </div>
 
                   {searchError ? (
-                    <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    <p className="dashboard-alert-error">
                       {searchError}
                     </p>
                   ) : null}
                   {profilesWarning ? (
-                    <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                    <p className="dashboard-alert-warning">
                       Session created, but profiles could not be loaded:{" "}
                       {profilesWarning}
                     </p>
@@ -3229,65 +3294,88 @@ export default function UserDashboardPage() {
                 </div>
               </section>
             ) : activeTab === "Session Results" ? (
-              <section className="premium-card flex h-full min-w-0 max-w-full w-full flex-col rounded-2xl p-6">
-                <div className="flex flex-wrap items-center justify-between gap-3">
+              <section className="dashboard-card flex h-full min-w-0 max-w-full w-full flex-col p-6">
+                <div className="dashboard-results-toolbar">
                   <div>
-                    <h3 className="text-lg font-semibold text-black">Session Results</h3>
-                    <p className="mt-1 text-sm text-slate-600">
-                      Detailed candidate results loaded from the selected sourcing session.
+                    <h3 className="flex items-center gap-2 dashboard-section-title">
+                      <MaterialIcon name="groups" className="text-xl text-[#0050cb]" />
+                      Session results
+                    </h3>
+                    <p className="mt-1 dashboard-text-body">
+                      Candidates from your selected sourcing session.
+                      {searchSummary?.sessionId ? (
+                        <span className="mt-1 block font-mono text-[10px] text-[#424656]/75">
+                          {searchSummary.sessionId}
+                        </span>
+                      ) : null}
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
+                    {searchSummary?.totalDocs != null ? (
+                      <span className="dashboard-badge tabular-nums">
+                        {searchSummary.totalDocs.toLocaleString()} total
+                      </span>
+                    ) : null}
+                    {sessionResultDocs.length > 0 ? (
+                      <span className="dashboard-badge tabular-nums">
+                        Showing {sessionResultDocs.length}
+                        {sessionResultHasNext ? "+" : ""}
+                      </span>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => setIsFilterDrawerOpen(true)}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-black bg-black px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-900"
+                      className="dashboard-btn-secondary px-3 py-1.5 text-xs"
                     >
-                      <svg viewBox="0 0 24 24" fill="none" className="h-3.5 w-3.5">
-                        <path
-                          d="M4 6H20M7 12H17M10 18H14"
-                          stroke="currentColor"
-                          strokeWidth="1.8"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
+                      <MaterialIcon name="tune" className="text-sm" />
                       Edit filter
                     </button>
                     <button
                       type="button"
                       onClick={() => setActiveTab(sessionResultsBackTab)}
-                      className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                      className="dashboard-btn-secondary px-3 py-1.5 text-xs"
                     >
-                      <span className="inline-flex items-center gap-1">
-                        <svg viewBox="0 0 24 24" fill="none" className="h-3.5 w-3.5">
-                          <path
-                            d="M15 18L9 12L15 6"
-                            stroke="currentColor"
-                            strokeWidth="1.8"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                        Back
-                      </span>
+                      <MaterialIcon name="arrow_back" className="text-sm" />
+                      Back
                     </button>
                   </div>
                 </div>
 
                 {sessionResultError ? (
-                  <p className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  <p className="mt-4 dashboard-alert-error">
                     {sessionResultError}
                   </p>
                 ) : null}
 
-                {sessionResultDocs.length === 0 ? (
-                  <p className="mt-4 text-sm text-slate-600">
-                    No detailed profile docs found for this session.
-                  </p>
-                ) : (
+                {searchLoading && sessionResultDocs.length === 0 ? (
+                  <SessionResultsSkeleton count={4} />
+                ) : null}
+
+                {!searchLoading && sessionResultDocs.length === 0 && !sessionResultError ? (
+                  <div className="dashboard-empty-state">
+                    <div className="dashboard-empty-state-icon">
+                      <MaterialIcon name="person_off" className="text-[28px]" />
+                    </div>
+                    <p className="mt-4 text-base font-semibold text-[#141b2b]">
+                      No candidates in this session
+                    </p>
+                    <p className="mt-2 max-w-sm text-sm text-[#424656]">
+                      Try another search from history or run a new AI search.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("Search history")}
+                      className="dashboard-btn-primary mt-6"
+                    >
+                      <MaterialIcon name="history" className="text-base" />
+                      View search history
+                    </button>
+                  </div>
+                ) : null}
+
+                {sessionResultDocs.length > 0 ? (
                   <>
-                    <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+                    <div className="dashboard-results-grid mt-4">
                       {sessionResultDocs.map((doc, idx) => {
                         const highlights = doc.profileAnalysis?.highlights ?? [];
                         const current = doc.profile?.current_employers_object?.[0];
@@ -3324,10 +3412,8 @@ export default function UserDashboardPage() {
                                 openSessionCandidateDetail(doc, revealCandidate);
                               }
                             }}
-                            className={`cursor-pointer rounded-xl border bg-white p-4 text-left transition hover:border-slate-400 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 ${
-                              isDetailOpen
-                                ? "border-black ring-2 ring-black/10"
-                                : "border-slate-200"
+                            className={`dashboard-candidate-card ${
+                              isDetailOpen ? "dashboard-candidate-card--active" : ""
                             }`}
                           >
                             <div className="flex items-start gap-3">
@@ -3369,7 +3455,7 @@ export default function UserDashboardPage() {
                                 {highlights.slice(0, 4).map((h, i) => (
                                   <span
                                     key={`${h.Category || "highlight"}-${i}`}
-                                    className="rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-blue-700"
+                                    className="dashboard-chip"
                                   >
                                     {h.Category ? `${h.Category}: ` : ""}
                                     {h.Highlight || "—"}
@@ -3386,7 +3472,7 @@ export default function UserDashboardPage() {
                             ) : null}
 
                             <div
-                              className="mt-3 border-t border-slate-200 pt-3"
+                              className="dashboard-candidate-actions"
                               onClick={(e) => e.stopPropagation()}
                               onKeyDown={(e) => e.stopPropagation()}
                             >
@@ -3405,8 +3491,8 @@ export default function UserDashboardPage() {
                                   disabled={isSaveBusy}
                                   className={`inline-flex w-full min-w-0 items-center justify-center gap-1 rounded-md border px-1.5 py-1.5 text-[10px] font-medium leading-tight transition sm:text-[11px] ${
                                     isSavedSessionCandidate
-                                      ? "border-black bg-black text-white hover:bg-slate-900"
-                                      : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+                                      ? "dashboard-btn-toggle-active"
+                                      : "dashboard-btn-toggle-inactive"
                                   } disabled:opacity-60`}
                                 >
                                   <svg
@@ -3438,7 +3524,7 @@ export default function UserDashboardPage() {
                                     e.stopPropagation();
                                     revealEmail(revealCandidate);
                                   }}
-                                  className="inline-flex w-full min-w-0 items-center justify-center gap-1 rounded-md border border-slate-300 bg-white px-1.5 py-1.5 text-[10px] font-medium leading-tight text-slate-700 transition hover:bg-slate-100 sm:text-[11px]"
+                                  className="dashboard-btn-secondary w-full min-w-0 px-1.5 py-1.5 text-[10px] sm:text-[11px]"
                                 >
                                   <svg
                                     viewBox="0 0 24 24"
@@ -3523,7 +3609,7 @@ export default function UserDashboardPage() {
                           type="button"
                           onClick={() => void handleViewMoreSessionResults()}
                           disabled={sessionResultLoadingMore}
-                          className="inline-flex items-center gap-2 rounded-lg bg-black px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
+                          className="dashboard-btn-primary px-5 py-2.5 disabled:opacity-60"
                         >
                           <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
                             <path
@@ -3539,396 +3625,46 @@ export default function UserDashboardPage() {
                       </div>
                     ) : null}
                   </>
-                )}
+                ) : null}
               </section>
             ) : activeTab === "People Scout" ? (
-              <section className="premium-card flex h-full min-w-0 max-w-full w-full flex-col rounded-2xl p-6">
-                <div>
-                  <h3 className="flex items-center gap-2 text-lg font-semibold text-black">
-                    <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-                      <path
-                        d="M16 11C17.66 11 19 9.66 19 8C19 6.34 17.66 5 16 5C14.34 5 13 6.34 13 8C13 9.66 14.34 11 16 11Z"
-                        stroke="currentColor"
-                        strokeWidth="1.8"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                      <path
-                        d="M8 11C9.66 11 11 9.66 11 8C11 6.34 9.66 5 8 5C6.34 5 5 6.34 5 8C5 9.66 6.34 11 8 11Z"
-                        stroke="currentColor"
-                        strokeWidth="1.8"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                      <path
-                        d="M2 19C2 16.79 3.79 15 6 15H10"
-                        stroke="currentColor"
-                        strokeWidth="1.8"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                      <path
-                        d="M14 15H18C20.21 15 22 16.79 22 19"
-                        stroke="currentColor"
-                        strokeWidth="1.8"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                    People Scout
-                  </h3>
-                  <p className="mt-1 text-sm text-slate-600">
-                    Hey username, who are you looking for?
-                  </p>
-                  <p className="mt-1 text-sm text-slate-600">
-                    Paste a LinkedIn URL or type a username / email to find any
-                    professional
-                  </p>
-                </div>
-
-                <div className="mt-6 w-full">
-                  <label
-                    htmlFor="peopleScoutQuery"
-                    className="mb-2 block text-sm font-medium text-slate-700"
-                  >
-                    Search professional
-                  </label>
-                  <div className="flex w-full flex-col gap-3 lg:flex-row lg:items-center">
-                    <input
-                      id="peopleScoutQuery"
-                      type="text"
-                      value={peopleScoutQuery}
-                      onChange={(event) => setPeopleScoutQuery(event.target.value)}
-                      placeholder="Paste a LinkedIn URL or type a username / email"
-                      className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-black focus:ring-2 focus:ring-slate-300 lg:flex-1"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => void handlePeopleScoutSearch()}
-                      disabled={peopleScoutLoading || peopleScoutQuery.trim().length === 0}
-                      className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-black px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60 lg:w-52"
-                    >
-                      <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
-                        <path
-                          d="M11 19C15.42 19 19 15.42 19 11C19 6.58 15.42 3 11 3C6.58 3 3 6.58 3 11C3 15.42 6.58 19 11 19Z"
-                          stroke="currentColor"
-                          strokeWidth="1.8"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                        <path
-                          d="M21 21L16.65 16.65"
-                          stroke="currentColor"
-                          strokeWidth="1.8"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                      {peopleScoutLoading ? "Searching…" : "Search"}
-                    </button>
-                  </div>
-                  {peopleScoutError ? (
-                    <p className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                      {peopleScoutError}
-                    </p>
-                  ) : null}
-                </div>
-
-                <div className="mt-8 border-t border-slate-200 pt-6">
-                  <h4 className="text-sm font-semibold uppercase tracking-[0.12em] text-slate-500">
-                    Recent Searches
-                  </h4>
-                  <p className="mt-1 text-sm text-slate-600">
-                    Recently searched professionals from People Scout (stored per account).
-                  </p>
-                  {peopleScoutRecentLoading ? (
-                    <div
-                      className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3"
-                      aria-busy="true"
-                      aria-label="Loading recent searches"
-                    >
-                      {Array.from({ length: 6 }, (_, i) => (
-                        <div
-                          key={`people-scout-skeleton-${i}`}
-                          className="rounded-xl border border-slate-200 bg-slate-50 p-4"
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="flex min-w-0 flex-1 items-center gap-3">
-                              <div className="people-scout-shimmer h-10 w-10 shrink-0 rounded-lg" />
-                              <div className="min-w-0 flex-1 space-y-2">
-                                <div className="people-scout-shimmer h-4 w-[85%] max-w-44 rounded" />
-                                <div className="people-scout-shimmer h-3 w-[60%] max-w-32 rounded" />
-                              </div>
-                            </div>
-                            <div className="people-scout-shimmer h-5 w-14 shrink-0 rounded-full" />
-                          </div>
-                          <div className="people-scout-shimmer mt-3 h-3 w-[75%] max-w-56 rounded" />
-                          <div className="people-scout-shimmer mt-3 h-8 w-24 rounded-md" />
-                        </div>
-                      ))}
-                    </div>
-                  ) : peopleScoutRecentList.length === 0 ? (
-                    <p className="mt-4 text-sm text-slate-500">
-                      No People Scout lookups yet. Search by email or LinkedIn URL above.
-                    </p>
-                  ) : (
-                    <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                      {peopleScoutRecentList.map((user) => (
-                        <article
-                          key={user.id}
-                          className="rounded-xl border border-slate-200 bg-slate-50 p-4"
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="flex min-w-0 items-center gap-3">
-                              <PeopleScoutRecentSearchAvatar
-                                name={user.name}
-                                thumbnailUrl={user.thumbnailUrl}
-                              />
-                              <div>
-                                <h5 className="text-sm font-semibold text-slate-900">
-                                  {user.name}
-                                </h5>
-                                <p className="text-xs text-slate-600">{user.role}</p>
-                              </div>
-                            </div>
-                            <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-medium text-slate-500">
-                              {user.lastSearchedAt}
-                            </span>
-                          </div>
-                          <p className="mt-3 text-xs text-slate-600">
-                            {user.company} • {user.location}
-                          </p>
-                          <button
-                            type="button"
-                            onClick={() => openPeopleScoutDetails(user)}
-                            className="mt-3 inline-flex rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
-                          >
-                            View details
-                          </button>
-                        </article>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </section>
+              <PeopleScoutPanel
+                userDisplayName={myProfileForm.fullName}
+                query={peopleScoutQuery}
+                onQueryChange={setPeopleScoutQuery}
+                onSearch={() => void handlePeopleScoutSearch()}
+                loading={peopleScoutLoading}
+                error={peopleScoutError}
+                recentList={peopleScoutRecentList}
+                recentLoading={peopleScoutRecentLoading}
+                onOpenRecent={openPeopleScoutDetails}
+              />
             ) : activeTab === "My Profile" ? (
-              <section className="premium-card flex h-full min-w-0 max-w-full w-full flex-col rounded-2xl p-6">
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                      Account
-                    </p>
-                    <h3 className="mt-1 text-xl font-semibold text-black">My Profile</h3>
-                    <p className="mt-1 text-sm text-slate-600">
-                      Manage your personal details, work preferences, and security settings.
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {isEditingProfile ? (
-                      <button
-                        type="button"
-                        onClick={onCancelMyProfileEdit}
-                        className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                      >
-                        Cancel
-                      </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={() =>
-                        isEditingProfile ? void onSaveMyProfile() : onEditMyProfile()
-                      }
-                      disabled={myProfileSaving}
-                      className="inline-flex items-center gap-2 rounded-lg bg-black px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
-                    >
-                      {isEditingProfile
-                        ? myProfileSaving
-                          ? "Saving..."
-                          : "Save changes"
-                        : "Edit profile"}
-                    </button>
-                  </div>
-                </div>
-
-                {myProfileError ? (
-                  <p className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                    {myProfileError}
-                  </p>
-                ) : null}
-                {myProfileSuccess ? (
-                  <p className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-                    {myProfileSuccess}
-                  </p>
-                ) : null}
-
-                <div className="mt-6">
-                  <div className="space-y-6">
-                    <section className="rounded-xl border border-slate-200 bg-white p-5">
-                      <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-                        Basic Information
-                      </h4>
-                      <div className="mt-4 grid gap-4 md:grid-cols-2">
-                        <label className="text-sm text-slate-700">
-                          Full name
-                          <input
-                            type="text"
-                            value={myProfileForm.fullName}
-                            onChange={(event) =>
-                              onMyProfileFieldChange("fullName", event.target.value)
-                            }
-                            readOnly={!isEditingProfile}
-                            className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm outline-none ${
-                              isEditingProfile
-                                ? "border-slate-300 bg-white focus:border-black"
-                                : "border-slate-300 bg-slate-50"
-                            }`}
-                          />
-                        </label>
-                        <label className="text-sm text-slate-700">
-                          Work email
-                          <input
-                            type="email"
-                            value={myProfileForm.email}
-                            onChange={(event) =>
-                              onMyProfileFieldChange("email", event.target.value)
-                            }
-                            readOnly={!isEditingProfile}
-                            className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm outline-none ${
-                              isEditingProfile
-                                ? "border-slate-300 bg-white focus:border-black"
-                                : "border-slate-300 bg-slate-50"
-                            }`}
-                          />
-                        </label>
-                        <label className="text-sm text-slate-700">
-                          Company name
-                          <input
-                            type="text"
-                            value={myProfileForm.companyName}
-                            onChange={(event) =>
-                              onMyProfileFieldChange("companyName", event.target.value)
-                            }
-                            readOnly={!isEditingProfile}
-                            className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm outline-none ${
-                              isEditingProfile
-                                ? "border-slate-300 bg-white focus:border-black"
-                                : "border-slate-300 bg-slate-50"
-                            }`}
-                          />
-                        </label>
-                        <label className="text-sm text-slate-700">
-                          Phone
-                          <input
-                            type="text"
-                            value={myProfileForm.phone}
-                            onChange={(event) =>
-                              onMyProfileFieldChange("phone", event.target.value)
-                            }
-                            readOnly={!isEditingProfile}
-                            className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm outline-none ${
-                              isEditingProfile
-                                ? "border-slate-300 bg-white focus:border-black"
-                                : "border-slate-300 bg-slate-50"
-                            }`}
-                          />
-                        </label>
-                        <label className="text-sm text-slate-700">
-                          Location
-                          <input
-                            type="text"
-                            value={myProfileForm.location}
-                            onChange={(event) =>
-                              onMyProfileFieldChange("location", event.target.value)
-                            }
-                            readOnly={!isEditingProfile}
-                            className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm outline-none ${
-                              isEditingProfile
-                                ? "border-slate-300 bg-white focus:border-black"
-                                : "border-slate-300 bg-slate-50"
-                            }`}
-                          />
-                        </label>
-                      </div>
-                    </section>
-
-                    <section className="grid gap-4 md:grid-cols-2">
-                      <div className="rounded-xl border border-slate-200 bg-white p-5">
-                        <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-                          Security
-                        </h4>
-                        <ul className="mt-3 space-y-2 text-sm text-slate-700">
-                          <li>
-                            Password last changed:{" "}
-                            {myProfileSecurity.passwordChangedAt
-                              ? new Date(myProfileSecurity.passwordChangedAt).toLocaleString()
-                              : "Not available"}
-                          </li>
-                          <li>Active sessions: {myProfileSecurity.activeSessions} devices</li>
-                        </ul>
-                        <div className="mt-3 space-y-2">
-                          <input
-                            type="password"
-                            value={passwordForm.currentPassword}
-                            onChange={(event) =>
-                              onPasswordFieldChange("currentPassword", event.target.value)
-                            }
-                            placeholder="Current password"
-                            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs outline-none focus:border-black"
-                          />
-                          <input
-                            type="password"
-                            value={passwordForm.newPassword}
-                            onChange={(event) =>
-                              onPasswordFieldChange("newPassword", event.target.value)
-                            }
-                            placeholder="New password"
-                            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs outline-none focus:border-black"
-                          />
-                          <input
-                            type="password"
-                            value={passwordForm.confirmPassword}
-                            onChange={(event) =>
-                              onPasswordFieldChange("confirmPassword", event.target.value)
-                            }
-                            placeholder="Confirm new password"
-                            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs outline-none focus:border-black"
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => void handleUpdatePassword()}
-                          disabled={passwordUpdateLoading}
-                          className="mt-3 inline-flex rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
-                        >
-                          {passwordUpdateLoading ? "Updating..." : "Update password"}
-                        </button>
-                      </div>
-                    </section>
-                  </div>
-                </div>
-
-                {peopleScoutProfile ? (
-                  <section className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                      Last Scout Activity
-                    </p>
-                    <p className="mt-1 text-sm text-slate-700">
-                      Last viewed profile:{" "}
-                      <span className="font-medium text-slate-900">{peopleScoutProfile.name}</span>
-                      {peopleScoutLoading ? " (loading...)" : ""}
-                    </p>
-                  </section>
-                ) : null}
-                {myProfileLoading ? (
-                  <p className="mt-4 text-sm text-slate-500">Loading profile from server...</p>
-                ) : null}
-              </section>
+              <MyProfilePanel
+                form={myProfileForm}
+                security={myProfileSecurity}
+                loading={myProfileLoading}
+                saving={myProfileSaving}
+                error={myProfileError}
+                success={myProfileSuccess}
+                isEditing={isEditingProfile}
+                passwordForm={passwordForm}
+                passwordUpdateLoading={passwordUpdateLoading}
+                peopleScoutProfileName={peopleScoutProfile?.name}
+                peopleScoutLoading={peopleScoutLoading}
+                onFieldChange={onMyProfileFieldChange}
+                onEdit={onEditMyProfile}
+                onCancel={onCancelMyProfileEdit}
+                onSave={() => void onSaveMyProfile()}
+                onPasswordFieldChange={onPasswordFieldChange}
+                onUpdatePassword={() => void handleUpdatePassword()}
+              />
             ) : activeTab === "Search history" ? (
-              <section className="premium-card flex h-full min-w-0 max-w-full w-full flex-col rounded-2xl p-6">
+              <section className="dashboard-card flex h-full min-w-0 max-w-full w-full flex-col p-6">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <h3 className="flex items-center gap-2 text-lg font-semibold text-black">
-                      <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
+                    <h3 className="flex items-center gap-2 dashboard-section-title">
+                      <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5 text-[#0050cb]">
                         <path
                           d="M12 8V12L15 15M21 12C21 16.97 16.97 21 12 21C7.03 21 3 16.97 3 12C3 7.03 7.03 3 12 3C16.97 3 21 7.03 21 12Z"
                           stroke="currentColor"
@@ -3946,883 +3682,149 @@ export default function UserDashboardPage() {
                       </svg>
                       Search history
                     </h3>
-                    <p className="mt-1 text-sm text-slate-600">
-                      Each search is saved as one sourcing session. Open a row to load
-                      profiles into Search Candidates.
+                    <p className="mt-1 dashboard-text-body">
+                      Every AI search is saved as a sourcing session. Open a session to review
+                      candidates in Search Candidates.
                     </p>
                   </div>
+                  {!sourcingSessionsLoading && sourcingSessions.length > 0 ? (
+                    <span className="dashboard-badge tabular-nums">
+                      {sourcingSessions.length} session
+                      {sourcingSessions.length === 1 ? "" : "s"}
+                    </span>
+                  ) : null}
                 </div>
 
-                {sourcingSessionsLoading ? (
-                  <div className="mt-6 overflow-x-auto rounded-xl border border-slate-200">
-                    <table className="w-full min-w-[920px] border-collapse text-left text-sm">
-                      <thead>
-                        <tr className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-                          <th className="py-3 pl-4 font-semibold">When</th>
-                          <th className="py-3 font-semibold">Prompt / title</th>
-                          <th className="py-3 font-semibold">Candidates</th>
-                          <th className="py-3 font-semibold tabular-nums">Total</th>
-                          <th className="py-3 font-semibold tabular-nums">Page 1</th>
-                          <th className="py-3 font-semibold">Status</th>
-                          <th className="py-3 pr-4 font-semibold">Action</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {Array.from({ length: 4 }).map((_, idx) => (
-                          <tr
-                            key={`history-skeleton-${idx}`}
-                            className="border-b border-slate-100 last:border-b-0"
-                          >
-                            <td className="py-3 pl-4">
-                              <div className="h-4 w-32 animate-pulse rounded bg-slate-200" />
-                            </td>
-                            <td className="py-3">
-                              <div className="h-4 w-56 animate-pulse rounded bg-slate-200" />
-                              <div className="mt-2 h-3 w-40 animate-pulse rounded bg-slate-100" />
-                            </td>
-                            <td className="py-3">
-                              <div className="flex gap-2">
-                                <div className="h-5 w-20 animate-pulse rounded-full bg-slate-100" />
-                                <div className="h-5 w-16 animate-pulse rounded-full bg-slate-100" />
-                              </div>
-                            </td>
-                            <td className="py-3">
-                              <div className="h-4 w-10 animate-pulse rounded bg-slate-200" />
-                            </td>
-                            <td className="py-3">
-                              <div className="h-4 w-10 animate-pulse rounded bg-slate-200" />
-                            </td>
-                            <td className="py-3">
-                              <div className="h-4 w-16 animate-pulse rounded bg-slate-200" />
-                            </td>
-                            <td className="py-3 pr-4">
-                              <div className="h-8 w-28 animate-pulse rounded-md bg-slate-200" />
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : null}
-                {sourcingSessionsError ? (
-                  <p className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                    {sourcingSessionsError}
-                  </p>
-                ) : null}
+                <SearchHistoryTable
+                  rows={sourcingSessions}
+                  loading={sourcingSessionsLoading}
+                  error={sourcingSessionsError}
+                  highlightSessionId={highlightSessionId}
+                  actionLoading={searchLoading}
+                  onOpenSession={(row) => void openSessionFromHistory(row)}
+                  onGoToSearch={() => setActiveTab("Search Candidates")}
+                />
 
-                {!sourcingSessionsLoading && sourcingSessions.length === 0 ? (
-                  <p className="mt-6 text-sm text-slate-600">
-                    No saved sessions yet. Run a search from{" "}
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab("Search Candidates")}
-                      className="font-medium text-black underline decoration-slate-400 underline-offset-2 hover:decoration-black"
-                    >
-                      Search Candidates
-                    </button>{" "}
-                    to create one.
-                  </p>
-                ) : null}
-
-                {!sourcingSessionsLoading && sourcingSessions.length > 0 ? (
-                  <div className="mt-6 overflow-x-auto rounded-xl border border-slate-200">
-                    <table className="w-full min-w-[920px] border-collapse text-left text-sm">
-                      <thead>
-                        <tr className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-                          <th className="py-3 pl-4 font-semibold">When</th>
-                          <th className="py-3 font-semibold">Prompt / title</th>
-                          <th className="py-3 font-semibold">Candidates</th>
-                          <th className="py-3 font-semibold tabular-nums">Total</th>
-                          <th className="py-3 font-semibold tabular-nums">Page 1</th>
-                          <th className="py-3 font-semibold">Status</th>
-                          <th className="py-3 pr-4 font-semibold">Action</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {sourcingSessions.map((row) => (
-                          <tr
-                            id={`history-session-${row.id}`}
-                            key={row.id}
-                            className={`border-b text-slate-800 last:border-b-0 ${
-                              highlightSessionId === row.id
-                                ? "border-slate-300 bg-slate-100"
-                                : "border-slate-100"
-                            }`}
-                          >
-                            <td className="whitespace-nowrap py-3 pl-4 text-xs text-slate-600">
-                              {new Date(row.createdAt).toLocaleString()}
-                            </td>
-                            <td className="max-w-[280px] py-3">
-                              <p className="line-clamp-2 text-slate-900">
-                                {row.prompt ||
-                                  row.sessionTitle ||
-                                  (row.usingSessionOverride
-                                    ? "(Custom session payload)"
-                                    : "—")}
-                              </p>
-                              <p className="mt-0.5 truncate font-mono text-[10px] text-slate-400">
-                                {row.futureJobsSessionId}
-                              </p>
-                            </td>
-                            <td className="max-w-[280px] py-3">
-                              {row.candidatePreview.length === 0 ? (
-                                <p className="text-xs text-slate-500">No candidates saved</p>
-                              ) : (
-                                <div className="flex flex-wrap gap-1.5">
-                                  {row.candidatePreview.slice(0, 4).map((c) => (
-                                    <span
-                                      key={`${row.id}:${c.id || c.name}`}
-                                      className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-700"
-                                      title={`${c.name}${c.role ? ` — ${c.role}` : ""}${c.location ? ` (${c.location})` : ""}`}
-                                    >
-                                      {c.name || "Unknown"}
-                                    </span>
-                                  ))}
-                                  {row.candidatePreview.length > 4 ? (
-                                    <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-500">
-                                      +{row.candidatePreview.length - 4}
-                                    </span>
-                                  ) : null}
-                                </div>
-                              )}
-                            </td>
-                            <td className="py-3 tabular-nums text-slate-700">
-                              {row.totalDocs != null ? row.totalDocs : "—"}
-                            </td>
-                            <td className="py-3 tabular-nums text-slate-700">
-                              {row.candidateCountFirstPage}
-                            </td>
-                            <td className="py-3 text-xs text-slate-600">
-                              {row.futureJobsStatus || "—"}
-                              {row.profilesFetchError ? (
-                                <span className="mt-1 block text-amber-800">
-                                  Profiles warning
-                                </span>
-                              ) : null}
-                            </td>
-                            <td className="py-3 pr-4">
-                              <button
-                                type="button"
-                                onClick={() => void openSessionFromHistory(row)}
-                                disabled={searchLoading}
-                                className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 transition hover:bg-slate-50 disabled:opacity-50"
-                              >
-                                View candidates
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : null}
               </section>
             ) : activeTab === "Candidates" ? (
-              <section className="premium-card flex h-full min-w-0 max-w-full w-full flex-col rounded-2xl p-6">
-                <div className="flex flex-wrap items-center justify-between gap-3">
+              <section className="dashboard-card flex h-full min-w-0 max-w-full w-full flex-col p-6">
+                <div className="dashboard-results-toolbar">
                   <div>
-                    <h3 className="flex items-center gap-2 text-lg font-semibold text-black">
-                      <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-                        <path
-                          d="M20 21V19C20 17.34 18.66 16 17 16H7C5.34 16 4 17.34 4 19V21M12 12C14.21 12 16 10.21 16 8C16 5.79 14.21 4 12 4C9.79 4 8 5.79 8 8C8 10.21 9.79 12 12 12Z"
-                          stroke="currentColor"
-                          strokeWidth="1.8"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
+                    <h3 className="flex items-center gap-2 dashboard-section-title">
+                      <MaterialIcon name="groups" className="text-xl text-[#0050cb]" />
                       All searched candidates
                     </h3>
-                    <p className="mt-1 text-sm text-slate-600">
+                    <p className="mt-1 dashboard-text-body">
                       Every candidate from all your sourcing searches, newest first.
                     </p>
                   </div>
-                  <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-                    Total: {workspaceCandidatesTotalDocs}
-                  </span>
-                </div>
-
-                {workspaceCandidatesError ? (
-                  <p className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                    {workspaceCandidatesError}
-                  </p>
-                ) : null}
-
-                <div className="mt-6 flex-1 overflow-x-auto">
-                  <table className="w-full min-w-[900px] border-collapse text-left">
-                    <thead>
-                      <tr className="border-b border-slate-200 text-xs uppercase tracking-[0.14em] text-slate-500">
-                        <th className="py-3 pl-2 font-semibold">Candidate</th>
-                        <th className="py-3 font-semibold">Role</th>
-                        <th className="py-3 font-semibold">Experience</th>
-                        <th className="py-3 font-semibold">Location</th>
-                        <th className="py-3 font-semibold">Skills</th>
-                        <th className="py-3 font-semibold">Status</th>
-                        <th className="py-3 pr-2 font-semibold">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {workspaceCandidatesLoading ? (
-                        <tr>
-                          <td
-                            colSpan={7}
-                            className="py-10 text-center text-sm text-slate-600"
-                          >
-                            Loading candidates…
-                          </td>
-                        </tr>
-                      ) : workspaceCandidates.length === 0 ? (
-                        <tr>
-                          <td
-                            colSpan={7}
-                            className="py-10 text-center text-sm text-slate-600"
-                          >
-                            No candidates yet. Run a search to discover profiles — they will
-                            appear here across all your sessions.
-                          </td>
-                        </tr>
-                      ) : (
-                        workspaceCandidates.map((candidate) => (
-                        <tr
-                          key={candidateIdentityKey(candidate) || candidateRowKey(candidate)}
-                          className="border-b border-slate-100 text-sm last:border-b-0"
-                        >
-                          <td className="py-4 pl-2">
-                            <div className="flex items-center gap-3">
-                              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-[10px] font-medium text-slate-500">
-                                IMG
-                              </div>
-                              <span className="font-medium text-slate-900">{candidate.name}</span>
-                            </div>
-                          </td>
-                          <td className="py-4 text-slate-700">{candidate.role}</td>
-                          <td className="py-4 text-slate-700">{candidate.experience}</td>
-                          <td className="py-4 text-slate-700">{candidate.location}</td>
-                          <td className="max-w-[220px] truncate py-4 text-slate-600" title={candidate.skills}>
-                            {candidate.skills}
-                          </td>
-                          <td className="py-4">
-                            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
-                              {candidate.status}
-                            </span>
-                          </td>
-                          <td className="py-4 pr-2 align-top">
-                            <div className="flex flex-col gap-2">
-                              <div className="flex flex-wrap gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() => revealEmail(candidate)}
-                                  className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-50"
-                                >
-                                  <svg viewBox="0 0 24 24" fill="none" className="h-3 w-3">
-                                    <path
-                                      d="M4 5H20V19H4V5ZM4 7L12 13L20 7"
-                                      stroke="currentColor"
-                                      strokeWidth="1.8"
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                    />
-                                  </svg>
-                                  Email
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => revealPhone(candidate)}
-                                  className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-50"
-                                >
-                                  <svg viewBox="0 0 24 24" fill="none" className="h-3 w-3">
-                                    <path
-                                      d="M22 16.92V20A2 2 0 0 1 19.82 22C10.98 22 2 13.02 2 4.18A2 2 0 0 1 4 2H7.09A2 2 0 0 1 9.08 3.72C9.2 4.62 9.42 5.51 9.73 6.36A2 2 0 0 1 9.28 8.47L7.94 9.81A16 16 0 0 0 14.19 16.06L15.53 14.72A2 2 0 0 1 17.64 14.27C18.49 14.58 19.38 14.8 20.28 14.92A2 2 0 0 1 22 16.92Z"
-                                      stroke="currentColor"
-                                      strokeWidth="1.6"
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                    />
-                                  </svg>
-                                  Phone
-                                </button>
-                              </div>
-                              {revealedEmail.includes(candidateRowKey(candidate)) ? (
-                                <p className="text-xs text-slate-600">
-                                  {getDisplayedEmail(candidate) || "—"}
-                                </p>
-                              ) : null}
-                              {revealedPhone.includes(candidateRowKey(candidate)) ? (
-                                <p className="text-xs text-slate-600">
-                                  {getDisplayedPhone(candidate) || "—"}
-                                </p>
-                              ) : null}
-                            </div>
-                          </td>
-                        </tr>
-                      ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                {workspaceCandidatesTotalPages > 1 ? (
-                  <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-4">
-                    <p className="text-sm text-slate-600">
-                      Page {workspaceCandidatesPage} of {workspaceCandidatesTotalPages}
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        disabled={
-                          workspaceCandidatesLoading || workspaceCandidatesPage <= 1
-                        }
-                        onClick={() =>
-                          setWorkspaceCandidatesPage((p) => Math.max(1, p - 1))
-                        }
-                        className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        Previous
-                      </button>
-                      <button
-                        type="button"
-                        disabled={
-                          workspaceCandidatesLoading ||
-                          workspaceCandidatesPage >= workspaceCandidatesTotalPages
-                        }
-                        onClick={() =>
-                          setWorkspaceCandidatesPage((p) =>
-                            Math.min(workspaceCandidatesTotalPages, p + 1)
-                          )
-                        }
-                        className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        Next
-                      </button>
-                    </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="dashboard-badge tabular-nums">
+                      {workspaceCandidatesTotalDocs.toLocaleString()} total
+                    </span>
+                    {workspaceCandidatesTotalPages > 1 ? (
+                      <span className="dashboard-badge tabular-nums">
+                        Page {workspaceCandidatesPage} of {workspaceCandidatesTotalPages}
+                      </span>
+                    ) : null}
                   </div>
-                ) : null}
+                </div>
+
+                <WorkspaceCandidatesTable
+                  candidates={workspaceCandidates}
+                  loading={workspaceCandidatesLoading}
+                  error={workspaceCandidatesError}
+                  totalDocs={workspaceCandidatesTotalDocs}
+                  page={workspaceCandidatesPage}
+                  totalPages={workspaceCandidatesTotalPages}
+                  onPageChange={setWorkspaceCandidatesPage}
+                  rowKey={candidateRowKey}
+                  revealedEmailKeys={revealedEmail}
+                  revealedPhoneKeys={revealedPhone}
+                  onRevealEmail={revealEmail}
+                  onRevealPhone={revealPhone}
+                  getDisplayedEmail={getDisplayedEmail}
+                  getDisplayedPhone={getDisplayedPhone}
+                  onOpenDetail={(candidate) => {
+                    if (candidate.rawDoc) {
+                      openSessionCandidateDetail(
+                        candidate.rawDoc as SessionResultDoc,
+                        candidate as CandidateRow
+                      );
+                    }
+                  }}
+                  onGoToSearch={() => setActiveTab("Search Candidates")}
+                />
               </section>
             ) : activeTab === "Saved" ? (
-              <section className="premium-card flex h-full min-w-0 max-w-full w-full flex-col rounded-2xl p-6">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <h3 className="flex items-center gap-2 text-lg font-semibold text-black">
-                      <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-                        <path
-                          d="M19 21L12 16L5 21V5C5 4.45 5.45 4 6 4H18C18.55 4 19 4.45 19 5V21Z"
-                          stroke="currentColor"
-                          strokeWidth="1.8"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                      Saved candidates
-                    </h3>
-                    <p className="mt-1 text-sm text-slate-600">
-                      Shortlisted profiles you marked for follow-up.
-                    </p>
-                  </div>
-                  <span
-                    className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700"
-                    title={
-                      saveListFilter === "__all__"
-                        ? "Total saved"
-                        : "Matching list / total saved"
-                    }
-                  >
-                    {saveListFilter === "__all__"
-                      ? `${savedCandidatesDisplay.length}`
-                      : `${savedCandidatesFiltered.length}/${savedCandidatesDisplay.length}`}
-                  </span>
-                </div>
-
-                <div className="mt-4 flex min-w-0 flex-wrap items-center gap-2">
-                  <select
-                    value={saveListFilter}
-                    onChange={(e) => setSaveListFilter(e.target.value)}
-                    className="max-w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800"
-                    aria-label="Filter by list"
-                  >
-                    <option value="__all__">All</option>
-                    <option value="__general__">General</option>
-                    {saveLists.map((list) => (
-                      <option key={list.id} value={list.id}>
-                        {list.name}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    type="text"
-                    value={newSaveListName}
-                    onChange={(e) => setNewSaveListName(e.target.value)}
-                    placeholder="New list"
-                    maxLength={120}
-                    className="w-32 min-w-0 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-900 placeholder:text-slate-400 sm:w-40"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => void handleCreateSaveList()}
-                    disabled={createSaveListBusy || !newSaveListName.trim()}
-                    className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-40"
-                    title="Add list"
-                  >
-                    {createSaveListBusy ? "…" : "+"}
-                  </button>
-                  {saveListFilter !== "__all__" && saveListFilter !== "__general__" ? (
-                    <button
-                      type="button"
-                      onClick={() => void handleDeleteSaveList(saveListFilter)}
-                      disabled={deleteSaveListBusyId === saveListFilter}
-                      className="rounded-md px-2 py-1.5 text-xs text-slate-400 hover:text-red-600 disabled:opacity-40"
-                      title="Delete this list"
-                    >
-                      ×
-                    </button>
-                  ) : null}
-                  <span className="hidden h-4 w-px bg-slate-200 sm:block" aria-hidden />
-                  <select
-                    value={saveTargetListId}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setSaveTargetListId(v);
-                      try {
-                        if (!v) localStorage.removeItem("ejhunter_save_target_list_id");
-                        else localStorage.setItem("ejhunter_save_target_list_id", v);
-                      } catch {
-                        /* ignore */
-                      }
-                    }}
-                    disabled={saveListsLoading}
-                    className="max-w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 disabled:opacity-50"
-                    aria-label="Default list for new saves"
-                  >
-                    <option value="">New saves → General</option>
-                    {saveLists.map((l) => (
-                      <option key={l.id} value={l.id}>
-                        New saves → {l.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {savedCandidatesDisplay.length === 0 ? (
-                  <div className="mt-6 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-center">
-                    <p className="text-sm font-medium text-slate-700">No saved candidates yet.</p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      Save candidates from Session Results to see them here.
-                    </p>
-                  </div>
-                ) : savedCandidatesFiltered.length === 0 ? (
-                  <div className="mt-6 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-center">
-                    <p className="text-sm font-medium text-slate-700">No candidates in this list.</p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      Try another list or save profiles into this list from Session Results.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => setSaveListFilter("__all__")}
-                      className="mt-4 inline-flex rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-800 transition hover:bg-slate-50"
-                    >
-                      View all saved
-                    </button>
-                  </div>
-                ) : (
-                  <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-                    {savedCandidatesFiltered.map((candidate) => (
-                      <article
-                        key={candidateIdentityKey(candidate) || candidate.name}
-                        className="rounded-xl border border-slate-200 bg-slate-50 p-4"
-                      >
-                        {(() => {
-                          const savedKey = candidateIdentityKey(candidate);
-                          const isUnsaveBusy = saveCandidateBusyKeys.includes(savedKey);
-                          return (
-                            <>
-                        <div className="mb-3 flex items-start justify-between gap-3">
-                          <div className="flex items-center gap-3">
-                            <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-slate-300 bg-white text-[10px] font-medium text-slate-500">
-                              IMG
-                            </div>
-                            <div>
-                              <h4 className="font-semibold text-slate-900">{candidate.name}</h4>
-                              <p className="text-sm text-slate-700">
-                                {candidate.role}
-                                {candidate.currentCompany ? ` · ${candidate.currentCompany}` : ""}
-                              </p>
-                            </div>
-                          </div>
-                          {typeof candidate.finalScore === "number" ? (
-                            <span className={candidateScoreBadgeClass(candidate.finalScore)}>
-                              Score {formatCandidateScore(candidate.finalScore)}/5
-                            </span>
-                          ) : null}
-                        </div>
-                        <p className="text-sm text-slate-600">
-                          {candidate.experience} • {candidate.location}
-                        </p>
-                        {Array.isArray(candidate.highlights) && candidate.highlights.length > 0 ? (
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            {candidate.highlights.slice(0, 4).map((highlight, idx) => (
-                              <span
-                                key={`${highlight}-${idx}`}
-                                className="rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-blue-700"
-                              >
-                                {highlight}
-                              </span>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="mt-1 text-sm text-slate-600">{candidate.skills}</p>
-                        )}
-                        {candidate.recommendation ? (
-                          <AiRecommendationBlock text={candidate.recommendation} compact />
-                        ) : null}
-                        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                          <span className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-700">
-                            {candidate.status}
-                          </span>
-                          <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1.5">
-                            <select
-                              value={String(candidate.saveListId || "")}
-                              onChange={(e) =>
-                                void moveCandidateToSaveList(candidate, e.target.value)
-                              }
-                              disabled={isUnsaveBusy}
-                              className="min-w-0 max-w-40 flex-1 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-[11px] text-slate-800 sm:max-w-48 disabled:opacity-60"
-                              aria-label={`List for ${candidate.name}`}
-                            >
-                              <option value="">General</option>
-                              {saveLists.map((l) => (
-                                <option key={l.id} value={l.id}>
-                                  {l.name}
-                                </option>
-                              ))}
-                            </select>
-                            <button
-                              type="button"
-                              onClick={() => void toggleSaveCandidate(candidate)}
-                              disabled={isUnsaveBusy}
-                              className="inline-flex items-center gap-1.5 rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-700 transition hover:bg-red-100 disabled:opacity-60"
-                            >
-                              <svg viewBox="0 0 24 24" fill="none" className="h-3.5 w-3.5">
-                                <path
-                                  d="M19 21L12 16L5 21V5C5 4.45 5.45 4 6 4H18C18.55 4 19 4.45 19 5V21Z"
-                                  stroke="currentColor"
-                                  strokeWidth="1.8"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                />
-                                <path
-                                  d="M4 4L20 20"
-                                  stroke="currentColor"
-                                  strokeWidth="1.8"
-                                  strokeLinecap="round"
-                                />
-                              </svg>
-                              {isUnsaveBusy ? "Removing..." : "Unsave"}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => revealEmail(candidate)}
-                              className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
-                            >
-                              <svg viewBox="0 0 24 24" fill="none" className="h-3.5 w-3.5">
-                                <path
-                                  d="M4 6H20V18H4V6ZM4 7L12 13L20 7"
-                                  stroke="currentColor"
-                                  strokeWidth="1.8"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                />
-                              </svg>
-                              Email
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => revealPhone(candidate)}
-                              className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
-                            >
-                              <svg viewBox="0 0 24 24" fill="none" className="h-3.5 w-3.5">
-                                <path
-                                  d="M22 16.92V19.92C22 20.47 21.55 20.92 21 20.92C10.51 20.92 2 12.41 2 1.92C2 1.37 2.45 0.92 3 0.92H6C6.47 0.92 6.88 1.25 6.98 1.71L7.78 5.31C7.86 5.7 7.74 6.11 7.46 6.39L5.42 8.43C6.76 11.13 8.95 13.32 11.65 14.66L13.69 12.62C13.97 12.34 14.38 12.22 14.77 12.3L18.37 13.1C18.83 13.2 19.16 13.61 19.16 14.08V16.92"
-                                  stroke="currentColor"
-                                  strokeWidth="1.5"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                />
-                              </svg>
-                              Phone
-                            </button>
-                          </div>
-                        </div>
-                        {revealedEmail.includes(candidateRowKey(candidate)) ? (
-                          <p className="mt-2 text-xs text-slate-600">
-                            {getDisplayedEmail(candidate) || "—"}
-                          </p>
-                        ) : null}
-                        {revealedPhone.includes(candidateRowKey(candidate)) ? (
-                          <p className="mt-1 text-xs text-slate-600">
-                            {getDisplayedPhone(candidate) || "—"}
-                          </p>
-                        ) : null}
-                            </>
-                          );
-                        })()}
-                      </article>
-                    ))}
-                  </div>
-                )}
-              </section>
+              <SavedCandidatesPanel
+                candidates={savedCandidatesList}
+                totalSavedCount={savedCandidatesTotalSavedCount}
+                filteredTotalDocs={savedCandidatesTotalDocs}
+                loading={savedCandidatesLoading}
+                page={savedCandidatesPage}
+                totalPages={savedCandidatesTotalPages}
+                onPageChange={setSavedCandidatesPage}
+                saveListFilter={saveListFilter}
+                onSaveListFilterChange={handleSaveListFilterChange}
+                saveLists={saveLists}
+                saveListsLoading={saveListsLoading}
+                newSaveListName={newSaveListName}
+                onNewSaveListNameChange={setNewSaveListName}
+                onCreateSaveList={() => void handleCreateSaveList()}
+                createSaveListBusy={createSaveListBusy}
+                onDeleteSaveList={(listId) => void handleDeleteSaveList(listId)}
+                deleteSaveListBusyId={deleteSaveListBusyId}
+                saveTargetListId={saveTargetListId}
+                onSaveTargetListChange={(listId) => {
+                  setSaveTargetListId(listId);
+                  try {
+                    if (!listId) localStorage.removeItem("ejhunter_save_target_list_id");
+                    else localStorage.setItem("ejhunter_save_target_list_id", listId);
+                  } catch {
+                    /* ignore */
+                  }
+                }}
+                rowKey={candidateRowKey}
+                identityKey={candidateIdentityKey}
+                saveBusyKeys={saveCandidateBusyKeys}
+                revealedEmailKeys={revealedEmail}
+                revealedPhoneKeys={revealedPhone}
+                onOpenDetail={(candidate) => {
+                  if (candidate.rawDoc) {
+                    openSessionCandidateDetail(
+                      candidate.rawDoc as SessionResultDoc,
+                      candidate as CandidateRow
+                    );
+                  }
+                }}
+                onUnsave={(candidate) => void toggleSaveCandidate(candidate as CandidateRow)}
+                onMoveList={(candidate, listId) =>
+                  void moveCandidateToSaveList(candidate as CandidateRow, listId)
+                }
+                onRevealEmail={(candidate) => revealEmail(candidate as CandidateRow)}
+                onRevealPhone={(candidate) => revealPhone(candidate as CandidateRow)}
+                getDisplayedEmail={(candidate) => getDisplayedEmail(candidate as CandidateRow)}
+                getDisplayedPhone={(candidate) => getDisplayedPhone(candidate as CandidateRow)}
+                onGoToSessionResults={() => setActiveTab("Session Results")}
+              />
             ) : activeTab === "Plans and pricing" ? (
-              <section className="premium-card flex h-full min-w-0 max-w-full w-full flex-col rounded-2xl p-6">
-                <div className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-200 pb-6">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                      Pricing
-                    </p>
-                    <h3 className="mt-1 text-lg font-semibold text-black">Plans and pricing</h3>
-                  </div>
-                  {!userPricingPlansLoading ? (
-                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-emerald-800">
-                        Your current plan
-                      </p>
-                      <p className="mt-0.5 text-sm font-semibold text-emerald-950">
-                        {userPricingPlans?.tiers.find((t) => t.id === userPlanId)?.name ??
-                          userPlanName}
-                      </p>
-                    </div>
-                  ) : null}
-                </div>
-                {userPricingPlansLoading ? (
-                  <p className="mt-8 text-sm text-slate-500">Loading pricing and account…</p>
-                ) : (
-                  <>
-                    {userPricingPlans && userPricingPlans.tiers.length > 0 ? (
-                      <>
-                    <p className="mt-4 max-w-2xl text-sm text-slate-600">{userPricingPlans.intro}</p>
-                    <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                      {userPricingPlans.tiers.map((tier) => {
-                        const isCurrentPlan = tier.id === userPlanId;
-                        const quotaLines = [
-                          pricingQuotaDisplayLabel(tier.searches, "searches"),
-                          pricingQuotaDisplayLabel(tier.candidateUnlocks, "unlocks"),
-                          pricingQuotaDisplayLabel(tier.verifiedEmails, "emails"),
-                          pricingQuotaDisplayLabel(tier.phoneNumbers, "phones"),
-                        ].filter((line): line is string => line !== null);
-                        return (
-                        <article
-                          key={tier.id || tier.name}
-                          className={
-                            isCurrentPlan
-                              ? "relative flex flex-col rounded-2xl border-2 border-emerald-600 bg-emerald-50/50 p-6 shadow-md ring-1 ring-emerald-600/20"
-                              : tier.isPopular
-                                ? "relative flex flex-col rounded-2xl border-2 border-black bg-slate-50 p-6 shadow-md ring-1 ring-black/5"
-                                : "flex flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
-                          }
-                        >
-                          {isCurrentPlan ? (
-                            <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-emerald-600 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-white">
-                              Current plan
-                            </span>
-                          ) : tier.isPopular ? (
-                            <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-black px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-white">
-                              {tier.popularBadge || "⭐ Most Popular"}
-                            </span>
-                          ) : null}
-                          <h4
-                            className={
-                              isCurrentPlan || tier.isPopular
-                                ? "mt-2 text-base font-semibold text-black"
-                                : "text-base font-semibold text-black"
-                            }
-                          >
-                            {tier.name}
-                          </h4>
-                          <p className="mt-3 text-2xl font-semibold tabular-nums text-black">
-                            {tier.primaryPrice}
-                          </p>
-                          {tier.secondaryPrice ? (
-                            <p className="mt-1 text-sm text-slate-600">{tier.secondaryPrice}</p>
-                          ) : null}
-                          {tier.description ? (
-                            <p className="mt-4 text-sm leading-relaxed text-slate-600">
-                              {tier.description}
-                            </p>
-                          ) : null}
-                          {quotaLines.length > 0 || tier.features.length > 0 ? (
-                            <>
-                          <p className="mt-6 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                            Includes
-                          </p>
-                          <ul className="mt-3 space-y-2.5 text-sm text-slate-700">
-                            {quotaLines.map((line, qIdx) => (
-                              <li
-                                key={`${tier.id || tier.name}-q-${qIdx}`}
-                                className="flex gap-2"
-                              >
-                                <span className="mt-0.5 text-emerald-600" aria-hidden>
-                                  ✓
-                                </span>
-                                <span>{line}</span>
-                              </li>
-                            ))}
-                            {tier.features.map((line, fIdx) => (
-                              <li key={`${tier.id || tier.name}-f-${fIdx}`} className="flex gap-2">
-                                <span className="mt-0.5 text-emerald-600" aria-hidden>
-                                  ✓
-                                </span>
-                                <span>{line}</span>
-                              </li>
-                            ))}
-                          </ul>
-                            </>
-                          ) : null}
-                        </article>
-                        );
-                      })}
-                    </div>
-                      </>
-                    ) : (
-                      <p className="mt-8 text-sm text-slate-600">
-                        Pricing is temporarily unavailable. Please try again later.
-                      </p>
-                    )}
-
-                    <div className="mt-10 border-t border-slate-200 pt-10">
-                      <h4 className="text-sm font-semibold uppercase tracking-[0.12em] text-slate-500">
-                        Utilisation
-                      </h4>
-                      <p className="mt-1 text-xs text-slate-500">
-                        Remaining allowance vs your{" "}
-                        <span className="font-medium text-slate-700">{userPlanName}</span> plan
-                        quota. Each value is{" "}
-                        <span className="font-medium text-slate-700">remaining / limit</span>.
-                      </p>
-                      <div className="mt-3 overflow-x-auto rounded-xl border border-slate-200">
-                        <table className="w-full min-w-[480px] border-collapse text-left text-sm">
-                          <thead>
-                            <tr className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-                              <th className="py-3 pl-4 font-semibold">Activity</th>
-                              <th className="py-3 pr-4 text-right font-semibold">Remaining / limit</th>
-                            </tr>
-                          </thead>
-                          <tbody className="text-slate-800">
-                            {(() => {
-                              const quotaTier =
-                                userPricingPlans?.tiers.find((t) => t.id === userPlanId) ??
-                                userPricingPlans?.tiers[0] ??
-                                null;
-                              return (
-                                <>
-                            <tr className="border-b border-slate-100">
-                              <td className="py-3 pl-4">Candidate search</td>
-                              <td className="py-3 pr-4 text-right tabular-nums">
-                                {quotaRemainingDisplay(
-                                  planUtilisation.candidateSearches,
-                                  quotaTier?.searches
-                                )}
-                              </td>
-                            </tr>
-                            <tr className="border-b border-slate-100">
-                              <td className="py-3 pl-4">Email unveil</td>
-                              <td className="py-3 pr-4 text-right tabular-nums">
-                                {quotaRemainingDisplay(
-                                  planUtilisation.emailUnveils,
-                                  quotaTier?.verifiedEmails
-                                )}
-                              </td>
-                            </tr>
-                            <tr className="border-b border-slate-100">
-                              <td className="py-3 pl-4">Candidate unveil</td>
-                              <td className="py-3 pr-4 text-right tabular-nums">
-                                {quotaRemainingDisplay(
-                                  planUtilisation.candidateUnveils,
-                                  quotaTier?.candidateUnlocks
-                                )}
-                              </td>
-                            </tr>
-                            <tr className="border-b border-slate-100">
-                              <td className="py-3 pl-4">Mobile unveil</td>
-                              <td className="py-3 pr-4 text-right tabular-nums">
-                                {quotaRemainingDisplay(
-                                  planUtilisation.mobileUnveils,
-                                  quotaTier?.phoneNumbers
-                                )}
-                              </td>
-                            </tr>
-                            <tr className="border-b border-slate-100 last:border-b-0">
-                              <td className="py-3 pl-4">LinkedIn search</td>
-                              <td className="py-3 pr-4 text-right tabular-nums">
-                                {quotaRemainingDisplay(
-                                  planUtilisation.linkedinLookups,
-                                  quotaTier?.searches
-                                )}
-                              </td>
-                            </tr>
-                                </>
-                              );
-                            })()}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-
-                    <div className="mt-10 border-t border-slate-200 pt-10">
-                      <h4 className="text-sm font-semibold uppercase tracking-[0.12em] text-slate-500">
-                        Credit utilisation history
-                      </h4>
-                      <p className="mt-1 text-xs text-slate-500">
-                        Log of plan quota usage (searches and contact unveils). Only events recorded
-                        after this feature shipped appear here.
-                      </p>
-                      <div className="mt-3 overflow-x-auto rounded-xl border border-slate-200">
-                        <table className="w-full min-w-[480px] border-collapse text-left text-sm">
-                          <thead>
-                            <tr className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-                              <th className="py-3 pl-4 font-semibold">Date</th>
-                              <th className="py-3 font-semibold">Activity</th>
-                              <th className="py-3 pr-4 text-right font-semibold">Units</th>
-                            </tr>
-                          </thead>
-                          <tbody className="text-slate-800">
-                            {utilisationHistoryLoading ? (
-                              <tr>
-                                <td colSpan={3} className="py-10 text-center text-slate-500">
-                                  Loading history…
-                                </td>
-                              </tr>
-                            ) : utilisationHistory.length === 0 ? (
-                              <tr>
-                                <td colSpan={3} className="py-10 text-center text-sm text-slate-500">
-                                  No quota usage logged yet.
-                                </td>
-                              </tr>
-                            ) : (
-                              utilisationHistory.map((row) => (
-                                <tr
-                                  key={row.id}
-                                  className="border-b border-slate-100 last:border-b-0"
-                                >
-                                  <td className="py-3 pl-4 whitespace-nowrap text-xs">
-                                    {new Date(row.createdAt).toLocaleString()}
-                                  </td>
-                                  <td className="py-3">
-                                    {utilisationQuotaActionLabel(row.action)}
-                                  </td>
-                                  <td className="py-3 pr-4 text-right tabular-nums font-medium text-red-600">
-                                    −{row.amount}
-                                  </td>
-                                </tr>
-                              ))
-                            )}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-
-                  </>
-                )}
-              </section>
+              <PlansPricingPanel
+                loading={userPricingPlansLoading}
+                plans={userPricingPlans}
+                currentPlanId={userPlanId}
+                currentPlanName={userPlanName}
+                utilisation={planUtilisation}
+                history={utilisationHistory}
+                historyLoading={utilisationHistoryLoading}
+                historyPage={utilisationHistoryPage}
+                historyTotalDocs={utilisationHistoryTotalDocs}
+                historyTotalPages={utilisationHistoryTotalPages}
+                onHistoryPageChange={setUtilisationHistoryPage}
+              />
             ) : (
-              <section className="premium-card flex h-full min-w-0 max-w-full w-full flex-col rounded-2xl p-6">
-                <h3 className="text-lg font-semibold text-black">{activeTab}</h3>
+              <section className="dashboard-card flex h-full min-w-0 max-w-full w-full flex-col p-6">
+                <h3 className="dashboard-section-title">{activeTab}</h3>
                 <p className="mt-2 text-sm text-slate-600">
                   This section is coming soon.
                 </p>
@@ -4876,7 +3878,7 @@ export default function UserDashboardPage() {
 
       {peopleScoutProfile ? (
         <div
-          className={`fixed inset-0 z-112 transition-opacity duration-300 ${
+          className={`dashboard-overlay fixed inset-0 transition-opacity duration-300 ${
             isPeopleScoutDrawerOpen
               ? "pointer-events-auto opacity-100"
               : "pointer-events-none opacity-0"
@@ -4889,25 +3891,23 @@ export default function UserDashboardPage() {
           <button
             type="button"
             aria-label="Close profile panel"
-            className="absolute inset-0 bg-slate-900/40"
+            className="dashboard-drawer-overlay absolute inset-0"
             onClick={() => setIsPeopleScoutDrawerOpen(false)}
           />
           <aside
-            className={`absolute right-0 top-0 h-full w-full max-w-lg overflow-y-auto border-l border-slate-200 bg-white shadow-2xl transition-transform duration-300 ease-out ${
+            className={`dashboard-drawer-panel dashboard-drawer-panel--scout absolute right-0 top-0 h-full w-full overflow-y-auto transition-transform duration-300 ease-out ${
               isPeopleScoutDrawerOpen ? "translate-x-0" : "translate-x-full"
             }`}
           >
-            <div className="sticky top-0 z-10 border-b border-slate-200 bg-white px-5 py-4">
+            <div className="sticky top-0 z-10 border-b border-[color-mix(in_srgb,var(--dash-outline)_40%,transparent)] bg-white/95 px-5 py-4 backdrop-blur-md">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                    People Scout
-                  </p>
-                  <h3 className="mt-1 truncate text-lg font-semibold text-black">
+                  <p className="dashboard-label-upper">People Scout</p>
+                  <h3 className="mt-1 truncate dashboard-section-title">
                     {peopleScoutProfile.name}
                   </h3>
                   {peopleScoutProfile.headline ? (
-                    <p className="mt-0.5 line-clamp-2 text-sm text-slate-600">
+                    <p className="mt-0.5 line-clamp-2 dashboard-text-body">
                       {peopleScoutProfile.headline}
                     </p>
                   ) : null}
@@ -4915,113 +3915,126 @@ export default function UserDashboardPage() {
                 <button
                   type="button"
                   onClick={() => setIsPeopleScoutDrawerOpen(false)}
-                  className="shrink-0 rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+                  className="dashboard-btn-ghost shrink-0 p-1.5"
                   aria-label="Close profile panel"
                 >
-                  <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-                    <path
-                      d="M18 6L6 18M6 6L18 18"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
+                  <MaterialIcon name="close" className="text-xl" />
                 </button>
               </div>
               <div
-                className={`mt-3 grid w-full gap-2 ${
-                  peopleScoutProfile.linkedinUrl ? "grid-cols-3" : "grid-cols-2"
+                className={`dashboard-drawer-actions ${
+                  peopleScoutProfile.linkedinUrl
+                    ? "dashboard-drawer-actions--cols-3"
+                    : "dashboard-drawer-actions--cols-2"
                 }`}
+                role="group"
+                aria-label="Profile actions"
               >
                 {peopleScoutProfile.linkedinUrl ? (
                   <a
                     href={peopleScoutProfile.linkedinUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex min-w-0 w-full items-center justify-center gap-1 rounded-lg border border-slate-300 bg-slate-50 px-2 py-1.5 text-center text-[11px] font-semibold leading-tight text-slate-800 transition hover:bg-slate-100 sm:text-xs"
+                    className="dashboard-drawer-action dashboard-drawer-action--linkedin"
                   >
-                    <svg
-                      viewBox="0 0 24 24"
-                      className="h-3.5 w-3.5 shrink-0"
-                      fill="currentColor"
+                    <span className="dashboard-drawer-action-icon" aria-hidden>
+                      <MaterialIcon name="work" className="text-[20px]" />
+                    </span>
+                    <span className="dashboard-drawer-action-body">
+                      <span className="dashboard-drawer-action-label">Open LinkedIn</span>
+                      <span className="dashboard-drawer-action-hint">View public profile</span>
+                    </span>
+                    <MaterialIcon
+                      name="open_in_new"
+                      className="dashboard-drawer-action-trail text-[18px]"
                       aria-hidden
-                    >
-                      <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" />
-                    </svg>
-                    <span className="min-w-0 truncate sm:whitespace-normal">Open LinkedIn</span>
+                    />
                   </a>
                 ) : null}
                 <button
                   type="button"
                   onClick={() => void revealPeopleScoutContactFromApi("EMAIL")}
                   disabled={peopleScoutRevealEmailBusy}
-                  className="inline-flex min-w-0 w-full items-center justify-center gap-1 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-center text-[11px] font-semibold leading-tight text-slate-800 transition hover:bg-slate-50 enabled:cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 sm:gap-1.5 sm:text-xs"
+                  className={`dashboard-drawer-action${
+                    peopleScoutRevealEmail ? " dashboard-drawer-action--active" : ""
+                  }`}
                 >
-                  <svg viewBox="0 0 24 24" fill="none" className="h-3.5 w-3.5 shrink-0">
-                    <path
-                      d="M4 5H20V19H4V5ZM4 7L12 13L20 7"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                  <span className="min-w-0 truncate sm:whitespace-normal">
-                    {peopleScoutRevealEmailBusy ? "…" : "Reveal email"}
+                  <span className="dashboard-drawer-action-icon" aria-hidden>
+                    <MaterialIcon name="mail" className="text-[20px]" />
+                  </span>
+                  <span className="dashboard-drawer-action-body">
+                    <span className="dashboard-drawer-action-label">
+                      {peopleScoutRevealEmailBusy
+                        ? "Revealing…"
+                        : peopleScoutRevealEmail
+                          ? "Email revealed"
+                          : "Reveal email"}
+                    </span>
+                    <span className="dashboard-drawer-action-hint">
+                      {peopleScoutRevealEmail ? "Shown below" : "Uses lookup credit"}
+                    </span>
                   </span>
                 </button>
                 <button
                   type="button"
                   onClick={() => void revealPeopleScoutContactFromApi("PHONE")}
                   disabled={peopleScoutRevealPhoneBusy}
-                  className="inline-flex min-w-0 w-full items-center justify-center gap-1 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-center text-[11px] font-semibold leading-tight text-slate-800 transition hover:bg-slate-50 enabled:cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 sm:gap-1.5 sm:text-xs"
+                  className={`dashboard-drawer-action${
+                    peopleScoutRevealPhone ? " dashboard-drawer-action--active" : ""
+                  }`}
                 >
-                  <svg viewBox="0 0 24 24" fill="none" className="h-3.5 w-3.5 shrink-0">
-                    <path
-                      d="M22 16.92V20A2 2 0 0 1 19.82 22C10.98 22 2 13.02 2 4.18A2 2 0 0 1 4 2H7.09A2 2 0 0 1 9.08 3.72C9.2 4.62 9.42 5.51 9.73 6.36A2 2 0 0 1 9.28 8.47L7.94 9.81A16 16 0 0 0 14.19 16.06L15.53 14.72A2 2 0 0 1 17.64 14.27C18.49 14.58 19.38 14.8 20.28 14.92A2 2 0 0 1 22 16.92Z"
-                      stroke="currentColor"
-                      strokeWidth="1.6"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                  <span className="min-w-0 truncate sm:whitespace-normal">
-                    {peopleScoutRevealPhoneBusy ? "…" : "Reveal phone"}
+                  <span className="dashboard-drawer-action-icon" aria-hidden>
+                    <MaterialIcon name="call" className="text-[20px]" />
+                  </span>
+                  <span className="dashboard-drawer-action-body">
+                    <span className="dashboard-drawer-action-label">
+                      {peopleScoutRevealPhoneBusy
+                        ? "Revealing…"
+                        : peopleScoutRevealPhone
+                          ? "Phone revealed"
+                          : "Reveal phone"}
+                    </span>
+                    <span className="dashboard-drawer-action-hint">
+                      {peopleScoutRevealPhone ? "Shown below" : "Uses lookup credit"}
+                    </span>
                   </span>
                 </button>
               </div>
               {peopleScoutRevealEmail || peopleScoutRevealPhone ? (
-                <div className="mt-3 space-y-1 border-t border-slate-100 pt-3 text-xs leading-relaxed text-slate-700">
+                <div className="dashboard-drawer-revealed-card">
                   {peopleScoutRevealEmail ? (
-                    <p>
-                      <span className="font-semibold text-slate-500">Email </span>
-                      {peopleScoutProfile.email.trim() ? (
-                        <a
-                          href={`mailto:${peopleScoutProfile.email}`}
-                          className="text-slate-900 underline decoration-slate-300 underline-offset-2 hover:decoration-slate-600"
-                        >
-                          {peopleScoutProfile.email}
-                        </a>
-                      ) : (
-                        <span className="text-slate-400">Not available</span>
-                      )}
-                    </p>
+                    <div className="dashboard-drawer-revealed-row">
+                      <span className="dashboard-drawer-action-icon" aria-hidden>
+                        <MaterialIcon name="mail" className="text-base" />
+                      </span>
+                      <span className="dashboard-drawer-revealed-label">Email</span>
+                      <span className="dashboard-drawer-revealed-value">
+                        {peopleScoutProfile.email.trim() ? (
+                          <a href={`mailto:${peopleScoutProfile.email}`}>
+                            {peopleScoutProfile.email}
+                          </a>
+                        ) : (
+                          <span className="text-[#424656]/70">Not available</span>
+                        )}
+                      </span>
+                    </div>
                   ) : null}
                   {peopleScoutRevealPhone ? (
-                    <p>
-                      <span className="font-semibold text-slate-500">Phone </span>
-                      {peopleScoutProfile.phone.trim() ? (
-                        <a
-                          href={`tel:${peopleScoutProfile.phone.replace(/\s/g, "")}`}
-                          className="text-slate-900 underline decoration-slate-300 underline-offset-2 hover:decoration-slate-600"
-                        >
-                          {peopleScoutProfile.phone}
-                        </a>
-                      ) : (
-                        <span className="text-slate-400">Not available</span>
-                      )}
-                    </p>
+                    <div className="dashboard-drawer-revealed-row">
+                      <span className="dashboard-drawer-action-icon" aria-hidden>
+                        <MaterialIcon name="call" className="text-base" />
+                      </span>
+                      <span className="dashboard-drawer-revealed-label">Phone</span>
+                      <span className="dashboard-drawer-revealed-value">
+                        {peopleScoutProfile.phone.trim() ? (
+                          <a href={`tel:${peopleScoutProfile.phone.replace(/\s/g, "")}`}>
+                            {peopleScoutProfile.phone}
+                          </a>
+                        ) : (
+                          <span className="text-[#424656]/70">Not available</span>
+                        )}
+                      </span>
+                    </div>
                   ) : null}
                 </div>
               ) : null}

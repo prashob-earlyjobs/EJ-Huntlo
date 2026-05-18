@@ -1511,8 +1511,43 @@ const deleteSaveList = async (req, res) => {
   }
 };
 
+function mapSavedCandidateRow(r) {
+  return {
+    id: r._id.toString(),
+    candidateId: r.candidateId || "",
+    sourcingSessionId: r.sourcingSessionId || "",
+    linkedin_profile_url: r.linkedinProfileUrl || "",
+    name: r.name || "",
+    role: r.role || "",
+    currentCompany: r.currentCompany || "",
+    location: r.location || "",
+    experience: r.experience || "",
+    finalScore: typeof r.finalScore === "number" ? r.finalScore : null,
+    highlights: Array.isArray(r.highlights) ? r.highlights : [],
+    recommendation: r.recommendation || "",
+    rawDoc: r.rawDoc || null,
+    status: r.status || "Saved",
+    savedAt: r.updatedAt || r.createdAt,
+    saveListId: r.saveListId ? r.saveListId.toString() : "",
+  };
+}
+
+function buildSavedListMongoFilter(userId, listFilter) {
+  const uid = new mongoose.Types.ObjectId(userId);
+  const filter = { userId: uid };
+  const lf = String(listFilter || "__all__").trim();
+  if (lf === "__general__") {
+    filter.$or = [{ saveListId: null }, { saveListId: { $exists: false } }];
+  } else if (lf !== "__all__" && mongoose.Types.ObjectId.isValid(lf)) {
+    filter.saveListId = new mongoose.Types.ObjectId(lf);
+  }
+  return filter;
+}
+
 /**
  * GET /api/candidates/saved
+ * Query: page (default 1), limit (1–100, default 20), listFilter (__all__ | __general__ | list ObjectId)
+ * Query: keysOnly (optional) — returns minimal rows for bookmark state (no pagination)
  */
 const listSavedCandidates = async (req, res) => {
   const userId = req.auth?.userId;
@@ -1524,32 +1559,59 @@ const listSavedCandidates = async (req, res) => {
       });
     }
 
-    const rows = await SavedCandidate.find({
-      userId: new mongoose.Types.ObjectId(userId),
-    })
-      .sort({ updatedAt: -1, _id: -1 })
-      .lean();
+    const uid = new mongoose.Types.ObjectId(userId);
+
+    if (parseQueryBool(req.query.keysOnly, false)) {
+      const rows = await SavedCandidate.find({ userId: uid })
+        .select("candidateId sourcingSessionId linkedinProfileUrl name")
+        .lean();
+
+      return res.status(200).json({
+        success: true,
+        keyRows: rows.map((r) => ({
+          candidateId: r.candidateId || "",
+          sourcingSessionId: r.sourcingSessionId || "",
+          linkedin_profile_url: r.linkedinProfileUrl || "",
+          name: r.name || "",
+        })),
+      });
+    }
+
+    const listFilter = String(
+      req.query.listFilter ?? req.query.list ?? "__all__"
+    ).trim();
+    const page = clampInt(req.query.page, 1, 100000, 1);
+    const limit = clampInt(req.query.limit, 1, 100, 20);
+    const skip = (page - 1) * limit;
+    const filter = buildSavedListMongoFilter(userId, listFilter);
+
+    const [totalSavedCount, totalDocs, rows] = await Promise.all([
+      SavedCandidate.countDocuments({ userId: uid }),
+      SavedCandidate.countDocuments(filter),
+      SavedCandidate.find(filter)
+        .sort({ updatedAt: -1, _id: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+    ]);
+
+    const totalPages = Math.max(1, Math.ceil(totalDocs / limit));
 
     return res.status(200).json({
       success: true,
-      candidates: rows.map((r) => ({
-        id: r._id.toString(),
-        candidateId: r.candidateId || "",
-        sourcingSessionId: r.sourcingSessionId || "",
-        linkedin_profile_url: r.linkedinProfileUrl || "",
-        name: r.name || "",
-        role: r.role || "",
-        currentCompany: r.currentCompany || "",
-        location: r.location || "",
-        experience: r.experience || "",
-        finalScore: typeof r.finalScore === "number" ? r.finalScore : null,
-        highlights: Array.isArray(r.highlights) ? r.highlights : [],
-        recommendation: r.recommendation || "",
-        rawDoc: r.rawDoc || null,
-        status: r.status || "Saved",
-        savedAt: r.updatedAt || r.createdAt,
-        saveListId: r.saveListId ? r.saveListId.toString() : "",
-      })),
+      candidates: rows.map(mapSavedCandidateRow),
+      totalSavedCount,
+      listFilter,
+      pagination: {
+        totalDocs,
+        page,
+        limit,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+        nextPage: page < totalPages ? page + 1 : null,
+        prevPage: page > 1 ? page - 1 : null,
+      },
     });
   } catch (error) {
     return res.status(500).json({

@@ -19,6 +19,7 @@ const {
   completeMyOnboarding,
   changeMyPassword,
 } = require("../controllers/userController");
+const { getMyDashboard } = require("../controllers/dashboardController");
 const { authenticate, requireAdmin } = require("../middleware/auth");
 
 const router = express.Router();
@@ -27,6 +28,7 @@ router.post("/register", registerUser);
 router.post("/login", loginUser);
 router.post("/logout", authenticate, logoutUser);
 router.get("/me", authenticate, getMyProfile);
+router.get("/me/dashboard", authenticate, getMyDashboard);
 router.patch("/me", authenticate, updateMyProfile);
 router.patch("/me/onboarding", authenticate, completeMyOnboarding);
 router.patch("/me/password", authenticate, changeMyPassword);

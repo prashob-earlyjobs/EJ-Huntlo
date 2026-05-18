@@ -4,6 +4,13 @@ import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
+import {
+  SessionResultCandidateCard,
+  type SessionResultCardData,
+} from "@/components/dashboard/SessionResultCandidateCard";
+import { SessionResultsSkeleton } from "@/components/dashboard/SessionResultsSkeleton";
+import { LandingLogo } from "@/components/landing/LandingLogo";
+import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { authHeaders, getStoredAuth } from "@/lib/auth";
 
 type ProfileDoc = {
@@ -14,6 +21,7 @@ type ProfileDoc = {
     region?: string;
     years_of_experience_raw?: number;
     linkedin_profile_url?: string;
+    profile_picture_permalink?: string;
     skills?: string[];
     current_employers_object?: { company_name?: string; job_title?: string }[];
   };
@@ -33,6 +41,24 @@ type ProfilesResponse = {
   profilesPagination?: { totalDocs?: number; page?: number; totalPages?: number };
   futureJobsProfiles?: { data?: { docs?: ProfileDoc[] } };
 };
+
+function docToCardData(doc: ProfileDoc, idx: number): SessionResultCardData {
+  const current = doc.profile?.current_employers_object?.[0];
+  return {
+    id: doc._id || `doc-${idx}`,
+    name: doc.profile?.name || "Unnamed candidate",
+    role: current?.job_title,
+    company: current?.company_name,
+    region: doc.profile?.region,
+    yearsExperience: doc.profile?.years_of_experience_raw,
+    finalScore: doc.finalScore,
+    photoUrl: doc.profile?.profile_picture_permalink,
+    linkedinUrl: doc.profile?.linkedin_profile_url,
+    highlights: doc.profileAnalysis?.highlights,
+    recommendation: doc.profileAnalysis?.recommendation,
+    strengths: doc.profileAnalysis?.analysis?.keyStrengths,
+  };
+}
 
 export default function SessionResultsPage() {
   const params = useParams<{ sessionId: string }>();
@@ -108,123 +134,67 @@ export default function SessionResultsPage() {
   }, [limit, router, sessionId]);
 
   return (
-    <main className="premium-shell min-h-screen px-4 py-8 text-slate-900 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-6xl space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-              Session results
-            </p>
-            <h1 className="mt-1 text-2xl font-semibold text-black">Candidates</h1>
-            <p className="mt-1 text-sm text-slate-600">
-              {totalDocs ?? 0} total candidates · Page {pageLabel}
-            </p>
-          </div>
-          <Link
-            href="/dashboard"
-            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-50"
-          >
+    <main className="dashboard-page min-h-screen">
+      <header className="dashboard-header">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
+          <Link href="/dashboard" className="inline-block">
+            <LandingLogo className="h-9 w-auto" />
+          </Link>
+          <Link href="/dashboard" className="dashboard-btn-secondary">
+            <MaterialIcon name="arrow_back" className="text-base" />
             Back to dashboard
           </Link>
         </div>
+      </header>
 
-        {isLoading ? (
-          <section className="premium-card rounded-2xl p-6 text-sm text-slate-600">
-            Loading session results...
-          </section>
-        ) : null}
+      <div className="mx-auto max-w-6xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
+        <div className="dashboard-results-toolbar">
+          <div>
+            <p className="dashboard-header-eyebrow">Session results</p>
+            <h1 className="dashboard-header-title">Candidates</h1>
+            <p className="mt-1 dashboard-text-body">
+              Sourcing session{" "}
+              <span className="font-mono text-xs text-[#424656]/80">{sessionId}</span>
+            </p>
+          </div>
+          {!isLoading && !error ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="dashboard-badge tabular-nums">
+                {totalDocs ?? 0} candidate{(totalDocs ?? 0) === 1 ? "" : "s"}
+              </span>
+              <span className="dashboard-badge tabular-nums">Page {pageLabel}</span>
+            </div>
+          ) : null}
+        </div>
 
-        {error ? (
-          <section className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-            {error}
-          </section>
-        ) : null}
+        {isLoading ? <SessionResultsSkeleton count={6} /> : null}
+
+        {error ? <p className="dashboard-alert-error">{error}</p> : null}
 
         {!isLoading && !error && docs.length === 0 ? (
-          <section className="premium-card rounded-2xl p-6 text-sm text-slate-600">
-            No candidates returned for this session.
-          </section>
+          <div className="dashboard-empty-state">
+            <div className="dashboard-empty-state-icon">
+              <MaterialIcon name="person_search" className="text-[28px]" />
+            </div>
+            <p className="mt-4 text-base font-semibold text-[#141b2b]">No candidates found</p>
+            <p className="mt-2 max-w-sm text-sm text-[#424656]">
+              This session did not return any profile results. Try another search or adjust your
+              filters.
+            </p>
+            <Link href="/dashboard" className="dashboard-btn-primary mt-6">
+              Return to dashboard
+            </Link>
+          </div>
         ) : null}
 
-        {!isLoading && !error ? (
-          <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            {docs.map((doc) => {
-              const strengths = doc.profileAnalysis?.analysis?.keyStrengths ?? [];
-              const highlights = doc.profileAnalysis?.highlights ?? [];
-              const current = doc.profile?.current_employers_object?.[0];
-              return (
-                <article
-                  key={doc._id || `${doc.profile?.linkedin_profile_url || Math.random()}`}
-                  className="premium-card rounded-2xl p-5"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <h2 className="text-lg font-semibold text-black">
-                        {doc.profile?.name || "Unnamed candidate"}
-                      </h2>
-                      <p className="mt-1 text-sm text-slate-600">
-                        {current?.job_title || "Role unavailable"}
-                        {current?.company_name ? ` · ${current.company_name}` : ""}
-                      </p>
-                    </div>
-                    {typeof doc.finalScore === "number" ? (
-                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-                        Score {doc.finalScore}/5
-                      </span>
-                    ) : null}
-                  </div>
-
-                  <p className="mt-3 text-sm text-slate-600">
-                    {doc.profile?.region || "Location unavailable"}
-                    {typeof doc.profile?.years_of_experience_raw === "number"
-                      ? ` · ${doc.profile.years_of_experience_raw} years`
-                      : ""}
-                  </p>
-
-                  {highlights.length > 0 ? (
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {highlights.slice(0, 5).map((h, i) => (
-                        <span
-                          key={`${h.Category || "highlight"}-${i}`}
-                          className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700"
-                        >
-                          {h.Category ? `${h.Category}: ` : ""}
-                          {h.Highlight || "—"}
-                        </span>
-                      ))}
-                    </div>
-                  ) : null}
-
-                  {doc.profileAnalysis?.recommendation ? (
-                    <p className="mt-4 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                      {doc.profileAnalysis.recommendation}
-                    </p>
-                  ) : null}
-
-                  {strengths.length > 0 ? (
-                    <ul className="mt-4 space-y-2 text-sm text-slate-700">
-                      {strengths.slice(0, 3).map((s, i) => (
-                        <li key={`${doc._id || "doc"}-strength-${i}`}>
-                          <span className="font-semibold text-slate-900">- </span>
-                          {s.observation || "Strength"}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-
-                  {doc.profile?.linkedin_profile_url ? (
-                    <a
-                      href={doc.profile.linkedin_profile_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mt-4 inline-flex text-sm font-semibold text-blue-700 hover:underline"
-                    >
-                      Open LinkedIn
-                    </a>
-                  ) : null}
-                </article>
-              );
-            })}
+        {!isLoading && !error && docs.length > 0 ? (
+          <section className="dashboard-results-grid">
+            {docs.map((doc, idx) => (
+              <SessionResultCandidateCard
+                key={doc._id || `session-doc-${idx}`}
+                data={docToCardData(doc, idx)}
+              />
+            ))}
           </section>
         ) : null}
       </div>

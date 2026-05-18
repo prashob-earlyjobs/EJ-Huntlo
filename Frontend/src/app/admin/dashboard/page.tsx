@@ -4,6 +4,7 @@ import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { LandingLogo } from "@/components/landing/LandingLogo";
 import { authHeaders, getStoredAuth, type StoredAuth } from "@/lib/auth";
 
 const sidebarItems = [
@@ -778,20 +779,20 @@ export default function AdminDashboardPage() {
 
   if (!auth) {
     return (
-      <main className="premium-shell flex min-h-screen items-center justify-center text-slate-600">
-        Checking access…
+      <main className="dashboard-page flex min-h-screen items-center justify-center">
+        <p className="dashboard-text-body">Checking access…</p>
       </main>
     );
   }
 
   return (
-    <main className="premium-shell min-h-screen text-slate-900">
+    <main className="dashboard-page min-h-screen">
       <div className="flex min-h-screen w-full">
-        <aside className="hidden w-72 border-r border-slate-200 bg-white/90 p-6 backdrop-blur lg:block">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
-            Admin Panel
-          </p>
-          <h1 className="mt-2 text-xl font-semibold text-black">EJHunter</h1>
+        <aside className="dashboard-sidebar hidden lg:block">
+          <p className="dashboard-sidebar-label">Admin Panel</p>
+          <Link href="/admin/dashboard" className="mt-3 inline-block">
+            <LandingLogo className="h-10 w-auto" priority />
+          </Link>
 
           <nav className="mt-8 space-y-2">
             {sidebarItems.map((item) => (
@@ -799,31 +800,21 @@ export default function AdminDashboardPage() {
                 key={item.label}
                 type="button"
                 onClick={() => setActiveTab(item.label)}
-                className={`w-full rounded-xl px-3 py-3 text-left transition ${
-                  activeTab === item.label
-                    ? "bg-black text-white"
-                    : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                className={`dashboard-nav-item ${
+                  activeTab === item.label ? "dashboard-nav-item--active" : ""
                 }`}
               >
                 <span className="flex items-start gap-3">
                   <span
-                    className={`mt-0.5 rounded-md border p-1.5 ${
-                      activeTab === item.label
-                        ? "border-white/40 text-white"
-                        : "border-slate-300 text-slate-500"
+                    className={`dashboard-nav-icon ${
+                      activeTab === item.label ? "dashboard-nav-icon--active" : ""
                     }`}
                   >
                     {item.icon}
                   </span>
                   <span>
                     <span className="block text-sm font-medium">{item.label}</span>
-                    <span
-                      className={`block text-xs ${
-                        activeTab === item.label ? "text-white/80" : "text-slate-500"
-                      }`}
-                    >
-                      {item.subtitle}
-                    </span>
+                    <span className="dashboard-nav-subtitle">{item.subtitle}</span>
                   </span>
                 </span>
               </button>
@@ -832,20 +823,16 @@ export default function AdminDashboardPage() {
         </aside>
 
         <section className="flex flex-1 flex-col">
-          <header className="border-b border-slate-200 bg-white/85 px-6 py-4 backdrop-blur">
+          <header className="dashboard-header">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
-                  Admin Workspace
-                </p>
-                <h2 className="mt-1 text-2xl font-semibold text-black">
-                  {activeTab}
-                </h2>
+                <p className="dashboard-header-eyebrow">Admin Workspace</p>
+                <h2 className="dashboard-header-title">{activeTab}</h2>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <Link
                   href="/dashboard"
-                  className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-50"
+                  className="dashboard-btn-secondary"
                 >
                   User dashboard
                 </Link>
@@ -853,7 +840,7 @@ export default function AdminDashboardPage() {
                   type="button"
                   onClick={handleLogout}
                   disabled={isLoggingOut}
-                  className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                  className="dashboard-btn-secondary"
                 >
                   {isLoggingOut ? "Logging out…" : "Logout"}
                 </button>
@@ -861,7 +848,7 @@ export default function AdminDashboardPage() {
                   <button
                     type="button"
                     onClick={() => setIsCreateUserModalOpen(true)}
-                    className="rounded-lg bg-linear-to-r from-blue-600 to-cyan-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-blue-500/20 transition hover:from-blue-700 hover:to-cyan-600"
+                    className="dashboard-btn-primary"
                   >
                     + Create User
                   </button>
@@ -872,18 +859,18 @@ export default function AdminDashboardPage() {
 
           <div className="flex-1 space-y-6 p-6">
             {activeTab === "Users" ? (
-              <article className="premium-card rounded-2xl p-6">
+              <article className="dashboard-card p-6">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <h3 className="text-lg font-semibold text-black">Users</h3>
-                    <p className="mt-1 text-sm text-slate-600">
+                    <h3 className="dashboard-section-title">Users</h3>
+                    <p className="mt-1 dashboard-text-body">
                       View and manage existing team members.
                     </p>
                   </div>
                 </div>
 
                 {usersError ? (
-                  <p className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  <p className="mt-4 dashboard-alert-error">
                     {usersError}
                   </p>
                 ) : null}
@@ -891,7 +878,7 @@ export default function AdminDashboardPage() {
                 <div className="mt-4 overflow-x-auto">
                   <table className="w-full min-w-[640px] border-collapse text-left">
                     <thead>
-                      <tr className="border-b border-slate-200 text-xs uppercase tracking-[0.14em] text-slate-500">
+                      <tr className="dashboard-table-head">
                         <th className="py-3 font-semibold">Name</th>
                         <th className="py-3 font-semibold">Email</th>
                         <th className="py-3 font-semibold">Role</th>
@@ -910,7 +897,7 @@ export default function AdminDashboardPage() {
                         teamUsers.map((user) => (
                           <tr
                             key={user.id}
-                            className="border-b border-slate-100 text-sm last:border-b-0"
+                            className="dashboard-table-row"
                           >
                             <td className="py-4 font-medium text-slate-900">
                               {user.fullName}
@@ -924,7 +911,7 @@ export default function AdminDashboardPage() {
                               <button
                                 type="button"
                                 onClick={() => openManageUserModal(user)}
-                                className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 transition hover:bg-slate-50"
+                                className="dashboard-btn-secondary px-3 py-1.5 text-xs"
                               >
                                 Manage
                               </button>
@@ -939,7 +926,7 @@ export default function AdminDashboardPage() {
                 <div className="mt-8 border-t border-slate-200 pt-6">
                   <div className="flex flex-wrap items-end justify-between gap-3">
                     <div>
-                      <h4 className="text-sm font-semibold text-black">
+                      <h4 className="dashboard-section-title text-sm">
                         Plan quota usage history (all users)
                       </h4>
                       <p className="mt-1 text-xs text-slate-500">
@@ -950,7 +937,7 @@ export default function AdminDashboardPage() {
                     <select
                       value={teamUtilisationFilterUserId}
                       onChange={(e) => setTeamUtilisationFilterUserId(e.target.value)}
-                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black focus:ring-2 focus:ring-slate-300"
+                      className="dashboard-select py-2"
                     >
                       <option value="">All users</option>
                       {teamUsers.map((u) => (
@@ -1019,16 +1006,16 @@ export default function AdminDashboardPage() {
                 </div>
               </article>
             ) : activeTab === "Candidates" ? (
-              <article className="premium-card rounded-2xl p-6">
-                <h3 className="text-lg font-semibold text-black">Candidates</h3>
-                <p className="mt-1 text-sm text-slate-600">
+              <article className="dashboard-card p-6">
+                <h3 className="dashboard-section-title">Candidates</h3>
+                <p className="mt-1 dashboard-text-body">
                   View current candidates and their hiring progress.
                 </p>
 
                 <div className="mt-4 overflow-x-auto">
                   <table className="w-full min-w-[640px] border-collapse text-left">
                     <thead>
-                      <tr className="border-b border-slate-200 text-xs uppercase tracking-[0.14em] text-slate-500">
+                      <tr className="dashboard-table-head">
                         <th className="py-3 font-semibold">Name</th>
                         <th className="py-3 font-semibold">Role</th>
                         <th className="py-3 font-semibold">Stage</th>
@@ -1039,7 +1026,7 @@ export default function AdminDashboardPage() {
                       {candidates.map((candidate) => (
                         <tr
                           key={candidate.name}
-                          className="border-b border-slate-100 text-sm last:border-b-0"
+                          className="dashboard-table-row"
                         >
                           <td className="py-4 font-medium text-slate-900">
                             {candidate.name}
@@ -1047,7 +1034,7 @@ export default function AdminDashboardPage() {
                           <td className="py-4 text-slate-700">{candidate.role}</td>
                           <td className="py-4 text-slate-700">{candidate.stage}</td>
                           <td className="py-4">
-                            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                            <span className="dashboard-badge">
                               {candidate.status}
                             </span>
                           </td>
@@ -1058,11 +1045,11 @@ export default function AdminDashboardPage() {
                 </div>
               </article>
             ) : activeTab === "Plans & pricing" ? (
-              <article className="premium-card max-h-[calc(100vh-10rem)] overflow-y-auto rounded-2xl p-6">
+              <article className="dashboard-card max-h-[calc(100vh-10rem)] overflow-y-auto p-6">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <h3 className="text-lg font-semibold text-black">Plans & pricing</h3>
-                    <p className="mt-1 text-sm text-slate-600">
+                    <h3 className="dashboard-section-title">Plans & pricing</h3>
+                    <p className="mt-1 dashboard-text-body">
                       Shown on the user dashboard under Plans and pricing. Public API; save requires
                       admin.
                     </p>
@@ -1071,18 +1058,18 @@ export default function AdminDashboardPage() {
                     type="button"
                     onClick={() => void handleSavePricingPlans()}
                     disabled={pricingSaving || !pricingForm}
-                    className="rounded-lg bg-black px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+                    className="dashboard-btn-primary disabled:opacity-50"
                   >
                     {pricingSaving ? "Saving…" : "Save"}
                   </button>
                 </div>
                 {pricingError ? (
-                  <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  <p className="mt-3 dashboard-alert-error">
                     {pricingError}
                   </p>
                 ) : null}
                 {pricingSuccess ? (
-                  <p className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                  <p className="mt-3 dashboard-alert-success">
                     {pricingSuccess}
                   </p>
                 ) : null}
@@ -1106,7 +1093,7 @@ export default function AdminDashboardPage() {
                           setPricingForm((p) => (p ? { ...p, intro: e.target.value } : p))
                         }
                         rows={3}
-                        className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-black focus:ring-2 focus:ring-slate-200"
+                        className="mt-1 w-full dashboard-input"
                       />
                     </div>
                     {pricingForm.tiers.map((tier, idx) => (
@@ -1124,7 +1111,7 @@ export default function AdminDashboardPage() {
                               type="text"
                               value={tier.id}
                               onChange={(e) => patchPricingTier(idx, { id: e.target.value })}
-                              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                              className="mt-1 w-full dashboard-input"
                             />
                           </div>
                           <div>
@@ -1133,7 +1120,7 @@ export default function AdminDashboardPage() {
                               type="text"
                               value={tier.name}
                               onChange={(e) => patchPricingTier(idx, { name: e.target.value })}
-                              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                              className="mt-1 w-full dashboard-input"
                             />
                           </div>
                           <div>
@@ -1144,7 +1131,7 @@ export default function AdminDashboardPage() {
                               onChange={(e) =>
                                 patchPricingTier(idx, { primaryPrice: e.target.value })
                               }
-                              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                              className="mt-1 w-full dashboard-input"
                             />
                           </div>
                           <div>
@@ -1155,7 +1142,7 @@ export default function AdminDashboardPage() {
                               onChange={(e) =>
                                 patchPricingTier(idx, { secondaryPrice: e.target.value })
                               }
-                              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                              className="mt-1 w-full dashboard-input"
                             />
                           </div>
                         </div>
@@ -1167,7 +1154,7 @@ export default function AdminDashboardPage() {
                               patchPricingTier(idx, { description: e.target.value })
                             }
                             rows={2}
-                            className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                            className="mt-1 w-full dashboard-input"
                           />
                         </div>
                         <div className="mt-4 border-t border-slate-200 pt-4">
@@ -1187,7 +1174,7 @@ export default function AdminDashboardPage() {
                                   patchPricingTier(idx, { searches: e.target.value })
                                 }
                                 placeholder="300"
-                                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                                className="mt-1 w-full dashboard-input"
                               />
                             </div>
                             <div>
@@ -1202,7 +1189,7 @@ export default function AdminDashboardPage() {
                                   patchPricingTier(idx, { candidateUnlocks: e.target.value })
                                 }
                                 placeholder="100"
-                                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                                className="mt-1 w-full dashboard-input"
                               />
                             </div>
                             <div>
@@ -1217,7 +1204,7 @@ export default function AdminDashboardPage() {
                                   patchPricingTier(idx, { verifiedEmails: e.target.value })
                                 }
                                 placeholder="100"
-                                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                                className="mt-1 w-full dashboard-input"
                               />
                             </div>
                             <div>
@@ -1232,7 +1219,7 @@ export default function AdminDashboardPage() {
                                   patchPricingTier(idx, { phoneNumbers: e.target.value })
                                 }
                                 placeholder="100"
-                                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                                className="mt-1 w-full dashboard-input"
                               />
                             </div>
                           </div>
@@ -1280,7 +1267,7 @@ export default function AdminDashboardPage() {
                               onChange={(e) =>
                                 patchPricingTier(idx, { popularBadge: e.target.value })
                               }
-                              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                              className="mt-1 w-full dashboard-input"
                             />
                           </div>
                         </div>
@@ -1290,8 +1277,8 @@ export default function AdminDashboardPage() {
                 )}
               </article>
             ) : (
-              <article className="premium-card rounded-2xl p-6">
-                <h3 className="text-lg font-semibold text-black">{activeTab}</h3>
+              <article className="dashboard-card p-6">
+                <h3 className="dashboard-section-title">{activeTab}</h3>
                 <p className="mt-2 text-sm text-slate-600">
                   This section is ready. You can add {activeTab.toLowerCase()} features
                   here.
@@ -1301,12 +1288,12 @@ export default function AdminDashboardPage() {
           </div>
 
           {isCreateUserModalOpen ? (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-              <div className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="dashboard-modal-overlay">
+              <div className="w-full max-w-xl dashboard-modal">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <h3 className="text-xl font-semibold text-black">Create user</h3>
-                    <p className="mt-1 text-sm text-slate-600">
+                    <h3 className="dashboard-section-title text-xl">Create user</h3>
+                    <p className="mt-1 dashboard-text-body">
                       Add a new team member (user or admin).
                     </p>
                   </div>
@@ -1334,7 +1321,7 @@ export default function AdminDashboardPage() {
                     onChange={(e) =>
                       setCreateForm((f) => ({ ...f, fullName: e.target.value }))
                     }
-                    className="rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-black focus:ring-2 focus:ring-slate-300"
+                    className="dashboard-input"
                   />
                   <input
                     type="text"
@@ -1344,7 +1331,7 @@ export default function AdminDashboardPage() {
                     onChange={(e) =>
                       setCreateForm((f) => ({ ...f, companyName: e.target.value }))
                     }
-                    className="rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-black focus:ring-2 focus:ring-slate-300"
+                    className="dashboard-input"
                   />
                   <input
                     type="tel"
@@ -1354,7 +1341,7 @@ export default function AdminDashboardPage() {
                     onChange={(e) =>
                       setCreateForm((f) => ({ ...f, mobile: e.target.value }))
                     }
-                    className="rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-black focus:ring-2 focus:ring-slate-300"
+                    className="dashboard-input"
                   />
                   <input
                     type="email"
@@ -1364,7 +1351,7 @@ export default function AdminDashboardPage() {
                     onChange={(e) =>
                       setCreateForm((f) => ({ ...f, email: e.target.value }))
                     }
-                    className="rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-black focus:ring-2 focus:ring-slate-300"
+                    className="dashboard-input"
                   />
                   <input
                     type="password"
@@ -1375,7 +1362,7 @@ export default function AdminDashboardPage() {
                     onChange={(e) =>
                       setCreateForm((f) => ({ ...f, password: e.target.value }))
                     }
-                    className="rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-black focus:ring-2 focus:ring-slate-300"
+                    className="dashboard-input"
                   />
                   <input
                     type="password"
@@ -1389,10 +1376,10 @@ export default function AdminDashboardPage() {
                         confirmPassword: e.target.value,
                       }))
                     }
-                    className="rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-black focus:ring-2 focus:ring-slate-300"
+                    className="dashboard-input"
                   />
                   <select
-                    className="rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-black focus:ring-2 focus:ring-slate-300 md:col-span-2"
+                    className="dashboard-input md:col-span-2"
                     value={createForm.role}
                     onChange={(e) =>
                       setCreateForm((f) => ({
@@ -1405,7 +1392,7 @@ export default function AdminDashboardPage() {
                     <option value="admin">Admin</option>
                   </select>
                   <select
-                    className="rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-black focus:ring-2 focus:ring-slate-300 md:col-span-2"
+                    className="dashboard-input md:col-span-2"
                     value={createForm.planId}
                     onChange={(e) =>
                       setCreateForm((f) => ({
@@ -1426,7 +1413,7 @@ export default function AdminDashboardPage() {
                   </select>
 
                   {createError ? (
-                    <p className="md:col-span-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    <p className="md:col-span-2 dashboard-alert-error">
                       {createError}
                     </p>
                   ) : null}
@@ -1438,14 +1425,14 @@ export default function AdminDashboardPage() {
                         setIsCreateUserModalOpen(false);
                         setCreateError("");
                       }}
-                      className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                      className="dashboard-btn-secondary"
                     >
                       Cancel
                     </button>
                     <button
                       type="submit"
                       disabled={isCreating}
-                      className="rounded-lg bg-black px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
+                      className="dashboard-btn-primary disabled:opacity-60"
                     >
                       {isCreating ? "Creating…" : "Create User"}
                     </button>
@@ -1456,12 +1443,12 @@ export default function AdminDashboardPage() {
           ) : null}
 
           {manageModalUser ? (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
-              <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="dashboard-modal-overlay py-6">
+              <div className="max-h-[90vh] w-full max-w-3xl dashboard-modal">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <h3 className="text-xl font-semibold text-black">Manage user</h3>
-                    <p className="mt-1 text-sm text-slate-600">
+                    <h3 className="dashboard-section-title text-xl">Manage user</h3>
+                    <p className="mt-1 dashboard-text-body">
                       {manageModalUser.fullName} — plan{" "}
                       <span className="font-semibold text-black">
                         {planNameForId(manageModalUser.planId)}
@@ -1508,7 +1495,7 @@ export default function AdminDashboardPage() {
                         type="button"
                         disabled={planSaving}
                         onClick={() => void handleSaveUserPlan()}
-                        className="rounded-lg bg-black px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
+                        className="dashboard-btn-primary py-2.5 disabled:opacity-60"
                       >
                         {planSaving ? "Saving…" : "Save plan"}
                       </button>
@@ -1519,7 +1506,7 @@ export default function AdminDashboardPage() {
                   </div>
 
                   {planManageError ? (
-                    <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    <p className="dashboard-alert-error">
                       {planManageError}
                     </p>
                   ) : null}
@@ -1527,7 +1514,7 @@ export default function AdminDashboardPage() {
 
                 <div className="mt-6 space-y-6 border-t border-slate-200 pt-5">
                   <div>
-                    <h4 className="text-sm font-semibold text-black">Plan quota (remaining / limit)</h4>
+                    <h4 className="dashboard-section-title text-sm">Plan quota (remaining / limit)</h4>
                     <p className="mt-1 text-xs text-slate-500">
                       Based on the user&apos;s assigned plan. Search pool is shared between
                       candidate search and LinkedIn lookup.
@@ -1598,7 +1585,7 @@ export default function AdminDashboardPage() {
                   </div>
 
                   <div>
-                    <h4 className="text-sm font-semibold text-black">Plan quota usage history</h4>
+                    <h4 className="dashboard-section-title text-sm">Plan quota usage history</h4>
                     <p className="mt-1 text-xs text-slate-500">
                       Each row is logged when the user searches or unveils contact data.
                     </p>
@@ -1645,7 +1632,7 @@ export default function AdminDashboardPage() {
                   </div>
 
                   <div>
-                    <h4 className="text-sm font-semibold text-black">Plan assignment history</h4>
+                    <h4 className="dashboard-section-title text-sm">Plan assignment history</h4>
                     <p className="mt-1 text-xs text-slate-500">
                       Recorded when an admin assigns or changes this user&apos;s pricing plan.
                     </p>

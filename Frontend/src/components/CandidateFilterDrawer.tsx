@@ -1,6 +1,13 @@
 "use client";
 
 import type { CandidateFilterForm } from "@/lib/sourcingFilters";
+import {
+  dashboardBtnPrimaryClass,
+  dashboardBtnSecondaryClass,
+  dashboardInputClass,
+  dashboardInputSmClass,
+  dashboardLabelClass,
+} from "@/lib/dashboardStyles";
 
 type Props = {
   open: boolean;
@@ -13,10 +20,8 @@ type Props = {
   title?: string;
 };
 
-const inputClass =
-  "mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black";
-const smallInputClass =
-  "rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black";
+const inputClass = `mt-1 w-full ${dashboardInputClass}`;
+const smallInputClass = dashboardInputSmClass;
 
 export function CandidateFilterDrawer({
   open,
@@ -32,7 +37,7 @@ export function CandidateFilterDrawer({
 
   return (
     <div
-      className={`fixed inset-0 z-110 transition-opacity duration-300 ${
+      className={`dashboard-overlay fixed inset-0 transition-opacity duration-300 ${
         open ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
       }`}
       role="dialog"
@@ -42,26 +47,24 @@ export function CandidateFilterDrawer({
       <button
         type="button"
         aria-label="Close filter panel"
-        className="absolute inset-0 bg-slate-900/40"
+        className="absolute inset-0 dashboard-drawer-overlay"
         onClick={onClose}
       />
       <aside
-        className={`absolute right-0 top-0 h-full w-full max-w-md overflow-y-auto border-l border-slate-200 bg-white shadow-2xl transition-transform duration-300 ease-out ${
+        className={`dashboard-drawer-panel absolute right-0 top-0 h-full w-full max-w-md overflow-y-auto transition-transform duration-300 ease-out ${
           open ? "translate-x-0" : "translate-x-full"
         }`}
       >
-        <div className="sticky top-0 z-10 border-b border-slate-200 bg-white px-5 py-4">
+        <div className="sticky top-0 z-10 border-b border-[#c2c6d8]/40 bg-white px-5 py-4">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                Candidate filters
-              </p>
-              <h3 className="mt-1 text-lg font-semibold text-black">{title}</h3>
+              <p className="dashboard-label-upper">Candidate filters</p>
+              <h3 className="dashboard-section-title mt-1">{title}</h3>
             </div>
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+              className="dashboard-btn-ghost p-1.5"
               aria-label="Close filter panel"
             >
               <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
@@ -430,7 +433,7 @@ export function CandidateFilterDrawer({
               type="button"
               onClick={onClose}
               disabled={applyLoading}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+              className={`${dashboardBtnSecondaryClass} disabled:opacity-50`}
             >
               Cancel
             </button>
@@ -438,7 +441,7 @@ export function CandidateFilterDrawer({
               type="button"
               onClick={onApply}
               disabled={applyLoading}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-black bg-black px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-900 disabled:opacity-60"
+              className={`${dashboardBtnPrimaryClass} disabled:opacity-60`}
             >
                   {applyLoading ? "Creating search…" : "Apply filters"}
             </button>

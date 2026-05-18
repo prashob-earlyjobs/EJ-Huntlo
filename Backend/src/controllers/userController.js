@@ -569,6 +569,30 @@ const sanitizeUsageHistoryEntry = (doc) => ({
   createdAt: doc.createdAt,
 });
 
+const parseUsageHistoryPaging = (query) => {
+  const limit = Math.min(
+    100,
+    Math.max(1, parseInt(String(query?.limit ?? "20"), 10) || 20)
+  );
+  const page = Math.max(1, parseInt(String(query?.page ?? "1"), 10) || 1);
+  return { limit, page, skip: (page - 1) * limit };
+};
+
+const buildUsageHistoryPagination = ({ page, limit, totalDocs }) => {
+  const totalPages = Math.max(1, Math.ceil(totalDocs / limit));
+  const safePage = Math.min(page, totalPages);
+  return {
+    page: safePage,
+    limit,
+    totalDocs,
+    totalPages,
+    hasNextPage: safePage < totalPages,
+    hasPrevPage: safePage > 1,
+    nextPage: safePage < totalPages ? safePage + 1 : null,
+    prevPage: safePage > 1 ? safePage - 1 : null,
+  };
+};
+
 const sanitizeUsageHistoryEntryWithUser = (doc) => {
   const base = sanitizeUsageHistoryEntry(doc);
   const user = doc.userId;
@@ -592,10 +616,7 @@ const sanitizeUsageHistoryEntryWithUser = (doc) => {
 
 const getAllUtilisationHistory = async (req, res) => {
   try {
-    const limit = Math.min(
-      200,
-      Math.max(1, parseInt(String(req.query.limit || "100"), 10) || 100)
-    );
+    const { limit, page } = parseUsageHistoryPaging(req.query);
     const filter = {};
     const userIdFilter = String(req.query.userId || "").trim();
     if (userIdFilter) {
@@ -608,8 +629,13 @@ const getAllUtilisationHistory = async (req, res) => {
       filter.userId = userIdFilter;
     }
 
+    const totalDocs = await UsageHistory.countDocuments(filter);
+    const pagination = buildUsageHistoryPagination({ page, limit, totalDocs });
+    const effectiveSkip = (pagination.page - 1) * limit;
+
     const entries = await UsageHistory.find(filter)
       .sort({ createdAt: -1 })
+      .skip(effectiveSkip)
       .limit(limit)
       .populate("userId", "fullName email")
       .lean();
@@ -617,6 +643,7 @@ const getAllUtilisationHistory = async (req, res) => {
     return res.status(200).json({
       success: true,
       history: entries.map(sanitizeUsageHistoryEntryWithUser),
+      pagination,
     });
   } catch (error) {
     return res.status(500).json({
@@ -629,10 +656,7 @@ const getAllUtilisationHistory = async (req, res) => {
 
 const getMyUtilisationHistory = async (req, res) => {
   try {
-    const limit = Math.min(
-      100,
-      Math.max(1, parseInt(String(req.query.limit || "50"), 10) || 50)
-    );
+    const { limit, page } = parseUsageHistoryPaging(req.query);
     const uid = req.auth.userId;
     if (!mongoose.Types.ObjectId.isValid(uid)) {
       return res.status(400).json({
@@ -641,14 +665,21 @@ const getMyUtilisationHistory = async (req, res) => {
       });
     }
 
-    const entries = await UsageHistory.find({ userId: uid })
+    const filter = { userId: uid };
+    const totalDocs = await UsageHistory.countDocuments(filter);
+    const pagination = buildUsageHistoryPagination({ page, limit, totalDocs });
+    const effectiveSkip = (pagination.page - 1) * limit;
+
+    const entries = await UsageHistory.find(filter)
       .sort({ createdAt: -1 })
+      .skip(effectiveSkip)
       .limit(limit)
       .lean();
 
     return res.status(200).json({
       success: true,
       history: entries.map(sanitizeUsageHistoryEntry),
+      pagination,
     });
   } catch (error) {
     return res.status(500).json({
@@ -718,10 +749,7 @@ const sanitizePlanHistoryEntry = (entry) => {
 const getUserUtilisationHistory = async (req, res) => {
   try {
     const { id } = req.params;
-    const limit = Math.min(
-      100,
-      Math.max(1, parseInt(String(req.query.limit || "50"), 10) || 50)
-    );
+    const { limit, page } = parseUsageHistoryPaging(req.query);
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
@@ -730,14 +758,21 @@ const getUserUtilisationHistory = async (req, res) => {
       });
     }
 
-    const entries = await UsageHistory.find({ userId: id })
+    const filter = { userId: id };
+    const totalDocs = await UsageHistory.countDocuments(filter);
+    const pagination = buildUsageHistoryPagination({ page, limit, totalDocs });
+    const effectiveSkip = (pagination.page - 1) * limit;
+
+    const entries = await UsageHistory.find(filter)
       .sort({ createdAt: -1 })
+      .skip(effectiveSkip)
       .limit(limit)
       .lean();
 
     return res.status(200).json({
       success: true,
       history: entries.map(sanitizeUsageHistoryEntry),
+      pagination,
     });
   } catch (error) {
     return res.status(500).json({
