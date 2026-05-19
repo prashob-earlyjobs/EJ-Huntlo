@@ -9,7 +9,9 @@ const DEFAULT_CORS_ORIGINS = [
   "http://localhost:3001",
   "https://dev.huntlo.online",
   "https://huntlo.online",
-  "https://www.huntlo.online",  "https://www.huntlo.ai",  "https://huntlo.ai",
+  "https://www.huntlo.online",
+  "https://www.huntlo.ai",
+  "https://huntlo.ai",
 ];
 
 function parseCorsOrigins() {
@@ -27,7 +29,7 @@ const app = express();
 app.use(
   cors({
     origin: parseCorsOrigins(),
-  })
+  }),
 );
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
