@@ -28,9 +28,14 @@ const syne = Syne({
 });
 
 export const metadata: Metadata = {
-  title: "EJHunter | World-Class AI Recruiting Infrastructure",
+  title: "Huntlo | AI-Powered Outbound Recruiting",
   description:
-    "Orchestrate entire talent pipelines with autonomous agents. The infrastructure that powers high-performing hiring teams.",
+    "Stop posting jobs and waiting. Reach top talent in seconds with AI-powered sourcing, outreach, and contact reveal.",
+  icons: {
+    icon: [{ url: "/favicon.png", type: "image/png" }],
+    shortcut: "/favicon.png",
+    apple: "/favicon.png",
+  },
 };
 
 export default function RootLayout({
