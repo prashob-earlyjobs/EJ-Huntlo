@@ -4,8 +4,19 @@ import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import {
+  CandidatePoolPanel,
+  type PoolCandidateRow,
+  type PoolSessionOption,
+} from "@/components/dashboard/CandidatePoolPanel";
 import { LandingLogo } from "@/components/landing/LandingLogo";
 import { authHeaders, getStoredAuth, type StoredAuth } from "@/lib/auth";
+import {
+  candidateIdentityKey,
+  candidateRowKey,
+  mergeWorkspaceCandidatesWithDetailedDocs,
+  type WorkspaceCandidateDoc,
+} from "@/lib/workspaceCandidates";
 
 const sidebarItems = [
   {
@@ -39,12 +50,12 @@ const sidebarItems = [
     ),
   },
   {
-    label: "Candidates",
-    subtitle: "Track pipeline progress",
+    label: "Analytics",
+    subtitle: "Usage and quota insights",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
         <path
-          d="M20 21V19C20 17.34 18.66 16 17 16H7C5.34 16 4 17.34 4 19V21M12 12C14.21 12 16 10.21 16 8C16 5.79 14.21 4 12 4C9.79 4 8 5.79 8 8C8 10.21 9.79 12 12 12Z"
+          d="M4 19V5M4 19H20M8 17V13M12 17V9M16 17V11"
           stroke="currentColor"
           strokeWidth="1.8"
           strokeLinecap="round"
@@ -54,12 +65,12 @@ const sidebarItems = [
     ),
   },
   {
-    label: "Interviews",
-    subtitle: "Schedule and feedback",
+    label: "Candidate pool",
+    subtitle: "All sourced candidates",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
         <path
-          d="M8 2V5M16 2V5M3 9H21M5 5H19C20.1 5 21 5.9 21 7V19C21 20.1 20.1 21 19 21H5C3.9 21 3 20.1 3 19V7C3 5.9 3.9 5 5 5Z"
+          d="M20 21V19C20 17.34 18.66 16 17 16H7C5.34 16 4 17.34 4 19V21M12 12C14.21 12 16 10.21 16 8C16 5.79 14.21 4 12 4C9.79 4 8 5.79 8 8C8 10.21 9.79 12 12 12Z"
           stroke="currentColor"
           strokeWidth="1.8"
           strokeLinecap="round"
@@ -108,26 +119,9 @@ const sidebarItems = [
   },
 ];
 
-const candidates = [
-  {
-    name: "Aarav Sharma",
-    role: "Frontend Developer",
-    stage: "Screening",
-    status: "In review",
-  },
-  {
-    name: "Priya Nair",
-    role: "Backend Developer",
-    stage: "Technical Round",
-    status: "Shortlisted",
-  },
-  {
-    name: "Rohit Verma",
-    role: "Product Designer",
-    stage: "HR Round",
-    status: "Pending",
-  },
-];
+const ADMIN_POOL_TAB = "Candidate pool";
+const ADMIN_ANALYTICS_TAB = "Analytics";
+const ADMIN_POOL_LIMIT = 12;
 
 type TeamUserRow = {
   id: string;
@@ -179,6 +173,44 @@ type UserPlanDetailsState = {
   };
 };
 
+type UsageAnalyticsCell = { count: number; credits: number };
+
+type UsageAnalyticsEventBreakdown = {
+  user_cache: UsageAnalyticsCell;
+  shared_cache: UsageAnalyticsCell;
+  futurejobs: UsageAnalyticsCell;
+  not_found: UsageAnalyticsCell;
+  total: UsageAnalyticsCell;
+};
+
+type UsageAnalyticsSummary = {
+  people_scout_lookup: UsageAnalyticsEventBreakdown;
+  email_unveil: UsageAnalyticsEventBreakdown;
+  phone_unveil: UsageAnalyticsEventBreakdown;
+  grandTotal: { events: number; credits: number };
+};
+
+const EMPTY_USAGE_ANALYTICS_CELL: UsageAnalyticsCell = { count: 0, credits: 0 };
+
+function emptyUsageAnalyticsEventBreakdown(): UsageAnalyticsEventBreakdown {
+  return {
+    user_cache: { ...EMPTY_USAGE_ANALYTICS_CELL },
+    shared_cache: { ...EMPTY_USAGE_ANALYTICS_CELL },
+    futurejobs: { ...EMPTY_USAGE_ANALYTICS_CELL },
+    not_found: { ...EMPTY_USAGE_ANALYTICS_CELL },
+    total: { ...EMPTY_USAGE_ANALYTICS_CELL },
+  };
+}
+
+function emptyUsageAnalyticsSummary(): UsageAnalyticsSummary {
+  return {
+    people_scout_lookup: emptyUsageAnalyticsEventBreakdown(),
+    email_unveil: emptyUsageAnalyticsEventBreakdown(),
+    phone_unveil: emptyUsageAnalyticsEventBreakdown(),
+    grandTotal: { events: 0, credits: 0 },
+  };
+}
+
 function quotaRemainingDisplay(used: number, limit: number | null | undefined): string {
   const u = Math.max(0, Math.floor(Number(used) || 0));
   if (typeof limit === "number" && Number.isFinite(limit) && limit > 0) {
@@ -186,6 +218,35 @@ function quotaRemainingDisplay(used: number, limit: number | null | undefined): 
     return `${Math.max(0, L - u)}/${L}`;
   }
   return "—/—";
+}
+
+function mapApiCandidateToPoolRow(row: Record<string, unknown>): PoolCandidateRow {
+  const highlights = Array.isArray(row.highlights)
+    ? row.highlights.filter((h): h is string => typeof h === "string")
+    : undefined;
+  return {
+    id: typeof row.id === "string" ? row.id : undefined,
+    sourcingSessionId:
+      typeof row.sourcingSessionId === "string" ? row.sourcingSessionId : undefined,
+    linkedin_profile_url:
+      typeof row.linkedin_profile_url === "string" ? row.linkedin_profile_url : "",
+    name: typeof row.name === "string" ? row.name : "Unknown",
+    role: typeof row.role === "string" ? row.role : "—",
+    experience: typeof row.experience === "string" ? row.experience : "—",
+    location: typeof row.location === "string" ? row.location : "—",
+    skills: typeof row.skills === "string" ? row.skills : "—",
+    status: typeof row.status === "string" ? row.status : "Available",
+    email: typeof row.email === "string" ? row.email : "",
+    phone: typeof row.phone === "string" ? row.phone : "",
+    currentCompany:
+      typeof row.currentCompany === "string" ? row.currentCompany : undefined,
+    finalScore: typeof row.finalScore === "number" ? row.finalScore : null,
+    highlights,
+    recommendation:
+      typeof row.recommendation === "string" ? row.recommendation : undefined,
+    ownerLabel: typeof row.ownerLabel === "string" ? row.ownerLabel : undefined,
+    ownerUserId: typeof row.ownerUserId === "string" ? row.ownerUserId : undefined,
+  };
 }
 
 function utilisationQuotaActionLabel(action: string): string {
@@ -203,6 +264,147 @@ function utilisationQuotaActionLabel(action: string): string {
     default:
       return action || "Activity";
   }
+}
+
+function usageAnalyticsEventTypeLabel(eventType: string): string {
+  switch (eventType) {
+    case "people_scout_lookup":
+      return "People Scout lookup";
+    case "email_unveil":
+      return "Email unveil";
+    case "phone_unveil":
+      return "Phone unveil";
+    default:
+      return eventType || "Activity";
+  }
+}
+
+function parseUsageAnalyticsCell(raw: unknown): UsageAnalyticsCell {
+  if (!raw || typeof raw !== "object") return { ...EMPTY_USAGE_ANALYTICS_CELL };
+  const o = raw as Record<string, unknown>;
+  const count =
+    typeof o.count === "number" && Number.isFinite(o.count)
+      ? Math.max(0, Math.floor(o.count))
+      : 0;
+  const credits =
+    typeof o.credits === "number" && Number.isFinite(o.credits)
+      ? Math.max(0, Math.floor(o.credits))
+      : 0;
+  return { count, credits };
+}
+
+function parseUsageAnalyticsEventBreakdown(raw: unknown): UsageAnalyticsEventBreakdown {
+  if (!raw || typeof raw !== "object") return emptyUsageAnalyticsEventBreakdown();
+  const o = raw as Record<string, unknown>;
+  return {
+    user_cache: parseUsageAnalyticsCell(o.user_cache),
+    shared_cache: parseUsageAnalyticsCell(o.shared_cache),
+    futurejobs: parseUsageAnalyticsCell(o.futurejobs),
+    not_found: parseUsageAnalyticsCell(o.not_found),
+    total: parseUsageAnalyticsCell(o.total),
+  };
+}
+
+function parseUsageAnalyticsSummary(raw: unknown): UsageAnalyticsSummary {
+  if (!raw || typeof raw !== "object") return emptyUsageAnalyticsSummary();
+  const o = raw as Record<string, unknown>;
+  const grand = o.grandTotal && typeof o.grandTotal === "object"
+    ? (o.grandTotal as Record<string, unknown>)
+    : {};
+  return {
+    people_scout_lookup: parseUsageAnalyticsEventBreakdown(o.people_scout_lookup),
+    email_unveil: parseUsageAnalyticsEventBreakdown(o.email_unveil),
+    phone_unveil: parseUsageAnalyticsEventBreakdown(o.phone_unveil),
+    grandTotal: {
+      events:
+        typeof grand.events === "number" && Number.isFinite(grand.events)
+          ? Math.max(0, Math.floor(grand.events))
+          : 0,
+      credits:
+        typeof grand.credits === "number" && Number.isFinite(grand.credits)
+          ? Math.max(0, Math.floor(grand.credits))
+          : 0,
+    },
+  };
+}
+
+function UsageAnalyticsBreakdownTable({
+  summary,
+  loading,
+}: {
+  summary: UsageAnalyticsSummary | null;
+  loading: boolean;
+}) {
+  const rows: Array<{ key: keyof Pick<UsageAnalyticsSummary, "people_scout_lookup" | "email_unveil" | "phone_unveil"> }> = [
+    { key: "people_scout_lookup" },
+    { key: "email_unveil" },
+    { key: "phone_unveil" },
+  ];
+
+  if (loading) {
+    return <p className="mt-3 text-sm text-slate-500">Loading analytics…</p>;
+  }
+
+  if (!summary) {
+    return <p className="mt-3 text-sm text-slate-500">Analytics unavailable.</p>;
+  }
+
+  return (
+    <div className="mt-3 overflow-x-auto rounded-lg border border-slate-200">
+      <table className="w-full min-w-[640px] border-collapse text-left text-xs">
+        <thead>
+          <tr className="border-b border-slate-200 bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
+            <th className="px-3 py-2 font-semibold">Activity</th>
+            <th className="px-3 py-2 text-right font-semibold">Same user (DB)</th>
+            <th className="px-3 py-2 text-right font-semibold">Shared DB</th>
+            <th className="px-3 py-2 text-right font-semibold">Future Jobs</th>
+            <th className="px-3 py-2 text-right font-semibold">Not found</th>
+            <th className="px-3 py-2 text-right font-semibold">Total</th>
+            <th className="px-3 py-2 text-right font-semibold">Credits</th>
+          </tr>
+        </thead>
+        <tbody className="text-slate-800">
+          {rows.map(({ key }) => {
+            const row = summary[key];
+            const cell = (c: UsageAnalyticsCell) =>
+              c.count > 0 ? (
+                <span>
+                  {c.count}
+                  {c.credits > 0 ? (
+                    <span className="block text-[10px] text-red-600">−{c.credits}</span>
+                  ) : null}
+                </span>
+              ) : (
+                "0"
+              );
+            return (
+              <tr key={key} className="border-b border-slate-100">
+                <td className="px-3 py-2 font-medium">{usageAnalyticsEventTypeLabel(key)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{cell(row.user_cache)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{cell(row.shared_cache)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{cell(row.futurejobs)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{cell(row.not_found)}</td>
+                <td className="px-3 py-2 text-right font-medium tabular-nums">{row.total.count}</td>
+                <td className="px-3 py-2 text-right font-medium tabular-nums text-red-600">
+                  {row.total.credits > 0 ? `−${row.total.credits}` : "0"}
+                </td>
+              </tr>
+            );
+          })}
+          <tr className="bg-slate-50 font-semibold">
+            <td className="px-3 py-2">All activities</td>
+            <td colSpan={4} className="px-3 py-2 text-right text-slate-500">
+              —
+            </td>
+            <td className="px-3 py-2 text-right tabular-nums">{summary.grandTotal.events}</td>
+            <td className="px-3 py-2 text-right tabular-nums text-red-600">
+              {summary.grandTotal.credits > 0 ? `−${summary.grandTotal.credits}` : "0"}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 function parseUtilisationHistory(raw: unknown): UtilisationHistoryRow[] {
@@ -409,13 +611,33 @@ export default function AdminDashboardPage() {
   >([]);
   const [teamUtilisationHistoryLoading, setTeamUtilisationHistoryLoading] =
     useState(false);
-  const [teamUtilisationFilterUserId, setTeamUtilisationFilterUserId] = useState("");
+  const [analyticsFilterUserId, setAnalyticsFilterUserId] = useState("");
+  const [usageAnalyticsSummary, setUsageAnalyticsSummary] =
+    useState<UsageAnalyticsSummary | null>(null);
+  const [usageAnalyticsLoading, setUsageAnalyticsLoading] = useState(false);
+  const [userUsageAnalyticsSummary, setUserUsageAnalyticsSummary] =
+    useState<UsageAnalyticsSummary | null>(null);
+  const [userUsageAnalyticsLoading, setUserUsageAnalyticsLoading] = useState(false);
   const [planChangeHistory, setPlanChangeHistory] = useState<PlanHistoryRow[]>([]);
   const [planChangeHistoryLoading, setPlanChangeHistoryLoading] = useState(false);
   const [userPlanDetails, setUserPlanDetails] = useState<UserPlanDetailsState | null>(
     null
   );
   const [userPlanDetailsLoading, setUserPlanDetailsLoading] = useState(false);
+  const [adminPoolCandidates, setAdminPoolCandidates] = useState<PoolCandidateRow[]>([]);
+  const [adminPoolLoading, setAdminPoolLoading] = useState(false);
+  const [adminPoolError, setAdminPoolError] = useState("");
+  const [adminPoolPage, setAdminPoolPage] = useState(1);
+  const [adminPoolTotalPages, setAdminPoolTotalPages] = useState(1);
+  const [adminPoolTotalDocs, setAdminPoolTotalDocs] = useState(0);
+  const [adminPoolTotalInScope, setAdminPoolTotalInScope] = useState(0);
+  const [adminPoolTotalAllDocs, setAdminPoolTotalAllDocs] = useState(0);
+  const [adminPoolSearchInput, setAdminPoolSearchInput] = useState("");
+  const [adminPoolSearchQuery, setAdminPoolSearchQuery] = useState("");
+  const [adminPoolSessionFilter, setAdminPoolSessionFilter] = useState("__all__");
+  const [adminPoolUserFilter, setAdminPoolUserFilter] = useState("__all__");
+  const [adminPoolSessions, setAdminPoolSessions] = useState<PoolSessionOption[]>([]);
+  const [adminPoolSessionsLoading, setAdminPoolSessionsLoading] = useState(false);
   const [pricingForm, setPricingForm] = useState<PricingPlansFormState | null>(null);
   const [pricingLoading, setPricingLoading] = useState(false);
   const [pricingSaving, setPricingSaving] = useState(false);
@@ -452,6 +674,113 @@ export default function AdminDashboardPage() {
     [apiBase]
   );
 
+  const loadAdminPoolSessions = useCallback(
+    async (token: string, userId: string) => {
+      setAdminPoolSessionsLoading(true);
+      try {
+        const params = new URLSearchParams({ limit: "100" });
+        if (userId !== "__all__") {
+          params.set("userId", userId);
+        }
+        const res = await fetch(
+          `${apiBase}/api/candidates/admin/sessions?${params.toString()}`,
+          { headers: authHeaders(token) }
+        );
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(data.message || "Failed to load searches");
+        }
+        const sessions = Array.isArray(data.sessions) ? data.sessions : [];
+        setAdminPoolSessions(
+          sessions.map((s: { id?: string; label?: string }) => ({
+            id: typeof s.id === "string" ? s.id : "",
+            label: typeof s.label === "string" && s.label.trim() ? s.label.trim() : "Untitled search",
+          }))
+        );
+      } catch {
+        setAdminPoolSessions([]);
+      } finally {
+        setAdminPoolSessionsLoading(false);
+      }
+    },
+    [apiBase]
+  );
+
+  const loadAdminPoolCandidates = useCallback(
+    async (
+      token: string,
+      page: number,
+      sessionFilter: string,
+      userFilter: string,
+      searchQuery: string
+    ) => {
+      setAdminPoolLoading(true);
+      setAdminPoolError("");
+      setAdminPoolCandidates([]);
+      try {
+        const params = new URLSearchParams({
+          page: String(page),
+          limit: String(ADMIN_POOL_LIMIT),
+        });
+        if (sessionFilter !== "__all__") {
+          params.set("sessionId", sessionFilter);
+        }
+        if (userFilter !== "__all__") {
+          params.set("userId", userFilter);
+        }
+        const trimmedSearch = searchQuery.trim();
+        if (trimmedSearch) {
+          params.set("q", trimmedSearch);
+        }
+        const res = await fetch(
+          `${apiBase}/api/candidates/admin/all?${params.toString()}`,
+          { headers: authHeaders(token) }
+        );
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(
+            typeof data.message === "string" ? data.message : "Failed to load candidates"
+          );
+        }
+        const list = Array.isArray(data.candidates)
+          ? (data.candidates as Record<string, unknown>[]).map(mapApiCandidateToPoolRow)
+          : [];
+        const detailedDocs = Array.isArray(data.detailedDocs)
+          ? (data.detailedDocs as WorkspaceCandidateDoc[])
+          : [];
+        setAdminPoolCandidates(
+          mergeWorkspaceCandidatesWithDetailedDocs(list, detailedDocs)
+        );
+        const pg = data.profilesPagination as
+          | { totalDocs?: number; totalPages?: number; page?: number }
+          | undefined;
+        const totalDocs =
+          typeof pg?.totalDocs === "number" ? pg.totalDocs : list.length;
+        const totalInScope =
+          typeof data.totalInScope === "number" ? data.totalInScope : totalDocs;
+        setAdminPoolTotalDocs(totalDocs);
+        setAdminPoolTotalInScope(totalInScope);
+        if (!trimmedSearch && sessionFilter === "__all__" && userFilter === "__all__") {
+          setAdminPoolTotalAllDocs(totalDocs);
+        } else if (!trimmedSearch) {
+          setAdminPoolTotalAllDocs((prev) => (prev > 0 ? prev : totalInScope));
+        }
+        setAdminPoolTotalPages(
+          typeof pg?.totalPages === "number" ? Math.max(1, pg.totalPages) : 1
+        );
+        setAdminPoolPage(typeof pg?.page === "number" ? pg.page : page);
+      } catch (err) {
+        setAdminPoolCandidates([]);
+        setAdminPoolError(
+          err instanceof Error ? err.message : "Could not load candidates"
+        );
+      } finally {
+        setAdminPoolLoading(false);
+      }
+    },
+    [apiBase]
+  );
+
   const loadTeamUtilisationHistory = useCallback(
     async (token: string, userIdFilter = "") => {
       setTeamUtilisationHistoryLoading(true);
@@ -478,6 +807,32 @@ export default function AdminDashboardPage() {
     [apiBase]
   );
 
+  const loadUsageAnalyticsSummary = useCallback(
+    async (token: string, userIdFilter = "") => {
+      setUsageAnalyticsLoading(true);
+      try {
+        const params = new URLSearchParams();
+        if (userIdFilter.trim()) {
+          params.set("userId", userIdFilter.trim());
+        }
+        const res = await fetch(
+          `${apiBase}/api/users/admin/usage-analytics/summary?${params.toString()}`,
+          { headers: authHeaders(token) }
+        );
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(data.message || "Failed to load usage analytics");
+        }
+        setUsageAnalyticsSummary(parseUsageAnalyticsSummary(data.summary));
+      } catch {
+        setUsageAnalyticsSummary(emptyUsageAnalyticsSummary());
+      } finally {
+        setUsageAnalyticsLoading(false);
+      }
+    },
+    [apiBase]
+  );
+
   useEffect(() => {
     const session = getStoredAuth();
     if (!session) {
@@ -492,22 +847,71 @@ export default function AdminDashboardPage() {
     loadUsers(session.token);
   }, [router, loadUsers]);
 
+  useEffect(() => {
+    if (activeTab !== ADMIN_POOL_TAB) return;
+    const timer = window.setTimeout(() => {
+      setAdminPoolSearchQuery(adminPoolSearchInput.trim());
+      setAdminPoolPage(1);
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [adminPoolSearchInput, activeTab]);
+
+  useEffect(() => {
+    if (activeTab !== ADMIN_POOL_TAB || !auth?.token) return;
+    void loadAdminPoolSessions(auth.token, adminPoolUserFilter);
+  }, [activeTab, adminPoolUserFilter, auth?.token, loadAdminPoolSessions]);
+
+  useEffect(() => {
+    if (activeTab !== ADMIN_POOL_TAB || !auth?.token) return;
+    void loadAdminPoolCandidates(
+      auth.token,
+      adminPoolPage,
+      adminPoolSessionFilter,
+      adminPoolUserFilter,
+      adminPoolSearchQuery
+    );
+  }, [
+    activeTab,
+    auth?.token,
+    adminPoolPage,
+    adminPoolSessionFilter,
+    adminPoolUserFilter,
+    adminPoolSearchQuery,
+    loadAdminPoolCandidates,
+  ]);
+
+  const handleAdminPoolUserFilterChange = (value: string) => {
+    setAdminPoolUserFilter(value);
+    setAdminPoolSessionFilter("__all__");
+    setAdminPoolPage(1);
+  };
+
+  const handleAdminPoolSessionFilterChange = (value: string) => {
+    setAdminPoolSessionFilter(value);
+    setAdminPoolPage(1);
+  };
+
   const loadUserManageData = useCallback(
     async (userId: string, token: string) => {
       setUtilisationHistoryLoading(true);
       setPlanChangeHistoryLoading(true);
       setUserPlanDetailsLoading(true);
+      setUserUsageAnalyticsLoading(true);
       try {
         const headers = authHeaders(token);
-        const [utilRes, planHistRes, planDetailsRes] = await Promise.all([
+        const [utilRes, planHistRes, planDetailsRes, analyticsRes] = await Promise.all([
           fetch(`${apiBase}/api/users/${userId}/utilisation/history?limit=50`, { headers }),
           fetch(`${apiBase}/api/users/${userId}/plan/history?limit=50`, { headers }),
           fetch(`${apiBase}/api/users/${userId}/plan`, { headers }),
+          fetch(`${apiBase}/api/users/admin/usage-analytics/summary?userId=${encodeURIComponent(userId)}`, {
+            headers,
+          }),
         ]);
-        const [utilData, planHistData, planDetailsData] = await Promise.all([
+        const [utilData, planHistData, planDetailsData, analyticsData] = await Promise.all([
           utilRes.json(),
           planHistRes.json(),
           planDetailsRes.json(),
+          analyticsRes.json(),
         ]);
 
         if (utilData.success && Array.isArray(utilData.history)) {
@@ -556,14 +960,22 @@ export default function AdminDashboardPage() {
         } else {
           setUserPlanDetails(null);
         }
+
+        if (analyticsData.success && analyticsData.summary) {
+          setUserUsageAnalyticsSummary(parseUsageAnalyticsSummary(analyticsData.summary));
+        } else {
+          setUserUsageAnalyticsSummary(emptyUsageAnalyticsSummary());
+        }
       } catch {
         setUtilisationHistory([]);
         setPlanChangeHistory([]);
         setUserPlanDetails(null);
+        setUserUsageAnalyticsSummary(emptyUsageAnalyticsSummary());
       } finally {
         setUtilisationHistoryLoading(false);
         setPlanChangeHistoryLoading(false);
         setUserPlanDetailsLoading(false);
+        setUserUsageAnalyticsLoading(false);
       }
     },
     [apiBase]
@@ -574,6 +986,7 @@ export default function AdminDashboardPage() {
       setUtilisationHistory([]);
       setPlanChangeHistory([]);
       setUserPlanDetails(null);
+      setUserUsageAnalyticsSummary(null);
       return;
     }
     void loadUserManageData(manageModalUser.id, auth.token);
@@ -739,9 +1152,16 @@ export default function AdminDashboardPage() {
   }, [activeTab, loadPricingPlanOptions]);
 
   useEffect(() => {
-    if (activeTab !== "Users" || !auth) return;
-    void loadTeamUtilisationHistory(auth.token, teamUtilisationFilterUserId);
-  }, [activeTab, auth, teamUtilisationFilterUserId, loadTeamUtilisationHistory]);
+    if (activeTab !== ADMIN_ANALYTICS_TAB || !auth) return;
+    void loadTeamUtilisationHistory(auth.token, analyticsFilterUserId);
+    void loadUsageAnalyticsSummary(auth.token, analyticsFilterUserId);
+  }, [
+    activeTab,
+    auth,
+    analyticsFilterUserId,
+    loadTeamUtilisationHistory,
+    loadUsageAnalyticsSummary,
+  ]);
 
   const openManageUserModal = (user: TeamUserRow) => {
     setManageModalUser(user);
@@ -769,7 +1189,8 @@ export default function AdminDashboardPage() {
       setPlanDraftId(nextPlanId);
       await loadUsers(auth.token);
       await loadUserManageData(manageModalUser.id, auth.token);
-      await loadTeamUtilisationHistory(auth.token, teamUtilisationFilterUserId);
+      await loadTeamUtilisationHistory(auth.token, analyticsFilterUserId);
+      await loadUsageAnalyticsSummary(auth.token, analyticsFilterUserId);
     } catch (err) {
       setPlanManageError(err instanceof Error ? err.message : "Plan update failed");
     } finally {
@@ -786,8 +1207,8 @@ export default function AdminDashboardPage() {
   }
 
   return (
-    <main className="dashboard-page min-h-screen">
-      <div className="flex min-h-screen w-full">
+    <main className="dashboard-page">
+      <div className="dashboard-shell flex min-w-0 w-full">
         <aside className="dashboard-sidebar hidden lg:block">
           <p className="dashboard-sidebar-label">Admin Panel</p>
           <div className="dashboard-sidebar-brand mt-3">
@@ -828,7 +1249,7 @@ export default function AdminDashboardPage() {
           </nav>
         </aside>
 
-        <section className="flex flex-1 flex-col">
+        <section className="dashboard-main-panel">
           <header className="dashboard-header">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -863,7 +1284,7 @@ export default function AdminDashboardPage() {
             </div>
           </header>
 
-          <div className="flex-1 space-y-6 p-6">
+          <div className="dashboard-main-scroll">
             {activeTab === "Users" ? (
               <article className="dashboard-card p-6">
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -928,12 +1349,51 @@ export default function AdminDashboardPage() {
                     </tbody>
                   </table>
                 </div>
+              </article>
+            ) : activeTab === ADMIN_ANALYTICS_TAB ? (
+              <article className="dashboard-card p-6">
+                <div>
+                  <h3 className="dashboard-section-title">Analytics</h3>
+                  <p className="mt-1 dashboard-text-body">
+                    Platform-wide usage breakdown and plan quota history.
+                  </p>
+                </div>
 
                 <div className="mt-8 border-t border-slate-200 pt-6">
                   <div className="flex flex-wrap items-end justify-between gap-3">
                     <div>
                       <h4 className="dashboard-section-title text-sm">
-                        Plan quota usage history (all users)
+                        Usage analytics by source
+                      </h4>
+                      <p className="mt-1 text-xs text-slate-500">
+                        People Scout lookups and contact unveils broken down by cache source.
+                        Credits show only when quota was consumed.
+                      </p>
+                    </div>
+                    <select
+                      value={analyticsFilterUserId}
+                      onChange={(e) => setAnalyticsFilterUserId(e.target.value)}
+                      className="dashboard-select py-2"
+                    >
+                      <option value="">All users</option>
+                      {teamUsers.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.fullName}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <UsageAnalyticsBreakdownTable
+                    summary={usageAnalyticsSummary}
+                    loading={usageAnalyticsLoading}
+                  />
+                </div>
+
+                <div className="mt-8 border-t border-slate-200 pt-6">
+                  <div className="flex flex-wrap items-end justify-between gap-3">
+                    <div>
+                      <h4 className="dashboard-section-title text-sm">
+                        Plan quota usage history
                       </h4>
                       <p className="mt-1 text-xs text-slate-500">
                         Recent searches and unveils across the team. Each row is logged when a
@@ -941,8 +1401,8 @@ export default function AdminDashboardPage() {
                       </p>
                     </div>
                     <select
-                      value={teamUtilisationFilterUserId}
-                      onChange={(e) => setTeamUtilisationFilterUserId(e.target.value)}
+                      value={analyticsFilterUserId}
+                      onChange={(e) => setAnalyticsFilterUserId(e.target.value)}
                       className="dashboard-select py-2"
                     >
                       <option value="">All users</option>
@@ -1011,47 +1471,54 @@ export default function AdminDashboardPage() {
                   </div>
                 </div>
               </article>
-            ) : activeTab === "Candidates" ? (
-              <article className="dashboard-card p-6">
-                <h3 className="dashboard-section-title">Candidates</h3>
-                <p className="mt-1 dashboard-text-body">
-                  View current candidates and their hiring progress.
-                </p>
-
-                <div className="mt-4 overflow-x-auto">
-                  <table className="w-full min-w-[640px] border-collapse text-left">
-                    <thead>
-                      <tr className="dashboard-table-head">
-                        <th className="py-3 font-semibold">Name</th>
-                        <th className="py-3 font-semibold">Role</th>
-                        <th className="py-3 font-semibold">Stage</th>
-                        <th className="py-3 font-semibold">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {candidates.map((candidate) => (
-                        <tr
-                          key={candidate.name}
-                          className="dashboard-table-row"
-                        >
-                          <td className="py-4 font-medium text-slate-900">
-                            {candidate.name}
-                          </td>
-                          <td className="py-4 text-slate-700">{candidate.role}</td>
-                          <td className="py-4 text-slate-700">{candidate.stage}</td>
-                          <td className="py-4">
-                            <span className="dashboard-badge">
-                              {candidate.status}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </article>
+            ) : activeTab === ADMIN_POOL_TAB ? (
+              <CandidatePoolPanel
+                title="All workspace candidates"
+                subtitle="Every sourced candidate across all users, newest first. Filter by user, search session, or candidate details."
+                candidates={adminPoolCandidates}
+                totalDocs={adminPoolTotalDocs}
+                totalAllDocs={
+                  adminPoolSessionFilter === "__all__" && adminPoolUserFilter === "__all__"
+                    ? adminPoolTotalAllDocs
+                    : adminPoolTotalInScope
+                }
+                totalInScope={adminPoolTotalInScope}
+                searchInput={adminPoolSearchInput}
+                searchQuery={adminPoolSearchQuery}
+                onSearchInputChange={setAdminPoolSearchInput}
+                loading={adminPoolLoading}
+                error={adminPoolError}
+                page={adminPoolPage}
+                totalPages={adminPoolTotalPages}
+                onPageChange={setAdminPoolPage}
+                sessionFilter={adminPoolSessionFilter}
+                onSessionFilterChange={handleAdminPoolSessionFilterChange}
+                sessions={adminPoolSessions}
+                sessionsLoading={adminPoolSessionsLoading}
+                userFilter={adminPoolUserFilter}
+                onUserFilterChange={handleAdminPoolUserFilterChange}
+                users={teamUsers.map((u) => ({
+                  id: u.id,
+                  label: `${u.fullName} · ${u.email}`,
+                }))}
+                usersLoading={usersLoading}
+                rowKey={candidateRowKey}
+                identityKey={candidateIdentityKey}
+                saveBusyKeys={[]}
+                savedKeys={[]}
+                revealedEmailKeys={[]}
+                revealedPhoneKeys={[]}
+                isRevealEmailBusy={() => false}
+                isRevealPhoneBusy={() => false}
+                onRevealEmail={() => undefined}
+                onRevealPhone={() => undefined}
+                onToggleSave={() => undefined}
+                getDisplayedEmail={() => ""}
+                getDisplayedPhone={() => ""}
+                readOnly
+              />
             ) : activeTab === "Plans & pricing" ? (
-              <article className="dashboard-card max-h-[calc(100vh-10rem)] overflow-y-auto p-6">
+              <article className="dashboard-card p-6">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <h3 className="dashboard-section-title">Plans & pricing</h3>
@@ -1588,6 +2055,18 @@ export default function AdminDashboardPage() {
                     ) : (
                       <p className="mt-3 text-sm text-slate-500">Quota unavailable.</p>
                     )}
+                  </div>
+
+                  <div>
+                    <h4 className="dashboard-section-title text-sm">Usage analytics by source</h4>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Lookup and unveil activity for this user, grouped by where the result came
+                      from.
+                    </p>
+                    <UsageAnalyticsBreakdownTable
+                      summary={userUsageAnalyticsSummary}
+                      loading={userUsageAnalyticsLoading}
+                    />
                   </div>
 
                   <div>

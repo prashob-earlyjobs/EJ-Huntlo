@@ -1,5 +1,9 @@
 const mongoose = require("mongoose");
 
+/**
+ * Per-user unlock ledger: which contacts this user has already paid to reveal.
+ * Actual email/phone values live in CandidateContactCache (shared across users).
+ */
 const revealedContactSchema = new mongoose.Schema(
   {
     userId: {
@@ -10,8 +14,8 @@ const revealedContactSchema = new mongoose.Schema(
     },
     sourcingSessionId: {
       type: String,
-      required: true,
       trim: true,
+      default: "",
       index: true,
     },
     linkedinProfileUrl: {
@@ -40,7 +44,7 @@ const revealedContactSchema = new mongoose.Schema(
 );
 
 revealedContactSchema.index(
-  { userId: 1, sourcingSessionId: 1, linkedinProfileUrl: 1, revealType: 1 },
+  { userId: 1, linkedinProfileUrl: 1, revealType: 1 },
   { unique: true }
 );
 

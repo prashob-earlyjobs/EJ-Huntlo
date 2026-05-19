@@ -1,16 +1,16 @@
 const mongoose = require("mongoose");
 const PeopleScoutLookup = require("../models/PeopleScoutLookup");
-const PeopleScoutRevealedContact = require("../models/PeopleScoutRevealedContact");
 const { scoutPeopleLookup, scoutPeopleRevealContact } = require("../services/futureJobs");
 const {
   looksValidContact,
-  extractRevealValues,
   normalizeLinkedinProfileUrl,
 } = require("../utils/contactReveal");
 const { logApi, safeJsonPreview } = require("../utils/logger");
 const { incrementUserUsage } = require("../utils/incrementUserUsage");
 const { assertQuotaAvailableByUserId } = require("../services/planQuotas");
 const { respondIfQuotaExceeded } = require("../utils/quotaHttp");
+const { resolveContactReveal } = require("../services/contactRevealService");
+const { resolvePeopleScoutLookup } = require("../services/peopleScoutLookupService");
 
 async function bumpScoutRevealUsage(userId, revealType) {
   if (!userId || !mongoose.Types.ObjectId.isValid(String(userId))) return;
@@ -242,46 +242,6 @@ const revealPeopleScoutContact = async (req, res) => {
       linkedinKeyLen: linkedinKey.length,
     });
 
-    try {
-      await assertQuotaAvailableByUserId(
-        userId,
-        revealType === "EMAIL" ? "emailUnveils" : "mobileUnveils"
-      );
-    } catch (quotaErr) {
-      if (respondIfQuotaExceeded(res, quotaErr)) return;
-      throw quotaErr;
-    }
-
-    const cached = await PeopleScoutRevealedContact.findOne({
-      userId: new mongoose.Types.ObjectId(userId),
-      linkedinProfileUrl: linkedinKey,
-      revealType,
-    }).lean();
-
-    const cachedValid =
-      cached && Array.isArray(cached.values)
-        ? cached.values
-            .map((v) => String(v).trim())
-            .filter((v) => looksValidContact(v, revealType))
-        : [];
-
-    if (cachedValid.length > 0) {
-      logApi("candidates/scout-people/reveal-contact", "cache hit", {
-        userId,
-        lookupId,
-        revealType,
-        count: cachedValid.length,
-      });
-      await bumpScoutRevealUsage(userId, revealType);
-      return res.status(200).json({
-        success: true,
-        source: "cache",
-        revealType,
-        values: cachedValid,
-        value: cachedValid[0] || "",
-      });
-    }
-
     const profile =
       lookup.fjResponseData &&
       lookup.fjResponseData.profile &&
@@ -290,90 +250,62 @@ const revealPeopleScoutContact = async (req, res) => {
         : null;
 
     const fromProfile = extractContactFromStoredProfile(profile, revealType);
-    if (fromProfile) {
-      await PeopleScoutRevealedContact.findOneAndUpdate(
-        {
-          userId: new mongoose.Types.ObjectId(userId),
-          linkedinProfileUrl: linkedinKey,
-          revealType,
-        },
-        {
-          $set: {
-            values: [fromProfile],
-            status: "profile_snapshot",
-            scoutIdLastUsed: String(lookup.scoutId || ""),
-          },
-        },
-        { upsert: true, new: true, setDefaultsOnInsert: true }
-      );
+    const quotaKey = revealType === "EMAIL" ? "emailUnveils" : "mobileUnveils";
 
-      logApi("candidates/scout-people/reveal-contact", "profile snapshot", {
+    const result = await resolveContactReveal({
+      userId,
+      linkedinProfileUrl: linkedinKey,
+      revealType,
+      product: "people_scout",
+      prefetchedValues: fromProfile ? [fromProfile] : null,
+      unlockMeta: {
+        status: fromProfile ? "profile_snapshot" : "",
+      },
+      assertQuota: () => assertQuotaAvailableByUserId(userId, quotaKey),
+      incrementUsage: () => bumpScoutRevealUsage(userId, revealType),
+      fetchFromFutureJobs: async () => {
+        const fj = await scoutPeopleRevealContact(linkedinKey, revealType);
+        logApi("candidates/scout-people/reveal-contact", "futurejobs raw response", {
+          userId,
+          lookupId,
+          revealType,
+          linkedinKeyLen: linkedinKey.length,
+          fjJson: safeJsonPreview(fj, 12000),
+        });
+        return fj;
+      },
+    });
+
+    if (!result.success) {
+      logApi("candidates/scout-people/reveal-contact", "not found", {
         userId,
         lookupId,
         revealType,
+        charged: result.charged,
       });
-
-      await bumpScoutRevealUsage(userId, revealType);
-      return res.status(200).json({
-        success: true,
-        source: "profile_snapshot",
-        revealType,
-        values: [fromProfile],
-        value: fromProfile,
-      });
+      return res.status(404).json(result);
     }
 
-    const fj = await scoutPeopleRevealContact(linkedinKey, revealType);
-
-    logApi("candidates/scout-people/reveal-contact", "futurejobs raw response", {
-      userId,
-      lookupId,
-      revealType,
-      linkedinKeyLen: linkedinKey.length,
-      fjJson: safeJsonPreview(fj, 12000),
-    });
-
-    const values = extractRevealValues(fj, revealType);
     const upstreamMessage =
-      typeof fj?.message === "string" && fj.message.trim() ? fj.message.trim() : "";
+      result.futureJobs &&
+      typeof result.futureJobs.message === "string" &&
+      result.futureJobs.message.trim()
+        ? result.futureJobs.message.trim()
+        : "";
 
-    if (values.length > 0) {
-      await PeopleScoutRevealedContact.findOneAndUpdate(
-        {
-          userId: new mongoose.Types.ObjectId(userId),
-          linkedinProfileUrl: linkedinKey,
-          revealType,
-        },
-        {
-          $set: {
-            status: typeof fj?.status === "string" ? fj.status : "",
-            values,
-            scoutIdLastUsed: String(lookup.scoutId || ""),
-          },
-        },
-        { upsert: true, new: true, setDefaultsOnInsert: true }
-      );
-    }
-
-    logApi("candidates/scout-people/reveal-contact", "revealed via futurejobs", {
+    logApi("candidates/scout-people/reveal-contact", "success", {
       userId,
       lookupId,
       revealType,
-      valueCount: values.length,
+      source: result.source,
+      charged: result.charged,
+      valueCount: result.values.length,
       upstreamMessage: upstreamMessage || undefined,
-      cachedToDb: values.length > 0,
     });
 
-    await bumpScoutRevealUsage(userId, revealType);
-    return res.status(200).json({
-      success: true,
-      source: "futurejobs",
-      revealType,
-      values,
-      value: values[0] || "",
-      upstreamMessage: upstreamMessage || undefined,
-      futureJobs: fj,
-    });
+    const payload = { ...result };
+    if (upstreamMessage) payload.upstreamMessage = upstreamMessage;
+    return res.status(200).json(payload);
   } catch (error) {
     if (respondIfQuotaExceeded(res, error)) return;
     const status = error.statusCode || 500;
@@ -421,62 +353,34 @@ const lookupPeopleScout = async (req, res) => {
       queryLabelLen: String(parsed.queryLabel || "").length,
     });
 
-    try {
-      await assertQuotaAvailableByUserId(userId, "linkedinLookups");
-    } catch (quotaErr) {
-      if (respondIfQuotaExceeded(res, quotaErr)) return;
-      throw quotaErr;
-    }
-
-    const fj = await scoutPeopleLookup(parsed.payload);
-    const d = fj?.data && typeof fj.data === "object" ? fj.data : null;
-    const profile = d?.profile;
-    const scoutId = d?.scoutId != null ? String(d.scoutId) : "";
-    const summary = extractSummaryFromFjProfile(profile);
-
-    const doc = await PeopleScoutLookup.create({
-      userId: new mongoose.Types.ObjectId(userId),
-      queryType: parsed.queryType,
-      queryLabel: parsed.queryLabel,
-      scoutId,
-      fjProfileId: summary?.fjProfileId || "",
-      name: summary?.name || "",
-      title: summary?.title || "",
-      headline: summary?.headline || "",
-      location: summary?.location || "",
-      company: summary?.company || "",
-      role: summary?.role || "",
-      linkedinFlagshipUrl: summary?.linkedinFlagshipUrl || "",
-      linkedinProfileUrl: summary?.linkedinProfileUrl || "",
-      profilePictureUrl: summary?.profilePictureUrl || "",
-      numOfConnections: summary?.numConnections ?? null,
-      fjStatus: typeof fj?.status === "string" ? fj.status : "",
-      fjMessage: typeof fj?.message === "string" ? fj.message : "",
-      fjResponseData: d,
+    const result = await resolvePeopleScoutLookup({
+      userId,
+      parsed,
+      extractSummaryFromProfile: extractSummaryFromFjProfile,
+      assertQuota: () => assertQuotaAvailableByUserId(userId, "linkedinLookups"),
+      incrementUsage: () => incrementUserUsage(String(userId), "linkedinLookups"),
+      fetchFromFutureJobs: () => scoutPeopleLookup(parsed.payload),
     });
+
+    if (!result.success) {
+      logApi("candidates/scout-people/lookup", "not found", {
+        userId,
+        queryType: parsed.queryType,
+        charged: result.charged,
+        lookupId: result.lookupId,
+      });
+      return res.status(404).json(result);
+    }
 
     logApi("candidates/scout-people/lookup", "ok", {
       userId,
-      lookupId: doc._id.toString(),
+      lookupId: result.lookupId,
       queryType: parsed.queryType,
-      scoutId,
-      hasProfile: Boolean(profile),
-      fjStatus: typeof fj?.status === "string" ? fj.status : "",
+      source: result.source,
+      charged: result.charged,
     });
 
-    await incrementUserUsage(String(userId), "linkedinLookups");
-
-    return res.status(200).json({
-      success: true,
-      lookupId: doc._id.toString(),
-      futureJobs: fj,
-      summary: summary
-        ? {
-            ...summary,
-            scoutId,
-          }
-        : { scoutId },
-    });
+    return res.status(200).json(result);
   } catch (error) {
     if (respondIfQuotaExceeded(res, error)) return;
     const status = error.statusCode || 500;

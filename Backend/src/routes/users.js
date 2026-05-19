@@ -21,6 +21,10 @@ const {
   completeMyOnboarding,
   changeMyPassword,
 } = require("../controllers/userController");
+const {
+  getUsageAnalyticsSummary,
+  getUsageAnalyticsEvents,
+} = require("../controllers/usageAnalyticsController");
 const { getMyDashboard } = require("../controllers/dashboardController");
 const { authenticate, requireAdmin } = require("../middleware/auth");
 const { profilePhotoUpload } = require("../middleware/profilePhotoUpload");
@@ -60,6 +64,18 @@ router.get(
   authenticate,
   requireAdmin,
   getAllUtilisationHistory
+);
+router.get(
+  "/admin/usage-analytics/summary",
+  authenticate,
+  requireAdmin,
+  getUsageAnalyticsSummary
+);
+router.get(
+  "/admin/usage-analytics/events",
+  authenticate,
+  requireAdmin,
+  getUsageAnalyticsEvents
 );
 
 router.patch(

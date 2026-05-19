@@ -1,12 +1,15 @@
 const express = require("express");
-const { authenticate } = require("../middleware/auth");
+const { authenticate, requireAdmin } = require("../middleware/auth");
 const {
   searchCandidates,
+  annotateSearchPrompt,
   createSearchSession,
   applySearchFilters,
   loadSessionProfiles,
   loadStoredSessionCandidates,
   listAllSourcedCandidates,
+  listAllSourcedCandidatesAdmin,
+  listSourcingSessionsAdmin,
   listSourcingSessions,
   listRecentSearches,
   revealCandidateContact,
@@ -26,9 +29,12 @@ const {
 const router = express.Router();
 
 router.post("/search", authenticate, searchCandidates);
+router.post("/search/annotate", authenticate, annotateSearchPrompt);
 router.post("/search/create", authenticate, createSearchSession);
 router.post("/search/apply", authenticate, applySearchFilters);
 router.get("/all", authenticate, listAllSourcedCandidates);
+router.get("/admin/all", authenticate, requireAdmin, listAllSourcedCandidatesAdmin);
+router.get("/admin/sessions", authenticate, requireAdmin, listSourcingSessionsAdmin);
 router.get("/sessions", authenticate, listSourcingSessions);
 router.get("/recent-searches", authenticate, listRecentSearches);
 router.get("/save-lists", authenticate, listSaveLists);

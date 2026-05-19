@@ -2389,6 +2389,59 @@
   pointer-events: none;
 }
 
+.dashboard-integration-card--locked {
+  position: relative;
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--dash-outline) 70%, transparent);
+  background: color-mix(in srgb, var(--dash-surface-low) 55%, white);
+}
+
+.dashboard-integration-lock-badge {
+  position: absolute;
+  top: 0.875rem;
+  right: 0.875rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.75rem;
+  width: 1.75rem;
+  border-radius: 9999px;
+  border: 1px solid color-mix(in srgb, var(--dash-outline) 55%, transparent);
+  background: white;
+  color: var(--dash-on-surface-variant);
+  box-shadow: 0 2px 8px rgba(80, 95, 118, 0.08);
+}
+
+.dashboard-integration-icon--locked {
+  border-color: color-mix(in srgb, var(--dash-outline) 55%, transparent);
+  background: var(--dash-surface-low);
+  color: var(--dash-on-surface-variant);
+}
+
+.dashboard-integration-status--locked {
+  border-color: color-mix(in srgb, #7c3aed 30%, transparent);
+  background: color-mix(in srgb, #7c3aed 8%, white);
+  color: #6d28d9;
+}
+
+.dashboard-integration-enterprise-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  border: 1px solid color-mix(in srgb, #7c3aed 28%, transparent);
+  background: color-mix(in srgb, #7c3aed 8%, white);
+  padding: 0.375rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #6d28d9;
+}
+
+.dashboard-integration-notice-wrap {
+  margin-bottom: 1rem;
+}
+
 .dashboard-integration-card-top {
   display: flex;
   align-items: flex-start;

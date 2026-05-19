@@ -38,6 +38,8 @@ export type PoolCandidateRow = {
   highlights?: string[];
   recommendation?: string;
   rawDoc?: SavedCandidateRow["rawDoc"];
+  ownerLabel?: string;
+  ownerUserId?: string;
 };
 
 function poolCompactSkillsText(candidate: PoolCandidateRow): string {
@@ -82,6 +84,13 @@ function poolCompactAboutText(
   return "";
 }
 
+function applyOwnerLabelToCard(card: SessionResultCardData, candidate: PoolCandidateRow) {
+  if (!candidate.ownerLabel?.trim()) return card;
+  const owner = `Workspace: ${candidate.ownerLabel.trim()}`;
+  card.compactAbout = card.compactAbout ? `${owner} · ${card.compactAbout}` : owner;
+  return card;
+}
+
 function candidateRowToCardData(
   candidate: PoolCandidateRow,
   index: number
@@ -109,7 +118,7 @@ function candidateRowToCardData(
     if (skillsLine) card.compactSkills = skillsLine;
     const about = poolCompactAboutText(candidate, highlights);
     if (about) card.compactAbout = about;
-    return card;
+    return applyOwnerLabelToCard(card, candidate);
   }
 
   const yearsMatch = candidate.experience.match(/(\d+)/);
@@ -134,7 +143,7 @@ function candidateRowToCardData(
   if (skillsLine) card.compactSkills = skillsLine;
   const about = poolCompactAboutText(candidate, highlights);
   if (about) card.compactAbout = about;
-  return card;
+  return applyOwnerLabelToCard(card, candidate);
 }
 
 type Props = {
@@ -168,7 +177,14 @@ type Props = {
   onRevealPhone: (candidate: PoolCandidateRow) => void;
   getDisplayedEmail: (candidate: PoolCandidateRow) => string;
   getDisplayedPhone: (candidate: PoolCandidateRow) => string;
-  onGoToSearch: () => void;
+  onGoToSearch?: () => void;
+  title?: string;
+  subtitle?: string;
+  userFilter?: string;
+  onUserFilterChange?: (value: string) => void;
+  users?: PoolSessionOption[];
+  usersLoading?: boolean;
+  readOnly?: boolean;
 };
 
 export function CandidatePoolPanel({
@@ -203,22 +219,39 @@ export function CandidatePoolPanel({
   getDisplayedEmail,
   getDisplayedPhone,
   onGoToSearch,
+  title = "All searched candidates",
+  subtitle = "Every candidate from your sourcing searches, newest first. Filter by search or candidate details.",
+  userFilter = "__all__",
+  onUserFilterChange,
+  users = [],
+  usersLoading = false,
+  readOnly = false,
 }: Props) {
   const filterLabel =
     sessionFilter === "__all__"
       ? "All searches"
       : sessions.find((s) => s.id === sessionFilter)?.label ?? "Search";
 
+  const userFilterLabel =
+    userFilter === "__all__"
+      ? "All users"
+      : users.find((u) => u.id === userFilter)?.label ?? "User";
+
   const sessionFilterOptions = [
     { value: "__all__", label: "All searches" },
     ...sessions.map((s) => ({ value: s.id, label: s.label })),
   ];
 
+  const userFilterOptions = [
+    { value: "__all__", label: "All users" },
+    ...users.map((u) => ({ value: u.id, label: u.label })),
+  ];
+
   const appliedSearch = searchQuery.trim();
   const hasSearch = appliedSearch.length > 0;
   const badgeTitle = hasSearch
-    ? `${totalDocs.toLocaleString()} matches for “${appliedSearch}” (${totalInScope.toLocaleString()} in ${filterLabel})`
-    : `${totalAllDocs.toLocaleString()} candidates across all searches`;
+    ? `${totalDocs.toLocaleString()} matches for “${appliedSearch}” (${totalInScope.toLocaleString()} in ${filterLabel}${onUserFilterChange ? ` · ${userFilterLabel}` : ""})`
+    : `${totalAllDocs.toLocaleString()} candidates${onUserFilterChange ? ` · ${userFilterLabel}` : " across all searches"}`;
   const badgeText = hasSearch
     ? `${totalDocs.toLocaleString()} match${totalDocs === 1 ? "" : "es"}`
     : `${totalAllDocs.toLocaleString()} total`;
@@ -235,12 +268,9 @@ export function CandidatePoolPanel({
         <div>
           <h3 className="flex items-center gap-2 dashboard-section-title">
             <MaterialIcon name="groups" className="text-xl text-[#0050cb]" />
-            All searched candidates
+            {title}
           </h3>
-          <p className="mt-1 dashboard-text-body">
-            Every candidate from your sourcing searches, newest first. Filter by search or
-            candidate details.
-          </p>
+          <p className="mt-1 dashboard-text-body">{subtitle}</p>
         </div>
 
         <div className="dashboard-saved-header-actions">
@@ -250,6 +280,17 @@ export function CandidatePoolPanel({
           >
             {badgeText}
           </span>
+
+          {onUserFilterChange ? (
+            <SavedListSelect
+              wrapClassName="dashboard-saved-filter-select-wrap"
+              value={userFilter}
+              onChange={(e) => onUserFilterChange(e.target.value)}
+              disabled={usersLoading}
+              ariaLabel="Filter by user"
+              options={userFilterOptions}
+            />
+          ) : null}
 
           <SavedListSelect
             wrapClassName="dashboard-saved-filter-select-wrap"
@@ -300,10 +341,12 @@ export function CandidatePoolPanel({
             Run a People Scout or AI search to discover candidates. They will appear here in
             your pool.
           </p>
-          <button type="button" onClick={onGoToSearch} className="dashboard-btn-primary mt-6">
-            <MaterialIcon name="search" className="text-base" />
-            Search candidates
-          </button>
+          {onGoToSearch ? (
+            <button type="button" onClick={onGoToSearch} className="dashboard-btn-primary mt-6">
+              <MaterialIcon name="search" className="text-base" />
+              Search candidates
+            </button>
+          ) : null}
         </div>
       ) : totalDocs === 0 ? (
         <div className="dashboard-empty-state">
@@ -369,30 +412,34 @@ export function CandidatePoolPanel({
                           role="group"
                           aria-label="Candidate actions"
                         >
-                          <RevealContactIconButton
-                            icon="mail"
-                            tip={
-                              emailRevealed
-                                ? getDisplayedEmail(candidate) || "Email"
-                                : "Reveal email"
-                            }
-                            ariaLabel="Reveal email"
-                            revealed={emailRevealed}
-                            busy={isRevealEmailBusy(candidate)}
-                            onClick={() => onRevealEmail(candidate)}
-                          />
-                          <RevealContactIconButton
-                            icon="call"
-                            tip={
-                              phoneRevealed
-                                ? getDisplayedPhone(candidate) || "Phone"
-                                : "Reveal phone"
-                            }
-                            ariaLabel="Reveal phone"
-                            revealed={phoneRevealed}
-                            busy={isRevealPhoneBusy(candidate)}
-                            onClick={() => onRevealPhone(candidate)}
-                          />
+                          {!readOnly ? (
+                            <RevealContactIconButton
+                              icon="mail"
+                              tip={
+                                emailRevealed
+                                  ? getDisplayedEmail(candidate) || "Email"
+                                  : "Reveal email"
+                              }
+                              ariaLabel="Reveal email"
+                              revealed={emailRevealed}
+                              busy={isRevealEmailBusy(candidate)}
+                              onClick={() => onRevealEmail(candidate)}
+                            />
+                          ) : null}
+                          {!readOnly ? (
+                            <RevealContactIconButton
+                              icon="call"
+                              tip={
+                                phoneRevealed
+                                  ? getDisplayedPhone(candidate) || "Phone"
+                                  : "Reveal phone"
+                              }
+                              ariaLabel="Reveal phone"
+                              revealed={phoneRevealed}
+                              busy={isRevealPhoneBusy(candidate)}
+                              onClick={() => onRevealPhone(candidate)}
+                            />
+                          ) : null}
                           {candidate.linkedin_profile_url ? (
                             <SavedIconAction tip="Open LinkedIn">
                               <a
@@ -418,21 +465,23 @@ export function CandidatePoolPanel({
                               </button>
                             </SavedIconAction>
                           ) : null}
-                          <SavedIconAction
-                            tip={isSaved ? "Remove from saved" : "Save candidate"}
-                          >
-                            <button
-                              type="button"
-                              aria-label={isSaved ? "Remove from saved" : "Save candidate"}
-                              onClick={() => onToggleSave(candidate)}
-                              disabled={busy}
-                              className={`dashboard-table-icon-btn dashboard-table-icon-btn--sm${
-                                isSaved ? " dashboard-table-icon-btn--active" : ""
-                              } disabled:opacity-50`}
+                          {!readOnly ? (
+                            <SavedIconAction
+                              tip={isSaved ? "Remove from saved" : "Save candidate"}
                             >
-                              <MaterialIcon name={isSaved ? "bookmark" : "bookmark_add"} />
-                            </button>
-                          </SavedIconAction>
+                              <button
+                                type="button"
+                                aria-label={isSaved ? "Remove from saved" : "Save candidate"}
+                                onClick={() => onToggleSave(candidate)}
+                                disabled={busy}
+                                className={`dashboard-table-icon-btn dashboard-table-icon-btn--sm${
+                                  isSaved ? " dashboard-table-icon-btn--active" : ""
+                                } disabled:opacity-50`}
+                              >
+                                <MaterialIcon name={isSaved ? "bookmark" : "bookmark_add"} />
+                              </button>
+                            </SavedIconAction>
+                          ) : null}
                         </div>
                       </div>
                       {emailRevealed || phoneRevealed ? (

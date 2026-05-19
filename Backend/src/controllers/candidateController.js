@@ -11,21 +11,26 @@ const {
   mergeFilterFormIntoSession,
   buildSessionPayloadForApply,
   buildSessionPayloadFromPromptAndFilter,
+  getSourcingSessionAnnotation,
+  filterFormFromAnnotation,
   mapFjDocToCandidate,
 } = require("../services/futureJobs");
 const SourcingSession = require("../models/SourcingSession");
-const RevealedContact = require("../models/RevealedContact");
 const SourcedCandidateDetail = require("../models/SourcedCandidateDetail");
 const SavedCandidate = require("../models/SavedCandidate");
 const SavedCandidateList = require("../models/SavedCandidateList");
 const { logApi, safeJsonPreview } = require("../utils/logger");
-const {
-  looksValidContact,
-  extractRevealValues,
-} = require("../utils/contactReveal");
 const { incrementUserUsage } = require("../utils/incrementUserUsage");
 const { assertQuotaAvailableByUserId } = require("../services/planQuotas");
 const { respondIfQuotaExceeded } = require("../utils/quotaHttp");
+const { resolveContactReveal } = require("../services/contactRevealService");
+
+/** Wait after POST /wl/sourcing-session before GET …/profiles (Search Candidates apply). */
+const POST_SESSION_CREATE_PROFILES_WAIT_MS = 30_000;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 async function bumpSourcingRevealUsage(userId, revealType) {
   if (!userId || !mongoose.Types.ObjectId.isValid(String(userId))) return;
@@ -249,7 +254,16 @@ async function fetchProfilesForSession({
   sourcingMeta,
   sessionMeta,
   loggerHandler,
+  waitBeforeFetchMs = 0,
 }) {
+  if (waitBeforeFetchMs > 0) {
+    logApi(loggerHandler, "waiting after session create before profiles fetch", {
+      sessionId: String(sessionId),
+      waitMs: waitBeforeFetchMs,
+    });
+    await sleep(waitBeforeFetchMs);
+  }
+
   const profilesRes = await getSourcingSessionProfilesWhenReady(String(sessionId), {
     page,
     limit,
@@ -276,6 +290,73 @@ async function fetchProfilesForSession({
 
   return mapProfilesResToLists(profilesRes);
 }
+
+/**
+ * POST /api/candidates/search/annotate
+ * Parse prompt via Future Jobs get-annotation → prefill filter drawer.
+ * Body: prompt (string) or userText, optional linkedin_profile_url
+ */
+const annotateSearchPrompt = async (req, res) => {
+  const userId = req.auth?.userId;
+  try {
+    const userText =
+      typeof req.body?.userText === "string" && req.body.userText.trim()
+        ? req.body.userText.trim()
+        : typeof req.body?.prompt === "string"
+          ? req.body.prompt.trim()
+          : "";
+
+    if (!userText) {
+      return res.status(400).json({
+        success: false,
+        message: "prompt is required",
+      });
+    }
+
+    const linkedin_profile_url =
+      typeof req.body?.linkedin_profile_url === "string"
+        ? req.body.linkedin_profile_url
+        : "";
+
+    logApi("candidates/search/annotate", "incoming", {
+      userId,
+      userTextLength: userText.length,
+    });
+
+    const futureJobs = await getSourcingSessionAnnotation({
+      userText,
+      linkedin_profile_url,
+    });
+
+    const annotationData =
+      futureJobs?.data && typeof futureJobs.data === "object" ? futureJobs.data : {};
+    const filterForm = filterFormFromAnnotation(annotationData);
+
+    logApi("candidates/search/annotate", "success", {
+      userId,
+      fieldCount: Object.keys(annotationData).length,
+    });
+
+    return res.status(200).json({
+      success: true,
+      filterForm,
+      annotation: annotationData,
+      futureJobs,
+    });
+  } catch (error) {
+    const status = error.statusCode || 500;
+    logApi("candidates/search/annotate", "error", {
+      userId,
+      status,
+      message: error.message,
+    });
+    return res.status(status).json({
+      success: false,
+      message: error.message || "Failed to analyze search prompt",
+      details: error.details,
+    });
+  }
+};
 
 /**
  * POST /api/candidates/search/create
@@ -465,6 +546,7 @@ const applySearchFilters = async (req, res) => {
         sessionMeta:
           sessionMeta && typeof sessionMeta === "object" ? sessionMeta : {},
         loggerHandler: "candidates/search/apply",
+        waitBeforeFetchMs: POST_SESSION_CREATE_PROFILES_WAIT_MS,
       });
       profilesPagination = mapped.profilesPagination;
       candidates = mapped.candidates;
@@ -1152,6 +1234,206 @@ const listAllSourcedCandidates = async (req, res) => {
 };
 
 /**
+ * GET /api/candidates/admin/all
+ * Admin: all persisted sourced candidates (optionally filtered by user / session).
+ */
+const listAllSourcedCandidatesAdmin = async (req, res) => {
+  try {
+    const page = clampInt(req.query.page, 1, 100000, 1);
+    const limit = clampInt(req.query.limit, 1, 100, 20);
+    const skip = (page - 1) * limit;
+
+    const sessionFilter =
+      req.query.sessionId != null && String(req.query.sessionId).trim() !== ""
+        ? String(req.query.sessionId).trim()
+        : "";
+    const userFilter =
+      req.query.userId != null && String(req.query.userId).trim() !== ""
+        ? String(req.query.userId).trim()
+        : "";
+    const searchQ =
+      req.query.q != null
+        ? String(req.query.q).trim()
+        : req.query.search != null
+          ? String(req.query.search).trim()
+          : "";
+
+    const baseFilter = {};
+    if (userFilter) {
+      if (!mongoose.Types.ObjectId.isValid(userFilter)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid userId",
+        });
+      }
+      baseFilter.userId = new mongoose.Types.ObjectId(userFilter);
+    }
+    if (sessionFilter) {
+      baseFilter.sourcingSessionId = sessionFilter;
+    }
+
+    const searchFilter = buildSourcedCandidateSearchFilter(searchQ);
+    const filter = searchFilter ? { ...baseFilter, ...searchFilter } : baseFilter;
+
+    const [totalDocs, totalInScope, rows] = await Promise.all([
+      SourcedCandidateDetail.countDocuments(filter),
+      SourcedCandidateDetail.countDocuments(baseFilter),
+      SourcedCandidateDetail.find(filter)
+        .sort({ updatedAt: -1, _id: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate("userId", "fullName email")
+        .lean(),
+    ]);
+
+    const detailedDocs = rows
+      .map((r) => r?.rawDoc)
+      .filter((d) => d && typeof d === "object");
+    const candidates = rows
+      .map((row) => {
+        const mapped = mapFjDocToCandidate(row?.rawDoc);
+        if (!mapped) return null;
+        if (!mapped.sourcingSessionId && row.sourcingSessionId) {
+          mapped.sourcingSessionId = String(row.sourcingSessionId);
+        }
+        if (
+          mapped.finalScore == null &&
+          typeof row.finalScore === "number" &&
+          !Number.isNaN(row.finalScore)
+        ) {
+          mapped.finalScore = row.finalScore;
+        }
+        const owner = row.userId;
+        if (owner && typeof owner === "object") {
+          const fullName =
+            typeof owner.fullName === "string" ? owner.fullName.trim() : "";
+          const email = typeof owner.email === "string" ? owner.email.trim() : "";
+          mapped.ownerLabel =
+            fullName && email ? `${fullName} · ${email}` : fullName || email || "";
+          mapped.ownerUserId =
+            owner._id != null ? String(owner._id) : String(row.userId || "");
+        }
+        return mapped;
+      })
+      .filter(Boolean);
+
+    const totalPages = Math.max(1, Math.ceil(totalDocs / limit));
+    const profilesPagination = {
+      totalDocs,
+      page,
+      limit,
+      totalPages,
+      hasNextPage: page < totalPages,
+      hasPrevPage: page > 1,
+      nextPage: page < totalPages ? page + 1 : null,
+      prevPage: page > 1 ? page - 1 : null,
+    };
+
+    logApi("candidates/admin/all", "success", {
+      page,
+      limit,
+      totalDocs,
+      totalInScope,
+      returned: candidates.length,
+      sessionFilter: sessionFilter || undefined,
+      userFilter: userFilter || undefined,
+      searchQ: searchQ || undefined,
+    });
+
+    return res.status(200).json({
+      success: true,
+      page,
+      limit,
+      search: searchQ,
+      totalInScope,
+      candidates,
+      detailedDocs,
+      profilesPagination,
+    });
+  } catch (error) {
+    const status = error.statusCode || 500;
+    logApi("candidates/admin/all", "error", {
+      status,
+      message: error.message,
+    });
+    return res.status(status).json({
+      success: false,
+      message: error.message || "Failed to load candidates",
+    });
+  }
+};
+
+/**
+ * GET /api/candidates/admin/sessions
+ * Admin: sourcing sessions for pool filters (optional userId).
+ */
+const listSourcingSessionsAdmin = async (req, res) => {
+  try {
+    const limit = clampInt(req.query.limit, 1, 200, 50);
+    const userFilter =
+      req.query.userId != null && String(req.query.userId).trim() !== ""
+        ? String(req.query.userId).trim()
+        : "";
+
+    const filter = {};
+    if (userFilter) {
+      if (!mongoose.Types.ObjectId.isValid(userFilter)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid userId",
+        });
+      }
+      filter.userId = new mongoose.Types.ObjectId(userFilter);
+    }
+
+    const docs = await SourcingSession.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .populate("userId", "fullName email")
+      .lean();
+
+    logApi("candidates/admin/sessions", "list", {
+      count: docs.length,
+      limit,
+      userFilter: userFilter || undefined,
+    });
+
+    return res.status(200).json({
+      success: true,
+      sessions: docs.map((d) => {
+        const owner = d.userId;
+        const ownerName =
+          owner && typeof owner === "object" && typeof owner.fullName === "string"
+            ? owner.fullName.trim()
+            : "";
+        const promptLabel =
+          (typeof d.prompt === "string" && d.prompt.trim()) ||
+          (typeof d.sessionTitle === "string" && d.sessionTitle.trim()) ||
+          "Untitled search";
+        return {
+          id: d.futureJobsSessionId,
+          futureJobsSessionId: d.futureJobsSessionId,
+          userId: owner?._id != null ? String(owner._id) : String(d.userId || ""),
+          ownerName,
+          prompt: d.prompt,
+          sessionTitle: d.sessionTitle,
+          label: ownerName ? `${ownerName}: ${promptLabel}` : promptLabel,
+          createdAt: d.createdAt,
+        };
+      }),
+    });
+  } catch (error) {
+    logApi("candidates/admin/sessions", "error", {
+      message: error.message,
+    });
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to list sessions",
+    });
+  }
+};
+
+/**
  * GET /api/candidates/sessions
  * Query: limit (1–100, default 30)
  */
@@ -1331,89 +1613,44 @@ const revealCandidateContact = async (req, res) => {
       revealType,
     });
 
-    try {
-      await assertQuotaAvailableByUserId(
-        userId,
-        revealType === "EMAIL" ? "emailUnveils" : "mobileUnveils"
-      );
-    } catch (quotaErr) {
-      if (respondIfQuotaExceeded(res, quotaErr)) return;
-      throw quotaErr;
-    }
+    const quotaKey = revealType === "EMAIL" ? "emailUnveils" : "mobileUnveils";
 
-    // 1) Check in our DB first.
-    const cached = await RevealedContact.findOne({
-      userId: new mongoose.Types.ObjectId(userId),
-      sourcingSessionId,
+    const result = await resolveContactReveal({
+      userId,
       linkedinProfileUrl,
       revealType,
-    }).lean();
+      product: "sourcing",
+      unlockMeta: { sourcingSessionId },
+      assertQuota: () => assertQuotaAvailableByUserId(userId, quotaKey),
+      incrementUsage: () => bumpSourcingRevealUsage(userId, revealType),
+      fetchFromFutureJobs: () =>
+        revealSourcingSessionContact(
+          sourcingSessionId,
+          linkedinProfileUrl,
+          revealType
+        ),
+    });
 
-    const cachedValidValues =
-      cached && Array.isArray(cached.values)
-        ? cached.values
-            .map((v) => String(v).trim())
-            .filter((v) => looksValidContact(v, revealType))
-        : [];
-
-    if (cached && cachedValidValues.length > 0) {
-      logApi("candidates/reveal-contact", "cache hit", {
+    if (!result.success) {
+      logApi("candidates/reveal-contact", "not found", {
         userId,
         sourcingSessionId,
         revealType,
-        count: cachedValidValues.length,
+        charged: result.charged,
       });
-      await bumpSourcingRevealUsage(userId, revealType);
-      return res.status(200).json({
-        success: true,
-        source: "cache",
-        revealType,
-        values: cachedValidValues,
-        value: cachedValidValues[0] || "",
-      });
+      return res.status(404).json(result);
     }
 
-    // 2) Cache miss -> call Future Jobs reveal API.
-    const fj = await revealSourcingSessionContact(
-      sourcingSessionId,
-      linkedinProfileUrl,
-      revealType
-    );
-
-    const values = extractRevealValues(fj, revealType);
-
-    await RevealedContact.findOneAndUpdate(
-      {
-        userId: new mongoose.Types.ObjectId(userId),
-        sourcingSessionId,
-        linkedinProfileUrl,
-        revealType,
-      },
-      {
-        $set: {
-          status: typeof fj?.status === "string" ? fj.status : "",
-          values,
-        },
-      },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
-    );
-
-    logApi("candidates/reveal-contact", "revealed via futurejobs", {
+    logApi("candidates/reveal-contact", "success", {
       userId,
       sourcingSessionId,
       revealType,
-      count: values.length,
+      source: result.source,
+      charged: result.charged,
+      count: result.values.length,
     });
 
-    await bumpSourcingRevealUsage(userId, revealType);
-    return res.status(200).json({
-      success: true,
-      source: "futurejobs",
-      revealType,
-      values,
-      value: values[0] || "",
-      futureJobs: fj,
-    });
+    return res.status(200).json(result);
   } catch (error) {
     if (respondIfQuotaExceeded(res, error)) return;
     const status = error.statusCode || 500;
@@ -1840,11 +2077,14 @@ const unsaveCandidate = async (req, res) => {
 
 module.exports = {
   searchCandidates,
+  annotateSearchPrompt,
   createSearchSession,
   applySearchFilters,
   loadSessionProfiles,
   loadStoredSessionCandidates,
   listAllSourcedCandidates,
+  listAllSourcedCandidatesAdmin,
+  listSourcingSessionsAdmin,
   listSourcingSessions,
   listRecentSearches,
   revealCandidateContact,

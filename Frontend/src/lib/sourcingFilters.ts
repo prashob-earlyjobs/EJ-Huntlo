@@ -41,7 +41,7 @@ export type CandidateFilterForm = {
 };
 
 export const DEFAULT_CANDIDATE_FILTER_FORM: CandidateFilterForm = {
-  searchType: "",
+  searchType: "Flexible",
   selectRegion: "",
   currentTitle: "",
   yearsExpMin: "",

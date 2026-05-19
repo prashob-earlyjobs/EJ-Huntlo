@@ -3,7 +3,7 @@
  */
 
 const DEFAULT_FILTER_FORM = {
-  searchType: "",
+  searchType: "Flexible",
   selectRegion: "",
   currentTitle: "",
   yearsExpMin: "",
@@ -64,34 +64,45 @@ function queryRange(queries, key) {
   };
 }
 
+function normalizeSkillsValue(raw) {
+  const empty = { mandatory: [], core: [], secondary: [] };
+  if (raw == null) return empty;
+
+  if (Array.isArray(raw)) {
+    const core = raw
+      .map((s) => String(s ?? "").trim())
+      .filter(Boolean);
+    return core.length > 0 ? { ...empty, core } : empty;
+  }
+
+  if (typeof raw !== "object") return empty;
+
+  const mandatory = Array.isArray(raw.mandatory)
+    ? raw.mandatory.map((s) => String(s ?? "").trim()).filter(Boolean)
+    : [];
+  const core = Array.isArray(raw.core)
+    ? raw.core.map((s) => String(s ?? "").trim()).filter(Boolean)
+    : [];
+  const secondary = Array.isArray(raw.secondary)
+    ? raw.secondary.map((s) => String(s ?? "").trim()).filter(Boolean)
+    : [];
+
+  return { mandatory, core, secondary };
+}
+
 function skillsToKeyword(skillsValue) {
-  if (!skillsValue || typeof skillsValue !== "object") return "";
+  const normalized = normalizeSkillsValue(skillsValue);
   const parts = [];
   for (const bucket of ["mandatory", "core", "secondary"]) {
-    const arr = skillsValue[bucket];
-    if (Array.isArray(arr)) {
-      for (const s of arr) {
-        const t = String(s ?? "").trim();
-        if (t) parts.push(t);
-      }
+    for (const s of normalized[bucket]) {
+      if (s) parts.push(s);
     }
   }
   return parts.join(", ");
 }
 
 function keywordToSkills(keyword, existingSkills) {
-  const base =
-    existingSkills && typeof existingSkills === "object"
-      ? {
-          mandatory: Array.isArray(existingSkills.mandatory)
-            ? [...existingSkills.mandatory]
-            : [],
-          core: Array.isArray(existingSkills.core) ? [...existingSkills.core] : [],
-          secondary: Array.isArray(existingSkills.secondary)
-            ? [...existingSkills.secondary]
-            : [],
-        }
-      : { mandatory: [], core: [], secondary: [] };
+  const base = normalizeSkillsValue(existingSkills);
 
   const tokens = String(keyword || "")
     .split(/[,;|]/)
@@ -100,9 +111,17 @@ function keywordToSkills(keyword, existingSkills) {
 
   if (tokens.length === 0) return base;
 
-  const merged = { ...base, core: [...base.core] };
+  const merged = {
+    mandatory: [...base.mandatory],
+    core: [...base.core],
+    secondary: [...base.secondary],
+  };
   for (const t of tokens) {
-    if (!merged.mandatory.includes(t) && !merged.core.includes(t)) {
+    if (
+      !merged.mandatory.includes(t) &&
+      !merged.core.includes(t) &&
+      !merged.secondary.includes(t)
+    ) {
       merged.core.push(t);
     }
   }
@@ -183,9 +202,7 @@ function filterFormFromCreateResponse(futureJobsCreateResponse, requestPayload) 
     searchType:
       allowFallback.length > 0 && allowFallback[0] === "false"
         ? "Strict"
-        : allowFallback.length > 0
-          ? "Flexible"
-          : "",
+        : "Flexible",
     selectRegion:
       queryValues(queries, "country_region")[0] ||
       queryValues(queries, "region")[0] ||
@@ -251,7 +268,15 @@ function mergeFilterFormIntoSession(baseSession, form) {
 
   setQueryIn(queries, "country_region", [form.selectRegion].filter(Boolean), "(.)");
   setQueryIn(queries, "region", [form.location || form.selectRegion].filter(Boolean));
-  setQueryIn(queries, "current_employers.title", [form.currentTitle].filter(Boolean));
+  const titleTokens = String(form.currentTitle || "")
+    .split(/[,;|]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (titleTokens.length > 0) {
+    setQueryIn(queries, "current_employers.title", titleTokens);
+  } else {
+    delete queries["current_employers.title"];
+  }
   setQueryRange(queries, "years_of_experience_raw", form.yearsExpMin, form.yearsExpMax);
   setQueryIn(queries, "seniority_level", [form.seniorityLevel].filter(Boolean));
   if (form.searchOtherRegions) {
@@ -260,6 +285,25 @@ function mergeFilterFormIntoSession(baseSession, form) {
     delete queries.search_other_regions;
   }
   setQueryIn(queries, "current_employers.industry", [form.industry].filter(Boolean));
+  const industryTokens = String(form.industry || "")
+    .split(/[,;|]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (industryTokens.length > 0) {
+    setQueryIn(queries, "all_employers.company_industries", industryTokens);
+  } else {
+    delete queries["all_employers.company_industries"];
+  }
+  setQueryIn(
+    queries,
+    "education_background.degree_name",
+    [form.degree].filter(Boolean)
+  );
+  setQueryIn(
+    queries,
+    "education_background.field_of_study",
+    [form.fieldOfStudy].filter(Boolean)
+  );
   setQueryIn(queries, "education.school", [form.school].filter(Boolean));
   setQueryIn(queries, "education.field_of_study", [form.fieldOfStudy].filter(Boolean));
   setQueryIn(queries, "education.degree", [form.degree].filter(Boolean));
@@ -315,17 +359,11 @@ function mergeFilterFormIntoSession(baseSession, form) {
     [form.recentlyFunded].filter(Boolean)
   );
 
-  const skillsValue = keywordToSkills(form.keywordSkills, existingSkills);
-  const hasSkills =
-    (form.keywordSkills && String(form.keywordSkills).trim() !== "") ||
-    skillsValue.mandatory.length > 0 ||
-    skillsValue.core.length > 0 ||
-    skillsValue.secondary.length > 0;
-  if (hasSkills) {
-    queries.skills = { type: "IN", value: skillsValue };
-  } else {
-    delete queries.skills;
-  }
+  const skillsValue = normalizeSkillsValue(
+    keywordToSkills(form.keywordSkills, existingSkills)
+  );
+  // Future Jobs requires queries.skills.value to be an object on every create.
+  queries.skills = { type: "IN", value: skillsValue };
 
   if (form.searchType === "Strict") {
     queries.allowFallback = { type: "NA", value: [false] };
@@ -385,9 +423,85 @@ function buildSessionPayloadFromPromptAndFilter(prompt, form) {
   return buildSessionPayloadForApply(base, form);
 }
 
+function annotationFieldValues(field) {
+  if (!field || field.presence !== true) return [];
+  const raw = field.value;
+  if (raw == null) return [];
+  if (Array.isArray(raw)) {
+    return raw
+      .filter((x) => x != null && String(x).trim() !== "")
+      .map((x) => String(x).trim());
+  }
+  return [String(raw).trim()].filter(Boolean);
+}
+
+/**
+ * Map POST …/get-annotation `data` object → flat filter form for the drawer.
+ * Only fields with presence: true are applied.
+ */
+function filterFormFromAnnotation(annotationData) {
+  if (!annotationData || typeof annotationData !== "object") {
+    return { ...DEFAULT_FILTER_FORM };
+  }
+
+  const form = { ...DEFAULT_FILTER_FORM };
+
+  const industries = annotationFieldValues(
+    annotationData["all_employers.company_industries"]
+  );
+  if (industries.length > 0) {
+    form.industry = industries.join(", ");
+  }
+
+  const degrees = annotationFieldValues(annotationData["education_background.degree_name"]);
+  if (degrees.length > 0) {
+    form.degree = degrees[0];
+  }
+
+  const fieldsOfStudy = annotationFieldValues(
+    annotationData["education_background.field_of_study"]
+  );
+  if (fieldsOfStudy.length > 0) {
+    form.fieldOfStudy = fieldsOfStudy.join(", ");
+  }
+
+  const yoe = annotationFieldValues(annotationData.years_of_experience_raw);
+  if (yoe.length >= 2) {
+    form.yearsExpMin = yoe[0];
+    form.yearsExpMax = yoe[1];
+  } else if (yoe.length === 1) {
+    form.yearsExpMin = yoe[0];
+    form.yearsExpMax = yoe[0];
+  }
+
+  const titles = annotationFieldValues(annotationData["current_employers.title"]);
+  if (titles.length > 0) {
+    form.currentTitle = titles.join(", ");
+  }
+
+  const regions = annotationFieldValues(annotationData.region);
+  if (regions.length > 0) {
+    form.location = regions[0];
+  }
+
+  const countries = annotationFieldValues(annotationData.country_region);
+  if (countries.length > 0) {
+    form.selectRegion = countries[0];
+  }
+
+  const skillsField = annotationData.skills;
+  if (skillsField && skillsField.presence === true && skillsField.value != null) {
+    const keyword = skillsToKeyword(skillsField.value);
+    if (keyword) form.keywordSkills = keyword;
+  }
+
+  return form;
+}
+
 module.exports = {
   DEFAULT_FILTER_FORM,
   filterFormFromCreateResponse,
+  filterFormFromAnnotation,
   mergeFilterFormIntoSession,
   buildSessionPayloadForApply,
   baseSessionFromPrompt,

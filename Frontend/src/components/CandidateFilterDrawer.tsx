@@ -17,6 +17,7 @@ type Props = {
   onClose: () => void;
   onApply: () => void;
   applyLoading?: boolean;
+  annotateLoading?: boolean;
   title?: string;
 };
 
@@ -31,6 +32,7 @@ export function CandidateFilterDrawer({
   onClose,
   onApply,
   applyLoading = false,
+  annotateLoading = false,
   title = "Set search filters",
 }: Props) {
   const set = (patch: Partial<CandidateFilterForm>) => onChange(patch);
@@ -90,7 +92,17 @@ export function CandidateFilterDrawer({
             </section>
           ) : null}
 
-          <section className="rounded-xl border border-slate-200">
+          {annotateLoading ? (
+            <p className="flex items-center gap-2 rounded-lg border border-[#c2c6d8]/50 bg-[#f1f3ff] px-3 py-2.5 text-sm text-[#424656]">
+              <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
+              Analyzing your prompt and prefilling filters…
+            </p>
+          ) : null}
+
+          <section
+            className={`rounded-xl border border-slate-200${annotateLoading ? " pointer-events-none opacity-60" : ""}`}
+            aria-busy={annotateLoading}
+          >
             <h4 className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold uppercase tracking-[0.12em] text-slate-700">
               General
             </h4>
@@ -99,10 +111,9 @@ export function CandidateFilterDrawer({
                 Search Type
                 <select
                   className={inputClass}
-                  value={form.searchType}
+                  value={form.searchType || "Flexible"}
                   onChange={(e) => set({ searchType: e.target.value })}
                 >
-                  <option value="">—</option>
                   <option value="Flexible">Flexible</option>
                   <option value="Strict">Strict</option>
                 </select>
@@ -432,7 +443,7 @@ export function CandidateFilterDrawer({
             <button
               type="button"
               onClick={onClose}
-              disabled={applyLoading}
+              disabled={applyLoading || annotateLoading}
               className={`${dashboardBtnSecondaryClass} disabled:opacity-50`}
             >
               Cancel
@@ -440,10 +451,14 @@ export function CandidateFilterDrawer({
             <button
               type="button"
               onClick={onApply}
-              disabled={applyLoading}
+              disabled={applyLoading || annotateLoading}
               className={`${dashboardBtnPrimaryClass} disabled:opacity-60`}
             >
-                  {applyLoading ? "Creating search…" : "Apply filters"}
+              {applyLoading
+                ? "Creating search…"
+                : annotateLoading
+                  ? "Analyzing prompt…"
+                  : "Apply filters"}
             </button>
           </div>
         </div>

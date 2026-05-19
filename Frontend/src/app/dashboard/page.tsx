@@ -1461,6 +1461,7 @@ export default function UserDashboardPage() {
     unknown
   > | null>(null);
   const [applyFiltersLoading, setApplyFiltersLoading] = useState(false);
+  const [annotateLoading, setAnnotateLoading] = useState(false);
   const [isPeopleScoutDrawerOpen, setIsPeopleScoutDrawerOpen] = useState(false);
   const [peopleScoutRevealEmail, setPeopleScoutRevealEmail] = useState(false);
   const [peopleScoutRevealPhone, setPeopleScoutRevealPhone] = useState(false);
@@ -2230,7 +2231,11 @@ export default function UserDashboardPage() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
         throw new Error(
-          typeof data.message === "string" ? data.message : "People Scout lookup failed"
+          typeof data.message === "string"
+            ? data.message
+            : res.status === 404
+              ? "Candidate not found"
+              : "People Scout lookup failed"
         );
       }
       const fjRoot = data.futureJobs as
@@ -2340,7 +2345,11 @@ export default function UserDashboardPage() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
         throw new Error(
-          typeof data.message === "string" ? data.message : "Reveal failed"
+          typeof data.message === "string"
+            ? data.message
+            : res.status === 404
+              ? "Contact not found"
+              : "Reveal failed"
         );
       }
       const raw =
@@ -2351,8 +2360,9 @@ export default function UserDashboardPage() {
             : "";
       const upstreamMsg =
         typeof data.upstreamMessage === "string" ? data.upstreamMessage.trim() : "";
-      if (!raw && upstreamMsg) {
-        setProfilesWarning(upstreamMsg);
+      if (!raw) {
+        setProfilesWarning(upstreamMsg || "Contact not found for this profile.");
+        return;
       }
       setPeopleScoutProfile((prev) =>
         prev
@@ -2687,10 +2697,11 @@ export default function UserDashboardPage() {
     applySessionProfilesFromSearchResponse(data as Record<string, unknown>, backTab);
   };
 
-  const handleSearch = () => {
+  const handleSearch = async () => {
     const prompt = aiPrompt.trim();
     setSearchError("");
     setSessionResultError("");
+    setProfilesWarning("");
 
     if (!prompt) {
       setSearchError("Enter a search prompt first.");
@@ -2703,11 +2714,48 @@ export default function UserDashboardPage() {
       return;
     }
 
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
     setFilterSearchPrompt(prompt);
-    setCandidateFilterForm(DEFAULT_CANDIDATE_FILTER_FORM);
     setPendingSearchSessionId(null);
     setPendingSessionPayload(null);
+    setAnnotateLoading(true);
+    setCandidateFilterForm(DEFAULT_CANDIDATE_FILTER_FORM);
     setIsFilterDrawerOpen(true);
+
+    try {
+      const res = await fetch(`${apiBase}/api/candidates/search/annotate`, {
+        method: "POST",
+        headers: authHeaders(auth.token),
+        body: JSON.stringify({
+          prompt,
+          linkedin_profile_url: "",
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(
+          typeof data.message === "string"
+            ? data.message
+            : "Could not analyze your prompt"
+        );
+      }
+      if (data.filterForm && typeof data.filterForm === "object") {
+        setCandidateFilterForm(
+          mergeFilterForm(
+            DEFAULT_CANDIDATE_FILTER_FORM,
+            data.filterForm as Partial<CandidateFilterForm>
+          )
+        );
+      }
+    } catch (err) {
+      setProfilesWarning(
+        err instanceof Error
+          ? `${err.message}. You can set filters manually.`
+          : "Could not prefill filters. You can set them manually."
+      );
+    } finally {
+      setAnnotateLoading(false);
+    }
   };
 
   const handleApplySearchFilters = async () => {
@@ -3181,17 +3229,17 @@ export default function UserDashboardPage() {
   ) => {
     const key = candidateRowKey(candidate);
     const busyKey = revealContactBusyKey(candidate, revealType);
-    if (revealType === "EMAIL") {
-      setRevealedEmail((prev) => (prev.includes(key) ? prev : [...prev, key]));
-    } else {
-      setRevealedPhone((prev) => (prev.includes(key) ? prev : [...prev, key]));
-    }
 
     const cached = revealedContactValues[key];
     if (
       (revealType === "EMAIL" && cached?.email) ||
       (revealType === "PHONE" && cached?.phone)
     ) {
+      if (revealType === "EMAIL") {
+        setRevealedEmail((prev) => (prev.includes(key) ? prev : [...prev, key]));
+      } else {
+        setRevealedPhone((prev) => (prev.includes(key) ? prev : [...prev, key]));
+      }
       return;
     }
 
@@ -3223,15 +3271,24 @@ export default function UserDashboardPage() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
         throw new Error(
-          typeof data.message === "string" ? data.message : "Reveal failed"
+          typeof data.message === "string"
+            ? data.message
+            : res.status === 404
+              ? "Contact not found"
+              : "Reveal failed"
         );
       }
       const value =
         typeof data.value === "string"
-          ? data.value
+          ? data.value.trim()
           : Array.isArray(data.values) && data.values.length > 0
-            ? String(data.values[0])
+            ? String(data.values[0]).trim()
             : "";
+
+      if (!value) {
+        setProfilesWarning("Contact not found for this candidate.");
+        return;
+      }
 
       setRevealedContactValues((prev) => ({
         ...prev,
@@ -3247,6 +3304,12 @@ export default function UserDashboardPage() {
               : prev[key]?.phone,
         },
       }));
+
+      if (revealType === "EMAIL") {
+        setRevealedEmail((prev) => (prev.includes(key) ? prev : [...prev, key]));
+      } else {
+        setRevealedPhone((prev) => (prev.includes(key) ? prev : [...prev, key]));
+      }
     } catch (err) {
       setProfilesWarning(
         err instanceof Error ? err.message : "Could not reveal contact"
@@ -3535,8 +3598,8 @@ export default function UserDashboardPage() {
                 userDisplayName={myProfileForm.fullName}
                 aiPrompt={aiPrompt}
                 onAiPromptChange={setAiPrompt}
-                onSearch={handleSearch}
-                searchLoading={searchLoading || applyFiltersLoading}
+                onSearch={() => void handleSearch()}
+                searchLoading={searchLoading || applyFiltersLoading || annotateLoading}
                 searchError={searchError}
                 profilesWarning={profilesWarning}
                 recentSearches={recentSearches}
@@ -4102,7 +4165,10 @@ export default function UserDashboardPage() {
                 onGoToSessionResults={() => setActiveTab("Session Results")}
               />
             ) : activeTab === "Integrations" ? (
-              <IntegrationsPanel />
+              <IntegrationsPanel
+                currentPlanId={userPlanId}
+                onViewPlans={() => setActiveTab("Plans and pricing")}
+              />
             ) : activeTab === "Plans and pricing" ? (
               <PlansPricingPanel
                 loading={userPricingPlansLoading}
@@ -4138,10 +4204,11 @@ export default function UserDashboardPage() {
           setCandidateFilterForm((prev) => mergeFilterForm(prev, patch))
         }
         onClose={() => {
-          if (!applyFiltersLoading) setIsFilterDrawerOpen(false);
+          if (!applyFiltersLoading && !annotateLoading) setIsFilterDrawerOpen(false);
         }}
         onApply={() => void handleApplySearchFilters()}
         applyLoading={applyFiltersLoading}
+        annotateLoading={annotateLoading}
         title="Set search filters"
       />
 

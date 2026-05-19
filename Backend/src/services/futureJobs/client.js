@@ -771,6 +771,97 @@ const scoutPeopleRevealContact = async (linkedinProfileUrl, revealType) => {
   return data;
 };
 
+/**
+ * POST /wl/sourcing-session/get-annotation — parse JD text into suggested sourcing filters.
+ * @param {{ userText: string, linkedin_profile_url?: string }} body
+ */
+const getSourcingSessionAnnotation = async (body) => {
+  const { baseUrl, apiKey } = getFutureJobsConfig();
+
+  try {
+    assertFutureJobsApiKey(apiKey);
+  } catch (e) {
+    logOutbound(
+      "futurejobs",
+      "getSourcingSessionAnnotation aborted — missing API key",
+      {},
+    );
+    throw e;
+  }
+
+  const userText = typeof body?.userText === "string" ? body.userText.trim() : "";
+  if (!userText) {
+    const err = new Error("userText is required for get-annotation");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const payload = {
+    userText,
+    linkedin_profile_url:
+      typeof body?.linkedin_profile_url === "string" ? body.linkedin_profile_url : "",
+  };
+
+  const url = `${baseUrl}/wl/sourcing-session/get-annotation`;
+  const authHeaders = buildFjAuthHeaders(apiKey);
+
+  logOutbound("futurejobs", "request POST /wl/sourcing-session/get-annotation", {
+    url,
+    userTextLength: userText.length,
+    bodyPreview: safeJsonPreview(payload),
+  });
+
+  const started = Date.now();
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const elapsedMs = Date.now() - started;
+  const text = await res.text();
+  let data;
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { raw: text, parseError: true };
+  }
+
+  if (!res.ok) {
+    logOutbound("futurejobs", "get-annotation response error", {
+      httpStatus: res.status,
+      elapsedMs,
+      message: data.message || data.status || data.error,
+      responseBody: data,
+    });
+    const msg =
+      data.message ||
+      data.status ||
+      data.error ||
+      `Future Jobs get-annotation HTTP ${res.status}`;
+    const err = new Error(msg);
+    err.statusCode = 502;
+    err.details = data;
+    throw err;
+  }
+
+  logOutbound("futurejobs", "get-annotation response ok", {
+    httpStatus: res.status,
+    elapsedMs,
+    status: data.status,
+    statusCode: data.statusCode,
+    fieldCount:
+      data?.data && typeof data.data === "object"
+        ? Object.keys(data.data).length
+        : 0,
+  });
+
+  return data;
+};
+
 module.exports = {
   createSourcingSession,
   updateSourcingSession,
@@ -780,4 +871,5 @@ module.exports = {
   revealSourcingSessionContact,
   scoutPeopleLookup,
   scoutPeopleRevealContact,
+  getSourcingSessionAnnotation,
 };
