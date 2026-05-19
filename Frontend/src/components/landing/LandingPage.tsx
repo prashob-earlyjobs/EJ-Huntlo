@@ -5,69 +5,182 @@ import { LandingLogo } from "./LandingLogo";
 import { LandingNav } from "./LandingNav";
 import { LandingPricingSection } from "./LandingPricingSection";
 import { MaterialIcon } from "./MaterialIcon";
-import { WorkflowVisualization } from "./WorkflowVisualization";
 
-const PIPELINE_STAGES = [
-  { icon: "search", label: "SEARCH", detail: "AI scanning 800M+ nodes", border: "border-[#0050cb]/20" },
-  { icon: "verified", label: "ENRICH", detail: "Validating career intent", border: "border-[#0050cb]/40" },
-  { icon: "forward_to_inbox", label: "OUTREACH", detail: "Hyper-personalized sends", border: "border-[#0050cb]/60" },
-  { icon: "how_to_reg", label: "REPLY", detail: "High-intent conversation", border: "border-[#0050cb]" },
-] as const;
+const HERO_SEARCH_PLACEHOLDER =
+  "Find software engineers in San Francisco with 5+ years of React experience...";
 
-const AGENT_CARDS = [
+const ADVANTAGE_METRICS = [
   {
-    icon: "search_insights",
-    title: "Semantic Orchestrator",
+    variant: "dark" as const,
+    stat: "72%",
+    title: "Response Rate",
     description:
-      "Maps complex job requirements to latent talent patterns across multiple data siloes.",
-    iconBg: "bg-[#0050cb]/20 text-[#0050cb]",
+      "Our AI-powered outreach ensures your messages get seen and replied to.",
   },
   {
-    icon: "forum",
-    title: "Cognitive Engagement",
-    description:
-      "Personalizes every touchpoint based on the candidate's career trajectory and interests.",
-    iconBg: "bg-[#d4e3ff]/80 text-[#505f76]",
+    variant: "light" as const,
+    stat: "200+",
+    title: "Teams",
+    description: "From high-growth startups to enterprise leaders.",
   },
   {
-    icon: "auto_graph",
-    title: "Continuous Learning",
-    description:
-      "The system gets smarter with every hire, refining search parameters automatically.",
-    iconBg: "bg-[#555a5d]/20 text-[#3e4346]",
+    variant: "chart" as const,
+    title: "Time to Hire",
+    description: "Dramatically reduced hiring cycles.",
   },
-] as const;
+  {
+    variant: "blue" as const,
+    stat: "30%",
+    title: "Cost per hire reduction",
+    description: "Stop wasting budget on job boards that don't deliver.",
+  },
+];
 
-const METRICS = [
-  { value: "3X", title: "Faster Discovery", description: "Reduce time-to-source from days to minutes." },
-  { value: "45%", title: "Lower Cost/Hire", description: "Cut agency fees and manual labor overhead." },
-  { value: "82%", title: "Reply Rate", description: "Engineered outreach that actually converts." },
-] as const;
+const SOURCING_FEATURES = [
+  {
+    icon: "search",
+    title: "AI-powered candidate search",
+    description:
+      "Describe your ideal hire in plain English. Huntlo maps intent to talent across millions of profiles.",
+  },
+  {
+    icon: "filter_alt",
+    title: "Smart filters & scoring",
+    description:
+      "Refine by skills, location, experience, and company signals—with match scores you can trust.",
+  },
+  {
+    icon: "person_search",
+    title: "People Scout lookups",
+    description:
+      "Find a single profile by email or LinkedIn when you already know who you want to reach.",
+  },
+];
 
-const ENTERPRISE = [
+const MOCK_CANDIDATES = [
+  { name: "Priya Sharma", role: "Senior React Engineer", location: "Bangalore", score: 94 },
+  { name: "James Chen", role: "Staff Frontend Dev", location: "San Francisco", score: 91 },
+  { name: "Anika Patel", role: "Full Stack Engineer", location: "Remote", score: 88 },
+  { name: "Marcus Webb", role: "Engineering Lead", location: "Austin", score: 86 },
+];
+
+const WORKFLOW_STEPS = [
+  { icon: "description", label: "Post job description" },
+  { icon: "manage_search", label: "AI sources candidates" },
+  { icon: "forward_to_inbox", label: "Automated outreach" },
+  { icon: "event", label: "Schedule interviews" },
+  { icon: "handshake", label: "Make an offer" },
+];
+
+const SUITE_COLUMNS = [
   {
-    icon: "security",
-    title: "SOC2 Type II",
-    description:
-      "Bank-level data protection and rigorous compliance standards for your talent data.",
+    title: "Source",
+    icon: "travel_explore",
+    items: [
+      "AI semantic search",
+      "LinkedIn & profile enrichment",
+      "Candidate pool & history",
+      "Session-based sourcing",
+    ],
   },
   {
-    icon: "database",
-    title: "Elastic Scalability",
-    description:
-      "Scale from 1 to 100,000+ hires per year without hitting architectural bottlenecks.",
+    title: "Engage",
+    icon: "campaign",
+    items: [
+      "Automated email sequences",
+      "WhatsApp-ready workflows",
+      "Hyper-personalized messaging",
+      "Multi-touch follow-ups",
+    ],
   },
   {
-    icon: "api",
-    title: "Custom AI Infra",
-    description:
-      "Deploy proprietary models or integrate existing enterprise tech stacks via robust APIs.",
+    title: "Analyze",
+    icon: "insights",
+    items: [
+      "Pipeline performance reports",
+      "Reply & conversion tracking",
+      "Team utilisation analytics",
+      "ROI dashboards",
+    ],
   },
-] as const;
+];
+
+const IMPACT_STATS = [
+  { value: "5X", label: "Faster hire" },
+  { value: "75%", label: "More candidates" },
+  { value: "30%", label: "Lower cost" },
+];
+
+const ENTERPRISE_BADGES = [
+  { icon: "verified_user", label: "SOC2 Type II" },
+  { icon: "gpp_good", label: "GDPR Compliant" },
+  { icon: "key", label: "SSO Integration" },
+  { icon: "support_agent", label: "24/7 Support" },
+];
+
+const FOOTER_COLUMNS = [
+  {
+    title: "Product",
+    links: ["Search Candidates", "People Scout", "Candidate Pool", "Integrations"],
+  },
+  {
+    title: "Company",
+    links: ["About", "Careers", "Contact", "Blog"],
+  },
+  {
+    title: "Resources",
+    links: ["Documentation", "Help Center", "API", "Status"],
+  },
+  {
+    title: "Legal",
+    links: ["Privacy", "Terms", "Security", "Cookies"],
+  },
+];
 
 type LandingPageProps = {
   pricingPlans?: PricingPlansPayload | null;
 };
+
+function CandidateRow({
+  name,
+  role,
+  location,
+  score,
+}: {
+  name: string;
+  role: string;
+  location: string;
+  score: number;
+}) {
+  const initials = name
+    .split(" ")
+    .map((n) => n[0])
+    .join("")
+    .slice(0, 2);
+  return (
+    <div className="flex items-center gap-3 border-b border-[#c3c6d6]/20 px-4 py-3 last:border-b-0">
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#0050cb]/15 text-xs font-bold text-[#0050cb]">
+        {initials}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-semibold text-[#141b2b]">{name}</p>
+        <p className="truncate text-xs text-[#434654]">
+          {role} · {location}
+        </p>
+      </div>
+      <span className="shrink-0 rounded-full bg-[#0050cb]/10 px-2 py-0.5 text-xs font-semibold text-[#0050cb]">
+        {score}%
+      </span>
+      <button
+        type="button"
+        className="hidden shrink-0 rounded-lg bg-[#0050cb] px-3 py-1.5 text-xs font-medium text-white sm:block"
+      >
+        View
+      </button>
+    </div>
+  );
+}
+
 
 export function LandingPage({ pricingPlans = null }: LandingPageProps) {
   return (
@@ -75,301 +188,328 @@ export function LandingPage({ pricingPlans = null }: LandingPageProps) {
       <LandingNav />
 
       {/* Hero */}
-      <section className="relative flex min-h-[95vh] flex-col items-center overflow-hidden px-4 pb-48 pt-24 md:px-16">
-        <div className="pointer-events-none absolute inset-0 z-0 opacity-40">
-          <div className="absolute right-[-5%] top-[-10%] h-[800px] w-[800px] rounded-full bg-[#dae1ff] blur-[160px] mix-blend-multiply" />
-          <div className="absolute bottom-[10%] left-[-10%] h-[600px] w-[600px] rounded-full bg-[#d4e3ff] blur-[140px] mix-blend-multiply" />
+      <section className="relative overflow-hidden px-4 pb-16 pt-12 md:px-8 md:pb-24 md:pt-16 lg:px-12">
+        <div className="pointer-events-none absolute inset-0">
+          <div className="absolute left-1/2 top-0 h-[520px] w-[900px] -translate-x-1/2 rounded-full bg-[#dae1ff]/60 blur-[100px]" />
         </div>
-
-        <div className="relative z-10 mx-auto mb-24 max-w-5xl text-center">
-          <div className="landing-subtle-border mb-8 inline-flex items-center gap-2 rounded-full bg-[#0050cb]/5 px-4 py-1.5">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-[#0050cb]" />
-            <span className="text-xs font-semibold uppercase tracking-widest text-[#0050cb]">
-              Huntlo Infrastructure 3.0
-            </span>
-          </div>
-          <h1 className="mb-8 text-[48px] font-bold leading-[1.05] tracking-tight text-[#141b2b] md:text-[76px]">
-            The AI{" "}
-            <span className="bg-gradient-to-r from-[#0050cb] to-[#0054d6] bg-clip-text text-transparent">
-              Neural Layer
-            </span>
+        <div className="relative z-10 mx-auto max-w-4xl text-center">
+          <h1 className="text-4xl font-bold leading-[1.1] tracking-tight text-[#141b2b] md:text-5xl lg:text-[56px]">
+            Stop Posting Jobs.
             <br />
-            for Global Recruiting
+            Start Getting Candidates Who Actually Reply.
           </h1>
-          <p className="mx-auto mb-12 max-w-2xl text-lg leading-relaxed text-[#434654] opacity-80">
-            Orchestrate entire talent pipelines with autonomous agents. The infrastructure that
-            powers the world&apos;s highest-performing engineering teams.
+          <p className="mx-auto mt-6 max-w-2xl text-base leading-relaxed text-[#434654] md:text-lg">
+            The world&apos;s first AI-powered outbound recruiting platform. Reach top talent in
+            seconds, not weeks.
           </p>
-          <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
+          <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <Link
               href="/signup"
-              className="w-full rounded-full bg-[#0050cb] px-10 py-4 text-sm font-medium text-white shadow-2xl shadow-[#0050cb]/30 transition-all hover:-translate-y-1 hover:bg-[#003fa4] sm:w-auto"
+              className="w-full rounded-full bg-[#0050cb] px-8 py-3.5 text-sm font-semibold text-white shadow-lg shadow-[#0050cb]/25 transition-all hover:bg-[#003fa4] sm:w-auto"
             >
-              Deploy AI Workforce
+              Get Started
             </Link>
             <button
               type="button"
-              className="landing-glass-panel flex w-full items-center justify-center gap-2 rounded-full px-10 py-4 text-sm font-medium text-[#141b2b] transition-all hover:bg-[#f1f3ff] sm:w-auto"
+              className="flex w-full items-center justify-center gap-2 rounded-full border border-[#c3c6d6]/50 bg-white px-8 py-3.5 text-sm font-semibold text-[#141b2b] transition-all hover:border-[#0050cb]/30 hover:bg-[#f1f3ff] sm:w-auto"
             >
-              <MaterialIcon name="play_circle" className="text-[20px]" />
-              Watch Architecture
+              <MaterialIcon name="play_circle" className="text-[20px] text-[#0050cb]" />
+              Watch Demo
             </button>
           </div>
-        </div>
 
-        <div className="group relative mx-auto mt-12 w-full max-w-6xl">
-          <div className="absolute -inset-10 rounded-[40px] bg-gradient-to-b from-[#0050cb]/10 to-transparent opacity-50 blur-3xl" />
-          <div className="landing-glass-panel landing-ambient-shadow relative flex aspect-video w-full flex-col items-center justify-center overflow-hidden rounded-[32px] p-8">
-            <WorkflowVisualization />
-            <div className="landing-glass-panel absolute left-10 top-10 flex items-center gap-2 rounded-xl border border-[#0050cb]/20 px-4 py-2 font-mono text-xs text-[#0050cb]">
-              <span className="h-2 w-2 rounded-full bg-green-500" />
-              AGENT_RUNNING: sourcing_engine_v4
-            </div>
-            <div className="landing-glass-panel absolute bottom-10 right-10 rounded-xl border border-[#0050cb]/20 px-4 py-2 font-mono text-xs text-[#0050cb]">
-              PIPELINE_EFFICIENCY: 98.4%
+          <div className="landing-ambient-shadow mx-auto mt-12 max-w-3xl rounded-2xl border border-[#c3c6d6]/30 bg-white p-2 shadow-xl">
+            <div className="flex items-center gap-2 rounded-xl bg-[#f1f3ff]/80 px-4 py-3">
+              <MaterialIcon name="search" className="shrink-0 text-[#0050cb]" />
+              <span className="flex-1 truncate text-left text-sm text-[#434654]/80">
+                {HERO_SEARCH_PLACEHOLDER}
+              </span>
+              <span className="shrink-0 rounded-lg bg-[#0050cb] px-4 py-2 text-xs font-semibold text-white">
+                Search
+              </span>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Agents */}
-      <section className="bg-white px-4 py-32 md:px-16" id="solutions">
-        <div className="mx-auto flex max-w-7xl flex-col items-center">
-          <div className="mb-20 max-w-3xl text-center">
-            <h2 className="mb-6 text-4xl font-bold tracking-tight text-[#141b2b] md:text-5xl">
-              Autonomous Recruiter Agents
+      {/* Huntlo Advantage */}
+      <section className="px-4 py-16 md:px-8 lg:px-12" id="solutions">
+        <div className="mx-auto max-w-7xl">
+          <div className="mb-10 text-center">
+            <h2 className="text-3xl font-bold tracking-tight text-[#141b2b] md:text-4xl">
+              The Huntlo Advantage
             </h2>
-            <p className="text-lg text-[#434654]">
-              Don&apos;t just use tools. Deploy agents that think, search, and engage just like your
-              best recruiters.
-            </p>
+            <p className="mt-2 text-[#434654]">Results that speak for themselves.</p>
           </div>
-          <div className="landing-glass-panel landing-ambient-shadow relative w-full max-w-4xl rounded-[32px] p-8">
-            <div className="mb-12 flex items-center gap-4 rounded-2xl border border-[#0050cb]/10 bg-[#f1f3ff] p-4">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#0050cb] text-white">
-                <MaterialIcon name="smart_toy" className="text-[20px]" />
-              </div>
-              <div className="min-w-0 flex-grow">
-                <div className="mb-1 text-sm font-semibold text-[#0050cb]">Huntlo Agent Beta</div>
-                <div className="landing-typing-effect max-w-fit font-mono text-sm text-[#434654]">
-                  Find senior backend engineers in Bangalore with Fintech experience...
-                </div>
-              </div>
-              <button
-                type="button"
-                className="shrink-0 rounded-lg bg-[#0050cb] px-4 py-2 text-xs font-bold text-white"
-              >
-                EXECUTE
-              </button>
-            </div>
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-              {AGENT_CARDS.map((card) => (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {ADVANTAGE_METRICS.map((card) => {
+              if (card.variant === "chart") {
+                return (
+                  <div
+                    key={card.title}
+                    className="flex flex-col justify-between rounded-2xl border border-[#c3c6d6]/30 bg-white p-6"
+                  >
+                    <div>
+                      <h3 className="text-lg font-bold text-[#141b2b]">{card.title}</h3>
+                      <p className="mt-1 text-sm text-[#434654]">{card.description}</p>
+                    </div>
+                    <div className="mt-6 flex h-24 items-end justify-center gap-2">
+                      {[48, 72, 88, 96].map((h, i) => (
+                        <div
+                          key={i}
+                          className="flex w-8 flex-col justify-end rounded-t-md bg-[#0050cb]/15"
+                          style={{ height: `${h}px` }}
+                        >
+                          <div
+                            className="w-full rounded-t-md bg-[#0050cb]"
+                            style={{ height: `${Math.round(h * 0.72)}px` }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              }
+              const isDark = card.variant === "dark";
+              const isBlue = card.variant === "blue";
+              return (
                 <div
                   key={card.title}
-                  className="group cursor-default rounded-2xl border border-[#c3c6d6]/30 bg-white/50 p-6 transition-all hover:border-[#0050cb]/40"
+                  className={`flex flex-col justify-between rounded-2xl p-6 ${
+                    isDark
+                      ? "bg-[#141b2b] text-white"
+                      : isBlue
+                        ? "bg-[#0050cb] text-white"
+                        : "border border-[#c3c6d6]/30 bg-white"
+                  }`}
                 >
-                  <div
-                    className={`mb-4 flex h-12 w-12 items-center justify-center rounded-xl transition-transform group-hover:scale-110 ${card.iconBg}`}
-                  >
-                    <MaterialIcon name={card.icon} />
+                  <div>
+                    <p
+                      className={`text-3xl font-bold md:text-4xl ${
+                        isDark || isBlue ? "text-white" : "text-[#0050cb]"
+                      }`}
+                    >
+                      {card.stat}
+                    </p>
+                    <h3
+                      className={`mt-2 text-lg font-bold ${
+                        isDark || isBlue ? "text-white" : "text-[#141b2b]"
+                      }`}
+                    >
+                      {card.title}
+                    </h3>
                   </div>
-                  <h4 className="mb-2 text-base font-semibold">{card.title}</h4>
-                  <p className="text-sm text-[#434654] opacity-70">{card.description}</p>
+                  <p
+                    className={`mt-4 text-sm leading-relaxed ${
+                      isDark || isBlue ? "text-white/80" : "text-[#434654]"
+                    }`}
+                  >
+                    {card.description}
+                  </p>
                 </div>
-              ))}
-            </div>
+              );
+            })}
           </div>
         </div>
       </section>
 
-      {/* Bento features */}
-      <section className="bg-[#faf9ff] px-4 py-32 md:px-16" id="product">
-        <div className="mx-auto max-w-7xl">
-          <div className="mb-16">
-            <h2 className="mb-4 text-4xl font-bold tracking-tight text-[#141b2b] md:text-5xl">
-              Precision Engineered Features
+      {/* AI Sourcing */}
+      <section className="bg-white px-4 py-20 md:px-8 lg:px-12" id="product">
+        <div className="mx-auto grid max-w-7xl gap-12 lg:grid-cols-2 lg:items-center">
+          <div>
+            <h2 className="text-3xl font-bold tracking-tight text-[#141b2b] md:text-4xl">
+              Find the Right Candidates for Your Role—in Minutes
             </h2>
-            <p className="max-w-2xl text-lg text-[#434654]">
-              A modular ecosystem for the modern hiring architecture.
-            </p>
-          </div>
-          <div className="grid auto-rows-[280px] grid-cols-1 gap-6 md:grid-cols-12">
-            <div className="landing-ambient-shadow group relative overflow-hidden rounded-[32px] border border-[#c3c6d6]/30 bg-white p-10 md:col-span-8">
-              <div className="relative z-10 max-w-md">
-                <div className="mb-6 flex h-12 w-12 items-center justify-center rounded-xl bg-[#0050cb]/10 text-[#0050cb]">
-                  <MaterialIcon name="psychology" />
-                </div>
-                <h3 className="mb-3 text-2xl font-semibold text-[#141b2b]">AI Semantic Search</h3>
-                <p className="text-[#434654] opacity-80">
-                  Our proprietary LLM understands intent, not just keywords. Search across 800M+
-                  profiles using natural language descriptions of your ideal candidate.
-                </p>
-              </div>
-              <div className="absolute bottom-0 right-0 h-full w-1/2 translate-y-10 opacity-20 transition-all duration-500 group-hover:translate-y-4 group-hover:opacity-100">
-                <div className="h-full rounded-tl-[40px] border-l border-t border-[#0050cb]/20 bg-gradient-to-tl from-[#0050cb]/20 to-transparent p-8">
-                  <div className="space-y-4">
-                    <div className="h-4 w-full rounded bg-[#0050cb]/30" />
-                    <div className="h-4 w-5/6 rounded bg-[#0050cb]/20" />
-                    <div className="h-4 w-4/6 rounded bg-[#0050cb]/10" />
+            <ul className="mt-8 space-y-6">
+              {SOURCING_FEATURES.map((f) => (
+                <li key={f.title} className="flex gap-4">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#0050cb]/10 text-[#0050cb]">
+                    <MaterialIcon name={f.icon} />
                   </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="group relative flex flex-col justify-between overflow-hidden rounded-[32px] bg-[#0050cb] p-10 text-white shadow-xl shadow-[#0050cb]/20 md:col-span-4">
-              <div className="absolute -right-12 -top-12 h-48 w-48 rounded-full bg-white/10 blur-3xl transition-transform duration-700 group-hover:scale-125" />
-              <div>
-                <div className="mb-6 flex h-12 w-12 items-center justify-center rounded-xl bg-white/20 backdrop-blur-md">
-                  <MaterialIcon name="chat_bubble" />
-                </div>
-                <h3 className="mb-3 text-2xl font-semibold">WhatsApp Workflows</h3>
-                <p className="text-[#c3c7ca]">
-                  Reach talent where they respond. 3x higher response rates than email sequences.
-                </p>
-              </div>
-              <div className="w-fit rounded-full bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-widest">
-                92% Open Rate
-              </div>
-            </div>
-
-            <div className="group flex flex-col items-center justify-center rounded-[32px] border border-[#c3c6d6]/30 bg-white p-8 text-center transition-colors hover:bg-[#f1f3ff] md:col-span-4">
-              <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#d4e3ff]/50 text-[#505f76] transition-transform group-hover:rotate-12">
-                <MaterialIcon name="auto_awesome" className="text-[32px]" />
-              </div>
-              <h3 className="mb-2 text-xl font-semibold">Hyper-Personalization</h3>
-              <p className="text-sm text-[#434654]">
-                Automated outreach that reads like it was written by a human expert.
+                  <div>
+                    <h3 className="font-semibold text-[#141b2b]">{f.title}</h3>
+                    <p className="mt-1 text-sm leading-relaxed text-[#434654]">{f.description}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="landing-ambient-shadow overflow-hidden rounded-2xl border border-[#c3c6d6]/30 bg-[#f1f3ff]/50">
+            <div className="border-b border-[#c3c6d6]/20 bg-white px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-[#434654]">
+                Matching candidates
               </p>
             </div>
-
-            <div className="group flex flex-col items-center justify-center rounded-[32px] border border-[#c3c6d6]/30 bg-white p-8 text-center transition-colors hover:bg-[#f1f3ff] md:col-span-4">
-              <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#555a5d]/30 text-[#3e4346] transition-transform group-hover:-rotate-12">
-                <MaterialIcon name="analytics" className="text-[32px]" />
-              </div>
-              <h3 className="mb-2 text-xl font-semibold">Real-time Insights</h3>
-              <p className="text-sm text-[#434654]">
-                Track every conversion and funnel drop-off with pixel-perfect precision.
-              </p>
-            </div>
-
-            <div className="group relative overflow-hidden rounded-[32px] border border-[#c3c6d6]/30 bg-[#f1f3ff] p-10 md:col-span-4">
-              <div className="relative z-10">
-                <div className="mb-6 flex h-12 w-12 items-center justify-center rounded-xl bg-[#141b2b]/5 text-[#141b2b]">
-                  <MaterialIcon name="reorder" />
-                </div>
-                <h3 className="mb-3 text-2xl font-semibold">Multi-touch Sequences</h3>
-                <p className="text-[#434654]">
-                  Coordinate email, WhatsApp, and LinkedIn touchpoints in a single flow.
-                </p>
-              </div>
-            </div>
+            {MOCK_CANDIDATES.map((c) => (
+              <CandidateRow key={c.name} {...c} />
+            ))}
           </div>
         </div>
       </section>
 
-      {/* Comparison */}
-      <section className="overflow-hidden bg-white px-4 py-32 md:px-16" id="company">
-        <div className="mx-auto max-w-7xl">
-          <div className="flex flex-col items-center gap-12 md:flex-row">
-            <div className="w-full rounded-[40px] bg-[#f1f3ff] p-12 opacity-60 md:w-1/2">
-              <h4 className="mb-8 text-xs font-semibold uppercase tracking-widest text-[#434654]">
-                Traditional Recruiting
-              </h4>
-              <div className="space-y-6">
-                {[
-                  ["grid_on", "Static Spreadsheets & Notes"],
-                  ["schedule", "4-6 Hours Manual Sourcing / Day"],
-                  ["mail_outline", "Generic Templates & Low Replies"],
-                  ["warning", "Fragmented Data & Missed Talent"],
-                ].map(([icon, text]) => (
-                  <div
-                    key={text}
-                    className="flex items-center gap-4 italic text-[#434654]/70"
-                  >
-                    <MaterialIcon name={icon} />
-                    {text}
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="relative w-full overflow-hidden rounded-[40px] bg-[#0050cb] p-12 text-white shadow-2xl shadow-[#0050cb]/40 md:w-1/2">
-              <div className="absolute right-0 top-0 p-8 opacity-20">
-                <MaterialIcon name="bolt" className="text-[120px]" />
-              </div>
-              <h4 className="mb-8 text-xs font-semibold uppercase tracking-widest text-[#dae1ff]">
-                The Huntlo Way
-              </h4>
-              <div className="space-y-6">
-                {[
-                  ["auto_fix_high", "Unified AI Infrastructure"],
-                  ["speed", "Instant Sourcing & Automation"],
-                  ["star", "Personalized High-Intent Outreach"],
-                  ["hub", "Global Talent Node Connectivity"],
-                ].map(([icon, text]) => (
-                  <div key={text} className="flex items-center gap-4 font-semibold">
-                    <MaterialIcon name={icon} className="text-[#dae1ff]" />
-                    {text}
-                  </div>
-                ))}
-              </div>
-              <div className="mt-12 rounded-2xl bg-white/10 p-6 backdrop-blur-md">
-                <div className="text-3xl font-bold">+300%</div>
-                <div className="text-sm opacity-80">Productivity Uplift</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Pipeline */}
-      <section className="bg-[#faf9ff] px-4 py-32 md:px-16">
-        <div className="mx-auto mb-20 max-w-5xl text-center">
-          <h2 className="mb-4 text-4xl font-bold tracking-tight text-[#141b2b] md:text-5xl">
-            Live Pipeline Visualization
+      {/* Workflow */}
+      <section className="bg-[#faf9ff] px-4 py-20 md:px-8 lg:px-12">
+        <div className="mx-auto max-w-7xl text-center">
+          <h2 className="text-3xl font-bold tracking-tight text-[#141b2b] md:text-4xl">
+            From Description to Offer
           </h2>
-          <p className="text-[#434654]">The engine behind 10,000+ monthly hires.</p>
-        </div>
-        <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 md:flex-row">
-          {PIPELINE_STAGES.map((stage, idx) => (
-            <div key={stage.label} className="contents">
-              <div
-                className={`landing-glass-panel flex w-full flex-col items-center gap-4 rounded-2xl border-b-4 p-6 text-center md:w-1/5 ${stage.border}`}
-              >
-                <MaterialIcon name={stage.icon} className="text-[#0050cb]" />
-                <div className="text-sm font-bold">{stage.label}</div>
-                <div className="text-[10px] text-[#434654] opacity-60">{stage.detail}</div>
-              </div>
-              {idx < PIPELINE_STAGES.length - 1 ? (
-                <div className="relative hidden h-[2px] flex-grow overflow-hidden bg-gradient-to-r from-[#0050cb]/20 to-[#0050cb]/40 md:block">
+          <p className="mt-2 text-[#434654]">The fastest way to hire top talent.</p>
+          <div className="mt-14 flex flex-col items-stretch gap-8 md:flex-row md:items-start md:justify-between">
+            {WORKFLOW_STEPS.map((step, idx) => (
+              <div key={step.label} className="relative flex flex-1 flex-col items-center">
+                {idx < WORKFLOW_STEPS.length - 1 ? (
                   <div
-                    className="landing-pipeline-dash absolute inset-0 w-1/4 bg-[#0050cb]"
-                    style={{ animationDelay: `${idx * 0.5}s` }}
+                    className="absolute left-[calc(50%+28px)] top-7 hidden h-0.5 w-[calc(100%-56px)] bg-[#0050cb]/20 md:block"
+                    aria-hidden
                   />
+                ) : null}
+                <div className="relative z-10 flex h-14 w-14 items-center justify-center rounded-full border-2 border-[#0050cb]/30 bg-white text-[#0050cb] shadow-sm">
+                  <MaterialIcon name={step.icon} />
                 </div>
-              ) : null}
-            </div>
-          ))}
+                <p className="mt-4 max-w-[140px] text-center text-sm font-medium text-[#141b2b]">
+                  {step.label}
+                </p>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
-      {/* Metrics */}
-      <section className="bg-[#f1f3ff] px-4 py-32 md:px-16">
+      {/* Bento — high volume hiring */}
+      <section className="px-4 py-20 md:px-8 lg:px-12" id="resources">
         <div className="mx-auto max-w-7xl">
-          <h2 className="mb-16 text-center text-4xl font-bold tracking-tight text-[#141b2b] md:text-5xl">
-            Unprecedented Efficiency
+          <h2 className="mb-10 text-center text-3xl font-bold tracking-tight text-[#141b2b] md:text-4xl">
+            Built for High-Volume Hiring Teams
           </h2>
-          <div className="grid grid-cols-1 gap-8 md:grid-cols-3">
-            {METRICS.map((metric, idx) => (
-              <div
-                key={metric.title}
-                className="landing-ambient-shadow rounded-[40px] bg-white p-10 text-center transition-transform duration-500 hover:-translate-y-2"
-                style={{ transitionDelay: `${idx * 75}ms` }}
-              >
-                <div className="landing-metric-counter mb-4 text-5xl font-bold text-[#0050cb]">
-                  {metric.value}
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="rounded-2xl border border-[#c3c6d6]/30 bg-[#f1f3ff] p-8 md:row-span-2">
+              <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-[#0050cb]/10 text-[#0050cb]">
+                <MaterialIcon name="manage_search" />
+              </div>
+              <h3 className="text-xl font-bold text-[#141b2b]">Candidate Search</h3>
+              <p className="mt-2 text-sm text-[#434654]">
+                Natural-language sourcing with AI filters, session results, and a unified candidate
+                pool.
+              </p>
+              <div className="mt-6 rounded-xl border border-[#c3c6d6]/25 bg-white p-4">
+                <div className="mb-2 h-3 w-3/4 rounded bg-[#0050cb]/20" />
+                <div className="space-y-2">
+                  <div className="h-2 w-full rounded bg-[#0050cb]/10" />
+                  <div className="h-2 w-5/6 rounded bg-[#0050cb]/10" />
+                  <div className="h-2 w-4/6 rounded bg-[#0050cb]/10" />
                 </div>
-                <h4 className="mb-2 text-base font-semibold">{metric.title}</h4>
-                <p className="text-sm text-[#434654]">{metric.description}</p>
+              </div>
+            </div>
+            <div className="rounded-2xl bg-[#0050cb] p-8 text-white">
+              <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-white/20">
+                <MaterialIcon name="campaign" />
+              </div>
+              <h3 className="text-xl font-bold">Automated Outreach</h3>
+              <p className="mt-2 text-sm text-white/85">
+                Sequences that feel personal—email, WhatsApp, and LinkedIn in one flow.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-[#c3c6d6]/30 bg-white p-8">
+              <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-[#d4e3ff] text-[#0050cb]">
+                <MaterialIcon name="folder_shared" />
+              </div>
+              <h3 className="text-xl font-bold text-[#141b2b]">Candidate Management</h3>
+              <p className="mt-2 text-sm text-[#434654]">
+                Save lists, track unveils, and keep your pipeline organized.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-[#c3c6d6]/30 bg-white p-8">
+              <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-[#f1f3ff] text-[#0050cb]">
+                <MaterialIcon name="groups" />
+              </div>
+              <h3 className="text-xl font-bold text-[#141b2b]">Collaborative Hiring</h3>
+              <p className="mt-2 text-sm text-[#434654]">
+                Share pools and insights across your recruiting team.
+              </p>
+              <div className="mt-4 flex -space-x-2">
+                {["PS", "JC", "AP"].map((initials) => (
+                  <div
+                    key={initials}
+                    className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-white bg-[#0050cb]/15 text-xs font-bold text-[#0050cb]"
+                  >
+                    {initials}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Video placeholder */}
+      <section className="bg-[#faf9ff] px-4 py-20 md:px-8 lg:px-12">
+        <div className="mx-auto max-w-4xl text-center">
+          <h2 className="text-3xl font-bold tracking-tight text-[#141b2b] md:text-4xl">
+            Experience The Huntlo Advantage
+          </h2>
+          <p className="mt-2 text-[#434654]">
+            See how Huntlo transforms your hiring process in under two minutes.
+          </p>
+          <button
+            type="button"
+            className="landing-ambient-shadow group relative mx-auto mt-10 flex aspect-video w-full max-w-3xl items-center justify-center overflow-hidden rounded-2xl border border-[#c3c6d6]/30 bg-white transition-shadow hover:shadow-xl"
+            aria-label="Play product demo video"
+          >
+            <div className="absolute inset-0 bg-gradient-to-br from-[#f1f3ff] to-[#dae1ff]/40" />
+            <span className="relative flex h-16 w-16 items-center justify-center rounded-full bg-[#0050cb] text-white shadow-lg transition-transform group-hover:scale-105">
+              <MaterialIcon name="play_arrow" className="text-[36px]" />
+            </span>
+          </button>
+        </div>
+      </section>
+
+      {/* Recruiting suite */}
+      <section className="px-4 py-20 md:px-8 lg:px-12">
+        <div className="mx-auto max-w-7xl">
+          <div className="mb-12 text-center">
+            <h2 className="text-3xl font-bold tracking-tight text-[#141b2b] md:text-4xl">
+              The Complete Recruiting Suite
+            </h2>
+            <p className="mt-2 text-[#434654]">Everything you need to hire at scale.</p>
+          </div>
+          <div className="grid grid-cols-1 gap-8 md:grid-cols-3">
+            {SUITE_COLUMNS.map((col) => (
+              <div
+                key={col.title}
+                className="rounded-2xl border border-[#c3c6d6]/30 bg-white p-8"
+              >
+                <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-[#0050cb]/10 text-[#0050cb]">
+                  <MaterialIcon name={col.icon} className="text-[28px]" />
+                </div>
+                <h3 className="text-xl font-bold text-[#141b2b]">{col.title}</h3>
+                <ul className="mt-6 space-y-3">
+                  {col.items.map((item) => (
+                    <li key={item} className="flex items-start gap-2 text-sm text-[#434654]">
+                      <MaterialIcon
+                        name="check_circle"
+                        className="mt-0.5 shrink-0 text-base text-[#0050cb]"
+                      />
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Impact */}
+      <section className="bg-[#f1f3ff] px-4 py-20 md:px-8 lg:px-12">
+        <div className="mx-auto max-w-7xl text-center">
+          <h2 className="text-3xl font-bold tracking-tight text-[#141b2b] md:text-4xl">
+            Measurable Impact from Day One
+          </h2>
+          <div className="mt-12 grid grid-cols-1 gap-8 sm:grid-cols-3">
+            {IMPACT_STATS.map((s) => (
+              <div key={s.label}>
+                <p className="text-5xl font-bold text-[#0050cb] md:text-6xl">{s.value}</p>
+                <p className="mt-2 text-lg font-medium text-[#141b2b]">{s.label}</p>
               </div>
             ))}
           </div>
@@ -377,26 +517,20 @@ export function LandingPage({ pricingPlans = null }: LandingPageProps) {
       </section>
 
       {/* Enterprise */}
-      <section className="relative overflow-hidden bg-[#faf9ff] px-4 py-32 md:px-16">
-        <div className="relative z-10 mx-auto max-w-7xl">
-          <div className="mb-20 text-center">
-            <h2 className="mb-4 text-4xl font-bold tracking-tight text-[#141b2b] md:text-5xl">
-              Enterprise-Grade Infrastructure
-            </h2>
-            <p className="text-[#434654]">
-              Built for the security and scale of global corporations.
-            </p>
-          </div>
-          <div className="grid grid-cols-1 gap-8 md:grid-cols-3">
-            {ENTERPRISE.map((item, idx) => (
+      <section className="px-4 py-20 md:px-8 lg:px-12" id="company">
+        <div className="mx-auto max-w-7xl text-center">
+          <h2 className="text-3xl font-bold tracking-tight text-[#141b2b] md:text-4xl">
+            Enterprise-Grade by Design
+          </h2>
+          <p className="mt-2 text-[#434654]">Built with security and compliance in mind.</p>
+          <div className="mt-12 grid grid-cols-2 gap-6 md:grid-cols-4">
+            {ENTERPRISE_BADGES.map((b) => (
               <div
-                key={item.title}
-                className="landing-glass-panel landing-animate-float rounded-3xl p-8"
-                style={{ animationDelay: `${idx}s` }}
+                key={b.label}
+                className="flex flex-col items-center gap-3 rounded-2xl border border-[#c3c6d6]/30 bg-white p-6"
               >
-                <MaterialIcon name={item.icon} className="mb-6 text-[40px] text-[#0050cb]" />
-                <h4 className="mb-4 text-base font-semibold">{item.title}</h4>
-                <p className="text-sm text-[#434654]">{item.description}</p>
+                <MaterialIcon name={b.icon} className="text-[40px] text-[#0050cb]" />
+                <span className="text-sm font-semibold text-[#141b2b]">{b.label}</span>
               </div>
             ))}
           </div>
@@ -405,89 +539,71 @@ export function LandingPage({ pricingPlans = null }: LandingPageProps) {
 
       <LandingPricingSection pricingPlans={pricingPlans} />
 
-
-      {/* CTA */}
-      <section className="relative overflow-hidden bg-[#0050cb] px-4 py-48 text-center text-white md:px-16">
-        <div className="pointer-events-none absolute inset-0 opacity-20">
-          <div className="absolute left-1/2 top-1/2 h-[1200px] w-[1200px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-white blur-[200px]" />
+      {/* Final CTA */}
+      <section className="relative overflow-hidden bg-[#141b2b] px-4 py-24 text-center text-white md:px-8 lg:px-12">
+        <div className="pointer-events-none absolute inset-0 opacity-30">
+          <div className="absolute left-1/2 top-0 h-[400px] w-[600px] -translate-x-1/2 rounded-full bg-[#0050cb] blur-[120px]" />
         </div>
-        <div className="relative z-10 mx-auto max-w-4xl">
-          <h2 className="mb-8 text-[40px] font-bold leading-tight md:text-[64px]">
-            Ready to build the future of your talent team?
+        <div className="relative z-10 mx-auto max-w-3xl">
+          <h2 className="text-3xl font-bold leading-tight md:text-4xl lg:text-5xl">
+            The Best Talent Is Already Out There.
+            <br />
+            Huntlo Helps You Reach Them First.
           </h2>
-          <p className="mx-auto mb-12 max-w-2xl text-lg opacity-80">
-            Join 500+ high-growth companies deploying AI infrastructure for recruiting.
+          <p className="mx-auto mt-6 max-w-xl text-lg text-white/75">
+            Join hundreds of companies using Huntlo to hire top talent faster.
           </p>
-          <div className="flex flex-col items-center justify-center gap-6 sm:flex-row">
+          <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
             <Link
               href="/signup"
-              className="w-full rounded-full bg-white px-12 py-5 font-bold text-[#0050cb] shadow-2xl transition-all hover:scale-105 hover:bg-[#faf9ff] sm:w-auto"
+              className="w-full rounded-full bg-white px-10 py-4 text-sm font-bold text-[#0050cb] shadow-xl transition-all hover:bg-[#f1f3ff] sm:w-auto"
             >
-              Deploy Now - Free Trial
+              Get Started
             </Link>
             <Link
               href="/signup"
-              className="w-full rounded-full border border-white/20 bg-white/10 px-12 py-5 font-bold transition-all hover:bg-white/20 sm:w-auto"
+              className="w-full rounded-full border border-white/30 px-10 py-4 text-sm font-semibold text-white transition-all hover:bg-white/10 sm:w-auto"
             >
-              Book Technical Demo
+              Book a Demo
             </Link>
           </div>
         </div>
       </section>
 
       {/* Footer */}
-      <footer className="w-full border-t border-[#c3c6d6]/30 bg-white py-20">
-        <div className="mx-auto grid max-w-7xl grid-cols-1 gap-6 px-4 md:grid-cols-4 md:px-16">
-          <div>
-            <Link href="/" className="mb-6 inline-block">
-              <LandingLogo className="h-12 w-auto opacity-80 grayscale md:h-14" />
+      <footer className="border-t border-[#c3c6d6]/25 bg-white py-16">
+        <div className="mx-auto grid max-w-7xl grid-cols-1 gap-10 px-4 md:grid-cols-5 md:px-8 lg:px-12">
+          <div className="md:col-span-1">
+            <Link href="/" className="inline-block">
+              <LandingLogo className="h-10 w-auto" />
             </Link>
-            <p className="text-xs leading-relaxed text-[#434654]">
-              The operating layer for modern recruiting. High-performance infrastructure for global
-              talent acquisition.
+            <p className="mt-4 text-sm leading-relaxed text-[#434654]">
+              AI-powered outbound recruiting. Find, engage, and hire top talent—faster.
             </p>
+            <p className="mt-2 text-xs text-[#434654]/70">by EarlyJobs</p>
           </div>
-          <div className="flex flex-col gap-4">
-            <h4 className="text-xs font-bold uppercase tracking-widest text-[#141b2b]">
-              Infrastructure
-            </h4>
-            {["Huntlo Source", "Huntlo Agent", "API Docs"].map((label) => (
-              <a
-                key={label}
-                href="#"
-                className="text-sm text-[#434654] transition-colors hover:text-[#0050cb]"
-              >
-                {label}
-              </a>
-            ))}
-          </div>
-          <div className="flex flex-col gap-4">
-            <h4 className="text-xs font-bold uppercase tracking-widest text-[#141b2b]">Company</h4>
-            {["Architecture", "Security", "Status"].map((label) => (
-              <a
-                key={label}
-                href="#"
-                className="text-sm text-[#434654] transition-colors hover:text-[#0050cb]"
-              >
-                {label}
-              </a>
-            ))}
-          </div>
-          <div className="flex flex-col gap-4">
-            <h4 className="text-xs font-bold uppercase tracking-widest text-[#141b2b]">Support</h4>
-            {["Help Center", "Contact Sales", "Privacy"].map((label) => (
-              <a
-                key={label}
-                href="#"
-                className="text-sm text-[#434654] transition-colors hover:text-[#0050cb]"
-              >
-                {label}
-              </a>
-            ))}
-          </div>
+          {FOOTER_COLUMNS.map((col) => (
+            <div key={col.title}>
+              <h4 className="text-xs font-bold uppercase tracking-widest text-[#141b2b]">
+                {col.title}
+              </h4>
+              <ul className="mt-4 space-y-2">
+                {col.links.map((label) => (
+                  <li key={label}>
+                    <a
+                      href="#"
+                      className="text-sm text-[#434654] transition-colors hover:text-[#0050cb]"
+                    >
+                      {label}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </div>
-        <div className="mx-auto mt-20 max-w-7xl border-t border-[#c3c6d6]/10 px-4 pt-8 text-center text-[10px] uppercase tracking-[0.2em] text-[#434654] opacity-60 md:px-16">
-          © {new Date().getFullYear()} Huntlo AI Infrastructure. All rights reserved.
+        <div className="mx-auto mt-12 max-w-7xl border-t border-[#c3c6d6]/20 px-4 pt-8 text-center text-xs text-[#434654] md:px-8 lg:px-12">
+          © {new Date().getFullYear()} Huntlo. All rights reserved.
         </div>
       </footer>
     </div>

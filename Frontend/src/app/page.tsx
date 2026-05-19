@@ -4,9 +4,9 @@ import { LandingPage } from "@/components/landing/LandingPage";
 import { fetchPublicPricingPlans } from "@/lib/pricingPlans";
 
 export const metadata: Metadata = {
-  title: "Huntlo | World-Class AI Recruiting Infrastructure",
+  title: "Huntlo | AI-Powered Outbound Recruiting",
   description:
-    "Orchestrate entire talent pipelines with autonomous agents. The infrastructure that powers high-performing hiring teams.",
+    "Stop posting jobs and waiting. Reach top talent in seconds with AI-powered sourcing, outreach, and contact reveal.",
 };
 
 export default async function Home() {

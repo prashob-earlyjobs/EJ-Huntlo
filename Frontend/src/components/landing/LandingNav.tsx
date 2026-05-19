@@ -6,9 +6,9 @@ import { LandingLogo } from "./LandingLogo";
 import { MaterialIcon } from "./MaterialIcon";
 
 const NAV_LINKS = [
-  { href: "#solutions", label: "Solutions" },
   { href: "#product", label: "Product" },
-  { href: "#company", label: "Company" },
+  { href: "#solutions", label: "Solutions" },
+  { href: "#resources", label: "Resources" },
   { href: "#pricing", label: "Pricing" },
 ] as const;
 
@@ -16,10 +16,10 @@ export function LandingNav() {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
-    <nav className="landing-glass-panel sticky top-0 z-[100] w-full border-b border-[#c3c6d6]/30 transition-all duration-300">
-      <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-4 py-4 md:px-16">
+    <nav className="sticky top-0 z-[100] w-full border-b border-[#c3c6d6]/25 bg-white/90 backdrop-blur-md">
+      <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-4 py-4 md:px-8 lg:px-12">
         <Link href="/" className="flex shrink-0 items-center">
-          <LandingLogo priority />
+          <LandingLogo priority className="h-10 w-auto md:h-11" />
         </Link>
 
         <div className="hidden items-center gap-8 md:flex">
@@ -34,18 +34,18 @@ export function LandingNav() {
           ))}
         </div>
 
-        <div className="hidden items-center gap-4 md:flex">
+        <div className="hidden items-center gap-3 md:flex">
           <Link
             href="/login"
-            className="text-sm font-medium text-[#141b2b] transition-colors hover:text-[#0050cb]"
+            className="rounded-full px-4 py-2 text-sm font-medium text-[#141b2b] transition-colors hover:text-[#0050cb]"
           >
-            Sign In
+            Login
           </Link>
           <Link
             href="/signup"
-            className="rounded-full bg-[#0050cb] px-6 py-2.5 text-sm font-medium text-white shadow-lg shadow-[#0050cb]/10 transition-all duration-200 hover:bg-[#003fa4]"
+            className="rounded-full bg-[#0050cb] px-5 py-2.5 text-sm font-medium text-white shadow-md shadow-[#0050cb]/20 transition-all hover:bg-[#003fa4]"
           >
-            Get Started
+            Book a Demo
           </Link>
         </div>
 
@@ -60,7 +60,7 @@ export function LandingNav() {
       </div>
 
       {mobileOpen ? (
-        <div className="border-t border-[#c3c6d6]/30 px-4 py-4 md:hidden">
+        <div className="border-t border-[#c3c6d6]/25 px-4 py-4 md:hidden">
           <div className="flex flex-col gap-3">
             {NAV_LINKS.map((link) => (
               <a
@@ -73,13 +73,13 @@ export function LandingNav() {
               </a>
             ))}
             <Link href="/login" className="text-sm font-medium text-[#141b2b]">
-              Sign In
+              Login
             </Link>
             <Link
               href="/signup"
               className="rounded-full bg-[#0050cb] px-6 py-2.5 text-center text-sm font-medium text-white"
             >
-              Get Started
+              Book a Demo
             </Link>
           </div>
         </div>
