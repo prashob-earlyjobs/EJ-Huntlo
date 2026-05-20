@@ -17,6 +17,7 @@ const {
   buildSessionPayloadForApply,
   buildSessionPayloadFromPromptAndFilter,
   filterFormFromAnnotation,
+  enrichFilterFormSkillsFromPrompt,
 } = require("./filterMapping");
 const { getFutureJobsConfig } = require("./config");
 const { mapFjDocToCandidate } = require("./mapProfile");
@@ -38,6 +39,7 @@ module.exports = {
   buildSessionPayloadForApply,
   buildSessionPayloadFromPromptAndFilter,
   filterFormFromAnnotation,
+  enrichFilterFormSkillsFromPrompt,
   getFutureJobsConfig,
   mapFjDocToCandidate,
 };

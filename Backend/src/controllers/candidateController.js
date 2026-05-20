@@ -13,6 +13,7 @@ const {
   buildSessionPayloadFromPromptAndFilter,
   getSourcingSessionAnnotation,
   filterFormFromAnnotation,
+  enrichFilterFormSkillsFromPrompt,
   mapFjDocToCandidate,
 } = require("../services/futureJobs");
 const SourcingSession = require("../models/SourcingSession");
@@ -330,7 +331,10 @@ const annotateSearchPrompt = async (req, res) => {
 
     const annotationData =
       futureJobs?.data && typeof futureJobs.data === "object" ? futureJobs.data : {};
-    const filterForm = filterFormFromAnnotation(annotationData);
+    const filterForm = enrichFilterFormSkillsFromPrompt(
+      filterFormFromAnnotation(annotationData),
+      userText
+    );
 
     logApi("candidates/search/annotate", "success", {
       userId,

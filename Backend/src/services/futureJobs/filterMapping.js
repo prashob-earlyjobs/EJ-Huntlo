@@ -232,6 +232,29 @@ function ensureSkillsForFutureJobs(skills, form, session) {
   };
 }
 
+/**
+ * Prefill keywordSkills in the filter drawer when annotation omits skills.
+ * Uses the same rules as ensureSkillsForFutureJobs so UI matches the sourcing API payload.
+ */
+function enrichFilterFormSkillsFromPrompt(form, promptText) {
+  const out = { ...form };
+  if (String(out.keywordSkills || "").trim()) return out;
+
+  const prompt = String(promptText ?? "").trim();
+  const session = {
+    jdDetail: { userText: prompt },
+    sessionTitle: prompt ? prompt.split(/\r?\n/)[0].slice(0, 120).trim() : "",
+  };
+  const skills = ensureSkillsForFutureJobs(
+    normalizeSkillsValue(null),
+    out,
+    session
+  );
+  const keyword = skillsToKeyword(skills);
+  if (keyword) out.keywordSkills = keyword;
+  return out;
+}
+
 function setQueryIn(queries, key, values, type = "IN") {
   const list = Array.isArray(values)
     ? values.map((v) => String(v).trim()).filter(Boolean)
@@ -640,6 +663,7 @@ module.exports = {
   DEFAULT_FILTER_FORM,
   normalizeRegionForFutureJobs,
   ensureSkillsForFutureJobs,
+  enrichFilterFormSkillsFromPrompt,
   filterFormFromCreateResponse,
   filterFormFromAnnotation,
   mergeFilterFormIntoSession,
