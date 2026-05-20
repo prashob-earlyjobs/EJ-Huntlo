@@ -1,6 +1,6 @@
 export type CandidateFilterForm = {
   searchType: string;
-  selectRegion: string;
+  selectRegion: string[];
   currentTitle: string;
   yearsExpMin: string;
   yearsExpMax: string;
@@ -42,7 +42,7 @@ export type CandidateFilterForm = {
 
 export const DEFAULT_CANDIDATE_FILTER_FORM: CandidateFilterForm = {
   searchType: "Flexible",
-  selectRegion: "",
+  selectRegion: [],
   currentTitle: "",
   yearsExpMin: "",
   yearsExpMax: "",
@@ -82,10 +82,37 @@ export const DEFAULT_CANDIDATE_FILTER_FORM: CandidateFilterForm = {
   unspecifiedDatesOrLocations: false,
 };
 
+export function normalizeSelectRegions(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    const out: string[] = [];
+    for (const item of value) {
+      const s = typeof item === "string" ? item.trim() : "";
+      if (s && !out.some((x) => x.toLowerCase() === s.toLowerCase())) out.push(s);
+    }
+    return out;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parts = value
+      .split(/[,;|]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const out: string[] = [];
+    for (const part of parts) {
+      if (!out.some((x) => x.toLowerCase() === part.toLowerCase())) out.push(part);
+    }
+    return out;
+  }
+  return [];
+}
+
 export function mergeFilterForm(
   base: CandidateFilterForm,
   patch: Partial<CandidateFilterForm> | Record<string, unknown> | null | undefined
 ): CandidateFilterForm {
   if (!patch || typeof patch !== "object") return base;
-  return { ...base, ...(patch as Partial<CandidateFilterForm>) };
+  const merged = { ...base, ...(patch as Partial<CandidateFilterForm>) };
+  if ("selectRegion" in patch) {
+    merged.selectRegion = normalizeSelectRegions(patch.selectRegion);
+  }
+  return merged;
 }

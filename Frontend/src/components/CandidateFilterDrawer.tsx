@@ -1,5 +1,6 @@
 "use client";
 
+import { CountryRegionField } from "@/components/dashboard/CountryRegionField";
 import type { CandidateFilterForm } from "@/lib/sourcingFilters";
 import {
   dashboardBtnPrimaryClass,
@@ -53,7 +54,7 @@ export function CandidateFilterDrawer({
         onClick={onClose}
       />
       <aside
-        className={`dashboard-drawer-panel absolute right-0 top-0 h-full w-full max-w-md overflow-y-auto transition-transform duration-300 ease-out ${
+        className={`dashboard-drawer-panel absolute right-0 top-0 h-full w-full max-w-2xl overflow-y-auto transition-transform duration-300 ease-out ${
           open ? "translate-x-0" : "translate-x-full"
         }`}
       >
@@ -119,12 +120,11 @@ export function CandidateFilterDrawer({
                 </select>
               </label>
               <label className="block text-sm text-slate-700">
-                Select Region
-                <input
-                  type="text"
-                  className={inputClass}
+                Select Region / Country
+                <CountryRegionField
                   value={form.selectRegion}
-                  onChange={(e) => set({ selectRegion: e.target.value })}
+                  onChange={(selectRegion) => set({ selectRegion })}
+                  disabled={annotateLoading}
                 />
               </label>
               <label className="block text-sm text-slate-700">

@@ -285,6 +285,72 @@ function normalizeRegionForFutureJobs(raw) {
   return out || s;
 }
 
+const COUNTRY_ALIASES = {
+  usa: "United States",
+  us: "United States",
+  "u.s.": "United States",
+  "u.s.a.": "United States",
+  uk: "United Kingdom",
+  uae: "United Arab Emirates",
+};
+
+function normalizeCountryLabel(raw) {
+  const s = String(raw ?? "").trim();
+  if (!s) return "";
+  return COUNTRY_ALIASES[s.toLowerCase()] || s;
+}
+
+/** Derive a country label from a region string (e.g. "City, State, India" → "India"). */
+function countryFromRegionString(raw) {
+  const normalized = normalizeRegionForFutureJobs(raw);
+  if (!normalized) return "";
+
+  const parts = normalized
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (parts.length === 0) return "";
+
+  return normalizeCountryLabel(parts[parts.length - 1]);
+}
+
+function selectRegionsFromRegionFallback(regionValues) {
+  const out = [];
+  const seen = new Set();
+  for (const raw of regionValues) {
+    const country = countryFromRegionString(raw);
+    if (!country) continue;
+    const key = country.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(country);
+  }
+  return out;
+}
+
+function selectRegionsFromForm(form) {
+  if (Array.isArray(form?.selectRegion)) {
+    const out = [];
+    const seen = new Set();
+    for (const item of form.selectRegion) {
+      const s = String(item ?? "").trim();
+      if (!s) continue;
+      const key = s.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(s);
+    }
+    return out;
+  }
+  const legacy = String(form?.selectRegion ?? "").trim();
+  if (!legacy) return [];
+  return legacy
+    .split(/[,;|]/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .filter((s, i, arr) => arr.findIndex((x) => x.toLowerCase() === s.toLowerCase()) === i);
+}
+
 function industryTokensFromForm(form) {
   return String(form?.industry || "")
     .split(/[,;|]/)
@@ -361,10 +427,7 @@ function filterFormFromCreateResponse(futureJobsCreateResponse, requestPayload) 
       allowFallback.length > 0 && allowFallback[0] === "false"
         ? "Strict"
         : "Flexible",
-    selectRegion:
-      queryValues(queries, "country_region")[0] ||
-      queryValues(queries, "region")[0] ||
-      "",
+    selectRegion: queryValues(queries, "country_region"),
     currentTitle: queryValues(queries, "current_employers.title")[0] || "",
     yearsExpMin: yoe.min,
     yearsExpMax: yoe.max,
@@ -424,8 +487,11 @@ function mergeFilterFormIntoSession(baseSession, form) {
 
   const existingSkills = queries?.skills?.value;
 
-  setQueryIn(queries, "country_region", [form.selectRegion].filter(Boolean), "(.)");
-  const regionForFj = normalizeRegionForFutureJobs(form.location || form.selectRegion);
+  const countries = selectRegionsFromForm(form);
+  setQueryIn(queries, "country_region", countries, "(.)");
+  const regionForFj = normalizeRegionForFutureJobs(
+    form.location || countries[0] || ""
+  );
   setQueryIn(queries, "region", [regionForFj].filter(Boolean));
   const titleTokens = String(form.currentTitle || "")
     .split(/[,;|]/)
@@ -583,8 +649,9 @@ function buildSessionPayloadFromPromptAndFilter(prompt, form) {
   return buildSessionPayloadForApply(base, form);
 }
 
-function annotationFieldValues(field) {
-  if (!field || field.presence !== true) return [];
+function annotationFieldValues(field, { allowWithoutPresence = false } = {}) {
+  if (!field) return [];
+  if (!allowWithoutPresence && field.presence !== true) return [];
   const raw = field.value;
   if (raw == null) return [];
   if (Array.isArray(raw)) {
@@ -640,14 +707,23 @@ function filterFormFromAnnotation(annotationData) {
     form.currentTitle = titles.join(", ");
   }
 
-  const regions = annotationFieldValues(annotationData.region);
+  const regions = annotationFieldValues(annotationData.region, {
+    allowWithoutPresence: true,
+  });
   if (regions.length > 0) {
     form.location = normalizeRegionForFutureJobs(regions[0]);
   }
 
-  const countries = annotationFieldValues(annotationData.country_region);
+  const countries = annotationFieldValues(annotationData.country_region, {
+    allowWithoutPresence: true,
+  });
   if (countries.length > 0) {
-    form.selectRegion = countries[0];
+    form.selectRegion = countries;
+  } else if (regions.length > 0) {
+    const derived = selectRegionsFromRegionFallback(regions);
+    if (derived.length > 0) {
+      form.selectRegion = derived;
+    }
   }
 
   const skillsField = annotationData.skills;

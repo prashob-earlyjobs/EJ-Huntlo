@@ -339,6 +339,10 @@ const annotateSearchPrompt = async (req, res) => {
     logApi("candidates/search/annotate", "success", {
       userId,
       fieldCount: Object.keys(annotationData).length,
+      futureJobsStatus: futureJobs?.status,
+      futureJobsMessage:
+        typeof futureJobs?.message === "string" ? futureJobs.message : "",
+      futureJobsPreview: safeJsonPreview(futureJobs, 1200),
     });
 
     return res.status(200).json({
