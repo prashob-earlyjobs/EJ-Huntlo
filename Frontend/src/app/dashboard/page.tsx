@@ -22,6 +22,7 @@ import {
 } from "@/components/dashboard/MyProfilePanel";
 import { DashboardOverviewPanel } from "@/components/dashboard/DashboardOverviewPanel";
 import { PlansPricingPanel } from "@/components/dashboard/PlansPricingPanel";
+import { UserActionAlertModal } from "@/components/dashboard/UserActionAlertModal";
 import { CandidatePoolPanel } from "@/components/dashboard/CandidatePoolPanel";
 import {
   SearchCandidatesPanel,
@@ -50,6 +51,7 @@ import {
   type PricingPlansPayload,
 } from "@/lib/pricingPlans";
 import { postAuthPath } from "@/lib/onboarding";
+import { useUserActionAlert } from "@/lib/useUserActionAlert";
 import { candidateScoreBadgeClass, formatCandidateScore } from "@/lib/sessionResultUi";
 import {
   DEFAULT_CANDIDATE_FILTER_FORM,
@@ -1395,6 +1397,7 @@ function SessionCandidateDetailDrawer({
 
 export default function UserDashboardPage() {
   const router = useRouter();
+  const userActionAlert = useUserActionAlert();
   const [aiPrompt, setAiPrompt] = useState("");
   const [peopleScoutQuery, setPeopleScoutQuery] = useState("");
   const [activeTab, setActiveTab] = useState("Dashboard");
@@ -2230,12 +2233,21 @@ export default function UserDashboardPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
+        if (
+          userActionAlert.fromApi(
+            res,
+            data,
+            res.status === 404 ? "Candidate not found" : "People Scout lookup failed"
+          )
+        ) {
+          return;
+        }
         throw new Error(
-          typeof data.message === "string"
-            ? data.message
-            : res.status === 404
-              ? "Candidate not found"
-              : "People Scout lookup failed"
+          userActionAlert.apiMessage(
+            res,
+            data,
+            res.status === 404 ? "Candidate not found" : "People Scout lookup failed"
+          )
         );
       }
       const fjRoot = data.futureJobs as
@@ -2297,6 +2309,7 @@ export default function UserDashboardPage() {
         }
       }
     } catch (err) {
+      if (userActionAlert.fromThrown(err)) return;
       setPeopleScoutError(err instanceof Error ? err.message : "People Scout lookup failed");
     } finally {
       setPeopleScoutLoading(false);
@@ -2344,12 +2357,21 @@ export default function UserDashboardPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
+        if (
+          userActionAlert.fromApi(
+            res,
+            data,
+            res.status === 404 ? "Contact not found" : "Reveal failed"
+          )
+        ) {
+          return;
+        }
         throw new Error(
-          typeof data.message === "string"
-            ? data.message
-            : res.status === 404
-              ? "Contact not found"
-              : "Reveal failed"
+          userActionAlert.apiMessage(
+            res,
+            data,
+            res.status === 404 ? "Contact not found" : "Reveal failed"
+          )
         );
       }
       const raw =
@@ -2375,6 +2397,7 @@ export default function UserDashboardPage() {
       if (revealType === "EMAIL") setPeopleScoutRevealEmail(true);
       else setPeopleScoutRevealPhone(true);
     } catch (err) {
+      if (userActionAlert.fromThrown(err)) return;
       setProfilesWarning(
         err instanceof Error ? err.message : "Could not reveal contact"
       );
@@ -2791,9 +2814,8 @@ export default function UserDashboardPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
-        throw new Error(
-          typeof data.message === "string" ? data.message : "Failed to load candidates"
-        );
+        if (userActionAlert.fromApi(res, data, "Failed to load candidates")) return;
+        throw new Error(userActionAlert.apiMessage(res, data, "Failed to load candidates"));
       }
 
       const sessionId =
@@ -2852,6 +2874,7 @@ export default function UserDashboardPage() {
       setWorkspaceCandidatesRefresh((n) => n + 1);
       setRecentSearchesRefresh((n) => n + 1);
     } catch (err) {
+      if (userActionAlert.fromThrown(err)) return;
       const message =
         err instanceof Error ? err.message : "Could not apply filters";
       setSessionResultError(message);
@@ -3058,8 +3081,9 @@ export default function UserDashboardPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
+        if (userActionAlert.fromApi(res, data, "Failed to update saved candidate")) return;
         throw new Error(
-          typeof data.message === "string" ? data.message : "Failed to update saved candidate"
+          userActionAlert.apiMessage(res, data, "Failed to update saved candidate")
         );
       }
 
@@ -3080,6 +3104,7 @@ export default function UserDashboardPage() {
         void loadSavedCandidateKeys();
       }
     } catch (err) {
+      if (userActionAlert.fromThrown(err)) return;
       setProfilesWarning(
         err instanceof Error ? err.message : "Could not update saved candidate"
       );
@@ -3270,12 +3295,21 @@ export default function UserDashboardPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
+        if (
+          userActionAlert.fromApi(
+            res,
+            data,
+            res.status === 404 ? "Contact not found" : "Reveal failed"
+          )
+        ) {
+          return;
+        }
         throw new Error(
-          typeof data.message === "string"
-            ? data.message
-            : res.status === 404
-              ? "Contact not found"
-              : "Reveal failed"
+          userActionAlert.apiMessage(
+            res,
+            data,
+            res.status === 404 ? "Contact not found" : "Reveal failed"
+          )
         );
       }
       const value =
@@ -3311,6 +3345,7 @@ export default function UserDashboardPage() {
         setRevealedPhone((prev) => (prev.includes(key) ? prev : [...prev, key]));
       }
     } catch (err) {
+      if (userActionAlert.fromThrown(err)) return;
       setProfilesWarning(
         err instanceof Error ? err.message : "Could not reveal contact"
       );
@@ -4550,6 +4585,17 @@ export default function UserDashboardPage() {
           </aside>
         </div>
       ) : null}
+
+      <UserActionAlertModal
+        open={userActionAlert.alert.open}
+        message={userActionAlert.alert.message}
+        isQuotaExceeded={userActionAlert.alert.isQuotaExceeded}
+        onClose={userActionAlert.close}
+        onViewPlans={() => {
+          userActionAlert.close();
+          setActiveTab("Plans and pricing");
+        }}
+      />
 
     </main>
   );

@@ -128,6 +128,110 @@ function keywordToSkills(keyword, existingSkills) {
   return merged;
 }
 
+function skillsHasEntries(skills) {
+  const n = normalizeSkillsValue(skills);
+  return (
+    n.mandatory.length > 0 || n.core.length > 0 || n.secondary.length > 0
+  );
+}
+
+const SKILL_STOP_WORDS = new Set([
+  "a",
+  "an",
+  "the",
+  "and",
+  "or",
+  "in",
+  "at",
+  "for",
+  "to",
+  "of",
+  "with",
+  "on",
+  "is",
+  "are",
+  "be",
+  "looking",
+  "seeking",
+  "hire",
+  "hiring",
+  "candidates",
+  "candidate",
+  "years",
+  "year",
+  "experience",
+  "based",
+  "located",
+  "location",
+]);
+
+function tokensFromFreeText(text, max = 6) {
+  const parts = String(text || "")
+    .split(/[,;|/\n]+/)
+    .flatMap((chunk) => chunk.split(/\s+/))
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const out = [];
+  const seen = new Set();
+  for (const part of parts) {
+    const lower = part.toLowerCase();
+    if (part.length < 2 || SKILL_STOP_WORDS.has(lower) || seen.has(lower)) continue;
+    seen.add(lower);
+    out.push(part);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+/**
+ * Future Jobs 422 if skills.mandatory/core/secondary are all empty.
+ */
+function ensureSkillsForFutureJobs(skills, form, session) {
+  const normalized = normalizeSkillsValue(skills);
+  if (skillsHasEntries(normalized)) return normalized;
+
+  const core = [];
+  const addCore = (label) => {
+    const t = String(label ?? "").trim();
+    if (!t) return;
+    if (!core.some((c) => c.toLowerCase() === t.toLowerCase())) {
+      core.push(t);
+    }
+  };
+
+  for (const token of industryTokensFromForm(form)) {
+    addCore(token);
+    if (core.length >= 4) break;
+  }
+
+  const title = String(form?.currentTitle || "").trim();
+  if (title) {
+    addCore(title);
+  }
+
+  if (core.length === 0) {
+    const jdText =
+      (session?.jdDetail && typeof session.jdDetail.userText === "string"
+        ? session.jdDetail.userText
+        : "") ||
+      (typeof session?.sessionTitle === "string" ? session.sessionTitle : "");
+    for (const token of tokensFromFreeText(jdText)) {
+      addCore(token);
+    }
+  }
+
+  if (core.length === 0) {
+    addCore("General");
+  }
+
+  return {
+    mandatory: [...normalized.mandatory],
+    core: [...normalized.core, ...core],
+    secondary: [...normalized.secondary],
+  };
+}
+
 function setQueryIn(queries, key, values, type = "IN") {
   const list = Array.isArray(values)
     ? values.map((v) => String(v).trim()).filter(Boolean)
@@ -142,6 +246,37 @@ function setQueryIn(queries, key, values, type = "IN") {
 function trimRangeInput(v) {
   if (v == null) return "";
   return String(v).trim();
+}
+
+/**
+ * Future Jobs rejects overly specific region strings (e.g. leading PIN/postal codes).
+ * "244001, Moradabad, Uttar Pradesh, India" → "Moradabad, Uttar Pradesh, India"
+ */
+function normalizeRegionForFutureJobs(raw) {
+  const s = String(raw ?? "").trim();
+  if (!s) return "";
+
+  let out = s.replace(/^\d{4,6}(?:-\d{4})?\s*,\s*/i, "").trim();
+  // Some payloads omit the space after the comma: "244001,Moradabad,..."
+  out = out.replace(/^\d{4,6}(?:-\d{4})?,/i, "").trim();
+  return out || s;
+}
+
+function industryTokensFromForm(form) {
+  return String(form?.industry || "")
+    .split(/[,;|]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function industryLabelFromQuery(queries) {
+  const current = queryValues(queries, "current_employers.company_industries");
+  if (current.length > 0) return current.join(", ");
+  const legacy = queryValues(queries, "current_employers.industry");
+  if (legacy.length > 0) return legacy[0];
+  const all = queryValues(queries, "all_employers.company_industries");
+  if (all.length > 0) return all.join(", ");
+  return "";
 }
 
 function setQueryRange(queries, key, min, max) {
@@ -212,9 +347,9 @@ function filterFormFromCreateResponse(futureJobsCreateResponse, requestPayload) 
     yearsExpMax: yoe.max,
     keywordSkills: skillsToKeyword(skillsQ),
     seniorityLevel: queryValues(queries, "seniority_level")[0] || "",
-    location: queryValues(queries, "region")[0] || "",
+    location: normalizeRegionForFutureJobs(queryValues(queries, "region")[0] || ""),
     searchOtherRegions: queryValues(queries, "search_other_regions").includes("true"),
-    industry: queryValues(queries, "current_employers.industry")[0] || "",
+    industry: industryLabelFromQuery(queries),
     school: queryValues(queries, "education.school")[0] || "",
     fieldOfStudy: queryValues(queries, "education.field_of_study")[0] || "",
     degree: queryValues(queries, "education.degree")[0] || "",
@@ -267,7 +402,8 @@ function mergeFilterFormIntoSession(baseSession, form) {
   const existingSkills = queries?.skills?.value;
 
   setQueryIn(queries, "country_region", [form.selectRegion].filter(Boolean), "(.)");
-  setQueryIn(queries, "region", [form.location || form.selectRegion].filter(Boolean));
+  const regionForFj = normalizeRegionForFutureJobs(form.location || form.selectRegion);
+  setQueryIn(queries, "region", [regionForFj].filter(Boolean));
   const titleTokens = String(form.currentTitle || "")
     .split(/[,;|]/)
     .map((s) => s.trim())
@@ -284,14 +420,13 @@ function mergeFilterFormIntoSession(baseSession, form) {
   } else {
     delete queries.search_other_regions;
   }
-  setQueryIn(queries, "current_employers.industry", [form.industry].filter(Boolean));
-  const industryTokens = String(form.industry || "")
-    .split(/[,;|]/)
-    .map((s) => s.trim())
-    .filter(Boolean);
+  delete queries["current_employers.industry"];
+  const industryTokens = industryTokensFromForm(form);
   if (industryTokens.length > 0) {
+    setQueryIn(queries, "current_employers.company_industries", industryTokens);
     setQueryIn(queries, "all_employers.company_industries", industryTokens);
   } else {
+    delete queries["current_employers.company_industries"];
     delete queries["all_employers.company_industries"];
   }
   setQueryIn(
@@ -359,10 +494,12 @@ function mergeFilterFormIntoSession(baseSession, form) {
     [form.recentlyFunded].filter(Boolean)
   );
 
-  const skillsValue = normalizeSkillsValue(
-    keywordToSkills(form.keywordSkills, existingSkills)
+  const skillsValue = ensureSkillsForFutureJobs(
+    keywordToSkills(form.keywordSkills, existingSkills),
+    form,
+    session
   );
-  // Future Jobs requires queries.skills.value to be an object on every create.
+  // Future Jobs requires queries.skills.value with at least one bucket entry.
   queries.skills = { type: "IN", value: skillsValue };
 
   if (form.searchType === "Strict") {
@@ -446,11 +583,12 @@ function filterFormFromAnnotation(annotationData) {
 
   const form = { ...DEFAULT_FILTER_FORM };
 
-  const industries = annotationFieldValues(
-    annotationData["all_employers.company_industries"]
-  );
-  if (industries.length > 0) {
-    form.industry = industries.join(", ");
+  const industryParts = [
+    ...annotationFieldValues(annotationData["current_employers.company_industries"]),
+    ...annotationFieldValues(annotationData["all_employers.company_industries"]),
+  ];
+  if (industryParts.length > 0) {
+    form.industry = [...new Set(industryParts)].join(", ");
   }
 
   const degrees = annotationFieldValues(annotationData["education_background.degree_name"]);
@@ -481,7 +619,7 @@ function filterFormFromAnnotation(annotationData) {
 
   const regions = annotationFieldValues(annotationData.region);
   if (regions.length > 0) {
-    form.location = regions[0];
+    form.location = normalizeRegionForFutureJobs(regions[0]);
   }
 
   const countries = annotationFieldValues(annotationData.country_region);
@@ -500,6 +638,8 @@ function filterFormFromAnnotation(annotationData) {
 
 module.exports = {
   DEFAULT_FILTER_FORM,
+  normalizeRegionForFutureJobs,
+  ensureSkillsForFutureJobs,
   filterFormFromCreateResponse,
   filterFormFromAnnotation,
   mergeFilterFormIntoSession,

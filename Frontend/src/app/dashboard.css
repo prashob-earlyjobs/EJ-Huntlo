@@ -64,6 +64,11 @@
   z-index: 120;
 }
 
+/* Quota / action modals must sit above right-hand drawers (z-index 120) */
+.dashboard-page > .dashboard-modal-overlay {
+  z-index: 130;
+}
+
 .dashboard-sidebar {
   display: flex;
   height: 100%;
@@ -688,6 +693,40 @@
   padding: 0.625rem 0.75rem;
   font-size: 0.875rem;
   color: var(--dash-warning-text);
+}
+
+.dashboard-user-action-modal--quota {
+  border-color: color-mix(in srgb, var(--dash-primary) 32%, var(--dash-outline));
+}
+
+.dashboard-user-action-modal-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--dash-on-surface);
+}
+
+.dashboard-user-action-modal-message {
+  margin-top: 0.5rem;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  color: color-mix(in srgb, var(--dash-on-surface) 78%, transparent);
+}
+
+.dashboard-user-action-alert-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--dash-primary) 12%, white);
+  color: var(--dash-primary);
+}
+
+.dashboard-user-action-alert-icon--error {
+  background: var(--dash-error-bg);
+  color: var(--dash-error-text);
 }
 
 .dashboard-drawer-overlay {
