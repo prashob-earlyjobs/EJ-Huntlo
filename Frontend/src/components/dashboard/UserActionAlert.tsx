@@ -30,7 +30,7 @@ export function UserActionAlert({
       <div className="flex min-w-0 flex-1 items-start gap-3">
         <span className="dashboard-user-action-alert-icon" aria-hidden>
           <MaterialIcon
-            name={isQuotaExceeded ? "account_balance_wallet" : "error_outline"}
+            name={isQuotaExceeded ? "account_balance_wallet" : "contact_mail"}
             className="text-[22px]"
           />
         </span>

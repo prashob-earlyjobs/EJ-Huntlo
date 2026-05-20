@@ -51,6 +51,11 @@ import {
   type PricingPlansPayload,
 } from "@/lib/pricingPlans";
 import { postAuthPath } from "@/lib/onboarding";
+import {
+  revealContactErrorMessage,
+  revealContactNotFoundMessage,
+  type RevealContactType,
+} from "@/lib/revealContactMessages";
 import { useUserActionAlert } from "@/lib/useUserActionAlert";
 import { candidateScoreBadgeClass, formatCandidateScore } from "@/lib/sessionResultUi";
 import {
@@ -1029,6 +1034,7 @@ function SessionCandidateDetailDrawer({
   phoneRevealed,
   emailRevealBusy,
   phoneRevealBusy,
+  contactRevealNotice,
 }: {
   open: boolean;
   doc: SessionResultDoc;
@@ -1045,6 +1051,7 @@ function SessionCandidateDetailDrawer({
   phoneRevealed: boolean;
   emailRevealBusy: boolean;
   phoneRevealBusy: boolean;
+  contactRevealNotice: string;
 }) {
   const [imgFailed, setImgFailed] = useState(false);
   const profile = doc.profile;
@@ -1222,6 +1229,9 @@ function SessionCandidateDetailDrawer({
               </span>
             </button>
           </div>
+          {contactRevealNotice ? (
+            <p className="mx-5 mt-3 dashboard-alert-warning">{contactRevealNotice}</p>
+          ) : null}
           {(emailRevealed && displayedEmail) || (phoneRevealed && displayedPhone) ? (
             <div className="dashboard-drawer-revealed-card">
               {emailRevealed && displayedEmail ? (
@@ -1398,6 +1408,11 @@ function SessionCandidateDetailDrawer({
 export default function UserDashboardPage() {
   const router = useRouter();
   const userActionAlert = useUserActionAlert();
+  const showRevealContactNotice = (message: string) => {
+    const trimmed = message.trim();
+    if (trimmed) setRevealContactNotice(trimmed);
+  };
+  const clearRevealContactNotice = () => setRevealContactNotice("");
   const [aiPrompt, setAiPrompt] = useState("");
   const [peopleScoutQuery, setPeopleScoutQuery] = useState("");
   const [activeTab, setActiveTab] = useState("Dashboard");
@@ -1416,6 +1431,7 @@ export default function UserDashboardPage() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState("");
   const [profilesWarning, setProfilesWarning] = useState("");
+  const [revealContactNotice, setRevealContactNotice] = useState("");
   const [searchSummary, setSearchSummary] = useState<SearchSummaryState | null>(
     null
   );
@@ -2256,6 +2272,7 @@ export default function UserDashboardPage() {
       const fjProfile = fjRoot?.data?.profile ?? fjRoot?.profile;
       setPeopleScoutProfile(mapFjProfileToPeopleScoutProfile(fjProfile));
       setPeopleScoutLookupId(typeof data.lookupId === "string" ? data.lookupId : null);
+      clearRevealContactNotice();
       setIsPeopleScoutDrawerOpen(true);
       setPeopleScoutQuery("");
       const auth2 = getStoredAuth();
@@ -2317,6 +2334,7 @@ export default function UserDashboardPage() {
   };
 
   const openPeopleScoutDetails = (user: PeopleScoutRecentUser) => {
+    clearRevealContactNotice();
     setPeopleScoutRevealEmail(false);
     setPeopleScoutRevealPhone(false);
     setPeopleScoutLookupId(typeof user.id === "string" && user.id ? user.id : null);
@@ -2330,14 +2348,14 @@ export default function UserDashboardPage() {
     setIsPeopleScoutDrawerOpen(true);
   };
 
-  const revealPeopleScoutContactFromApi = async (revealType: "EMAIL" | "PHONE") => {
+  const revealPeopleScoutContactFromApi = async (revealType: RevealContactType) => {
     const auth = getStoredAuth();
     if (!auth?.token) {
-      setProfilesWarning("Please sign in again to reveal contacts.");
+      showRevealContactNotice("Please sign in again to reveal contacts.");
       return;
     }
     if (!peopleScoutLookupId?.trim()) {
-      setProfilesWarning(
+      showRevealContactNotice(
         "Cannot reveal contact for this profile. Run a People Scout search from this tab first."
       );
       return;
@@ -2345,6 +2363,7 @@ export default function UserDashboardPage() {
     const busySetter =
       revealType === "EMAIL" ? setPeopleScoutRevealEmailBusy : setPeopleScoutRevealPhoneBusy;
     busySetter(true);
+    clearRevealContactNotice();
     const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
     try {
       const res = await fetch(`${apiBase}/api/candidates/scout-people/reveal-contact`, {
@@ -2361,16 +2380,15 @@ export default function UserDashboardPage() {
           userActionAlert.fromApi(
             res,
             data,
-            res.status === 404 ? "Contact not found" : "Reveal failed"
+            revealContactNotFoundMessage(revealType)
           )
         ) {
           return;
         }
         throw new Error(
-          userActionAlert.apiMessage(
-            res,
-            data,
-            res.status === 404 ? "Contact not found" : "Reveal failed"
+          revealContactErrorMessage(
+            revealType,
+            userActionAlert.apiMessage(res, data, revealContactNotFoundMessage(revealType))
           )
         );
       }
@@ -2383,7 +2401,9 @@ export default function UserDashboardPage() {
       const upstreamMsg =
         typeof data.upstreamMessage === "string" ? data.upstreamMessage.trim() : "";
       if (!raw) {
-        setProfilesWarning(upstreamMsg || "Contact not found for this profile.");
+        showRevealContactNotice(
+          revealContactErrorMessage(revealType, upstreamMsg || data.message)
+        );
         return;
       }
       setPeopleScoutProfile((prev) =>
@@ -2398,8 +2418,10 @@ export default function UserDashboardPage() {
       else setPeopleScoutRevealPhone(true);
     } catch (err) {
       if (userActionAlert.fromThrown(err)) return;
-      setProfilesWarning(
-        err instanceof Error ? err.message : "Could not reveal contact"
+      showRevealContactNotice(
+        err instanceof Error
+          ? revealContactErrorMessage(revealType, err.message)
+          : revealContactNotFoundMessage(revealType)
       );
     } finally {
       busySetter(false);
@@ -3250,7 +3272,7 @@ export default function UserDashboardPage() {
 
   const revealContact = async (
     candidate: CandidateRow,
-    revealType: "EMAIL" | "PHONE"
+    revealType: RevealContactType
   ) => {
     const key = candidateRowKey(candidate);
     const busyKey = revealContactBusyKey(candidate, revealType);
@@ -3274,10 +3296,11 @@ export default function UserDashboardPage() {
 
     const auth = getStoredAuth();
     if (!auth?.token) {
-      setSearchError("Please sign in again to reveal contacts.");
+      showRevealContactNotice("Please sign in again to reveal contacts.");
       return;
     }
 
+    clearRevealContactNotice();
     setRevealContactBusyKeys((prev) =>
       prev.includes(busyKey) ? prev : [...prev, busyKey]
     );
@@ -3299,16 +3322,15 @@ export default function UserDashboardPage() {
           userActionAlert.fromApi(
             res,
             data,
-            res.status === 404 ? "Contact not found" : "Reveal failed"
+            revealContactNotFoundMessage(revealType)
           )
         ) {
           return;
         }
         throw new Error(
-          userActionAlert.apiMessage(
-            res,
-            data,
-            res.status === 404 ? "Contact not found" : "Reveal failed"
+          revealContactErrorMessage(
+            revealType,
+            userActionAlert.apiMessage(res, data, revealContactNotFoundMessage(revealType))
           )
         );
       }
@@ -3320,7 +3342,9 @@ export default function UserDashboardPage() {
             : "";
 
       if (!value) {
-        setProfilesWarning("Contact not found for this candidate.");
+        showRevealContactNotice(
+          revealContactErrorMessage(revealType, data.message)
+        );
         return;
       }
 
@@ -3346,8 +3370,10 @@ export default function UserDashboardPage() {
       }
     } catch (err) {
       if (userActionAlert.fromThrown(err)) return;
-      setProfilesWarning(
-        err instanceof Error ? err.message : "Could not reveal contact"
+      showRevealContactNotice(
+        err instanceof Error
+          ? revealContactErrorMessage(revealType, err.message)
+          : revealContactNotFoundMessage(revealType)
       );
     } finally {
       setRevealContactBusyKeys((prev) => prev.filter((k) => k !== busyKey));
@@ -3363,12 +3389,14 @@ export default function UserDashboardPage() {
   };
 
   const openSessionCandidateDetail = (doc: SessionResultDoc, candidate: CandidateRow) => {
+    clearRevealContactNotice();
     setSelectedSessionDetailDoc(doc);
     setSelectedSessionDetailCandidate(candidate);
     setIsSessionCandidateDrawerOpen(true);
   };
 
   const closeSessionCandidateDetail = () => {
+    clearRevealContactNotice();
     setIsSessionCandidateDrawerOpen(false);
     setSelectedSessionDetailDoc(null);
     setSelectedSessionDetailCandidate(null);
@@ -3601,6 +3629,9 @@ export default function UserDashboardPage() {
 
         <section className="dashboard-main-panel">
           <div className="dashboard-main-scroll">
+            {revealContactNotice ? (
+              <p className="mb-4 shrink-0 dashboard-alert-warning">{revealContactNotice}</p>
+            ) : null}
             {activeTab === "Dashboard" ? (
               <DashboardOverviewPanel
                 loading={dashboardOverviewLoading}
@@ -4278,6 +4309,7 @@ export default function UserDashboardPage() {
             selectedSessionDetailCandidate,
             "PHONE"
           )}
+          contactRevealNotice={revealContactNotice}
         />
       ) : null}
 
@@ -4297,7 +4329,10 @@ export default function UserDashboardPage() {
             type="button"
             aria-label="Close profile panel"
             className="dashboard-drawer-overlay absolute inset-0"
-            onClick={() => setIsPeopleScoutDrawerOpen(false)}
+            onClick={() => {
+              clearRevealContactNotice();
+              setIsPeopleScoutDrawerOpen(false);
+            }}
           />
           <aside
             className={`dashboard-drawer-panel dashboard-drawer-panel--scout absolute right-0 top-0 h-full w-full overflow-y-auto transition-transform duration-300 ease-out ${
@@ -4319,7 +4354,10 @@ export default function UserDashboardPage() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setIsPeopleScoutDrawerOpen(false)}
+                  onClick={() => {
+                    clearRevealContactNotice();
+                    setIsPeopleScoutDrawerOpen(false);
+                  }}
                   className="dashboard-btn-ghost shrink-0 p-1.5"
                   aria-label="Close profile panel"
                 >
@@ -4405,6 +4443,9 @@ export default function UserDashboardPage() {
                   </span>
                 </button>
               </div>
+              {revealContactNotice ? (
+                <p className="mx-5 mt-3 dashboard-alert-warning">{revealContactNotice}</p>
+              ) : null}
               {peopleScoutRevealEmail || peopleScoutRevealPhone ? (
                 <div className="dashboard-drawer-revealed-card">
                   {peopleScoutRevealEmail ? (

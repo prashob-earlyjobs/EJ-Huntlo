@@ -713,6 +713,37 @@
   color: color-mix(in srgb, var(--dash-on-surface) 78%, transparent);
 }
 
+.dashboard-user-action-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  border-radius: 0.625rem;
+  padding: 0.75rem 1rem;
+}
+
+.dashboard-user-action-alert--error {
+  border: 1px solid var(--dash-warning-border);
+  background: var(--dash-warning-bg);
+  color: var(--dash-warning-text);
+}
+
+.dashboard-user-action-alert--quota {
+  border: 1px solid color-mix(in srgb, var(--dash-primary) 28%, transparent);
+  background: color-mix(in srgb, var(--dash-primary) 8%, white);
+  color: var(--dash-on-surface);
+}
+
+.dashboard-user-action-alert-title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.dashboard-user-action-alert-message {
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
 .dashboard-user-action-alert-icon {
   display: inline-flex;
   align-items: center;
@@ -722,11 +753,12 @@
   border-radius: 0.75rem;
   background: color-mix(in srgb, var(--dash-primary) 12%, white);
   color: var(--dash-primary);
+  flex-shrink: 0;
 }
 
 .dashboard-user-action-alert-icon--error {
-  background: var(--dash-error-bg);
-  color: var(--dash-error-text);
+  background: var(--dash-warning-bg);
+  color: var(--dash-warning-text);
 }
 
 .dashboard-drawer-overlay {
