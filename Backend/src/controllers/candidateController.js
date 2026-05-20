@@ -27,7 +27,12 @@ const { respondIfQuotaExceeded } = require("../utils/quotaHttp");
 const { resolveContactReveal } = require("../services/contactRevealService");
 
 /** Wait after POST /wl/sourcing-session before GET …/profiles (Search Candidates apply). */
-const POST_SESSION_CREATE_PROFILES_WAIT_MS = 30_000;
+const POST_SESSION_CREATE_PROFILES_WAIT_MS = 20_000;
+
+/** Page size when loading all profiles from Future Jobs (initial + after fetch-more). */
+const PROFILE_FETCH_PAGE_LIMIT = 100;
+const PROFILE_FETCH_MAX_PAGES = 50;
+const STORED_CANDIDATES_ALL_LIMIT = 500;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -109,6 +114,82 @@ function mapProfilesResToLists(profilesRes) {
     }
   }
   return { candidates, profilesPagination, futureJobsProfiles: profilesRes };
+}
+
+function canFetchMoreFromFjSourcing(sourcing) {
+  if (!sourcing || typeof sourcing !== "object") return true;
+  const newCount = sourcing.newProfilesCount;
+  if (typeof newCount === "number" && newCount <= 0) return false;
+  return true;
+}
+
+function buildProfilesResWithDocs(baseRes, allDocs) {
+  const d = baseRes?.data && typeof baseRes.data === "object" ? baseRes.data : {};
+  const count = allDocs.length;
+  return {
+    ...baseRes,
+    data: {
+      ...d,
+      docs: allDocs,
+      totalDocs: count,
+      page: 1,
+      limit: count || PROFILE_FETCH_PAGE_LIMIT,
+      totalPages: 1,
+      hasNextPage: false,
+      hasPrevPage: false,
+      nextPage: null,
+      prevPage: null,
+    },
+  };
+}
+
+/**
+ * Load every page Future Jobs exposes for this session (no fetch-more).
+ */
+async function fetchAllSessionProfilesFromFj(sessionId, pollOptions = {}) {
+  const allDocs = [];
+  const seen = new Set();
+  let lastRes = null;
+  let page = 1;
+
+  while (page <= PROFILE_FETCH_MAX_PAGES) {
+    const profilesRes =
+      page === 1
+        ? await getSourcingSessionProfilesWhenReady(String(sessionId), {
+            page: 1,
+            limit: PROFILE_FETCH_PAGE_LIMIT,
+            ...pollOptions,
+          })
+        : await getSourcingSessionProfiles(String(sessionId), {
+            page,
+            limit: PROFILE_FETCH_PAGE_LIMIT,
+          });
+
+    lastRes = profilesRes;
+    const docs = profilesRes?.data?.docs;
+    if (Array.isArray(docs)) {
+      for (const doc of docs) {
+        const id = doc?._id != null ? String(doc._id) : "";
+        if (id) {
+          if (seen.has(id)) continue;
+          seen.add(id);
+        }
+        allDocs.push(doc);
+      }
+    }
+
+    const hasNext = profilesRes?.data?.hasNextPage === true;
+    const totalPages =
+      typeof profilesRes?.data?.totalPages === "number"
+        ? profilesRes.data.totalPages
+        : null;
+    if (!hasNext) break;
+    if (totalPages != null && page >= totalPages) break;
+    page += 1;
+  }
+
+  const mergedRes = buildProfilesResWithDocs(lastRes || {}, allDocs);
+  return mapProfilesResToLists(mergedRes);
 }
 
 async function persistCandidateDetails({
@@ -194,6 +275,7 @@ async function persistSourcingSessionRow({
   profilesPagination,
   candidates,
   profilesFetchError,
+  filterForm = null,
 }) {
   if (
     sessionId == null ||
@@ -218,10 +300,11 @@ async function persistSourcingSessionRow({
         usingSessionOverride: Boolean(usingSessionOverride),
         futureJobsStatus:
           typeof futureJobs?.status === "string" ? futureJobs.status : "",
-        totalDocs:
-          profilesPagination != null &&
-          typeof profilesPagination.totalDocs === "number" &&
-          profilesPagination.totalDocs > 0
+        totalDocs: Array.isArray(candidates)
+          ? candidates.length
+          : profilesPagination != null &&
+              typeof profilesPagination.totalDocs === "number" &&
+              profilesPagination.totalDocs > 0
             ? profilesPagination.totalDocs
             : typeof futureJobs?.data?.sourcing?.total_display_count === "number"
               ? futureJobs.data.sourcing.total_display_count
@@ -239,6 +322,10 @@ async function persistSourcingSessionRow({
             status: c.status || "",
           })),
         profilesFetchError: profilesFetchError ?? null,
+        filterForm:
+          filterForm && typeof filterForm === "object" && !Array.isArray(filterForm)
+            ? filterForm
+            : null,
       },
     },
     { upsert: true, new: true }
@@ -250,8 +337,6 @@ async function persistSourcingSessionRow({
 async function fetchProfilesForSession({
   userId,
   sessionId,
-  page,
-  limit,
   sourcingMeta,
   sessionMeta,
   loggerHandler,
@@ -265,9 +350,7 @@ async function fetchProfilesForSession({
     await sleep(waitBeforeFetchMs);
   }
 
-  const profilesRes = await getSourcingSessionProfilesWhenReady(String(sessionId), {
-    page,
-    limit,
+  const pollOptions = {
     expectedProfileCount:
       typeof sourcingMeta?.total_display_count === "number"
         ? sourcingMeta.total_display_count
@@ -280,16 +363,18 @@ async function fetchProfilesForSession({
         : typeof sessionMeta?.profileMatchingStatus === "string"
           ? sessionMeta.profileMatchingStatus
           : null,
-  });
+  };
+
+  const mapped = await fetchAllSessionProfilesFromFj(String(sessionId), pollOptions);
 
   await persistCandidateDetails({
     userId,
     sourcingSessionId: String(sessionId),
-    profilesRes,
+    profilesRes: mapped.futureJobsProfiles,
     loggerHandler,
   });
 
-  return mapProfilesResToLists(profilesRes);
+  return mapped;
 }
 
 /**
@@ -428,6 +513,7 @@ const createSearchSession = async (req, res) => {
         profilesPagination: null,
         candidates: [],
         profilesFetchError: null,
+        filterForm,
       });
     } catch (persistErr) {
       logApi("candidates/search/create", "persist failed", {
@@ -474,6 +560,7 @@ const createSearchSession = async (req, res) => {
 /**
  * POST /api/candidates/search/apply
  * Create sourcing session from prompt + filter form, then fetch profiles.
+ * When sessionId is provided, PATCH the existing Future Jobs session instead of creating a new one.
  */
 const applySearchFilters = async (req, res) => {
   const userId = req.auth?.userId;
@@ -507,24 +594,50 @@ const applySearchFilters = async (req, res) => {
 
     const page = clampInt(req.body?.page, 1, 100, 1);
     const limit = clampInt(req.body?.limit, 1, 100, 20);
-
-    try {
-      await assertQuotaAvailableByUserId(userId, "candidateSearches");
-    } catch (quotaErr) {
-      if (respondIfQuotaExceeded(res, quotaErr)) return;
-      throw quotaErr;
-    }
+    const existingSessionId =
+      typeof req.body?.sessionId === "string" ? req.body.sessionId.trim() : "";
 
     const payload = buildSessionPayloadFromPromptAndFilter(prompt, filterForm);
+    const isSessionUpdate = Boolean(existingSessionId);
+
+    if (isSessionUpdate) {
+      const owned = await SourcingSession.findOne({
+        userId: new mongoose.Types.ObjectId(userId),
+        futureJobsSessionId: existingSessionId,
+      })
+        .select("_id")
+        .lean();
+
+      if (!owned) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "This sourcing session was not found for your account, or it was created before history was enabled.",
+        });
+      }
+    } else {
+      try {
+        await assertQuotaAvailableByUserId(userId, "candidateSearches");
+      } catch (quotaErr) {
+        if (respondIfQuotaExceeded(res, quotaErr)) return;
+        throw quotaErr;
+      }
+    }
 
     logApi("candidates/search/apply", "incoming", {
       userId,
       promptLength: prompt.length,
+      sessionId: existingSessionId || undefined,
+      sessionUpdated: isSessionUpdate,
       payloadPreview: safeJsonPreview(payload),
     });
 
-    const futureJobs = await createSourcingSession(payload);
-    const sessionId = futureJobs?.data?.session?._id;
+    const futureJobs = isSessionUpdate
+      ? await updateSourcingSession(existingSessionId, payload)
+      : await createSourcingSession(payload);
+    const sessionId = isSessionUpdate
+      ? existingSessionId
+      : futureJobs?.data?.session?._id;
 
     if (sessionId == null || sessionId === "") {
       return res.status(502).json({
@@ -547,8 +660,6 @@ const applySearchFilters = async (req, res) => {
       const mapped = await fetchProfilesForSession({
         userId,
         sessionId: String(sessionId),
-        page,
-        limit,
         sourcingMeta:
           sourcingMeta && typeof sourcingMeta === "object" ? sourcingMeta : {},
         sessionMeta:
@@ -581,6 +692,7 @@ const applySearchFilters = async (req, res) => {
         profilesPagination,
         candidates,
         profilesFetchError,
+        filterForm: responseFilterForm,
       });
     } catch (persistErr) {
       logApi("candidates/search/apply", "persist failed", {
@@ -588,7 +700,7 @@ const applySearchFilters = async (req, res) => {
       });
     }
 
-    if (userId && mongoose.Types.ObjectId.isValid(String(userId))) {
+    if (!isSessionUpdate && userId && mongoose.Types.ObjectId.isValid(String(userId))) {
       await incrementUserUsage(String(userId), "candidateSearches");
     }
 
@@ -596,18 +708,42 @@ const applySearchFilters = async (req, res) => {
       userId,
       sessionId: String(sessionId),
       candidateCount: candidates.length,
+      sessionUpdated: isSessionUpdate,
     });
+
+    const displayedCount = candidates.length;
+    const profilesPaginationAligned = profilesPagination
+      ? {
+          ...profilesPagination,
+          totalDocs: displayedCount,
+          page: 1,
+          totalPages: 1,
+          hasNextPage: false,
+          hasPrevPage: false,
+        }
+      : {
+          totalDocs: displayedCount,
+          page: 1,
+          limit: displayedCount || PROFILE_FETCH_PAGE_LIMIT,
+          totalPages: 1,
+          hasNextPage: false,
+          hasPrevPage: false,
+          nextPage: null,
+          prevPage: null,
+        };
 
     return res.status(200).json({
       success: true,
       prompt,
       sessionId: String(sessionId),
-      page,
-      limit,
+      sessionUpdated: isSessionUpdate,
+      page: 1,
+      limit: displayedCount || limit,
+      canFetchMore: canFetchMoreFromFjSourcing(sourcingMeta),
       filterForm: responseFilterForm,
       sessionPayload: sessionMeta ?? null,
       candidates,
-      profilesPagination: profilesPagination ?? undefined,
+      profilesPagination: profilesPaginationAligned,
       futureJobsProfiles: futureJobsProfiles ?? undefined,
       profilesFetchError: profilesFetchError ?? undefined,
       futureJobs,
@@ -782,6 +918,7 @@ const searchCandidates = async (req, res) => {
           typeof payload?.sessionTitle === "string"
             ? payload.sessionTitle.trim()
             : "";
+        const responseFilterForm = filterFormFromCreateResponse(futureJobs, payload);
         const doc = await SourcingSession.create({
           userId: new mongoose.Types.ObjectId(userId),
           futureJobsSessionId: String(sessionId),
@@ -810,6 +947,12 @@ const searchCandidates = async (req, res) => {
             status: c.status || "",
           })),
           profilesFetchError: profilesFetchError ?? null,
+          filterForm:
+            responseFilterForm &&
+            typeof responseFilterForm === "object" &&
+            !Array.isArray(responseFilterForm)
+              ? responseFilterForm
+              : null,
         });
         savedSessionId = doc._id.toString();
       } catch (persistErr) {
@@ -857,7 +1000,7 @@ const searchCandidates = async (req, res) => {
 
 /**
  * GET /api/candidates/session/:sessionId/profiles
- * Query: page, limit, fetchMore (optional; if true, POST …/fetch-more then GET profiles)
+ * Loads all profile pages from Future Jobs for this session (no fetch-more).
  */
 const loadSessionProfiles = async (req, res) => {
   const userId = req.auth?.userId;
@@ -894,104 +1037,55 @@ const loadSessionProfiles = async (req, res) => {
       });
     }
 
-    const page = clampInt(req.query.page, 1, 100, 1);
-    const limit = clampInt(req.query.limit, 1, 100, 20);
-    const fetchMore = parseQueryBool(req.query.fetchMore, false);
-
     logApi("candidates/session/profiles", "incoming", {
       userId,
       sessionId,
-      page,
-      limit,
-      fetchMore,
     });
 
-    let fetchMoreResult = null;
-    let fetchMoreError = null;
+    const expectedFromSession =
+      typeof owned?.totalDocs === "number" && owned.totalDocs > 0
+        ? owned.totalDocs
+        : 1;
 
-    if (fetchMore) {
-      try {
-        fetchMoreResult = await fetchMoreSourcingSession(sessionId, {});
-        logApi("candidates/session/profiles", "fetch-more ok", {
-          userId,
-          sessionId,
-          fjStatus: fetchMoreResult?.status,
-        });
-      } catch (err) {
-        fetchMoreError =
-          typeof err?.message === "string" ? err.message : "fetch-more failed";
-        logApi("candidates/session/profiles", "fetch-more failed", {
-          userId,
-          sessionId,
-          message: fetchMoreError,
-          detailsPreview: err?.details
-            ? safeJsonPreview(err.details, 400)
-            : undefined,
-        });
-      }
-    }
+    const mapped = await fetchAllSessionProfilesFromFj(sessionId, {
+      expectedProfileCount: expectedFromSession,
+      profileMatchingStatus: "processing",
+    });
 
-    let profilesRes = await getSourcingSessionProfiles(sessionId, { page, limit });
-    const initialDocCount = Array.isArray(profilesRes?.data?.docs)
-      ? profilesRes.data.docs.length
-      : 0;
-    const initialTotalDocs =
-      typeof profilesRes?.data?.totalDocs === "number"
-        ? profilesRes.data.totalDocs
-        : 0;
-
-    if (
-      page === 1 &&
-      !fetchMore &&
-      initialDocCount === 0 &&
-      initialTotalDocs === 0
-    ) {
-      const expectedFromSession =
-        typeof owned?.totalDocs === "number" && owned.totalDocs > 0
-          ? owned.totalDocs
-          : 1;
-      profilesRes = await getSourcingSessionProfilesWhenReady(sessionId, {
-        page,
-        limit,
-        expectedProfileCount: expectedFromSession,
-        profileMatchingStatus: "processing",
-      });
-    }
     await persistCandidateDetails({
       userId,
       sourcingSessionId: sessionId,
-      profilesRes,
+      profilesRes: mapped.futureJobsProfiles,
       loggerHandler: "candidates/session/profiles",
     });
-    const { candidates, profilesPagination, futureJobsProfiles } =
-      mapProfilesResToLists(profilesRes);
 
-    const docs = profilesRes?.data?.docs;
-    const docCount = Array.isArray(docs) ? docs.length : 0;
+    const displayedCount = mapped.candidates.length;
 
     logApi("candidates/session/profiles", "success", {
       userId,
       sessionId,
-      docCount,
-      candidatesMapped: candidates.length,
-      fetchMoreRan: fetchMore,
-      fetchMoreError: fetchMoreError || undefined,
+      docCount: displayedCount,
+      candidatesMapped: displayedCount,
     });
 
     return res.status(200).json({
       success: true,
       sessionId,
-      page,
-      limit,
-      fetchMoreRequested: fetchMore,
-      fetchMoreResult: fetchMoreResult ?? undefined,
-      fetchMoreError: fetchMoreError ?? undefined,
-      candidates,
-      profilesPagination: profilesPagination ?? undefined,
-      futureJobsProfiles,
-      profilesFetchError: fetchMoreError
-        ? `fetch-more: ${fetchMoreError}`
-        : undefined,
+      page: 1,
+      limit: displayedCount,
+      canFetchMore: true,
+      candidates: mapped.candidates,
+      profilesPagination: {
+        totalDocs: displayedCount,
+        page: 1,
+        limit: displayedCount || PROFILE_FETCH_PAGE_LIMIT,
+        totalPages: 1,
+        hasNextPage: false,
+        hasPrevPage: false,
+        nextPage: null,
+        prevPage: null,
+      },
+      futureJobsProfiles: mapped.futureJobsProfiles,
     });
   } catch (error) {
     const status = error.statusCode || 500;
@@ -1012,10 +1106,10 @@ const loadSessionProfiles = async (req, res) => {
 };
 
 /**
- * GET /api/candidates/session/:sessionId/stored-candidates
- * Returns previously persisted full candidate docs from our DB (no external API call).
+ * POST /api/candidates/session/:sessionId/fetch-more
+ * Future Jobs fetch-more, then load all profiles and return new docs for the UI to merge.
  */
-const loadStoredSessionCandidates = async (req, res) => {
+const fetchMoreSessionProfiles = async (req, res) => {
   const userId = req.auth?.userId;
   try {
     const rawId = req.params.sessionId;
@@ -1050,9 +1144,129 @@ const loadStoredSessionCandidates = async (req, res) => {
       });
     }
 
+    logApi("candidates/session/fetch-more", "incoming", { userId, sessionId });
+
+    const fetchMoreResult = await fetchMoreSourcingSession(sessionId, {});
+    const sourcingMeta =
+      fetchMoreResult?.data?.sourcing &&
+      typeof fetchMoreResult.data.sourcing === "object"
+        ? fetchMoreResult.data.sourcing
+        : {};
+    const sessionMeta =
+      fetchMoreResult?.data?.session &&
+      typeof fetchMoreResult.data.session === "object"
+        ? fetchMoreResult.data.session
+        : {};
+
+    const mapped = await fetchAllSessionProfilesFromFj(sessionId, {
+      expectedProfileCount:
+        typeof sourcingMeta.newProfilesCount === "number"
+          ? sourcingMeta.newProfilesCount
+          : typeof sourcingMeta.total_display_count === "number"
+            ? sourcingMeta.total_display_count
+            : null,
+      profileMatchingStatus:
+        typeof sourcingMeta.profileMatchingStatus === "string"
+          ? sourcingMeta.profileMatchingStatus
+          : typeof sessionMeta.profileMatchingStatus === "string"
+            ? sessionMeta.profileMatchingStatus
+            : "processing",
+    });
+
+    await persistCandidateDetails({
+      userId,
+      sourcingSessionId: sessionId,
+      profilesRes: mapped.futureJobsProfiles,
+      loggerHandler: "candidates/session/fetch-more",
+    });
+
+    const docs = mapped.futureJobsProfiles?.data?.docs;
+    const docCount = Array.isArray(docs) ? docs.length : 0;
+    const canFetchMore = canFetchMoreFromFjSourcing(sourcingMeta);
+
+    logApi("candidates/session/fetch-more", "success", {
+      userId,
+      sessionId,
+      docCount,
+      canFetchMore,
+    });
+
+    return res.status(200).json({
+      success: true,
+      sessionId,
+      canFetchMore,
+      fetchMoreResult,
+      candidates: mapped.candidates,
+      profilesPagination: {
+        totalDocs: docCount,
+        page: 1,
+        limit: docCount || PROFILE_FETCH_PAGE_LIMIT,
+        totalPages: 1,
+        hasNextPage: false,
+        hasPrevPage: false,
+      },
+      futureJobsProfiles: mapped.futureJobsProfiles,
+    });
+  } catch (error) {
+    const status = error.statusCode || 500;
+    logApi("candidates/session/fetch-more", "error", {
+      userId,
+      status,
+      message: error.message,
+    });
+    return res.status(status).json({
+      success: false,
+      message: error.message || "Failed to fetch more profiles",
+      details: error.details,
+    });
+  }
+};
+
+/**
+ * GET /api/candidates/session/:sessionId/stored-candidates
+ * Returns previously persisted full candidate docs from our DB (no external API call).
+ */
+const loadStoredSessionCandidates = async (req, res) => {
+  const userId = req.auth?.userId;
+  try {
+    const rawId = req.params.sessionId;
+    const sessionId =
+      rawId != null && String(rawId).trim() !== "" ? String(rawId).trim() : "";
+    if (!sessionId) {
+      return res.status(400).json({
+        success: false,
+        message: "sessionId is required",
+      });
+    }
+
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    const owned = await SourcingSession.findOne({
+      userId: new mongoose.Types.ObjectId(userId),
+      futureJobsSessionId: sessionId,
+    })
+      .select("_id filterForm")
+      .lean();
+
+    if (!owned) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "This sourcing session was not found for your account, or it was created before history was enabled.",
+      });
+    }
+
+    const loadAll = parseQueryBool(req.query.all, false);
     const page = clampInt(req.query.page, 1, 100000, 1);
-    const limit = clampInt(req.query.limit, 1, 100, 20);
-    const skip = (page - 1) * limit;
+    const limit = loadAll
+      ? STORED_CANDIDATES_ALL_LIMIT
+      : clampInt(req.query.limit, 1, 100, 20);
+    const skip = loadAll ? 0 : (page - 1) * limit;
 
     const filter = {
       userId: new mongoose.Types.ObjectId(userId),
@@ -1096,14 +1310,32 @@ const loadStoredSessionCandidates = async (req, res) => {
       returned: detailedDocs.length,
     });
 
+    const displayedCount = detailedDocs.length;
+
     return res.status(200).json({
       success: true,
       sessionId,
-      page,
-      limit,
+      page: loadAll ? 1 : page,
+      limit: loadAll ? displayedCount : limit,
+      canFetchMore: true,
       detailedDocs,
       candidates,
-      profilesPagination,
+      profilesPagination: {
+        totalDocs: displayedCount,
+        page: 1,
+        limit: displayedCount || limit,
+        totalPages: 1,
+        hasNextPage: false,
+        hasPrevPage: false,
+        nextPage: null,
+        prevPage: null,
+      },
+      filterForm:
+        owned?.filterForm &&
+        typeof owned.filterForm === "object" &&
+        !Array.isArray(owned.filterForm)
+          ? owned.filterForm
+          : undefined,
     });
   } catch (error) {
     const status = error.statusCode || 500;
@@ -1493,6 +1725,10 @@ const listSourcingSessions = async (req, res) => {
             }))
           : [],
         profilesFetchError: d.profilesFetchError,
+        filterForm:
+          d.filterForm && typeof d.filterForm === "object" && !Array.isArray(d.filterForm)
+            ? d.filterForm
+            : null,
         createdAt: d.createdAt,
         updatedAt: d.updatedAt,
       })),
@@ -2089,6 +2325,7 @@ module.exports = {
   createSearchSession,
   applySearchFilters,
   loadSessionProfiles,
+  fetchMoreSessionProfiles,
   loadStoredSessionCandidates,
   listAllSourcedCandidates,
   listAllSourcedCandidatesAdmin,

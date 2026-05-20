@@ -10,13 +10,21 @@ export function parseApiError(
 ): ApiErrorInfo {
   const body =
     data && typeof data === "object" ? (data as Record<string, unknown>) : {};
+  const details =
+    body.details && typeof body.details === "object"
+      ? (body.details as Record<string, unknown>)
+      : null;
+  const detailsMessage =
+    details && typeof details.message === "string" ? details.message.trim() : "";
 
   const message =
     typeof body.message === "string" && body.message.trim()
       ? body.message.trim()
-      : res.status === 404
-        ? "Not found"
-        : fallback;
+      : detailsMessage
+        ? detailsMessage
+        : res.status === 404
+          ? "Not found"
+          : fallback;
 
   const isQuotaExceeded =
     body.code === "QUOTA_EXCEEDED" ||

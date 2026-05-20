@@ -12,7 +12,6 @@ const buildSourcingSessionPayloadFromPrompt = (prompt) => {
     sessionTitle,
     jdDetail: {
       userText,
-      sampleProfileURL: "",
     },
     queries: {},
   };

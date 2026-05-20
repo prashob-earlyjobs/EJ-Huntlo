@@ -22,6 +22,10 @@ import {
 } from "@/components/dashboard/MyProfilePanel";
 import { DashboardOverviewPanel } from "@/components/dashboard/DashboardOverviewPanel";
 import { PlansPricingPanel } from "@/components/dashboard/PlansPricingPanel";
+import {
+  DashboardToast,
+  type DashboardToastVariant,
+} from "@/components/dashboard/DashboardToast";
 import { UserActionAlertModal } from "@/components/dashboard/UserActionAlertModal";
 import { CandidatePoolPanel } from "@/components/dashboard/CandidatePoolPanel";
 import {
@@ -83,6 +87,7 @@ type SourcingSessionRow = {
     status: string;
   }[];
   profilesFetchError: string | null;
+  filterForm?: Partial<CandidateFilterForm> | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -264,6 +269,14 @@ const userSidebarItems = [
     ),
   },
 ];
+
+const APPLY_FILTER_LOADING_STEPS = [
+  "Setting up your search",
+  "Finalizing your filters",
+  "Creating the search",
+  "Setting up your personalized sourcing session",
+  "Searching profiles",
+] as const;
 
 const DASHBOARD_SIDEBAR_COLLAPSED_KEY = "ejhunter_dashboard_sidebar_collapsed";
 
@@ -527,6 +540,7 @@ type SearchSummaryState = {
   limit: number;
   totalPages: number | null;
   hasNextPage: boolean | null;
+  canFetchMore: boolean;
   sessionId: string | null;
   sourcingStatus: string | null;
   profilesFetchError: string | null;
@@ -1447,8 +1461,12 @@ export default function UserDashboardPage() {
   const [sessionResultTotalPages, setSessionResultTotalPages] = useState<number | null>(
     null
   );
-  const [sessionResultHasNext, setSessionResultHasNext] = useState(false);
-  const [sessionResultLoadingMore, setSessionResultLoadingMore] = useState(false);
+  const [sessionCanFetchMore, setSessionCanFetchMore] = useState(false);
+  const [sessionFetchMoreLoading, setSessionFetchMoreLoading] = useState(false);
+  const [dashboardToast, setDashboardToast] = useState<{
+    message: string;
+    variant: DashboardToastVariant;
+  } | null>(null);
   const [savedSessionCandidateKeys, setSavedSessionCandidateKeys] = useState<string[]>([]);
   const [savedCandidatesList, setSavedCandidatesList] = useState<CandidateRow[]>([]);
   const [savedCandidatesLoading, setSavedCandidatesLoading] = useState(false);
@@ -1481,6 +1499,8 @@ export default function UserDashboardPage() {
   > | null>(null);
   const [applyFiltersLoading, setApplyFiltersLoading] = useState(false);
   const [annotateLoading, setAnnotateLoading] = useState(false);
+  const [filterSkillsError, setFilterSkillsError] = useState("");
+  const [applyStatusStepIndex, setApplyStatusStepIndex] = useState(0);
   const [isPeopleScoutDrawerOpen, setIsPeopleScoutDrawerOpen] = useState(false);
   const [peopleScoutRevealEmail, setPeopleScoutRevealEmail] = useState(false);
   const [peopleScoutRevealPhone, setPeopleScoutRevealPhone] = useState(false);
@@ -2215,6 +2235,7 @@ export default function UserDashboardPage() {
           candidateCountFirstPage: 0,
           candidatePreview: [],
           profilesFetchError: null,
+          filterForm: null,
           createdAt: item.createdAt || "",
           updatedAt: item.createdAt || "",
         },
@@ -2647,71 +2668,96 @@ export default function UserDashboardPage() {
     }
   };
 
-  const applySessionProfilesFromSearchResponse = (
-    data: Record<string, unknown>,
-    backTab: string
+  const mergeSessionResultDocs = (
+    prev: SessionResultDoc[],
+    incoming: SessionResultDoc[],
+    append: boolean
   ) => {
-    const fjProfiles = data.futureJobsProfiles as
-      | { data?: { docs?: SessionResultDoc[] } }
-      | undefined;
-    const docs = Array.isArray(fjProfiles?.data?.docs) ? fjProfiles.data.docs : [];
-    setSessionResultDocs(docs);
-    setSessionResultsFromDb(false);
+    if (!append || prev.length === 0) return incoming;
+    const seen = new Set(incoming.map((doc) => doc._id).filter(Boolean));
+    const merged = [...incoming];
+    for (const doc of prev) {
+      if (!doc._id || seen.has(doc._id)) continue;
+      seen.add(doc._id);
+      merged.push(doc);
+    }
+    return merged;
+  };
 
-    const pg = data.profilesPagination as
-      | {
-          totalPages?: number;
-          hasNextPage?: boolean;
-          totalDocs?: number;
-        }
-      | undefined;
-    const initialPage = typeof data.page === "number" ? data.page : 1;
-    setSessionResultPage(initialPage);
-    setSessionResultTotalPages(
-      typeof pg?.totalPages === "number" ? pg.totalPages : null
-    );
-    setSessionResultHasNext(
-      typeof pg?.hasNextPage === "boolean"
-        ? pg.hasNextPage
-        : typeof pg?.totalPages === "number"
-          ? initialPage < pg.totalPages
-          : false
-    );
-
-    const list = Array.isArray(data.candidates)
-      ? (data.candidates as CandidateRow[])
-      : [];
-    setSearchedCandidates(list);
-
+  const syncSessionResultsSummary = (
+    displayedCount: number,
+    data: Record<string, unknown>,
+    prevSummary: SearchSummaryState | null
+  ) => {
+    const sessionIdFromData =
+      typeof data.sessionId === "string" ? data.sessionId.trim() : "";
     const warn =
       (typeof data.profilesFetchError === "string" && data.profilesFetchError) ||
       (typeof data.fetchMoreError === "string" && data.fetchMoreError
         ? `fetch-more: ${data.fetchMoreError}`
         : "");
+    const canFetchMore = data.canFetchMore !== false;
+
+    setSessionCanFetchMore(canFetchMore);
+    setSearchSummary({
+      candidateCount: displayedCount,
+      totalDocs: displayedCount,
+      page: 1,
+      limit: typeof data.limit === "number" ? data.limit : prevSummary?.limit ?? 20,
+      totalPages: 1,
+      hasNextPage: false,
+      canFetchMore,
+      sessionId: sessionIdFromData || prevSummary?.sessionId || null,
+      sourcingStatus:
+        typeof (data.futureJobs as { status?: string } | undefined)?.status === "string"
+          ? (data.futureJobs as { status: string }).status
+          : prevSummary?.sourcingStatus ?? null,
+      profilesFetchError: warn || prevSummary?.profilesFetchError || null,
+    });
     if (warn) setProfilesWarning(warn);
+  };
 
-    setSearchSummary((prev) =>
-      prev
-        ? {
-            ...prev,
-            candidateCount: list.length,
-            totalDocs:
-              typeof prev.totalDocs === "number"
-                ? prev.totalDocs
-                : typeof pg?.totalDocs === "number"
-                  ? pg.totalDocs
-                  : prev.totalDocs,
-            page: typeof data.page === "number" ? data.page : 1,
-            limit: typeof data.limit === "number" ? data.limit : prev.limit,
-            totalPages:
-              typeof pg?.totalPages === "number" ? pg.totalPages : null,
-            hasNextPage:
-              typeof pg?.hasNextPage === "boolean" ? pg.hasNextPage : null,
-            profilesFetchError: warn || prev.profilesFetchError,
-          }
-        : prev
+  const applySessionProfilesFromSearchResponse = (
+    data: Record<string, unknown>,
+    backTab: string,
+    options?: { appendDocs?: boolean }
+  ) => {
+    const fjProfiles = data.futureJobsProfiles as
+      | { data?: { docs?: SessionResultDoc[] } }
+      | undefined;
+    const incomingDocs = Array.isArray(fjProfiles?.data?.docs) ? fjProfiles.data.docs : [];
+    const appendDocs = options?.appendDocs === true;
+
+    const nextDocs = mergeSessionResultDocs(
+      appendDocs ? sessionResultDocs : [],
+      incomingDocs,
+      appendDocs
     );
+    setSessionResultDocs(nextDocs);
+    setSessionResultsFromDb(false);
+    setSessionResultPage(1);
+    setSessionResultTotalPages(1);
 
+    const list = Array.isArray(data.candidates)
+      ? (data.candidates as CandidateRow[])
+      : [];
+    if (appendDocs) {
+      setSearchedCandidates((prev) => {
+        const seen = new Set(list.map((c) => candidateIdentityKey(c)).filter(Boolean));
+        const merged = [...list];
+        for (const c of prev) {
+          const key = candidateIdentityKey(c);
+          if (!key || seen.has(key)) continue;
+          seen.add(key);
+          merged.push(c);
+        }
+        return merged;
+      });
+    } else {
+      setSearchedCandidates(list);
+    }
+
+    syncSessionResultsSummary(nextDocs.length, data, searchSummary);
     setHasSearched(true);
     setSessionResultsBackTab(backTab);
     setActiveTab("Session Results");
@@ -2728,7 +2774,7 @@ export default function UserDashboardPage() {
   ) => {
     const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
     const sid = encodeURIComponent(sessionId);
-    const url = `${apiBase}/api/candidates/session/${sid}/profiles?page=1&limit=${limit}&fetchMore=0`;
+    const url = `${apiBase}/api/candidates/session/${sid}/profiles?page=1&limit=${limit}`;
     const res = await fetch(url, {
       method: "GET",
       headers: authHeaders(token),
@@ -2763,7 +2809,10 @@ export default function UserDashboardPage() {
     setFilterSearchPrompt(prompt);
     setPendingSearchSessionId(null);
     setPendingSessionPayload(null);
+    setSearchSummary(null);
+    setSessionResultDocs([]);
     setAnnotateLoading(true);
+    setFilterSkillsError("");
     setCandidateFilterForm(DEFAULT_CANDIDATE_FILTER_FORM);
     setIsFilterDrawerOpen(true);
 
@@ -2805,8 +2854,15 @@ export default function UserDashboardPage() {
 
   const handleApplySearchFilters = async () => {
     const prompt = (filterSearchPrompt || aiPrompt).trim();
+    const keywordSkills = String(candidateFilterForm.keywordSkills || "").trim();
     if (!prompt) {
       setSearchError("Enter a search prompt first.");
+      return;
+    }
+    if (!keywordSkills) {
+      const message = "At least one skill is required.";
+      setFilterSkillsError(message);
+      setSearchError(message);
       return;
     }
 
@@ -2818,7 +2874,13 @@ export default function UserDashboardPage() {
 
     const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
     const backTab = activeTab === "Session Results" ? sessionResultsBackTab : activeTab;
+    const existingSessionId =
+      activeTab === "Session Results" && searchSummary?.sessionId?.trim()
+        ? searchSummary.sessionId.trim()
+        : "";
     setApplyFiltersLoading(true);
+    setApplyStatusStepIndex(0);
+    setFilterSkillsError("");
     setSearchError("");
     setSessionResultError("");
     setProfilesWarning("");
@@ -2832,6 +2894,7 @@ export default function UserDashboardPage() {
           filterForm: candidateFilterForm,
           page: 1,
           limit: searchSummary?.limit ?? 20,
+          ...(existingSessionId ? { sessionId: existingSessionId } : {}),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -2883,6 +2946,12 @@ export default function UserDashboardPage() {
           backTab
         );
       } else {
+        setIsFilterDrawerOpen(false);
+        setSessionResultsBackTab(backTab);
+        setActiveTab("Session Results");
+        setSessionResultError("");
+        setSessionResultDocs([]);
+        setSearchedCandidates([]);
         await loadSessionProfilesFirstPage(
           sessionId,
           typeof data.limit === "number" ? data.limit : 20,
@@ -2906,8 +2975,8 @@ export default function UserDashboardPage() {
     }
   };
 
-  const handleViewMoreSessionResults = async () => {
-    if (!searchSummary?.sessionId || !sessionResultHasNext || sessionResultLoadingMore) {
+  const handleFetchMoreSessionProfiles = async () => {
+    if (!searchSummary?.sessionId || !sessionCanFetchMore || sessionFetchMoreLoading) {
       return;
     }
 
@@ -2917,66 +2986,77 @@ export default function UserDashboardPage() {
       return;
     }
 
-    const nextPage = sessionResultPage + 1;
     const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
     const sid = encodeURIComponent(searchSummary.sessionId);
-    const limit = searchSummary.limit;
-    const url = sessionResultsFromDb
-      ? `${apiBase}/api/candidates/session/${sid}/stored-candidates?page=${nextPage}&limit=${limit}`
-      : `${apiBase}/api/candidates/session/${sid}/profiles?page=${nextPage}&limit=${limit}&fetchMore=1`;
 
-    setSessionResultLoadingMore(true);
+    setSessionFetchMoreLoading(true);
+    setDashboardToast(null);
     setSessionResultError("");
     try {
-      const res = await fetch(url, {
-        method: "GET",
+      const res = await fetch(`${apiBase}/api/candidates/session/${sid}/fetch-more`, {
+        method: "POST",
         headers: authHeaders(auth.token),
+        body: JSON.stringify({}),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
-        throw new Error(
-          typeof data.message === "string" ? data.message : "Failed to load more profiles"
+        const message = userActionAlert.apiMessage(
+          res,
+          data,
+          "Failed to fetch more profiles"
         );
+        if (!userActionAlert.fromApi(res, data, message)) {
+          setDashboardToast({ message, variant: "warning" });
+        }
+        return;
       }
 
-      const docs = sessionResultsFromDb
-        ? Array.isArray(data.detailedDocs)
-          ? (data.detailedDocs as SessionResultDoc[])
-          : []
-        : Array.isArray(data.futureJobsProfiles?.data?.docs)
-          ? (data.futureJobsProfiles.data.docs as SessionResultDoc[])
-          : [];
-      setSessionResultDocs((prev) => {
-        const seen = new Set(prev.map((d) => d._id).filter(Boolean));
-        const merged = [...prev];
-        for (const d of docs) {
-          if (!d._id || !seen.has(d._id)) {
-            merged.push(d);
-            if (d._id) seen.add(d._id);
-          }
-        }
-        return merged;
+      const fjProfiles = data.futureJobsProfiles as
+        | { data?: { docs?: SessionResultDoc[] } }
+        | undefined;
+      const incomingDocs = Array.isArray(fjProfiles?.data?.docs)
+        ? (fjProfiles.data.docs as SessionResultDoc[])
+        : [];
+
+      const seenDocIds = new Set(sessionResultDocs.map((d) => d._id).filter(Boolean));
+      const newDocs = incomingDocs.filter((d) => d._id && !seenDocIds.has(d._id));
+      const nextDocs = [...sessionResultDocs, ...newDocs];
+      setSessionResultDocs(nextDocs);
+      setSessionResultsFromDb(false);
+
+      const incomingCandidates = Array.isArray(data.candidates)
+        ? (data.candidates as CandidateRow[])
+        : [];
+      setSearchedCandidates((prev) => {
+        const seen = new Set(prev.map((c) => candidateIdentityKey(c)).filter(Boolean));
+        const added = incomingCandidates.filter((c) => {
+          const key = candidateIdentityKey(c);
+          return key && !seen.has(key);
+        });
+        return [...prev, ...added];
       });
 
-      const pg = data.profilesPagination;
-      const pageNow = typeof data.page === "number" ? data.page : nextPage;
-      setSessionResultPage(pageNow);
-      setSessionResultTotalPages(
-        typeof pg?.totalPages === "number" ? pg.totalPages : sessionResultTotalPages
+      const canFetchMore = data.canFetchMore !== false;
+      setSessionCanFetchMore(canFetchMore);
+      setSearchSummary((prev) =>
+        prev
+          ? {
+              ...prev,
+              candidateCount: nextDocs.length,
+              totalDocs: nextDocs.length,
+              canFetchMore,
+            }
+          : prev
       );
-      setSessionResultHasNext(
-        typeof pg?.hasNextPage === "boolean"
-          ? pg.hasNextPage
-          : typeof pg?.totalPages === "number"
-            ? pageNow < pg.totalPages
-            : false
-      );
+      setWorkspaceCandidatesRefresh((n) => n + 1);
     } catch (err) {
-      setSessionResultError(
-        err instanceof Error ? err.message : "Could not load more session profiles"
-      );
+      const message =
+        err instanceof Error ? err.message : "Could not fetch more profiles";
+      if (!userActionAlert.fromThrown(err)) {
+        setDashboardToast({ message, variant: "warning" });
+      }
     } finally {
-      setSessionResultLoadingMore(false);
+      setSessionFetchMoreLoading(false);
     }
   };
 
@@ -2998,7 +3078,7 @@ export default function UserDashboardPage() {
     const limit = 20;
     try {
       const sid = encodeURIComponent(row.futureJobsSessionId);
-      const url = `${apiBase}/api/candidates/session/${sid}/stored-candidates?page=1&limit=${limit}`;
+      const url = `${apiBase}/api/candidates/session/${sid}/stored-candidates?all=1`;
       const res = await fetch(url, {
         method: "GET",
         headers: authHeaders(auth.token),
@@ -3017,6 +3097,19 @@ export default function UserDashboardPage() {
       const detailedDocs = Array.isArray(data.detailedDocs)
         ? (data.detailedDocs as SessionResultDoc[])
         : [];
+      const restoredFilterForm =
+        data.filterForm && typeof data.filterForm === "object"
+          ? (data.filterForm as Partial<CandidateFilterForm>)
+          : row.filterForm && typeof row.filterForm === "object"
+            ? row.filterForm
+            : null;
+      if (restoredFilterForm) {
+        setCandidateFilterForm(
+          mergeFilterForm(DEFAULT_CANDIDATE_FILTER_FORM, restoredFilterForm)
+        );
+      } else {
+        setCandidateFilterForm(DEFAULT_CANDIDATE_FILTER_FORM);
+      }
       setSessionResultDocs(detailedDocs);
       setSessionResultsFromDb(true);
       const pg = data.profilesPagination;
@@ -3026,36 +3119,25 @@ export default function UserDashboardPage() {
           ? `fetch-more: ${data.fetchMoreError}`
           : "");
       setProfilesWarning(warn);
+      const displayedCount = detailedDocs.length;
+      const canFetchMore = data.canFetchMore !== false;
+      setSessionCanFetchMore(canFetchMore);
       setSearchSummary({
-        candidateCount: list.length,
-        totalDocs:
-          typeof row.totalDocs === "number"
-            ? row.totalDocs
-            : typeof pg?.totalDocs === "number"
-              ? pg.totalDocs
-              : null,
-        page: typeof data.page === "number" ? data.page : 1,
-        limit: typeof data.limit === "number" ? data.limit : limit,
-        totalPages:
-          typeof pg?.totalPages === "number" ? pg.totalPages : null,
-        hasNextPage:
-          typeof pg?.hasNextPage === "boolean" ? pg.hasNextPage : null,
+        candidateCount: displayedCount,
+        totalDocs: displayedCount,
+        page: 1,
+        limit: displayedCount || limit,
+        totalPages: 1,
+        hasNextPage: false,
+        canFetchMore,
         sessionId: row.futureJobsSessionId,
         sourcingStatus: row.futureJobsStatus || null,
         profilesFetchError: warn || row.profilesFetchError || null,
       });
       setAiPrompt(row.prompt || row.sessionTitle || "");
-      setSessionResultPage(typeof data.page === "number" ? data.page : 1);
-      setSessionResultTotalPages(
-        typeof pg?.totalPages === "number" ? pg.totalPages : null
-      );
-      setSessionResultHasNext(
-        typeof pg?.hasNextPage === "boolean"
-          ? pg.hasNextPage
-          : typeof pg?.totalPages === "number"
-            ? (typeof data.page === "number" ? data.page : 1) < pg.totalPages
-            : false
-      );
+      setFilterSearchPrompt(row.prompt || row.sessionTitle || "");
+      setSessionResultPage(1);
+      setSessionResultTotalPages(1);
       setActiveTab("Session Results");
     } catch (err) {
       setSearchError(
@@ -3435,6 +3517,19 @@ export default function UserDashboardPage() {
   };
 
   useEffect(() => {
+    if (!applyFiltersLoading) {
+      setApplyStatusStepIndex(0);
+      return;
+    }
+    const timer = window.setInterval(() => {
+      setApplyStatusStepIndex((prev) =>
+        prev >= APPLY_FILTER_LOADING_STEPS.length - 1 ? prev : prev + 1
+      );
+    }, 2200);
+    return () => window.clearInterval(timer);
+  }, [applyFiltersLoading]);
+
+  useEffect(() => {
     if (!profileMenuOpen) return;
 
     const onPointerDown = (event: MouseEvent) => {
@@ -3684,39 +3779,29 @@ export default function UserDashboardPage() {
                     </h3>
                     <p className="mt-1 dashboard-text-body">
                       Candidates from your selected sourcing session.
-                      {searchSummary?.sessionId ? (
-                        <span className="mt-1 block font-mono text-[10px] text-[#424656]/75">
-                          {searchSummary.sessionId}
-                        </span>
-                      ) : null}
                     </p>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {searchSummary?.totalDocs != null ? (
-                      <span className="dashboard-badge tabular-nums">
-                        {searchSummary.totalDocs.toLocaleString()} total
-                      </span>
-                    ) : null}
+                  <div className="dashboard-results-toolbar-actions">
                     {sessionResultDocs.length > 0 ? (
                       <span className="dashboard-badge tabular-nums">
-                        Showing {sessionResultDocs.length}
-                        {sessionResultHasNext ? "+" : ""}
+                        {sessionResultDocs.length.toLocaleString()} candidate
+                        {sessionResultDocs.length === 1 ? "" : "s"}
                       </span>
                     ) : null}
                     <button
                       type="button"
                       onClick={() => setIsFilterDrawerOpen(true)}
-                      className="dashboard-btn-secondary px-3 py-1.5 text-xs"
+                      className="dashboard-btn-secondary h-9 px-3 text-sm font-medium"
                     >
-                      <MaterialIcon name="tune" className="text-sm" />
+                      <MaterialIcon name="tune" className="text-base" />
                       Edit filter
                     </button>
                     <button
                       type="button"
                       onClick={() => setActiveTab(sessionResultsBackTab)}
-                      className="dashboard-btn-secondary px-3 py-1.5 text-xs"
+                      className="dashboard-btn-secondary h-9 px-3 text-sm font-medium"
                     >
-                      <MaterialIcon name="arrow_back" className="text-sm" />
+                      <MaterialIcon name="arrow_back" className="text-base" />
                       Back
                     </button>
                   </div>
@@ -3734,7 +3819,23 @@ export default function UserDashboardPage() {
                   <SessionResultsSkeleton count={4} />
                 ) : null}
 
-                {!searchLoading && sessionResultDocs.length === 0 && !sessionResultError ? (
+                {applyFiltersLoading && sessionResultDocs.length === 0 ? (
+                  <div className="dashboard-results-analyzing" role="status" aria-live="polite">
+                    <div className="dashboard-results-analyzing-graphic" aria-hidden>
+                      <span className="dashboard-results-analyzing-dot" />
+                      <span className="dashboard-results-analyzing-dot" />
+                      <span className="dashboard-results-analyzing-dot" />
+                    </div>
+                    <p className="dashboard-results-analyzing-title">
+                      Analyzing profiles... Please wait for the updated results.
+                    </p>
+                  </div>
+                ) : null}
+
+                {!searchLoading &&
+                !applyFiltersLoading &&
+                sessionResultDocs.length === 0 &&
+                !sessionResultError ? (
                   <div className="dashboard-empty-state">
                     <div className="dashboard-empty-state-icon">
                       <MaterialIcon name="person_off" className="text-[28px]" />
@@ -4008,24 +4109,18 @@ export default function UserDashboardPage() {
                         );
                       })}
                     </div>
-                    {sessionResultHasNext ? (
-                      <div className="mt-5 flex justify-center">
+                    {sessionCanFetchMore && searchSummary?.sessionId ? (
+                      <div className="mt-5 flex flex-col items-center gap-2">
                         <button
                           type="button"
-                          onClick={() => void handleViewMoreSessionResults()}
-                          disabled={sessionResultLoadingMore}
+                          onClick={() => void handleFetchMoreSessionProfiles()}
+                          disabled={sessionFetchMoreLoading || applyFiltersLoading}
                           className="dashboard-btn-primary px-5 py-2.5 disabled:opacity-60"
                         >
-                          <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
-                            <path
-                              d="M12 5V19M5 12H19"
-                              stroke="currentColor"
-                              strokeWidth="1.8"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                          </svg>
-                          {sessionResultLoadingMore ? "Loading more..." : "View More"}
+                          <MaterialIcon name="person_add" className="text-base" />
+                          {sessionFetchMoreLoading
+                            ? "Fetching more profiles…"
+                            : "Fetch more profiles"}
                         </button>
                       </div>
                     ) : null}
@@ -4267,7 +4362,11 @@ export default function UserDashboardPage() {
         form={candidateFilterForm}
         searchPrompt={filterSearchPrompt || aiPrompt}
         onChange={(patch) =>
-          setCandidateFilterForm((prev) => mergeFilterForm(prev, patch))
+          setCandidateFilterForm((prev) => {
+            const next = mergeFilterForm(prev, patch);
+            if (String(next.keywordSkills || "").trim()) setFilterSkillsError("");
+            return next;
+          })
         }
         onClose={() => {
           if (!applyFiltersLoading && !annotateLoading) setIsFilterDrawerOpen(false);
@@ -4276,6 +4375,8 @@ export default function UserDashboardPage() {
         applyLoading={applyFiltersLoading}
         annotateLoading={annotateLoading}
         title="Set search filters"
+        skillsError={filterSkillsError}
+        applyStatusMessage={APPLY_FILTER_LOADING_STEPS[applyStatusStepIndex]}
       />
 
       {selectedSessionDetailDoc && selectedSessionDetailCandidate ? (
@@ -4636,6 +4737,12 @@ export default function UserDashboardPage() {
           userActionAlert.close();
           setActiveTab("Plans and pricing");
         }}
+      />
+
+      <DashboardToast
+        message={dashboardToast?.message ?? ""}
+        variant={dashboardToast?.variant ?? "warning"}
+        onDismiss={() => setDashboardToast(null)}
       />
 
     </main>

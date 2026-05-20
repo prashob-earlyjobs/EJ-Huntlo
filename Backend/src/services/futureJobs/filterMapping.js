@@ -616,11 +616,23 @@ function mergeFilterFormIntoSession(baseSession, form) {
   return session;
 }
 
+function sanitizeJdDetail(jdDetail) {
+  const userText =
+    jdDetail && typeof jdDetail.userText === "string" ? jdDetail.userText.trim() : "";
+  const sampleProfileURL =
+    jdDetail && typeof jdDetail.sampleProfileURL === "string"
+      ? jdDetail.sampleProfileURL.trim()
+      : "";
+  const out = { userText };
+  if (sampleProfileURL) out.sampleProfileURL = sampleProfileURL;
+  return out;
+}
+
 function buildSessionPayloadForApply(baseSession, form) {
   const merged = mergeFilterFormIntoSession(baseSession, form);
   return {
     sessionTitle: merged.sessionTitle || "",
-    jdDetail: merged.jdDetail || { userText: "", sampleProfileURL: "" },
+    jdDetail: sanitizeJdDetail(merged.jdDetail),
     queries: merged.queries || {},
     nuances: Array.isArray(merged.nuances) ? merged.nuances : [],
   };
@@ -634,10 +646,7 @@ function baseSessionFromPrompt(prompt) {
     : "";
   return {
     sessionTitle,
-    jdDetail: {
-      userText,
-      sampleProfileURL: "",
-    },
+    jdDetail: sanitizeJdDetail({ userText }),
     queries: {},
     nuances: [],
   };

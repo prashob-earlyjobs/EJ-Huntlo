@@ -63,6 +63,10 @@ const sourcingSessionSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    filterForm: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
   },
   {
     timestamps: true,

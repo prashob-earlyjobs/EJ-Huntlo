@@ -117,7 +117,7 @@ const createSourcingSession = async (body) => {
 };
 
 /**
- * PATCH /wl/sourcing-session/:sessionId — update session filters/queries before profile fetch.
+ * PATCH /wl/sourcing-session/update-session/:sessionId — update session filters/queries and re-run search.
  * @param {string} sessionId
  * @param {object} body — session fields (queries, jdDetail, sessionTitle, nuances, …)
  */
@@ -138,10 +138,10 @@ const updateSourcingSession = async (sessionId, body) => {
     throw err;
   }
 
-  const url = `${baseUrl}/wl/sourcing-session/${encodeURIComponent(sid)}`;
+  const url = `${baseUrl}/wl/sourcing-session/update-session/${encodeURIComponent(sid)}`;
   const authHeaders = buildFjAuthHeaders(apiKey);
 
-  logOutbound("futurejobs", "request PATCH /wl/sourcing-session/:id", {
+  logOutbound("futurejobs", "request PATCH /wl/sourcing-session/update-session/:id", {
     url,
     sessionId: sid,
     bodyPreview: safeJsonPreview(body),

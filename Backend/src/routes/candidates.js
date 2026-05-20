@@ -6,6 +6,7 @@ const {
   createSearchSession,
   applySearchFilters,
   loadSessionProfiles,
+  fetchMoreSessionProfiles,
   loadStoredSessionCandidates,
   listAllSourcedCandidates,
   listAllSourcedCandidatesAdmin,
@@ -51,6 +52,11 @@ router.get(
   "/session/:sessionId/profiles",
   authenticate,
   loadSessionProfiles
+);
+router.post(
+  "/session/:sessionId/fetch-more",
+  authenticate,
+  fetchMoreSessionProfiles
 );
 router.get(
   "/session/:sessionId/stored-candidates",

@@ -20,6 +20,8 @@ type Props = {
   applyLoading?: boolean;
   annotateLoading?: boolean;
   title?: string;
+  skillsError?: string;
+  applyStatusMessage?: string;
 };
 
 const inputClass = `mt-1 w-full ${dashboardInputClass}`;
@@ -35,6 +37,8 @@ export function CandidateFilterDrawer({
   applyLoading = false,
   annotateLoading = false,
   title = "Set search filters",
+  skillsError = "",
+  applyStatusMessage = "",
 }: Props) {
   const set = (patch: Partial<CandidateFilterForm>) => onChange(patch);
 
@@ -162,6 +166,9 @@ export function CandidateFilterDrawer({
                   value={form.keywordSkills}
                   onChange={(e) => set({ keywordSkills: e.target.value })}
                 />
+                {skillsError ? (
+                  <p className="mt-1 text-xs text-red-600">{skillsError}</p>
+                ) : null}
               </label>
               <label className="block text-sm text-slate-700">
                 Seniority Level
@@ -439,6 +446,19 @@ export function CandidateFilterDrawer({
         </div>
 
         <div className="sticky bottom-0 border-t border-slate-200 bg-white px-4 py-3">
+          {applyLoading ? (
+            <div className="dashboard-apply-progress mb-3" role="status" aria-live="polite">
+              <span className="dashboard-apply-progress-spinner" aria-hidden />
+              <div className="min-w-0">
+                <p className="dashboard-apply-progress-title">
+                  {applyStatusMessage || "Setting up your search"}
+                </p>
+                <p className="dashboard-apply-progress-subtitle">
+                  This usually takes less than a minute
+                </p>
+              </div>
+            </div>
+          ) : null}
           <div className="flex items-center justify-end gap-2">
             <button
               type="button"
