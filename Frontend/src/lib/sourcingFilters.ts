@@ -8,6 +8,9 @@ export type CandidateFilterForm = {
   seniorityLevel: string;
   location: string;
   searchOtherRegions: boolean;
+  openToWork: boolean;
+  functionCategory: string;
+  geoDistance: string;
   industry: string;
   school: string;
   fieldOfStudy: string;
@@ -21,6 +24,8 @@ export type CandidateFilterForm = {
   companyType: string;
   companyHeadquarters: string;
   companyFocus: string;
+  employmentType: string;
+  companyHeadcountRange: string;
   fundingStage: string;
   headcountGrowthMin: string;
   headcountGrowthMax: string;
@@ -50,6 +55,9 @@ export const DEFAULT_CANDIDATE_FILTER_FORM: CandidateFilterForm = {
   seniorityLevel: "",
   location: "",
   searchOtherRegions: false,
+  openToWork: false,
+  functionCategory: "",
+  geoDistance: "",
   industry: "",
   school: "",
   fieldOfStudy: "",
@@ -63,6 +71,8 @@ export const DEFAULT_CANDIDATE_FILTER_FORM: CandidateFilterForm = {
   companyType: "",
   companyHeadquarters: "",
   companyFocus: "",
+  employmentType: "",
+  companyHeadcountRange: "",
   fundingStage: "",
   headcountGrowthMin: "",
   headcountGrowthMax: "",
@@ -113,6 +123,9 @@ export function mergeFilterForm(
   const merged = { ...base, ...(patch as Partial<CandidateFilterForm>) };
   if ("selectRegion" in patch) {
     merged.selectRegion = normalizeSelectRegions(patch.selectRegion);
+  }
+  if ("openToWork" in patch) {
+    merged.openToWork = Boolean(patch.openToWork);
   }
   return merged;
 }

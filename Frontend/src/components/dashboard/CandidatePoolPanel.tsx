@@ -7,6 +7,7 @@ import {
   type SessionResultCardData,
   type SessionResultHighlight,
 } from "@/components/dashboard/SessionResultCandidateCard";
+import { isOpenToWork } from "@/lib/openToWork";
 import { RevealContactIconButton } from "@/components/dashboard/RevealContactIconButton";
 import {
   SavedIconAction,
@@ -104,6 +105,9 @@ function candidateRowToCardData(
       name: doc.profile.name || candidate.name,
       role: current?.job_title || candidate.role,
       company: current?.company_name || candidate.currentCompany,
+      companyWebsiteDomain: current?.company_website_domain,
+      companyWebsite: current?.company_website,
+      openToWork: isOpenToWork(doc.profile.open_to_cards),
       region: doc.profile.region || candidate.location,
       yearsExperience: doc.profile.years_of_experience_raw,
       finalScore:

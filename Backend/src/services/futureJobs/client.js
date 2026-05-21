@@ -117,6 +117,22 @@ const createSourcingSession = async (body) => {
 };
 
 /**
+ * Future Jobs uses statusCode 207 when create/update is accepted but matching is not ready yet.
+ * Callers must not run profiles fetch (or other follow-up FJ calls) in this case.
+ */
+function isFjSessionPending(data) {
+  if (!data || typeof data !== "object") return false;
+  return Number(data.statusCode) === 207;
+}
+
+function fjSessionPendingMessage(data) {
+  if (typeof data?.message === "string" && data.message.trim()) {
+    return data.message.trim();
+  }
+  return "Sourcing session is still being prepared. Please try again in a moment.";
+}
+
+/**
  * PATCH /wl/sourcing-session/update-session/:sessionId — update session filters/queries and re-run search.
  * @param {string} sessionId
  * @param {object} body — session fields (queries, jdDetail, sessionTitle, nuances, …)
@@ -189,6 +205,87 @@ const updateSourcingSession = async (sessionId, body) => {
     elapsedMs,
     status: data.status,
     sessionId: sid,
+  });
+
+  return data;
+};
+
+/**
+ * GET /wl/sourcing-session/candidate/:candidateId/details — full candidate profile.
+ * @param {string} candidateId — profile._id from session profiles list
+ */
+const getSourcingSessionCandidateDetails = async (candidateId) => {
+  const { baseUrl, apiKey } = getFutureJobsConfig();
+
+  try {
+    assertFutureJobsApiKey(apiKey);
+  } catch (e) {
+    logOutbound(
+      "futurejobs",
+      "getSourcingSessionCandidateDetails aborted — missing API key",
+      {},
+    );
+    throw e;
+  }
+
+  const cid = String(candidateId || "").trim();
+  if (!cid) {
+    const err = new Error("candidateId is required");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const url = `${baseUrl}/wl/sourcing-session/candidate/${encodeURIComponent(cid)}/details`;
+  const authHeaders = buildFjAuthHeaders(apiKey);
+
+  logOutbound("futurejobs", "request GET …/sourcing-session/candidate/:id/details", {
+    url,
+    candidateId: cid,
+  });
+
+  const started = Date.now();
+  const res = await fetch(url, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders,
+    },
+  });
+
+  const elapsedMs = Date.now() - started;
+  const text = await res.text();
+  let data;
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { raw: text, parseError: true };
+  }
+
+  if (!res.ok) {
+    logOutbound("futurejobs", "candidate details response error", {
+      httpStatus: res.status,
+      elapsedMs,
+      candidateId: cid,
+      message: data.message || data.status || data.error,
+      responseBody: data,
+    });
+    const msg =
+      data.message ||
+      data.status ||
+      data.error ||
+      `Future Jobs candidate details HTTP ${res.status}`;
+    const err = new Error(msg);
+    err.statusCode = res.status === 404 ? 404 : 502;
+    err.details = data;
+    throw err;
+  }
+
+  logOutbound("futurejobs", "candidate details response ok", {
+    httpStatus: res.status,
+    elapsedMs,
+    candidateId: cid,
+    fjStatusCode: data.statusCode,
+    fjStatus: data.status,
   });
 
   return data;
@@ -789,8 +886,8 @@ const getSourcingSessionAnnotation = async (body) => {
     throw e;
   }
 
-  const userText = typeof body?.userText === "string" ? body.userText.trim() : "";
-  if (!userText) {
+  const userText = typeof body?.userText === "string" ? body.userText : "";
+  if (!userText || !String(userText).trim()) {
     const err = new Error("userText is required for get-annotation");
     err.statusCode = 400;
     throw err;
@@ -865,6 +962,9 @@ const getSourcingSessionAnnotation = async (body) => {
 module.exports = {
   createSourcingSession,
   updateSourcingSession,
+  isFjSessionPending,
+  fjSessionPendingMessage,
+  getSourcingSessionCandidateDetails,
   getSourcingSessionProfiles,
   getSourcingSessionProfilesWhenReady,
   fetchMoreSourcingSession,

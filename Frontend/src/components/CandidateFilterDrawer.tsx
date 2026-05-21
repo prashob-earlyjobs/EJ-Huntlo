@@ -180,6 +180,25 @@ export function CandidateFilterDrawer({
                   onChange={(e) => set({ seniorityLevel: e.target.value })}
                 />
               </label>
+              <label className="block text-sm text-slate-700">
+                Function Category
+                <input
+                  type="text"
+                  placeholder="e.g. Engineering"
+                  className={inputClass}
+                  value={form.functionCategory}
+                  onChange={(e) => set({ functionCategory: e.target.value })}
+                />
+              </label>
+              <label className="flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-slate-300"
+                  checked={form.openToWork}
+                  onChange={(e) => set({ openToWork: e.target.checked })}
+                />
+                Open to work (career interest)
+              </label>
             </div>
           </section>
 
@@ -205,6 +224,16 @@ export function CandidateFilterDrawer({
                   onChange={(e) => set({ searchOtherRegions: e.target.checked })}
                 />
                 Search other regions too
+              </label>
+              <label className="block text-sm text-slate-700">
+                Geo distance
+                <input
+                  type="text"
+                  placeholder="e.g. 50_km"
+                  className={inputClass}
+                  value={form.geoDistance}
+                  onChange={(e) => set({ geoDistance: e.target.value })}
+                />
               </label>
             </div>
           </section>
@@ -312,21 +341,35 @@ export function CandidateFilterDrawer({
               />
               <input
                 type="text"
-                placeholder="Company Headquarters"
+                placeholder="Company HQ location"
                 className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
                 value={form.companyHeadquarters}
                 onChange={(e) => set({ companyHeadquarters: e.target.value })}
               />
               <input
                 type="text"
-                placeholder="Company Focus"
+                placeholder="Company description / focus (e.g. B2B Saas)"
                 className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
                 value={form.companyFocus}
                 onChange={(e) => set({ companyFocus: e.target.value })}
               />
               <input
                 type="text"
-                placeholder="Funding Stage"
+                placeholder="Employment type (comma-separated)"
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
+                value={form.employmentType}
+                onChange={(e) => set({ employmentType: e.target.value })}
+              />
+              <input
+                type="text"
+                placeholder="Company headcount range (e.g. 51-200)"
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
+                value={form.companyHeadcountRange}
+                onChange={(e) => set({ companyHeadcountRange: e.target.value })}
+              />
+              <input
+                type="text"
+                placeholder="Funding stage (e.g. series_a)"
                 className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
                 value={form.fundingStage}
                 onChange={(e) => set({ fundingStage: e.target.value })}
@@ -373,14 +416,14 @@ export function CandidateFilterDrawer({
               </label>
               <input
                 type="text"
-                placeholder="Annual Revenue"
+                placeholder="Annual revenue code (e.g. 1_10)"
                 className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
                 value={form.annualRevenue}
                 onChange={(e) => set({ annualRevenue: e.target.value })}
               />
               <input
                 type="text"
-                placeholder="Total Funding Raised"
+                placeholder="Total funding code (e.g. 1_10)"
                 className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
                 value={form.totalFundingRaised}
                 onChange={(e) => set({ totalFundingRaised: e.target.value })}
@@ -407,7 +450,7 @@ export function CandidateFilterDrawer({
               </label>
               <input
                 type="text"
-                placeholder="Recently Funded"
+                placeholder="Recently funded (e.g. 6m)"
                 className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
                 value={form.recentlyFunded}
                 onChange={(e) => set({ recentlyFunded: e.target.value })}

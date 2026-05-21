@@ -15,6 +15,7 @@ import {
   type SessionResultCardData,
   type SessionResultHighlight,
 } from "@/components/dashboard/SessionResultCandidateCard";
+import { isOpenToWork } from "@/lib/openToWork";
 import { RevealContactIconButton } from "@/components/dashboard/RevealContactIconButton";
 import { SavedCandidatesSkeleton } from "@/components/dashboard/SavedCandidatesSkeleton";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
@@ -32,6 +33,8 @@ type SavedRawDoc = {
     current_employers_object?: {
       company_name?: string;
       job_title?: string;
+      company_website?: string;
+      company_website_domain?: string;
     }[];
   };
   profileAnalysis?: {
@@ -140,6 +143,9 @@ function candidateRowToCardData(candidate: SavedCandidateRow, index: number): Se
       name: doc.profile.name || candidate.name,
       role: current?.job_title || candidate.role,
       company: current?.company_name || candidate.currentCompany,
+      companyWebsiteDomain: current?.company_website_domain,
+      companyWebsite: current?.company_website,
+      openToWork: isOpenToWork(doc.profile.open_to_cards),
       region: doc.profile.region || candidate.location,
       yearsExperience: doc.profile.years_of_experience_raw,
       finalScore: typeof doc.finalScore === "number" ? doc.finalScore : candidate.finalScore ?? undefined,

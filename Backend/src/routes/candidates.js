@@ -7,6 +7,7 @@ const {
   applySearchFilters,
   loadSessionProfiles,
   fetchMoreSessionProfiles,
+  getSessionCandidateDetails,
   loadStoredSessionCandidates,
   listAllSourcedCandidates,
   listAllSourcedCandidatesAdmin,
@@ -48,6 +49,11 @@ router.post("/scout-people/reveal-contact", authenticate, revealPeopleScoutConta
 router.post("/scout-people/lookup", authenticate, lookupPeopleScout);
 router.get("/scout-people/recent", authenticate, listRecentPeopleScout);
 router.post("/reveal-contact", authenticate, revealCandidateContact);
+router.get(
+  "/candidate/:candidateId/details",
+  authenticate,
+  getSessionCandidateDetails
+);
 router.get(
   "/session/:sessionId/profiles",
   authenticate,

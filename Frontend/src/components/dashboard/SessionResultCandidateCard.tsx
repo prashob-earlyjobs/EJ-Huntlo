@@ -2,7 +2,10 @@
 
 import { useEffect, useState } from "react";
 
+import { CompanyLogo } from "@/components/dashboard/CompanyLogo";
+import { OpenToWorkBadge } from "@/components/dashboard/OpenToWorkBadge";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { companyFaviconUrl } from "@/lib/companyLogo";
 import {
   candidateScoreBadgeClass,
   formatCandidateScore,
@@ -24,6 +27,8 @@ export type SessionResultCardData = {
   name: string;
   role?: string;
   company?: string;
+  companyWebsiteDomain?: string;
+  companyWebsite?: string;
   region?: string;
   yearsExperience?: number;
   finalScore?: number;
@@ -36,6 +41,7 @@ export type SessionResultCardData = {
   compactSkills?: string;
   /** Pool grid only: 2-line about summary after skills/highlights. */
   compactAbout?: string;
+  openToWork?: boolean;
 };
 
 type Props = {
@@ -85,6 +91,66 @@ function CandidateAvatar({
   );
 }
 
+export function CandidateRoleCompanyLine({
+  role,
+  company,
+  companyWebsiteDomain,
+  companyWebsite,
+  compact = false,
+  variant = compact ? "compact" : "default",
+  className = "",
+}: {
+  role?: string;
+  company?: string;
+  companyWebsiteDomain?: string;
+  companyWebsite?: string;
+  compact?: boolean;
+  variant?: "default" | "compact" | "grid";
+  className?: string;
+}) {
+  const roleText = role?.trim() || "Role unavailable";
+  const companyText = company?.trim();
+  const logoUrl = companyText
+    ? companyFaviconUrl(companyWebsiteDomain, companyWebsite)
+    : null;
+
+  const resolvedVariant = variant === "default" && compact ? "compact" : variant;
+  const textClass =
+    resolvedVariant === "grid"
+      ? "mt-1 text-sm text-slate-600"
+      : resolvedVariant === "compact"
+        ? "dashboard-candidate-role--compact mt-0.5 text-xs text-[#424656]"
+        : "mt-0.5 text-xs text-[#424656]";
+
+  return (
+    <p
+      className={`dashboard-candidate-role-line ${textClass} ${className}`.trim()}
+      title={
+        (resolvedVariant === "compact" || resolvedVariant === "grid") && companyText
+          ? `${roleText} · ${companyText}`
+          : undefined
+      }
+    >
+      <span>{roleText}</span>
+      {companyText ? (
+        <span className="dashboard-candidate-role-company">
+          <span className="dashboard-candidate-role-sep" aria-hidden>
+            ·
+          </span>
+          {logoUrl ? (
+            <CompanyLogo
+              src={logoUrl}
+              alt=""
+              className="dashboard-candidate-company-logo"
+            />
+          ) : null}
+          <span>{companyText}</span>
+        </span>
+      ) : null}
+    </p>
+  );
+}
+
 function AiInsightBlock({ text, compact }: { text: string; compact?: boolean }) {
   return (
     <div className={compact ? "mt-2" : "mt-4"}>
@@ -114,7 +180,6 @@ export function SessionResultCandidateCard({
   const highlights = data.highlights ?? [];
   const strengths = data.strengths ?? [];
   const highlightLimit = compact ? 3 : 4;
-  const roleLine = [data.role || "Role unavailable", data.company].filter(Boolean).join(" · ");
 
   const cardClass = [
     "dashboard-candidate-card",
@@ -132,27 +197,27 @@ export function SessionResultCandidateCard({
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <h2
-                className={
-                  compact
-                    ? "dashboard-candidate-name--compact text-[0.9375rem] font-semibold leading-snug text-[#141b2b]"
-                    : "text-base font-semibold text-[#141b2b]"
-                }
-                title={compact ? data.name : undefined}
-              >
-                {data.name}
-              </h2>
-              {(data.role || data.company) && (
-                <p
+              <div className="dashboard-candidate-name-row">
+                <h2
                   className={
                     compact
-                      ? "dashboard-candidate-role--compact mt-0.5 text-xs text-[#424656]"
-                      : "mt-0.5 text-xs text-[#424656]"
+                      ? "dashboard-candidate-name--compact text-[0.9375rem] font-semibold leading-snug text-[#141b2b]"
+                      : "text-base font-semibold text-[#141b2b]"
                   }
-                  title={compact ? roleLine : undefined}
+                  title={compact ? data.name : undefined}
                 >
-                  {roleLine}
-                </p>
+                  {data.name}
+                </h2>
+                {data.openToWork ? <OpenToWorkBadge compact /> : null}
+              </div>
+              {(data.role || data.company) && (
+                <CandidateRoleCompanyLine
+                  role={data.role}
+                  company={data.company}
+                  companyWebsiteDomain={data.companyWebsiteDomain}
+                  companyWebsite={data.companyWebsite}
+                  compact={compact}
+                />
               )}
             </div>
             {typeof data.finalScore === "number" ? (

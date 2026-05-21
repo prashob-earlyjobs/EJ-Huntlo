@@ -12,6 +12,7 @@ import { SessionResultsSkeleton } from "@/components/dashboard/SessionResultsSke
 import { LandingLogo } from "@/components/landing/LandingLogo";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { authHeaders, getStoredAuth } from "@/lib/auth";
+import { isOpenToWork } from "@/lib/openToWork";
 
 type ProfileDoc = {
   _id?: string;
@@ -22,8 +23,14 @@ type ProfileDoc = {
     years_of_experience_raw?: number;
     linkedin_profile_url?: string;
     profile_picture_permalink?: string;
+    open_to_cards?: string[];
     skills?: string[];
-    current_employers_object?: { company_name?: string; job_title?: string }[];
+    current_employers_object?: {
+      company_name?: string;
+      job_title?: string;
+      company_website?: string;
+      company_website_domain?: string;
+    }[];
   };
   profileAnalysis?: {
     analysis?: {
@@ -49,6 +56,9 @@ function docToCardData(doc: ProfileDoc, idx: number): SessionResultCardData {
     name: doc.profile?.name || "Unnamed candidate",
     role: current?.job_title,
     company: current?.company_name,
+    companyWebsiteDomain: current?.company_website_domain,
+    companyWebsite: current?.company_website,
+    openToWork: isOpenToWork(doc.profile?.open_to_cards),
     region: doc.profile?.region,
     yearsExperience: doc.profile?.years_of_experience_raw,
     finalScore: doc.finalScore,

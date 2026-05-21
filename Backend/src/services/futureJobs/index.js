@@ -1,6 +1,9 @@
 const {
   createSourcingSession,
   updateSourcingSession,
+  isFjSessionPending,
+  fjSessionPendingMessage,
+  getSourcingSessionCandidateDetails,
   getSourcingSessionProfiles,
   getSourcingSessionProfilesWhenReady,
   fetchMoreSourcingSession,
@@ -25,6 +28,9 @@ const { mapFjDocToCandidate } = require("./mapProfile");
 module.exports = {
   createSourcingSession,
   updateSourcingSession,
+  isFjSessionPending,
+  fjSessionPendingMessage,
+  getSourcingSessionCandidateDetails,
   getSourcingSessionProfiles,
   getSourcingSessionProfilesWhenReady,
   fetchMoreSourcingSession,

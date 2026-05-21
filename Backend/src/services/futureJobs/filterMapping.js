@@ -2,6 +2,40 @@
  * Map Future Jobs session.queries ↔ flat filter form (dashboard drawer).
  */
 
+/** Max length for jdDetail.userText sent to Future Jobs create/update sourcing session. */
+const SOURCING_PROMPT_MAX_LENGTH = 250;
+
+/**
+ * Plain single-line user text for sourcing APIs — strips literal \\n / \\r / \\t
+ * and real line breaks (often pasted from JSON or job descriptions).
+ * @param {unknown} text
+ */
+function normalizePromptPlainText(text) {
+  if (typeof text !== "string") return "";
+  let s = text;
+  s = s.replace(/\\r\\n/g, " ");
+  s = s.replace(/\\n/g, " ");
+  s = s.replace(/\\r/g, " ");
+  s = s.replace(/\\t/g, " ");
+  s = s.replace(/\r\n/g, " ");
+  s = s.replace(/\n/g, " ");
+  s = s.replace(/\r/g, " ");
+  s = s.replace(/\t/g, " ");
+  return s.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Truncate prompt for POST/PATCH /wl/sourcing-session only (not annotate).
+ * @param {unknown} prompt
+ */
+function promptForSourcingApi(prompt) {
+  const plain = normalizePromptPlainText(prompt);
+  return plain.slice(0, SOURCING_PROMPT_MAX_LENGTH);
+}
+
+/** Future Jobs open-to-work card value (queries.open_to_cards). */
+const OPEN_TO_WORK_CARD = "CAREER_INTEREST";
+
 const DEFAULT_FILTER_FORM = {
   searchType: "Flexible",
   selectRegion: "",
@@ -12,6 +46,9 @@ const DEFAULT_FILTER_FORM = {
   seniorityLevel: "",
   location: "",
   searchOtherRegions: false,
+  openToWork: false,
+  functionCategory: "",
+  geoDistance: "",
   industry: "",
   school: "",
   fieldOfStudy: "",
@@ -25,6 +62,8 @@ const DEFAULT_FILTER_FORM = {
   companyType: "",
   companyHeadquarters: "",
   companyFocus: "",
+  employmentType: "",
+  companyHeadcountRange: "",
   fundingStage: "",
   headcountGrowthMin: "",
   headcountGrowthMax: "",
@@ -266,6 +305,45 @@ function setQueryIn(queries, key, values, type = "IN") {
   queries[key] = { type, value: list };
 }
 
+function setQueryEquals(queries, key, values) {
+  const list = Array.isArray(values)
+    ? values.map((v) => String(v).trim()).filter(Boolean)
+    : [String(values ?? "").trim()].filter(Boolean);
+  if (list.length === 0) {
+    delete queries[key];
+    return;
+  }
+  queries[key] = { type: "=", value: list };
+}
+
+function commaSplitTokens(raw) {
+  return String(raw || "")
+    .split(/[,;|]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/** First non-empty value from primary FJ query key, then legacy aliases. */
+function queryValueFirst(queries, primaryKey, legacyKeys = []) {
+  const primary = queryValues(queries, primaryKey);
+  if (primary.length > 0) return primary[0];
+  for (const key of legacyKeys) {
+    const legacy = queryValues(queries, key);
+    if (legacy.length > 0) return legacy[0];
+  }
+  return "";
+}
+
+function queryRangeFirst(queries, primaryKey, legacyKeys = []) {
+  const primary = queryRange(queries, primaryKey);
+  if (primary.min !== "" || primary.max !== "") return primary;
+  for (const key of legacyKeys) {
+    const legacy = queryRange(queries, key);
+    if (legacy.min !== "" || legacy.max !== "") return legacy;
+  }
+  return { min: "", max: "" };
+}
+
 function trimRangeInput(v) {
   if (v == null) return "";
   return String(v).trim();
@@ -410,16 +488,25 @@ function filterFormFromCreateResponse(futureJobsCreateResponse, requestPayload) 
         : {};
 
   const yoe = queryRange(queries, "years_of_experience_raw");
-  const headcountGrowth = queryRange(queries, "current_employers.headcount_growth_6m");
-  const companyHeadcount = queryRange(queries, "current_employers.company_headcount");
-  const yearFounded = queryRange(queries, "current_employers.year_founded");
+  const headcountGrowth = queryRangeFirst(queries, "headcount_growth", [
+    "current_employers.headcount_growth_6m",
+  ]);
+  const companyHeadcount = queryRangeFirst(queries, "current_employers.company_headcount_latest", [
+    "current_employers.company_headcount",
+  ]);
+  const yearFounded = queryRangeFirst(queries, "year_founded", [
+    "current_employers.year_founded",
+  ]);
 
   const allowFallback = queryValues(queries, "allowFallback");
   const skillsQ = queries?.skills?.value;
+  const openToCards = queryValues(queries, "open_to_cards");
 
   const nuances = Array.isArray(session?.nuances) ? session.nuances : [];
   const nuanceHas = (label) =>
     nuances.some((n) => String(n).toLowerCase() === label.toLowerCase());
+
+  const titles = queryValues(queries, "current_employers.title");
 
   return {
     ...DEFAULT_FILTER_FORM,
@@ -428,38 +515,64 @@ function filterFormFromCreateResponse(futureJobsCreateResponse, requestPayload) 
         ? "Strict"
         : "Flexible",
     selectRegion: queryValues(queries, "country_region"),
-    currentTitle: queryValues(queries, "current_employers.title")[0] || "",
+    currentTitle: titles.length > 0 ? titles.join(", ") : "",
     yearsExpMin: yoe.min,
     yearsExpMax: yoe.max,
     keywordSkills: skillsToKeyword(skillsQ),
-    seniorityLevel: queryValues(queries, "seniority_level")[0] || "",
+    seniorityLevel: queryValueFirst(queries, "current_employers.seniority_level", [
+      "seniority_level",
+    ]),
     location: normalizeRegionForFutureJobs(queryValues(queries, "region")[0] || ""),
     searchOtherRegions: queryValues(queries, "search_other_regions").includes("true"),
+    openToWork: openToCards.some(
+      (c) => String(c).toUpperCase() === OPEN_TO_WORK_CARD
+    ),
+    functionCategory: queryValues(queries, "current_employers.function_category").join(", "),
+    geoDistance: queryValueFirst(queries, "geo_distance"),
     industry: industryLabelFromQuery(queries),
-    school: queryValues(queries, "education.school")[0] || "",
-    fieldOfStudy: queryValues(queries, "education.field_of_study")[0] || "",
-    degree: queryValues(queries, "education.degree")[0] || "",
-    certifications: queryValues(queries, "certifications")[0] || "",
-    honorsAwards: queryValues(queries, "honors_awards")[0] || "",
+    school: queryValueFirst(queries, "education_background.institute_name", [
+      "education.school",
+    ]),
+    fieldOfStudy: queryValueFirst(queries, "education_background.field_of_study", [
+      "education.field_of_study",
+    ]),
+    degree: queryValueFirst(queries, "education_background.degree_name", [
+      "education.degree",
+    ]),
+    certifications: queryValueFirst(queries, "certifications.name", ["certifications"]),
+    honorsAwards: queryValueFirst(queries, "honors.title", ["honors_awards"]),
     currentCompany: queryValues(queries, "current_employers.name")[0] || "",
     yearsAtCompany: queryValues(queries, "current_employers.years_at_company")[0] || "",
     pastCompany: queryValues(queries, "past_employers.name")[0] || "",
     pastTitle: queryValues(queries, "past_employers.title")[0] || "",
     companyType: queryValues(queries, "current_employers.company_type")[0] || "",
-    companyHeadquarters:
-      queryValues(queries, "current_employers.company_headquarters")[0] || "",
-    companyFocus: queryValues(queries, "current_employers.company_focus")[0] || "",
-    fundingStage: queryValues(queries, "current_employers.funding_stage")[0] || "",
+    companyHeadquarters: queryValueFirst(queries, "current_employers.company_hq_location", [
+      "current_employers.company_headquarters",
+    ]),
+    companyFocus: queryValueFirst(queries, "current_employers.description", [
+      "current_employers.company_focus",
+    ]),
+    employmentType: queryValues(queries, "current_employers.employment_type").join(", "),
+    companyHeadcountRange:
+      queryValues(queries, "current_employers.company_headcount_range")[0] || "",
+    fundingStage: queryValueFirst(queries, "funding_stage", [
+      "current_employers.funding_stage",
+    ]),
     headcountGrowthMin: headcountGrowth.min,
     headcountGrowthMax: headcountGrowth.max,
     companyHeadcountMin: companyHeadcount.min,
     companyHeadcountMax: companyHeadcount.max,
-    annualRevenue: queryValues(queries, "current_employers.annual_revenue")[0] || "",
-    totalFundingRaised:
-      queryValues(queries, "current_employers.total_funding_raised")[0] || "",
+    annualRevenue: queryValueFirst(queries, "annual_revenue", [
+      "current_employers.annual_revenue",
+    ]),
+    totalFundingRaised: queryValueFirst(queries, "total_funding", [
+      "current_employers.total_funding_raised",
+    ]),
     yearFoundedMin: yearFounded.min,
     yearFoundedMax: yearFounded.max,
-    recentlyFunded: queryValues(queries, "current_employers.recently_funded")[0] || "",
+    recentlyFunded: queryValueFirst(queries, "recently_funded", [
+      "current_employers.recently_funded",
+    ]),
     frequentJobSwitch: nuanceHas("Frequent Job Switch"),
     recentlyChangedJob: nuanceHas("Recently Changed Job"),
     largeEmploymentGaps: nuanceHas("Large Employment Gaps"),
@@ -493,22 +606,48 @@ function mergeFilterFormIntoSession(baseSession, form) {
     form.location || countries[0] || ""
   );
   setQueryIn(queries, "region", [regionForFj].filter(Boolean));
-  const titleTokens = String(form.currentTitle || "")
-    .split(/[,;|]/)
-    .map((s) => s.trim())
-    .filter(Boolean);
+
+  if (form.openToWork) {
+    setQueryEquals(queries, "open_to_cards", [OPEN_TO_WORK_CARD]);
+  } else {
+    delete queries.open_to_cards;
+  }
+
+  const titleTokens = commaSplitTokens(form.currentTitle);
   if (titleTokens.length > 0) {
     setQueryIn(queries, "current_employers.title", titleTokens);
   } else {
     delete queries["current_employers.title"];
   }
+
   setQueryRange(queries, "years_of_experience_raw", form.yearsExpMin, form.yearsExpMax);
-  setQueryIn(queries, "seniority_level", [form.seniorityLevel].filter(Boolean));
+
+  const functionTokens = commaSplitTokens(form.functionCategory);
+  if (functionTokens.length > 0) {
+    setQueryIn(queries, "current_employers.function_category", functionTokens);
+  } else {
+    delete queries["current_employers.function_category"];
+  }
+
+  if (String(form.seniorityLevel || "").trim()) {
+    setQueryIn(queries, "current_employers.seniority_level", [form.seniorityLevel]);
+  } else {
+    delete queries["current_employers.seniority_level"];
+  }
+  delete queries.seniority_level;
+
   if (form.searchOtherRegions) {
     setQueryIn(queries, "search_other_regions", ["true"]);
   } else {
     delete queries.search_other_regions;
   }
+
+  if (String(form.geoDistance || "").trim()) {
+    setQueryEquals(queries, "geo_distance", [form.geoDistance]);
+  } else {
+    delete queries.geo_distance;
+  }
+
   delete queries["current_employers.industry"];
   const industryTokens = industryTokensFromForm(form);
   if (industryTokens.length > 0) {
@@ -518,6 +657,7 @@ function mergeFilterFormIntoSession(baseSession, form) {
     delete queries["current_employers.company_industries"];
     delete queries["all_employers.company_industries"];
   }
+
   setQueryIn(
     queries,
     "education_background.degree_name",
@@ -526,13 +666,22 @@ function mergeFilterFormIntoSession(baseSession, form) {
   setQueryIn(
     queries,
     "education_background.field_of_study",
-    [form.fieldOfStudy].filter(Boolean)
+    commaSplitTokens(form.fieldOfStudy)
   );
-  setQueryIn(queries, "education.school", [form.school].filter(Boolean));
-  setQueryIn(queries, "education.field_of_study", [form.fieldOfStudy].filter(Boolean));
-  setQueryIn(queries, "education.degree", [form.degree].filter(Boolean));
-  setQueryIn(queries, "certifications", [form.certifications].filter(Boolean));
-  setQueryIn(queries, "honors_awards", [form.honorsAwards].filter(Boolean));
+  setQueryIn(
+    queries,
+    "education_background.institute_name",
+    [form.school].filter(Boolean)
+  );
+  delete queries["education.school"];
+  delete queries["education.field_of_study"];
+  delete queries["education.degree"];
+
+  setQueryIn(queries, "certifications.name", [form.certifications].filter(Boolean));
+  delete queries.certifications;
+  setQueryIn(queries, "honors.title", [form.honorsAwards].filter(Boolean));
+  delete queries.honors_awards;
+
   setQueryIn(queries, "current_employers.name", [form.currentCompany].filter(Boolean));
   setQueryIn(
     queries,
@@ -544,44 +693,67 @@ function mergeFilterFormIntoSession(baseSession, form) {
   setQueryIn(queries, "current_employers.company_type", [form.companyType].filter(Boolean));
   setQueryIn(
     queries,
-    "current_employers.company_headquarters",
+    "current_employers.company_hq_location",
     [form.companyHeadquarters].filter(Boolean)
   );
-  setQueryIn(queries, "current_employers.company_focus", [form.companyFocus].filter(Boolean));
-  setQueryIn(queries, "current_employers.funding_stage", [form.fundingStage].filter(Boolean));
-  setQueryRange(
+  delete queries["current_employers.company_headquarters"];
+  setQueryIn(queries, "current_employers.description", [form.companyFocus].filter(Boolean));
+  delete queries["current_employers.company_focus"];
+
+  const employmentTokens = commaSplitTokens(form.employmentType);
+  if (employmentTokens.length > 0) {
+    setQueryIn(queries, "current_employers.employment_type", employmentTokens);
+  } else {
+    delete queries["current_employers.employment_type"];
+  }
+
+  setQueryIn(
     queries,
-    "current_employers.headcount_growth_6m",
-    form.headcountGrowthMin,
-    form.headcountGrowthMax
+    "current_employers.company_headcount_range",
+    [form.companyHeadcountRange].filter(Boolean)
   );
+
+  if (String(form.fundingStage || "").trim()) {
+    setQueryEquals(queries, "funding_stage", [form.fundingStage]);
+  } else {
+    delete queries.funding_stage;
+  }
+  delete queries["current_employers.funding_stage"];
+
+  setQueryRange(queries, "headcount_growth", form.headcountGrowthMin, form.headcountGrowthMax);
+  delete queries["current_employers.headcount_growth_6m"];
+
   setQueryRange(
     queries,
-    "current_employers.company_headcount",
+    "current_employers.company_headcount_latest",
     form.companyHeadcountMin,
     form.companyHeadcountMax
   );
-  setQueryIn(
-    queries,
-    "current_employers.annual_revenue",
-    [form.annualRevenue].filter(Boolean)
-  );
-  setQueryIn(
-    queries,
-    "current_employers.total_funding_raised",
-    [form.totalFundingRaised].filter(Boolean)
-  );
-  setQueryRange(
-    queries,
-    "current_employers.year_founded",
-    form.yearFoundedMin,
-    form.yearFoundedMax
-  );
-  setQueryIn(
-    queries,
-    "current_employers.recently_funded",
-    [form.recentlyFunded].filter(Boolean)
-  );
+  delete queries["current_employers.company_headcount"];
+
+  if (String(form.annualRevenue || "").trim()) {
+    setQueryEquals(queries, "annual_revenue", [form.annualRevenue]);
+  } else {
+    delete queries.annual_revenue;
+  }
+  delete queries["current_employers.annual_revenue"];
+
+  if (String(form.totalFundingRaised || "").trim()) {
+    setQueryEquals(queries, "total_funding", [form.totalFundingRaised]);
+  } else {
+    delete queries.total_funding;
+  }
+  delete queries["current_employers.total_funding_raised"];
+
+  setQueryRange(queries, "year_founded", form.yearFoundedMin, form.yearFoundedMax);
+  delete queries["current_employers.year_founded"];
+
+  if (String(form.recentlyFunded || "").trim()) {
+    setQueryEquals(queries, "recently_funded", [form.recentlyFunded]);
+  } else {
+    delete queries.recently_funded;
+  }
+  delete queries["current_employers.recently_funded"];
 
   const skillsValue = ensureSkillsForFutureJobs(
     keywordToSkills(form.keywordSkills, existingSkills),
@@ -618,7 +790,9 @@ function mergeFilterFormIntoSession(baseSession, form) {
 
 function sanitizeJdDetail(jdDetail) {
   const userText =
-    jdDetail && typeof jdDetail.userText === "string" ? jdDetail.userText.trim() : "";
+    jdDetail && typeof jdDetail.userText === "string"
+      ? promptForSourcingApi(jdDetail.userText)
+      : "";
   const sampleProfileURL =
     jdDetail && typeof jdDetail.sampleProfileURL === "string"
       ? jdDetail.sampleProfileURL.trim()
@@ -640,7 +814,7 @@ function buildSessionPayloadForApply(baseSession, form) {
 
 /** Base session shell from prompt only (no hardcoded queries). */
 function baseSessionFromPrompt(prompt) {
-  const userText = typeof prompt === "string" ? prompt.trim() : "";
+  const userText = promptForSourcingApi(prompt);
   const sessionTitle = userText
     ? userText.split(/\r?\n/)[0].slice(0, 120).trim()
     : "";
@@ -741,10 +915,58 @@ function filterFormFromAnnotation(annotationData) {
     if (keyword) form.keywordSkills = keyword;
   }
 
+  const seniority = annotationFieldValues(
+    annotationData["current_employers.seniority_level"]
+  );
+  if (seniority.length > 0) {
+    form.seniorityLevel = seniority[0];
+  }
+
+  const institutes = annotationFieldValues(
+    annotationData["education_background.institute_name"]
+  );
+  if (institutes.length > 0) {
+    form.school = institutes[0];
+  }
+
+  const openTo = annotationFieldValues(annotationData.open_to_cards);
+  if (openTo.some((c) => String(c).toUpperCase() === OPEN_TO_WORK_CARD)) {
+    form.openToWork = true;
+  }
+
+  const functionCats = annotationFieldValues(
+    annotationData["current_employers.function_category"]
+  );
+  if (functionCats.length > 0) {
+    form.functionCategory = functionCats.join(", ");
+  }
+
+  const geo = annotationFieldValues(annotationData.geo_distance);
+  if (geo.length > 0) {
+    form.geoDistance = geo[0];
+  }
+
+  const employment = annotationFieldValues(
+    annotationData["current_employers.employment_type"]
+  );
+  if (employment.length > 0) {
+    form.employmentType = employment.join(", ");
+  }
+
+  const headcountRange = annotationFieldValues(
+    annotationData["current_employers.company_headcount_range"]
+  );
+  if (headcountRange.length > 0) {
+    form.companyHeadcountRange = headcountRange[0];
+  }
+
   return form;
 }
 
 module.exports = {
+  SOURCING_PROMPT_MAX_LENGTH,
+  normalizePromptPlainText,
+  promptForSourcingApi,
   DEFAULT_FILTER_FORM,
   normalizeRegionForFutureJobs,
   ensureSkillsForFutureJobs,

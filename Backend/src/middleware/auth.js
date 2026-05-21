@@ -1,6 +1,7 @@
 const { verifyToken } = require("../utils/jwt");
+const User = require("../models/User");
 
-const authenticate = (req, res, next) => {
+const authenticate = async (req, res, next) => {
   try {
     const header = req.headers.authorization || "";
     const [scheme, token] = header.split(" ");
@@ -17,6 +18,20 @@ const authenticate = (req, res, next) => {
       role: decoded.role,
       tokenId: decoded.jti || "",
     };
+
+    if (decoded.role !== "admin") {
+      const user = await User.findById(decoded.sub).select("memberStatus accountRole memberPermission");
+      if (user?.memberStatus === "blocked") {
+        return res.status(403).json({
+          success: false,
+          code: "ACCOUNT_BLOCKED",
+          message: "Your account has been blocked. Contact your team owner or support.",
+        });
+      }
+      req.auth.accountRole = user?.accountRole || null;
+      req.auth.memberPermission = user?.memberPermission || "search";
+    }
+
     next();
   } catch {
     return res.status(401).json({

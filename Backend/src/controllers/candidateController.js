@@ -2,6 +2,8 @@ const mongoose = require("mongoose");
 const {
   createSourcingSession,
   updateSourcingSession,
+  isFjSessionPending,
+  fjSessionPendingMessage,
   getSourcingSessionProfiles,
   getSourcingSessionProfilesWhenReady,
   fetchMoreSourcingSession,
@@ -12,6 +14,7 @@ const {
   buildSessionPayloadForApply,
   buildSessionPayloadFromPromptAndFilter,
   getSourcingSessionAnnotation,
+  getSourcingSessionCandidateDetails,
   filterFormFromAnnotation,
   enrichFilterFormSkillsFromPrompt,
   mapFjDocToCandidate,
@@ -28,6 +31,13 @@ const { resolveContactReveal } = require("../services/contactRevealService");
 
 /** Wait after POST /wl/sourcing-session before GET …/profiles (Search Candidates apply). */
 const POST_SESSION_CREATE_PROFILES_WAIT_MS = 20_000;
+
+function sessionIdFromFjCreateResponse(futureJobs, fallbackId = "") {
+  const fallback = typeof fallbackId === "string" ? fallbackId.trim() : "";
+  if (fallback) return fallback;
+  const id = futureJobs?.data?.session?._id;
+  return id != null && String(id).trim() !== "" ? String(id).trim() : "";
+}
 
 /** Page size when loading all profiles from Future Jobs (initial + after fetch-more). */
 const PROFILE_FETCH_PAGE_LIMIT = 100;
@@ -386,13 +396,13 @@ const annotateSearchPrompt = async (req, res) => {
   const userId = req.auth?.userId;
   try {
     const userText =
-      typeof req.body?.userText === "string" && req.body.userText.trim()
-        ? req.body.userText.trim()
+      typeof req.body?.userText === "string"
+        ? req.body.userText
         : typeof req.body?.prompt === "string"
-          ? req.body.prompt.trim()
+          ? req.body.prompt
           : "";
 
-    if (!userText) {
+    if (!userText || !String(userText).trim()) {
       return res.status(400).json({
         success: false,
         message: "prompt is required",
@@ -459,7 +469,14 @@ const createSearchSession = async (req, res) => {
   const userId = req.auth?.userId;
   try {
     const prompt =
-      typeof req.body?.prompt === "string" ? req.body.prompt.trim() : "";
+      typeof req.body?.prompt === "string" ? req.body.prompt : "";
+
+    if (!prompt || !String(prompt).trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "prompt is required",
+      });
+    }
 
     const sessionOverride = req.body?.session;
     const usingSessionOverride = Boolean(
@@ -487,9 +504,26 @@ const createSearchSession = async (req, res) => {
     });
 
     const futureJobs = await createSourcingSession(payload);
-    const sessionId = futureJobs?.data?.session?._id;
+    const sessionId = sessionIdFromFjCreateResponse(futureJobs);
 
-    if (sessionId == null || sessionId === "") {
+    if (isFjSessionPending(futureJobs)) {
+      const message = fjSessionPendingMessage(futureJobs);
+      logApi("candidates/search/create", "fj session pending (207)", {
+        userId,
+        sessionId: sessionId || undefined,
+        message,
+      });
+      return res.status(200).json({
+        success: false,
+        message,
+        sessionPending: true,
+        fjStatusCode: 207,
+        sessionId: sessionId || undefined,
+        futureJobs,
+      });
+    }
+
+    if (sessionId === "") {
       return res.status(502).json({
         success: false,
         message: "Search completed but no sourcing session was returned.",
@@ -497,7 +531,6 @@ const createSearchSession = async (req, res) => {
       });
     }
 
-    const sourcingMeta = futureJobs?.data?.sourcing;
     const sessionMeta = futureJobs?.data?.session;
     const filterForm = filterFormFromCreateResponse(futureJobs, payload);
 
@@ -573,8 +606,8 @@ const applySearchFilters = async (req, res) => {
     }
 
     const prompt =
-      typeof req.body?.prompt === "string" ? req.body.prompt.trim() : "";
-    if (!prompt) {
+      typeof req.body?.prompt === "string" ? req.body.prompt : "";
+    if (!prompt || !String(prompt).trim()) {
       return res.status(400).json({
         success: false,
         message: "prompt is required",
@@ -600,6 +633,13 @@ const applySearchFilters = async (req, res) => {
     const payload = buildSessionPayloadFromPromptAndFilter(prompt, filterForm);
     const isSessionUpdate = Boolean(existingSessionId);
 
+    try {
+      await assertQuotaAvailableByUserId(userId, "candidateSearches");
+    } catch (quotaErr) {
+      if (respondIfQuotaExceeded(res, quotaErr)) return;
+      throw quotaErr;
+    }
+
     if (isSessionUpdate) {
       const owned = await SourcingSession.findOne({
         userId: new mongoose.Types.ObjectId(userId),
@@ -615,13 +655,6 @@ const applySearchFilters = async (req, res) => {
             "This sourcing session was not found for your account, or it was created before history was enabled.",
         });
       }
-    } else {
-      try {
-        await assertQuotaAvailableByUserId(userId, "candidateSearches");
-      } catch (quotaErr) {
-        if (respondIfQuotaExceeded(res, quotaErr)) return;
-        throw quotaErr;
-      }
     }
 
     logApi("candidates/search/apply", "incoming", {
@@ -635,11 +668,52 @@ const applySearchFilters = async (req, res) => {
     const futureJobs = isSessionUpdate
       ? await updateSourcingSession(existingSessionId, payload)
       : await createSourcingSession(payload);
-    const sessionId = isSessionUpdate
-      ? existingSessionId
-      : futureJobs?.data?.session?._id;
+    const sessionId = sessionIdFromFjCreateResponse(futureJobs, existingSessionId);
 
-    if (sessionId == null || sessionId === "") {
+    if (isFjSessionPending(futureJobs)) {
+      const message = fjSessionPendingMessage(futureJobs);
+      logApi("candidates/search/apply", "fj session pending (207)", {
+        userId,
+        sessionId: sessionId || undefined,
+        sessionUpdated: isSessionUpdate,
+        message,
+      });
+
+      const responseFilterForm = filterFormFromCreateResponse(futureJobs, payload);
+      if (sessionId) {
+        try {
+          await persistSourcingSessionRow({
+            userId,
+            sessionId: String(sessionId),
+            prompt,
+            payload,
+            usingSessionOverride: false,
+            futureJobs,
+            profilesPagination: null,
+            candidates: [],
+            profilesFetchError: message,
+            filterForm: responseFilterForm,
+          });
+        } catch (persistErr) {
+          logApi("candidates/search/apply", "persist failed (207)", {
+            message: persistErr?.message,
+          });
+        }
+      }
+
+      return res.status(200).json({
+        success: false,
+        message,
+        sessionPending: true,
+        fjStatusCode: 207,
+        sessionId: sessionId || undefined,
+        sessionUpdated: isSessionUpdate,
+        filterForm: responseFilterForm,
+        futureJobs,
+      });
+    }
+
+    if (sessionId === "") {
       return res.status(502).json({
         success: false,
         message: "Search completed but no sourcing session was returned.",
@@ -700,7 +774,7 @@ const applySearchFilters = async (req, res) => {
       });
     }
 
-    if (!isSessionUpdate && userId && mongoose.Types.ObjectId.isValid(String(userId))) {
+    if (userId && mongoose.Types.ObjectId.isValid(String(userId))) {
       await incrementUserUsage(String(userId), "candidateSearches");
     }
 
@@ -775,7 +849,14 @@ const searchCandidates = async (req, res) => {
   const userId = req.auth?.userId;
   try {
     const prompt =
-      typeof req.body?.prompt === "string" ? req.body.prompt.trim() : "";
+      typeof req.body?.prompt === "string" ? req.body.prompt : "";
+
+    if (!prompt || !String(prompt).trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "prompt is required",
+      });
+    }
 
     const sessionOverride = req.body?.session;
     const usingSessionOverride = Boolean(
@@ -808,7 +889,7 @@ const searchCandidates = async (req, res) => {
 
     const futureJobs = await createSourcingSession(payload);
 
-    const sessionId = futureJobs?.data?.session?._id;
+    const sessionId = sessionIdFromFjCreateResponse(futureJobs);
     const candidates = [];
     let profilesPagination = null;
     let profilesFetchError = null;
@@ -818,11 +899,30 @@ const searchCandidates = async (req, res) => {
     logApi("candidates/search", "sourcing session created", {
       userId,
       futureJobsStatus: futureJobs?.status,
-      sessionId: sessionId != null ? String(sessionId) : null,
+      sessionId: sessionId || null,
+      fjStatusCode: futureJobs?.statusCode,
       hasSession: Boolean(sessionId),
     });
 
-    if (sessionId == null || sessionId === "") {
+    if (isFjSessionPending(futureJobs)) {
+      const message = fjSessionPendingMessage(futureJobs);
+      logApi("candidates/search", "fj session pending (207)", {
+        userId,
+        sessionId: sessionId || undefined,
+        message,
+      });
+      return res.status(200).json({
+        success: false,
+        message,
+        sessionPending: true,
+        fjStatusCode: 207,
+        sessionId: sessionId || undefined,
+        candidates: [],
+        futureJobs,
+      });
+    }
+
+    if (sessionId === "") {
       logApi("candidates/search", "skip profiles — no session id in create response", {
         userId,
         dataKeys: futureJobs?.data ? Object.keys(futureJobs.data) : [],
@@ -999,6 +1099,99 @@ const searchCandidates = async (req, res) => {
 };
 
 /**
+ * GET /api/candidates/candidate/:candidateId/details
+ * Future Jobs full candidate profile (profile._id from session profiles list).
+ */
+const getSessionCandidateDetails = async (req, res) => {
+  const userId = req.auth?.userId;
+  try {
+    const candidateId =
+      req.params.candidateId != null
+        ? String(req.params.candidateId).trim()
+        : "";
+    if (!candidateId) {
+      return res.status(400).json({
+        success: false,
+        message: "candidateId is required",
+      });
+    }
+
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    const sessionIdFromQuery =
+      typeof req.query.sessionId === "string" ? req.query.sessionId.trim() : "";
+
+    const owned = await SourcedCandidateDetail.findOne({
+      userId: new mongoose.Types.ObjectId(userId),
+      candidateId,
+    })
+      .select("_id sourcingSessionId")
+      .lean();
+
+    let sessionAllowed = Boolean(owned);
+    if (!sessionAllowed && sessionIdFromQuery) {
+      const sess = await SourcingSession.findOne({
+        userId: new mongoose.Types.ObjectId(userId),
+        futureJobsSessionId: sessionIdFromQuery,
+      })
+        .select("_id")
+        .lean();
+      sessionAllowed = Boolean(sess);
+    }
+
+    if (!sessionAllowed) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "This candidate was not found for your account. Open the session from search history or run a new search.",
+      });
+    }
+
+    logApi("candidates/candidate/details", "incoming", {
+      userId,
+      candidateId,
+      sourcingSessionId: owned?.sourcingSessionId || sessionIdFromQuery || undefined,
+    });
+
+    const futureJobs = await getSourcingSessionCandidateDetails(candidateId);
+    const detail =
+      futureJobs?.data && typeof futureJobs.data === "object"
+        ? futureJobs.data
+        : null;
+
+    logApi("candidates/candidate/details", "success", {
+      userId,
+      candidateId,
+      hasCandidate: Boolean(detail?.candidate),
+    });
+
+    return res.status(200).json({
+      success: true,
+      candidateId,
+      detail,
+      futureJobs,
+    });
+  } catch (error) {
+    const status = error.statusCode || 500;
+    logApi("candidates/candidate/details", "error", {
+      userId,
+      status,
+      message: error.message,
+    });
+    return res.status(status).json({
+      success: false,
+      message: error.message || "Failed to load candidate details",
+      details: error.details,
+    });
+  }
+};
+
+/**
  * GET /api/candidates/session/:sessionId/profiles
  * Loads all profile pages from Future Jobs for this session (no fetch-more).
  */
@@ -1144,6 +1337,13 @@ const fetchMoreSessionProfiles = async (req, res) => {
       });
     }
 
+    try {
+      await assertQuotaAvailableByUserId(userId, "candidateSearches");
+    } catch (quotaErr) {
+      if (respondIfQuotaExceeded(res, quotaErr)) return;
+      throw quotaErr;
+    }
+
     logApi("candidates/session/fetch-more", "incoming", { userId, sessionId });
 
     const fetchMoreResult = await fetchMoreSourcingSession(sessionId, {});
@@ -1184,6 +1384,8 @@ const fetchMoreSessionProfiles = async (req, res) => {
     const docCount = Array.isArray(docs) ? docs.length : 0;
     const canFetchMore = canFetchMoreFromFjSourcing(sourcingMeta);
 
+    await incrementUserUsage(String(userId), "candidateSearches");
+
     logApi("candidates/session/fetch-more", "success", {
       userId,
       sessionId,
@@ -1208,6 +1410,7 @@ const fetchMoreSessionProfiles = async (req, res) => {
       futureJobsProfiles: mapped.futureJobsProfiles,
     });
   } catch (error) {
+    if (respondIfQuotaExceeded(res, error)) return;
     const status = error.statusCode || 500;
     logApi("candidates/session/fetch-more", "error", {
       userId,
@@ -2324,6 +2527,7 @@ module.exports = {
   annotateSearchPrompt,
   createSearchSession,
   applySearchFilters,
+  getSessionCandidateDetails,
   loadSessionProfiles,
   fetchMoreSessionProfiles,
   loadStoredSessionCandidates,
