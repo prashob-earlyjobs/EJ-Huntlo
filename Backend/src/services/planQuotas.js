@@ -13,8 +13,10 @@ class QuotaExceededError extends Error {
 
 function getDefaultPlanId(tiers) {
   const list = Array.isArray(tiers) && tiers.length > 0 ? tiers : DEFAULT_PRICING_PLANS.tiers;
+  const trial = list.find((t) => t.id === "trial");
+  if (trial?.id) return trial.id;
   const starter = list.find((t) => t.id === "starter");
-  return starter?.id || list[0]?.id || "starter";
+  return starter?.id || list[0]?.id || "trial";
 }
 
 function normalizePlanId(planId, tiers) {

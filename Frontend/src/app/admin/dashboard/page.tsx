@@ -597,10 +597,10 @@ export default function AdminDashboardPage() {
     password: "",
     confirmPassword: "",
     role: "user" as "user" | "admin",
-    planId: "starter",
+    planId: "trial",
   });
   const [pricingPlanOptions, setPricingPlanOptions] = useState<PricingPlanOption[]>([]);
-  const [planDraftId, setPlanDraftId] = useState("starter");
+  const [planDraftId, setPlanDraftId] = useState("trial");
   const [planSaving, setPlanSaving] = useState(false);
   const [manageModalUser, setManageModalUser] = useState<TeamUserRow | null>(null);
   const [planManageError, setPlanManageError] = useState("");
@@ -662,7 +662,7 @@ export default function AdminDashboardPage() {
           (data.users as TeamUserRow[]).map((u) => ({
             ...u,
             role: u.role === "admin" ? "admin" : "user",
-            planId: typeof u.planId === "string" && u.planId.trim() ? u.planId.trim() : "starter",
+            planId: typeof u.planId === "string" && u.planId.trim() ? u.planId.trim() : "trial",
           }))
         );
       } catch (e) {
@@ -941,7 +941,7 @@ export default function AdminDashboardPage() {
               ? Math.floor(lim[k] as number)
               : null;
           setUserPlanDetails({
-            planId: typeof p.planId === "string" ? p.planId : "starter",
+            planId: typeof p.planId === "string" ? p.planId : "trial",
             planName: typeof p.planName === "string" ? p.planName : "Plan",
             limits: {
               searches: limNum("searches"),
@@ -1073,7 +1073,7 @@ export default function AdminDashboardPage() {
         password: "",
         confirmPassword: "",
         role: "user",
-        planId: pricingPlanOptions[0]?.id || "starter",
+        planId: pricingPlanOptions[0]?.id || "trial",
       });
       setIsCreateUserModalOpen(false);
       await loadUsers(auth.token);
@@ -1165,7 +1165,7 @@ export default function AdminDashboardPage() {
 
   const openManageUserModal = (user: TeamUserRow) => {
     setManageModalUser(user);
-    setPlanDraftId(user.planId || "starter");
+    setPlanDraftId(user.planId || "trial");
     setPlanManageError("");
   };
 
@@ -1875,7 +1875,7 @@ export default function AdminDashboardPage() {
                     }
                   >
                     {pricingPlanOptions.length === 0 ? (
-                      <option value="starter">Starter</option>
+                      <option value="trial">Trial</option>
                     ) : (
                       pricingPlanOptions.map((p) => (
                         <option key={p.id} value={p.id}>
@@ -1955,7 +1955,7 @@ export default function AdminDashboardPage() {
                         className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm outline-none focus:border-black focus:ring-2 focus:ring-slate-300"
                       >
                         {pricingPlanOptions.length === 0 ? (
-                          <option value="starter">Starter</option>
+                          <option value="trial">Trial</option>
                         ) : (
                           pricingPlanOptions.map((p) => (
                             <option key={p.id} value={p.id}>

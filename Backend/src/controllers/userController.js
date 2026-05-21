@@ -36,7 +36,7 @@ const sanitizeUser = (user) => ({
   planId:
     typeof user.planId === "string" && user.planId.trim()
       ? user.planId.trim()
-      : "starter",
+      : "trial",
   onboardingCompleted: Boolean(user.onboardingCompleted),
   onboarding: {
     companyType:

@@ -143,8 +143,8 @@ export function parseDashboardOverviewPayload(raw: unknown): DashboardOverviewDa
         typeof greeting.companyName === "string" ? greeting.companyName : "",
     },
     plan: {
-      planId: typeof plan.planId === "string" ? plan.planId : "starter",
-      planName: typeof plan.planName === "string" ? plan.planName : "Starter",
+      planId: typeof plan.planId === "string" ? plan.planId : "trial",
+      planName: typeof plan.planName === "string" ? plan.planName : "Trial",
       limits: {
         searches:
           typeof limitsRaw.searches === "number" ? limitsRaw.searches : null,

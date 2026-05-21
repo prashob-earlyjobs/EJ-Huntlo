@@ -1137,8 +1137,8 @@ export default function UserDashboardPage() {
     mobileUnveils: 0,
     linkedinLookups: 0,
   }));
-  const [userPlanId, setUserPlanId] = useState("starter");
-  const [userPlanName, setUserPlanName] = useState("Starter");
+  const [userPlanId, setUserPlanId] = useState("trial");
+  const [userPlanName, setUserPlanName] = useState("Trial");
   const [utilisationHistory, setUtilisationHistory] = useState<UtilisationHistoryRow[]>([]);
   const [utilisationHistoryLoading, setUtilisationHistoryLoading] = useState(false);
   const [utilisationHistoryPage, setUtilisationHistoryPage] = useState(1);
@@ -1532,7 +1532,7 @@ export default function UserDashboardPage() {
                 ? meData.plan.planId
                 : typeof meData.user?.planId === "string"
                   ? meData.user.planId
-                  : "starter";
+                  : "trial";
             const pname =
               typeof meData.plan?.planName === "string"
                 ? meData.plan.planName

@@ -56,7 +56,7 @@ const userSchema = new mongoose.Schema(
     },
     planId: {
       type: String,
-      default: "starter",
+      default: "trial",
       trim: true,
       maxlength: 40,
     },

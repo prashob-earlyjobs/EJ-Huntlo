@@ -7,6 +7,26 @@ const DEFAULT_PRICING_PLANS = {
     "Transparent limits in INR and USD. Upgrade when your outbound volume grows—no surprise overages on core allowances within each tier.",
   tiers: [
     {
+      id: "trial",
+      name: "Trial",
+      primaryPrice: "Free trial",
+      secondaryPrice: "",
+      description:
+        "Try Huntlo with limited searches and unlocks. Upgrade to Starter or Growth when you are ready.",
+      searches: 50,
+      candidateUnlocks: 25,
+      verifiedEmails: 25,
+      phoneNumbers: 10,
+      features: [
+        "AI candidate search",
+        "Filter drawer & session results",
+        "Email outreach (limited)",
+        "Upgrade anytime",
+      ],
+      isPopular: false,
+      popularBadge: "⭐ Most Popular",
+    },
+    {
       id: "starter",
       name: "Starter",
       primaryPrice: "₹4,999/month",
@@ -156,7 +176,8 @@ function normalizePayload(body) {
     const popularBadge =
       typeof t?.popularBadge === "string"
         ? t.popularBadge.trim().slice(0, 80)
-        : DEFAULT_PRICING_PLANS.tiers[1]?.popularBadge || "⭐ Most Popular";
+        : DEFAULT_PRICING_PLANS.tiers.find((d) => d.id === "growth")?.popularBadge ||
+          "⭐ Most Popular";
     return {
       id,
       name,
@@ -323,6 +344,24 @@ async function ensurePricingDataSeeded() {
   }
 }
 
+/** Ensure trial tier exists in DB (for deployments seeded before trial was added). */
+async function ensureTrialPlanExists() {
+  const exists = await PricingPlan.findOne({ planId: "trial" }).lean();
+  if (exists) return;
+
+  const def = DEFAULT_PRICING_PLANS.tiers.find((t) => t.id === "trial");
+  if (!def) return;
+
+  const first = await PricingPlan.findOne().sort({ sortOrder: 1 }).select("sortOrder").lean();
+  const sortOrder =
+    first && typeof first.sortOrder === "number" ? first.sortOrder - 1 : 0;
+  const normalized = normalizePayload({
+    intro: DEFAULT_PRICING_PLANS.intro,
+    tiers: [def],
+  });
+  await upsertPricingPlanFromNormalized(normalized.tiers[0], sortOrder);
+}
+
 async function ensureMetaIfPlansExist() {
   const n = await PricingPlan.countDocuments();
   if (n === 0) return;
@@ -371,6 +410,7 @@ const getPricingPlans = async (_req, res) => {
   try {
     await migrateFromLegacyIfNeeded();
     await ensurePricingDataSeeded();
+    await ensureTrialPlanExists();
     await ensureMetaIfPlansExist();
 
     const payload = await loadPlansFromDatabase();
@@ -433,6 +473,7 @@ const updatePricingPlans = async (req, res) => {
 async function getEnrichedTiers() {
   await migrateFromLegacyIfNeeded();
   await ensurePricingDataSeeded();
+  await ensureTrialPlanExists();
   await ensureMetaIfPlansExist();
   const payload = await loadPlansFromDatabase();
   return payload.plans.tiers;
