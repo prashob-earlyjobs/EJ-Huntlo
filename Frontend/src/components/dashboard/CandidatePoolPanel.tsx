@@ -107,7 +107,7 @@ function candidateRowToCardData(
       company: current?.company_name || candidate.currentCompany,
       companyWebsiteDomain: current?.company_website_domain,
       companyWebsite: current?.company_website,
-      openToWork: isOpenToWork(doc.profile.open_to_cards),
+      openToWork: isOpenToWork(doc.profile?.open_to_cards),
       region: doc.profile.region || candidate.location,
       yearsExperience: doc.profile.years_of_experience_raw,
       finalScore:

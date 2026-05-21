@@ -29,6 +29,7 @@ type SavedRawDoc = {
     years_of_experience_raw?: number;
     linkedin_profile_url?: string;
     profile_picture_permalink?: string;
+    open_to_cards?: string[];
     skills?: string[];
     current_employers_object?: {
       company_name?: string;
