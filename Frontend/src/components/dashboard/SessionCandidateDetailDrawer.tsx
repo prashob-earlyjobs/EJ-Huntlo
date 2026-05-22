@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { CompanyLogo, companyLogoFromEmployer } from "@/components/dashboard/CompanyLogo";
+import { ProfilePhotoLightbox } from "@/components/dashboard/ProfilePhotoLightbox";
 import { OpenToWorkBadge } from "@/components/dashboard/OpenToWorkBadge";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { isOpenToWork } from "@/lib/openToWork";
@@ -320,6 +321,9 @@ export function SessionCandidateDetailDrawer({
   contactRevealNotice,
 }: Props) {
   const [imgFailed, setImgFailed] = useState(false);
+  const [photoViewerOpen, setPhotoViewerOpen] = useState(false);
+  const photoViewerOpenRef = useRef(false);
+  photoViewerOpenRef.current = photoViewerOpen;
   const [activeTab, setActiveTab] = useState<ProfileDrawerTab>("overview");
   const profile = doc.profile;
   const name = profile?.name || candidate.name || "Unnamed candidate";
@@ -370,11 +374,24 @@ export function SessionCandidateDetailDrawer({
     (emailRevealed && displayedEmail) || (phoneRevealed && displayedPhone);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setPhotoViewerOpen(false);
+      return;
+    }
     setImgFailed(false);
+    setPhotoViewerOpen(false);
     setActiveTab("overview");
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      if (photoViewerOpenRef.current) {
+        setPhotoViewerOpen(false);
+      } else {
+        onClose();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -486,22 +503,32 @@ export function SessionCandidateDetailDrawer({
 
               <article className="dashboard-profile-hero">
                 <div className="dashboard-profile-hero-layout">
-                  <div
-                    className="dashboard-candidate-avatar dashboard-profile-drawer-avatar"
-                    aria-hidden
-                  >
-                    {showImage ? (
-                      // eslint-disable-next-line @next/next/no-img-element
+                  {showImage ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPhotoViewerOpen(true);
+                      }}
+                      className="dashboard-candidate-avatar dashboard-profile-drawer-avatar cursor-pointer transition hover:ring-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+                      aria-label={`View ${name} profile photo larger`}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={photoUrl}
                         alt=""
                         className="h-full w-full object-cover"
                         onError={() => setImgFailed(true)}
                       />
-                    ) : (
-                      nameInitials(name)
-                    )}
-                  </div>
+                    </button>
+                  ) : (
+                    <div
+                      className="dashboard-candidate-avatar dashboard-profile-drawer-avatar"
+                      aria-hidden
+                    >
+                      {nameInitials(name)}
+                    </div>
+                  )}
 
                   <div className="dashboard-profile-hero-body">
                     <div className="dashboard-profile-hero-top">
@@ -936,6 +963,13 @@ export function SessionCandidateDetailDrawer({
           </button>
         </footer>
       </aside>
+
+      <ProfilePhotoLightbox
+        open={photoViewerOpen && showImage}
+        photoUrl={photoUrl}
+        name={name}
+        onClose={() => setPhotoViewerOpen(false)}
+      />
     </div>
   );
 }

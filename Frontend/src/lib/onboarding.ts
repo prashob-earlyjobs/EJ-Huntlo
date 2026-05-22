@@ -90,8 +90,11 @@ export const HIRING_VOLUME_OPTIONS = [
 
 export const ONBOARDING_STEP_COUNT = 5;
 
-export function postAuthPath(user: Pick<StoredAuth, "role" | "onboardingCompleted">): string {
+export function postAuthPath(
+  user: Pick<StoredAuth, "role" | "onboardingCompleted" | "accountRole">
+): string {
   if (user.role === "admin") return "/admin/dashboard";
+  if (user.accountRole === "member") return "/dashboard";
   if (!user.onboardingCompleted) return "/onboarding";
   return "/dashboard";
 }

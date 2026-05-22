@@ -21,6 +21,8 @@ const peopleScoutLookupSchema = new mongoose.Schema(
     headline: { type: String, default: "", trim: true },
     location: { type: String, default: "", trim: true },
     company: { type: String, default: "", trim: true },
+    companyWebsiteDomain: { type: String, default: "", trim: true },
+    companyWebsite: { type: String, default: "", trim: true },
     role: { type: String, default: "", trim: true },
     linkedinFlagshipUrl: { type: String, default: "", trim: true },
     linkedinProfileUrl: { type: String, default: "", trim: true },

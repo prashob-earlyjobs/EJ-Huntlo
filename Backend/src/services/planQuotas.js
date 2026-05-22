@@ -1,5 +1,6 @@
 const User = require("../models/User");
 const { DEFAULT_PRICING_PLANS, getEnrichedTiers } = require("../controllers/pricingController");
+const { getBillingUser } = require("./organizationService");
 const { utilisationFromUser } = require("../utils/userUsage");
 
 class QuotaExceededError extends Error {
@@ -27,10 +28,12 @@ function normalizePlanId(planId, tiers) {
 }
 
 async function resolveTierForUser(user) {
+  const billingUser = user ? await getBillingUser(user) : null;
+  const billable = billingUser || user;
   const tiers = await getEnrichedTiers();
-  const planId = normalizePlanId(user?.planId, tiers);
+  const planId = normalizePlanId(billable?.planId, tiers);
   const tier = tiers.find((t) => t.id === planId) || tiers[0] || null;
-  return { tiers, planId: tier?.id || planId, tier };
+  return { tiers, planId: tier?.id || planId, tier, billingUser: billable };
 }
 
 function getLimitForAction(tier, key) {
@@ -75,11 +78,11 @@ function quotaExceededMessage(key, tier) {
  */
 async function assertQuotaAvailable(user, key, amount = 1) {
   const inc = Math.min(1000, Math.max(1, Math.floor(Number(amount) || 1)));
-  const { tier } = await resolveTierForUser(user);
+  const { tier, billingUser } = await resolveTierForUser(user);
   const limit = getLimitForAction(tier, key);
   if (limit == null) return;
 
-  const utilisation = utilisationFromUser(user);
+  const utilisation = utilisationFromUser(billingUser || user);
   const used = getUsedForAction(utilisation, key);
   if (used + inc > limit) {
     throw new QuotaExceededError(quotaExceededMessage(key, tier));
@@ -94,7 +97,8 @@ async function assertQuotaAvailableByUserId(userId, key, amount = 1) {
 }
 
 async function getUserPlanSummary(user) {
-  const { planId, tier, tiers } = await resolveTierForUser(user);
+  const { planId, tier, tiers, billingUser } = await resolveTierForUser(user);
+  const utilisation = utilisationFromUser(billingUser || user);
   return {
     planId,
     planName: tier?.name || planId,
@@ -104,6 +108,7 @@ async function getUserPlanSummary(user) {
       verifiedEmails: tier?.verifiedEmails ?? null,
       phoneNumbers: tier?.phoneNumbers ?? null,
     },
+    utilisation,
     availablePlanIds: tiers.map((t) => t.id).filter(Boolean),
   };
 }

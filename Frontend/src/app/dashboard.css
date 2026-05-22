@@ -1625,13 +1625,13 @@
 }
 
 .dashboard-candidate-company-logo {
-  width: 1rem;
-  height: 1rem;
+  width: 1.15rem;
+  height: 1.15rem;
   flex-shrink: 0;
   border-radius: 2px;
   object-fit: contain;
-  background: #fff;
-  border: 1px solid color-mix(in srgb, var(--dash-outline) 35%, transparent);
+  background: transparent;
+  border: none;
 }
 
 .dashboard-candidate-name-row,
@@ -2804,6 +2804,12 @@
 .dashboard-people-scout-recent-card:focus-visible {
   outline: none;
   box-shadow: 0 0 0 3px rgba(0, 80, 203, 0.18);
+}
+
+.dashboard-people-scout-recent-company {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--dash-on-surface-variant);
 }
 
 .dashboard-people-scout-recent-meta {
@@ -4368,13 +4374,13 @@
 }
 
 .dashboard-profile-company-logo {
-  width: 1rem;
-  height: 1rem;
+  width: 1.15rem;
+  height: 1.15rem;
   flex-shrink: 0;
   border-radius: 2px;
   object-fit: contain;
-  background: #fff;
-  border: 1px solid var(--dash-outline-variant, rgba(0, 0, 0, 0.08));
+  background: transparent;
+  border: none;
 }
 
 .dashboard-profile-drawer .dashboard-profile-hero-tenure-row {

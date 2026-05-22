@@ -26,6 +26,15 @@ const {
   getUsageAnalyticsEvents,
 } = require("../controllers/usageAnalyticsController");
 const { getMyDashboard } = require("../controllers/dashboardController");
+const {
+  getMyTeam,
+  createTeamMember,
+  updateTeamMember,
+  resetTeamMemberPassword,
+  getTeamUtilisationHistory,
+  getTeamActivity,
+  listOrganizationsAdmin,
+} = require("../controllers/teamController");
 const { authenticate, requireAdmin } = require("../middleware/auth");
 const { profilePhotoUpload } = require("../middleware/profilePhotoUpload");
 
@@ -56,6 +65,23 @@ router.post(
 router.delete("/me/photo", authenticate, removeMyProfilePhoto);
 router.patch("/me/onboarding", authenticate, completeMyOnboarding);
 router.patch("/me/password", authenticate, changeMyPassword);
+
+router.get("/me/team", authenticate, getMyTeam);
+router.post("/me/team/members", authenticate, createTeamMember);
+router.patch("/me/team/members/:memberId", authenticate, updateTeamMember);
+router.post(
+  "/me/team/members/:memberId/reset-password",
+  authenticate,
+  resetTeamMemberPassword
+);
+router.get("/me/team/utilisation", authenticate, getTeamUtilisationHistory);
+router.get("/me/team/activity", authenticate, getTeamActivity);
+router.get(
+  "/admin/organizations",
+  authenticate,
+  requireAdmin,
+  listOrganizationsAdmin
+);
 
 router.get("/me/credits/history", authenticate, getMyCreditHistory);
 router.get("/me/utilisation/history", authenticate, getMyUtilisationHistory);

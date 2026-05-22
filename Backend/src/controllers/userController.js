@@ -18,6 +18,10 @@ const {
   validatePlanIdExists,
   getEnrichedTiers,
 } = require("../services/planQuotas");
+const {
+  createOrganizationForOwner,
+  ensureOrganizationForOwner,
+} = require("../services/organizationService");
 
 const normalizeCredits = (user) =>
   Math.max(0, Math.floor(Number(user?.credits ?? 0)));
@@ -38,6 +42,11 @@ const sanitizeUser = (user) => ({
       ? user.planId.trim()
       : "trial",
   onboardingCompleted: Boolean(user.onboardingCompleted),
+  organizationId: user.organizationId ? String(user.organizationId) : null,
+  accountRole: user.accountRole || null,
+  ownerUserId: user.ownerUserId ? String(user.ownerUserId) : null,
+  memberStatus: user.memberStatus || "active",
+  memberPermission: user.memberPermission || "full",
   onboarding: {
     companyType:
       typeof user.onboardingCompanyType === "string" ? user.onboardingCompanyType : "",
@@ -238,6 +247,15 @@ const loginUser = async (req, res) => {
       return res.status(401).json({
         success: false,
         message: "Invalid email or password",
+      });
+    }
+
+    if (user.role !== "admin" && user.memberStatus === "blocked") {
+      return res.status(403).json({
+        success: false,
+        code: "ACCOUNT_BLOCKED",
+        message:
+          "Your account has been blocked. Contact your team owner or support.",
       });
     }
 
@@ -889,7 +907,7 @@ const getMyProfile = async (req, res) => {
       });
     }
 
-    const user = await User.findById(uid);
+    let user = await User.findById(uid);
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -897,12 +915,16 @@ const getMyProfile = async (req, res) => {
       });
     }
 
+    if (user.role !== "admin" && user.accountRole !== "member") {
+      user = (await ensureOrganizationForOwner(user)) || user;
+    }
+
     const plan = await getUserPlanSummary(user);
 
     return res.status(200).json({
       success: true,
       user: sanitizeUser(user),
-      utilisation: utilisationFromUser(user),
+      utilisation: plan.utilisation || utilisationFromUser(user),
       plan,
       security: {
         passwordChangedAt: user.passwordChangedAt || user.updatedAt || null,
@@ -1063,10 +1085,16 @@ const completeMyOnboarding = async (req, res) => {
     user.onboardingCompletedAt = new Date();
     await user.save();
 
+    if (user.role !== "admin" && user.accountRole !== "member") {
+      await createOrganizationForOwner(user);
+    }
+
+    const refreshed = await User.findById(user._id);
+
     return res.status(200).json({
       success: true,
       message: "Onboarding completed",
-      user: sanitizeUser(user),
+      user: sanitizeUser(refreshed || user),
     });
   } catch (error) {
     return res.status(500).json({

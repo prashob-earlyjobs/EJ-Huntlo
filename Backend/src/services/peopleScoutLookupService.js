@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const PeopleScoutLookup = require("../models/PeopleScoutLookup");
 const { logUsageEvent, analyticsSource } = require("../utils/logUsageEvent");
+const { companyMetaFromFjProfile } = require("../utils/peopleScoutEmployer");
 
 function lookupHasValidProfile(row) {
   if (!row || typeof row !== "object") return false;
@@ -85,6 +86,8 @@ async function cloneLookupForUser(userId, sourceRow, parsed) {
     headline: sourceRow.headline || "",
     location: sourceRow.location || "",
     company: sourceRow.company || "",
+    companyWebsiteDomain: sourceRow.companyWebsiteDomain || "",
+    companyWebsite: sourceRow.companyWebsite || "",
     role: sourceRow.role || "",
     linkedinFlagshipUrl: sourceRow.linkedinFlagshipUrl || "",
     linkedinProfileUrl: sourceRow.linkedinProfileUrl || "",
@@ -193,6 +196,8 @@ async function resolvePeopleScoutLookup({
     headline: summaryFromProfile?.headline || "",
     location: summaryFromProfile?.location || "",
     company: summaryFromProfile?.company || "",
+    companyWebsiteDomain: summaryFromProfile?.companyWebsiteDomain || "",
+    companyWebsite: summaryFromProfile?.companyWebsite || "",
     role: summaryFromProfile?.role || "",
     linkedinFlagshipUrl: summaryFromProfile?.linkedinFlagshipUrl || "",
     linkedinProfileUrl: summaryFromProfile?.linkedinProfileUrl || "",

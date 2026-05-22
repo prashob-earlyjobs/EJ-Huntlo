@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
+import { BlockedAccountModal } from "@/components/dashboard/BlockedAccountModal";
 import {
   SessionResultCandidateCard,
   type SessionResultCardData,
@@ -13,6 +14,7 @@ import { LandingLogo } from "@/components/landing/LandingLogo";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { authHeaders, getStoredAuth } from "@/lib/auth";
 import { isOpenToWork } from "@/lib/openToWork";
+import { useBlockedAccountGuard } from "@/lib/useBlockedAccountGuard";
 
 type ProfileDoc = {
   _id?: string;
@@ -89,6 +91,7 @@ export default function SessionResultsPage() {
   const [docs, setDocs] = useState<ProfileDoc[]>([]);
   const [totalDocs, setTotalDocs] = useState<number | null>(null);
   const [pageLabel, setPageLabel] = useState("1");
+  const { blocked: accountBlocked, onApiResponse } = useBlockedAccountGuard();
 
   useEffect(() => {
     const auth = getStoredAuth();
@@ -114,6 +117,7 @@ export default function SessionResultsPage() {
           headers: authHeaders(auth.token),
         });
         const data = (await res.json().catch(() => ({}))) as ProfilesResponse;
+        if (onApiResponse(res, data)) return;
         if (!res.ok || !data.success) {
           throw new Error(data.message || "Failed to load results");
         }
@@ -141,10 +145,11 @@ export default function SessionResultsPage() {
     };
 
     void load();
-  }, [limit, router, sessionId]);
+  }, [limit, onApiResponse, router, sessionId]);
 
   return (
     <main className="dashboard-page min-h-screen">
+      <BlockedAccountModal open={accountBlocked} />
       <header className="dashboard-header">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
           <Link href="/dashboard" className="inline-block">

@@ -4,8 +4,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 
+import { BlockedAccountModal } from "@/components/dashboard/BlockedAccountModal";
 import { getStoredAuth } from "@/lib/auth";
 import { postAuthPath } from "@/lib/onboarding";
+import { isBlockedAccountResponse, isBlockedMemberStatus } from "@/lib/sessionLogout";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -13,9 +15,14 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [blockedOpen, setBlockedOpen] = useState(false);
 
   useEffect(() => {
     const auth = getStoredAuth();
+    if (auth && isBlockedMemberStatus(auth.memberStatus)) {
+      setBlockedOpen(true);
+      return;
+    }
     if (auth) {
       router.replace(postAuthPath(auth));
     }
@@ -40,10 +47,18 @@ export default function LoginPage() {
         }),
       });
 
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
+
+      if (isBlockedAccountResponse(response, data)) {
+        setBlockedOpen(true);
+        setErrorMessage("");
+        return;
+      }
 
       if (!response.ok || !data.success) {
-        throw new Error(data.message || "Unable to login");
+        throw new Error(
+          typeof data.message === "string" ? data.message : "Unable to login"
+        );
       }
 
       localStorage.setItem(
@@ -54,6 +69,10 @@ export default function LoginPage() {
         postAuthPath({
           role: data.user.role === "admin" ? "admin" : "user",
           onboardingCompleted: Boolean(data.user.onboardingCompleted),
+          accountRole:
+            data.user.accountRole === "owner" || data.user.accountRole === "member"
+              ? data.user.accountRole
+              : null,
         })
       );
     } catch (error) {
@@ -66,7 +85,9 @@ export default function LoginPage() {
   };
 
   return (
-    <main className="premium-shell flex min-h-screen items-center justify-center px-4 py-10">
+    <>
+      <BlockedAccountModal open={blockedOpen} />
+      <main className="premium-shell flex min-h-screen items-center justify-center px-4 py-10">
       <section className="premium-card w-full max-w-md rounded-3xl p-8 sm:p-9">
         <div className="mb-8">
           <p className="text-sm font-medium text-blue-700">Welcome back</p>
@@ -143,5 +164,6 @@ export default function LoginPage() {
         </p>
       </section>
     </main>
+    </>
   );
 }

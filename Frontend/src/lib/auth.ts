@@ -9,6 +9,11 @@ export type StoredAuth = {
   role: "user" | "admin";
   credits?: number;
   onboardingCompleted?: boolean;
+  organizationId?: string | null;
+  accountRole?: "owner" | "member" | null;
+  ownerUserId?: string | null;
+  memberStatus?: string;
+  memberPermission?: string;
   passwordChangedAt?: string;
   token: string;
   createdAt?: string;

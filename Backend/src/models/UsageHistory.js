@@ -16,6 +16,19 @@ const usageHistorySchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    /** Workspace owner whose plan quota was charged */
+    billedUserId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+      index: true,
+    },
+    organizationId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Organization",
+      default: null,
+      index: true,
+    },
     action: {
       type: String,
       enum: usageActionEnum,

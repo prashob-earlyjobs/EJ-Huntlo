@@ -70,6 +70,10 @@ export default function SignupPage() {
             postAuthPath({
               role: data.user.role === "admin" ? "admin" : "user",
               onboardingCompleted: Boolean(data.user.onboardingCompleted),
+              accountRole:
+                data.user.accountRole === "owner" || data.user.accountRole === "member"
+                  ? data.user.accountRole
+                  : null,
             })
           );
         }, 600);

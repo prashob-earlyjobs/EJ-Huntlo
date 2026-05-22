@@ -7,6 +7,8 @@ const PeopleScoutLookup = require("../models/PeopleScoutLookup");
 const UsageHistory = require("../models/UsageHistory");
 const { utilisationFromUser } = require("../utils/userUsage");
 const { getUserPlanSummary, resolveTierForUser } = require("../services/planQuotas");
+const { getBillingUser } = require("../services/organizationService");
+const { userIdFilterForActor } = require("../utils/orgScope");
 
 const sanitizeUsageHistoryEntry = (doc) => ({
   id: doc._id.toString(),
@@ -15,17 +17,39 @@ const sanitizeUsageHistoryEntry = (doc) => ({
   createdAt: doc.createdAt,
 });
 
-const mapRecentSession = (d) => ({
-  id: d._id.toString(),
-  futureJobsSessionId: d.futureJobsSessionId || "",
-  prompt: typeof d.prompt === "string" ? d.prompt : "",
-  sessionTitle: typeof d.sessionTitle === "string" ? d.sessionTitle : "",
-  futureJobsStatus: typeof d.futureJobsStatus === "string" ? d.futureJobsStatus : "",
-  totalDocs: typeof d.totalDocs === "number" ? d.totalDocs : null,
-  candidateCountFirstPage:
-    typeof d.candidateCountFirstPage === "number" ? d.candidateCountFirstPage : 0,
-  createdAt: d.createdAt,
-});
+async function storedProfileCountBySessionIds(sessionIds, scopeFilter = {}) {
+  const ids = [...new Set(sessionIds.map((id) => String(id).trim()).filter(Boolean))];
+  if (ids.length === 0) return {};
+  const match = { ...scopeFilter, sourcingSessionId: { $in: ids } };
+  const rows = await SourcedCandidateDetail.aggregate([
+    { $match: match },
+    { $group: { _id: "$sourcingSessionId", count: { $sum: 1 } } },
+  ]);
+  return Object.fromEntries(rows.map((r) => [String(r._id), r.count]));
+}
+
+const mapRecentSession = (d, storedCountBySession = {}) => {
+  const sid =
+    typeof d.futureJobsSessionId === "string" ? d.futureJobsSessionId.trim() : "";
+  const storedCount = sid ? storedCountBySession[sid] : undefined;
+  const totalDocs =
+    typeof storedCount === "number"
+      ? storedCount
+      : typeof d.totalDocs === "number"
+        ? d.totalDocs
+        : null;
+  return {
+    id: d._id.toString(),
+    futureJobsSessionId: d.futureJobsSessionId || "",
+    prompt: typeof d.prompt === "string" ? d.prompt : "",
+    sessionTitle: typeof d.sessionTitle === "string" ? d.sessionTitle : "",
+    futureJobsStatus: typeof d.futureJobsStatus === "string" ? d.futureJobsStatus : "",
+    totalDocs,
+    candidateCountFirstPage:
+      typeof d.candidateCountFirstPage === "number" ? d.candidateCountFirstPage : 0,
+    createdAt: d.createdAt,
+  };
+};
 
 /**
  * GET /api/users/me/dashboard
@@ -49,24 +73,27 @@ const getMyDashboard = async (req, res) => {
       });
     }
 
-    const userOid = new mongoose.Types.ObjectId(uid);
+    const scopeFilter =
+      (await userIdFilterForActor(uid)) || { userId: new mongoose.Types.ObjectId(uid) };
+    const billingUser = (await getBillingUser(user)) || user;
+
     const [plan, { tier }, counts, recentSessions, recentActivity] = await Promise.all([
       getUserPlanSummary(user),
       resolveTierForUser(user),
       Promise.all([
-        SourcingSession.countDocuments({ userId: userOid }),
-        SavedCandidate.countDocuments({ userId: userOid }),
-        SourcedCandidateDetail.countDocuments({ userId: userOid }),
-        PeopleScoutLookup.countDocuments({ userId: userOid }),
+        SourcingSession.countDocuments(scopeFilter),
+        SavedCandidate.countDocuments(scopeFilter),
+        SourcedCandidateDetail.countDocuments(scopeFilter),
+        PeopleScoutLookup.countDocuments(scopeFilter),
       ]),
-      SourcingSession.find({ userId: userOid })
+      SourcingSession.find(scopeFilter)
         .sort({ createdAt: -1 })
         .limit(5)
         .select(
-          "futureJobsSessionId prompt sessionTitle futureJobsStatus totalDocs candidateCountFirstPage createdAt"
+          "futureJobsSessionId prompt sessionTitle futureJobsStatus totalDocs candidateCountFirstPage createdAt userId"
         )
         .lean(),
-      UsageHistory.find({ userId: userOid })
+      UsageHistory.find(scopeFilter)
         .sort({ createdAt: -1 })
         .limit(5)
         .lean(),
@@ -74,7 +101,12 @@ const getMyDashboard = async (req, res) => {
 
     const [sourcingSessions, savedCandidates, sourcedProfiles, peopleScoutLookups] = counts;
 
-    const utilisation = utilisationFromUser(user);
+    const storedCountBySession = await storedProfileCountBySessionIds(
+      recentSessions.map((d) => d.futureJobsSessionId),
+      scopeFilter
+    );
+
+    const utilisation = utilisationFromUser(billingUser);
     const searchUsed =
       utilisation.candidateSearches + utilisation.linkedinLookups;
     const searchLimit =
@@ -121,7 +153,7 @@ const getMyDashboard = async (req, res) => {
         sourcedProfiles,
         peopleScoutLookups,
       },
-      recentSessions: recentSessions.map(mapRecentSession),
+      recentSessions: recentSessions.map((d) => mapRecentSession(d, storedCountBySession)),
       recentActivity: recentActivity.map(sanitizeUsageHistoryEntry),
     });
   } catch (error) {

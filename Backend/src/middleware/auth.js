@@ -20,7 +20,9 @@ const authenticate = async (req, res, next) => {
     };
 
     if (decoded.role !== "admin") {
-      const user = await User.findById(decoded.sub).select("memberStatus accountRole memberPermission");
+      const user = await User.findById(decoded.sub).select(
+        "memberStatus accountRole memberPermission organizationId ownerUserId onboardingCompleted role"
+      );
       if (user?.memberStatus === "blocked") {
         return res.status(403).json({
           success: false,
@@ -29,7 +31,13 @@ const authenticate = async (req, res, next) => {
         });
       }
       req.auth.accountRole = user?.accountRole || null;
-      req.auth.memberPermission = user?.memberPermission || "search";
+      req.auth.memberPermission = user?.memberPermission || "full";
+      req.auth.organizationId = user?.organizationId
+        ? String(user.organizationId)
+        : null;
+      req.auth.ownerUserId = user?.ownerUserId ? String(user.ownerUserId) : null;
+      req.auth.isTeamOwner = user?.accountRole === "owner";
+      req.auth.isTeamMember = user?.accountRole === "member";
     }
 
     next();

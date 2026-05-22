@@ -28,6 +28,11 @@ const { incrementUserUsage } = require("../utils/incrementUserUsage");
 const { assertQuotaAvailableByUserId } = require("../services/planQuotas");
 const { respondIfQuotaExceeded } = require("../utils/quotaHttp");
 const { resolveContactReveal } = require("../services/contactRevealService");
+const {
+  userIdFilterForActor,
+  findSessionInScope,
+  forbidden,
+} = require("../utils/orgScope");
 
 /** Wait after POST /wl/sourcing-session before GET …/profiles (Search Candidates apply). */
 const POST_SESSION_CREATE_PROFILES_WAIT_MS = 20_000;
@@ -344,6 +349,29 @@ async function persistSourcingSessionRow({
   return doc?._id?.toString() ?? null;
 }
 
+/** Persisted profile count in our DB (includes fetch-more), used for search history Results column. */
+async function syncSourcingSessionStoredCount(futureJobsSessionId) {
+  const sid = futureJobsSessionId != null ? String(futureJobsSessionId).trim() : "";
+  if (!sid) return 0;
+  const count = await SourcedCandidateDetail.countDocuments({ sourcingSessionId: sid });
+  await SourcingSession.updateOne(
+    { futureJobsSessionId: sid },
+    { $set: { totalDocs: count } }
+  );
+  return count;
+}
+
+async function storedProfileCountBySessionIds(sessionIds, scopeFilter = {}) {
+  const ids = [...new Set(sessionIds.map((id) => String(id).trim()).filter(Boolean))];
+  if (ids.length === 0) return {};
+  const match = { ...scopeFilter, sourcingSessionId: { $in: ids } };
+  const rows = await SourcedCandidateDetail.aggregate([
+    { $match: match },
+    { $group: { _id: "$sourcingSessionId", count: { $sum: 1 } } },
+  ]);
+  return Object.fromEntries(rows.map((r) => [String(r._id), r.count]));
+}
+
 async function fetchProfilesForSession({
   userId,
   sessionId,
@@ -377,14 +405,16 @@ async function fetchProfilesForSession({
 
   const mapped = await fetchAllSessionProfilesFromFj(String(sessionId), pollOptions);
 
-  await persistCandidateDetails({
-    userId,
-    sourcingSessionId: String(sessionId),
-    profilesRes: mapped.futureJobsProfiles,
-    loggerHandler,
-  });
+    await persistCandidateDetails({
+      userId,
+      sourcingSessionId: String(sessionId),
+      profilesRes: mapped.futureJobsProfiles,
+      loggerHandler,
+    });
 
-  return mapped;
+    await syncSourcingSessionStoredCount(String(sessionId));
+
+    return mapped;
 }
 
 /**
@@ -641,12 +671,7 @@ const applySearchFilters = async (req, res) => {
     }
 
     if (isSessionUpdate) {
-      const owned = await SourcingSession.findOne({
-        userId: new mongoose.Types.ObjectId(userId),
-        futureJobsSessionId: existingSessionId,
-      })
-        .select("_id")
-        .lean();
+      const owned = await findSessionInScope(userId, existingSessionId);
 
       if (!owned) {
         return res.status(403).json({
@@ -1135,12 +1160,7 @@ const getSessionCandidateDetails = async (req, res) => {
 
     let sessionAllowed = Boolean(owned);
     if (!sessionAllowed && sessionIdFromQuery) {
-      const sess = await SourcingSession.findOne({
-        userId: new mongoose.Types.ObjectId(userId),
-        futureJobsSessionId: sessionIdFromQuery,
-      })
-        .select("_id")
-        .lean();
+      const sess = await findSessionInScope(userId, sessionIdFromQuery);
       sessionAllowed = Boolean(sess);
     }
 
@@ -1215,12 +1235,7 @@ const loadSessionProfiles = async (req, res) => {
       });
     }
 
-    const owned = await SourcingSession.findOne({
-      userId: new mongoose.Types.ObjectId(userId),
-      futureJobsSessionId: sessionId,
-    })
-      .select("_id totalDocs")
-      .lean();
+    const owned = await findSessionInScope(userId, sessionId);
 
     if (!owned) {
       return res.status(403).json({
@@ -1322,12 +1337,7 @@ const fetchMoreSessionProfiles = async (req, res) => {
       });
     }
 
-    const owned = await SourcingSession.findOne({
-      userId: new mongoose.Types.ObjectId(userId),
-      futureJobsSessionId: sessionId,
-    })
-      .select("_id")
-      .lean();
+    const owned = await findSessionInScope(userId, sessionId);
 
     if (!owned) {
       return res.status(403).json({
@@ -1380,6 +1390,7 @@ const fetchMoreSessionProfiles = async (req, res) => {
       loggerHandler: "candidates/session/fetch-more",
     });
 
+    const storedCount = await syncSourcingSessionStoredCount(sessionId);
     const docs = mapped.futureJobsProfiles?.data?.docs;
     const docCount = Array.isArray(docs) ? docs.length : 0;
     const canFetchMore = canFetchMoreFromFjSourcing(sourcingMeta);
@@ -1390,6 +1401,7 @@ const fetchMoreSessionProfiles = async (req, res) => {
       userId,
       sessionId,
       docCount,
+      storedCount,
       canFetchMore,
     });
 
@@ -1397,12 +1409,13 @@ const fetchMoreSessionProfiles = async (req, res) => {
       success: true,
       sessionId,
       canFetchMore,
+      storedProfileCount: storedCount,
       fetchMoreResult,
       candidates: mapped.candidates,
       profilesPagination: {
-        totalDocs: docCount,
+        totalDocs: storedCount,
         page: 1,
-        limit: docCount || PROFILE_FETCH_PAGE_LIMIT,
+        limit: storedCount || docCount || PROFILE_FETCH_PAGE_LIMIT,
         totalPages: 1,
         hasNextPage: false,
         hasPrevPage: false,
@@ -1449,12 +1462,7 @@ const loadStoredSessionCandidates = async (req, res) => {
       });
     }
 
-    const owned = await SourcingSession.findOne({
-      userId: new mongoose.Types.ObjectId(userId),
-      futureJobsSessionId: sessionId,
-    })
-      .select("_id filterForm")
-      .lean();
+    const owned = await findSessionInScope(userId, sessionId);
 
     if (!owned) {
       return res.status(403).json({
@@ -1472,7 +1480,7 @@ const loadStoredSessionCandidates = async (req, res) => {
     const skip = loadAll ? 0 : (page - 1) * limit;
 
     const filter = {
-      userId: new mongoose.Types.ObjectId(userId),
+      userId: owned.userId,
       sourcingSessionId: sessionId,
     };
 
@@ -1588,9 +1596,11 @@ const listAllSourcedCandidates = async (req, res) => {
           ? String(req.query.search).trim()
           : "";
 
-    const baseFilter = {
-      userId: new mongoose.Types.ObjectId(userId),
-    };
+    const scopeFilter =
+      (await userIdFilterForActor(userId)) || {
+        userId: new mongoose.Types.ObjectId(userId),
+      };
+    const baseFilter = { ...scopeFilter };
     if (sessionFilter) {
       baseFilter.sourcingSessionId = sessionFilter;
     }
@@ -1892,12 +1902,19 @@ const listSourcingSessions = async (req, res) => {
 
     const limit = clampInt(req.query.limit, 1, 100, 30);
 
-    const docs = await SourcingSession.find({
-      userId: new mongoose.Types.ObjectId(userId),
-    })
+    const scopeFilter =
+      (await userIdFilterForActor(userId)) || {
+        userId: new mongoose.Types.ObjectId(userId),
+      };
+    const docs = await SourcingSession.find(scopeFilter)
       .sort({ createdAt: -1 })
       .limit(limit)
       .lean();
+
+    const storedCountBySession = await storedProfileCountBySessionIds(
+      docs.map((d) => d.futureJobsSessionId),
+      scopeFilter
+    );
 
     logApi("candidates/sessions", "list", {
       userId,
@@ -1907,14 +1924,24 @@ const listSourcingSessions = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      sessions: docs.map((d) => ({
+      sessions: docs.map((d) => {
+        const sid =
+          typeof d.futureJobsSessionId === "string" ? d.futureJobsSessionId.trim() : "";
+        const storedCount = sid ? storedCountBySession[sid] : undefined;
+        const totalDocs =
+          typeof storedCount === "number"
+            ? storedCount
+            : typeof d.totalDocs === "number"
+              ? d.totalDocs
+              : null;
+        return {
         id: d._id.toString(),
         futureJobsSessionId: d.futureJobsSessionId,
         prompt: d.prompt,
         sessionTitle: d.sessionTitle,
         usingSessionOverride: d.usingSessionOverride,
         futureJobsStatus: d.futureJobsStatus,
-        totalDocs: d.totalDocs,
+        totalDocs,
         candidateCountFirstPage: d.candidateCountFirstPage,
         candidatePreview: Array.isArray(d.candidatePreview)
           ? d.candidatePreview.map((c) => ({
@@ -1934,7 +1961,8 @@ const listSourcingSessions = async (req, res) => {
             : null,
         createdAt: d.createdAt,
         updatedAt: d.updatedAt,
-      })),
+        };
+      }),
     });
   } catch (error) {
     logApi("candidates/sessions", "error", {
@@ -1963,27 +1991,44 @@ const listRecentSearches = async (req, res) => {
     }
 
     const limit = clampInt(req.query.limit, 1, 20, 5);
-    const docs = await SourcingSession.find({
-      userId: new mongoose.Types.ObjectId(userId),
-    })
+    const scopeFilter =
+      (await userIdFilterForActor(userId)) || {
+        userId: new mongoose.Types.ObjectId(userId),
+      };
+    const docs = await SourcingSession.find(scopeFilter)
       .sort({ createdAt: -1 })
       .limit(limit)
       .lean();
 
+    const storedCountBySession = await storedProfileCountBySessionIds(
+      docs.map((d) => d.futureJobsSessionId),
+      scopeFilter
+    );
+
     const searches = docs
-      .map((d) => ({
-        id: d._id.toString(),
-        futureJobsSessionId:
-          typeof d.futureJobsSessionId === "string" ? d.futureJobsSessionId.trim() : "",
-        text:
-          typeof d.prompt === "string" && d.prompt.trim()
-            ? d.prompt.trim()
-            : typeof d.sessionTitle === "string" && d.sessionTitle.trim()
-              ? d.sessionTitle.trim()
-              : "",
-        totalDocs: typeof d.totalDocs === "number" ? d.totalDocs : null,
-        createdAt: d.createdAt,
-      }))
+      .map((d) => {
+        const sid =
+          typeof d.futureJobsSessionId === "string" ? d.futureJobsSessionId.trim() : "";
+        const storedCount = sid ? storedCountBySession[sid] : undefined;
+        const totalDocs =
+          typeof storedCount === "number"
+            ? storedCount
+            : typeof d.totalDocs === "number"
+              ? d.totalDocs
+              : null;
+        return {
+          id: d._id.toString(),
+          futureJobsSessionId: sid,
+          text:
+            typeof d.prompt === "string" && d.prompt.trim()
+              ? d.prompt.trim()
+              : typeof d.sessionTitle === "string" && d.sessionTitle.trim()
+                ? d.sessionTitle.trim()
+                : "",
+          totalDocs,
+          createdAt: d.createdAt,
+        };
+      })
       .filter((x) => x.text !== "");
 
     logApi("candidates/recent-searches", "list", {
@@ -2041,12 +2086,7 @@ const revealCandidateContact = async (req, res) => {
     }
 
     // Ensure session belongs to requesting user.
-    const owned = await SourcingSession.findOne({
-      userId: new mongoose.Types.ObjectId(userId),
-      futureJobsSessionId: sourcingSessionId,
-    })
-      .select("_id")
-      .lean();
+    const owned = await findSessionInScope(userId, sourcingSessionId);
     if (!owned) {
       return res.status(403).json({
         success: false,
@@ -2258,9 +2298,12 @@ function mapSavedCandidateRow(r) {
   };
 }
 
-function buildSavedListMongoFilter(userId, listFilter) {
-  const uid = new mongoose.Types.ObjectId(userId);
-  const filter = { userId: uid };
+async function buildSavedListMongoFilter(userId, listFilter) {
+  const scope =
+    (await userIdFilterForActor(userId)) || {
+      userId: new mongoose.Types.ObjectId(userId),
+    };
+  const filter = { ...scope };
   const lf = String(listFilter || "__all__").trim();
   if (lf === "__general__") {
     filter.$or = [{ saveListId: null }, { saveListId: { $exists: false } }];
@@ -2285,10 +2328,13 @@ const listSavedCandidates = async (req, res) => {
       });
     }
 
-    const uid = new mongoose.Types.ObjectId(userId);
+    const scopeFilter =
+      (await userIdFilterForActor(userId)) || {
+        userId: new mongoose.Types.ObjectId(userId),
+      };
 
     if (parseQueryBool(req.query.keysOnly, false)) {
-      const rows = await SavedCandidate.find({ userId: uid })
+      const rows = await SavedCandidate.find(scopeFilter)
         .select("candidateId sourcingSessionId linkedinProfileUrl name")
         .lean();
 
@@ -2309,10 +2355,10 @@ const listSavedCandidates = async (req, res) => {
     const page = clampInt(req.query.page, 1, 100000, 1);
     const limit = clampInt(req.query.limit, 1, 100, 20);
     const skip = (page - 1) * limit;
-    const filter = buildSavedListMongoFilter(userId, listFilter);
+    const filter = await buildSavedListMongoFilter(userId, listFilter);
 
     const [totalSavedCount, totalDocs, rows] = await Promise.all([
-      SavedCandidate.countDocuments({ userId: uid }),
+      SavedCandidate.countDocuments(scopeFilter),
       SavedCandidate.countDocuments(filter),
       SavedCandidate.find(filter)
         .sort({ updatedAt: -1, _id: -1 })

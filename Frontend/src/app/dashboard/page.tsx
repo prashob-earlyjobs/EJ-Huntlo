@@ -5,6 +5,10 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { CandidateFilterDrawer } from "@/components/CandidateFilterDrawer";
+import {
+  PeopleScoutDetailDrawer,
+  type PeopleScoutProfile,
+} from "@/components/dashboard/PeopleScoutDetailDrawer";
 import { SessionCandidateDetailDrawer } from "@/components/dashboard/SessionCandidateDetailDrawer";
 import {
   CandidateRoleCompanyLine,
@@ -29,6 +33,8 @@ import {
   type MyProfileSecurityState,
 } from "@/components/dashboard/MyProfilePanel";
 import { DashboardOverviewPanel } from "@/components/dashboard/DashboardOverviewPanel";
+import { BlockedAccountModal } from "@/components/dashboard/BlockedAccountModal";
+import { TeamManagementPanel } from "@/components/dashboard/TeamManagementPanel";
 import { PlansPricingPanel } from "@/components/dashboard/PlansPricingPanel";
 import {
   ApplyFiltersSessionChoiceModal,
@@ -66,7 +72,8 @@ import {
   parsePricingPlansFromApi,
   type PricingPlansPayload,
 } from "@/lib/pricingPlans";
-import { postAuthPath } from "@/lib/onboarding";
+import { mergeStoredAuthUser, postAuthPath } from "@/lib/onboarding";
+import { isBlockedAccountResponse, isBlockedMemberStatus } from "@/lib/sessionLogout";
 import {
   revealContactErrorMessage,
   revealContactNotFoundMessage,
@@ -102,6 +109,38 @@ type SourcingSessionRow = {
   filterForm?: Partial<CandidateFilterForm> | null;
   createdAt: string;
   updatedAt: string;
+};
+
+const teamSidebarItem = {
+  label: "Team",
+  subtitle: "Manage Sub Users",
+  icon: (
+    <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
+      <path
+        d="M17 21V19C17 17.9 16.1 17 15 17H9C7.9 17 7 17.9 7 19V21"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+      <path
+        d="M12 11C14.21 11 16 9.21 16 7C16 4.79 14.21 3 12 3C9.79 3 8 4.79 8 7C8 9.21 9.79 11 12 11Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+      <path
+        d="M22 21V19C22 17.34 20.66 16 19 16H18"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+      <path
+        d="M2 21V19C2 17.34 3.34 16 5 16H6"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  ),
 };
 
 const userSidebarItems = [
@@ -281,6 +320,15 @@ const userSidebarItems = [
     ),
   },
 ];
+
+function sidebarItemsForRole(accountRole: "owner" | "member" | null) {
+  const items = [...userSidebarItems];
+  if (accountRole === "owner") {
+    const pricingIndex = items.findIndex((item) => item.label === "Plans and pricing");
+    items.splice(pricingIndex >= 0 ? pricingIndex : items.length, 0, teamSidebarItem);
+  }
+  return items;
+}
 
 const APPLY_FILTER_LOADING_STEPS = [
   "Setting up your search",
@@ -568,35 +616,6 @@ type SaveListRow = {
   name: string;
 };
 
-type PeopleScoutProfile = {
-  name: string;
-  profilePhotoUrl: string;
-  headline: string;
-  location: string;
-  connections: string;
-  about: string;
-  currentCompany: string;
-  experiences: {
-    title: string;
-    company: string;
-    duration: string;
-    location: string;
-    description: string;
-  }[];
-  education: {
-    school: string;
-    degree: string;
-    duration: string;
-  }[];
-  skills: string[];
-  languages: string[];
-  certifications: string[];
-  linkedinUrl: string;
-  email: string;
-  phone: string;
-  website: string;
-};
-
 const emptyPeopleScoutProfile: PeopleScoutProfile = {
   name: "",
   profilePhotoUrl: "",
@@ -623,7 +642,61 @@ type FjScoutEmployer = {
   start_date?: string;
   end_date?: string | null;
   employee_description?: string;
+  employer_company_website_domain?: string[] | string;
+  employer_company_website?: string;
+  domains?: string[];
 };
+
+function scoutEmployerDomain(e: FjScoutEmployer): string {
+  const fromListed = e.employer_company_website_domain;
+  if (Array.isArray(fromListed) && fromListed[0]) {
+    return String(fromListed[0]).trim();
+  }
+  if (typeof fromListed === "string" && fromListed.trim()) {
+    return fromListed.trim();
+  }
+  if (Array.isArray(e.domains) && e.domains[0]) {
+    return String(e.domains[0]).trim();
+  }
+  return "";
+}
+
+function scoutEmployerWebsite(e: FjScoutEmployer): string {
+  const site =
+    typeof e.employer_company_website === "string" ? e.employer_company_website.trim() : "";
+  if (site) return site;
+  const domain = scoutEmployerDomain(e);
+  return domain ? `https://${domain}` : "";
+}
+
+function scoutCompanyMetaFromProfile(profile: unknown): {
+  companyWebsiteDomain?: string;
+  companyWebsite?: string;
+} {
+  if (!profile || typeof profile !== "object") return {};
+  const current = Array.isArray((profile as { current_employers?: FjScoutEmployer[] }).current_employers)
+    ? (profile as { current_employers: FjScoutEmployer[] }).current_employers[0]
+    : null;
+  if (!current) return {};
+  const companyWebsiteDomain = scoutEmployerDomain(current);
+  const companyWebsite = scoutEmployerWebsite(current);
+  return {
+    companyWebsiteDomain: companyWebsiteDomain || undefined,
+    companyWebsite: companyWebsite || undefined,
+  };
+}
+
+function mapScoutEmployerToExperience(e: FjScoutEmployer) {
+  return {
+    title: typeof e.employee_title === "string" ? e.employee_title : "",
+    company: typeof e.employer_name === "string" ? e.employer_name : "",
+    duration: formatScoutEmploymentRange(e.start_date, e.end_date),
+    location: typeof e.employee_location === "string" ? e.employee_location : "",
+    description: typeof e.employee_description === "string" ? e.employee_description : "",
+    companyWebsiteDomain: scoutEmployerDomain(e) || undefined,
+    companyWebsite: scoutEmployerWebsite(e) || undefined,
+  };
+}
 
 type FjScoutProfile = {
   name?: string;
@@ -675,14 +748,12 @@ function mapFjProfileToPeopleScoutProfile(p: FjScoutProfile | null | undefined):
   const experiences: PeopleScoutProfile["experiences"] = [];
 
   for (const e of [...current, ...past]) {
-    experiences.push({
-      title: typeof e.employee_title === "string" ? e.employee_title : "",
-      company: typeof e.employer_name === "string" ? e.employer_name : "",
-      duration: formatScoutEmploymentRange(e.start_date, e.end_date),
-      location: typeof e.employee_location === "string" ? e.employee_location : "",
-      description: typeof e.employee_description === "string" ? e.employee_description : "",
-    });
+    experiences.push(mapScoutEmployerToExperience(e));
   }
+
+  const currentEmployer = current[0];
+  const currentCompanyDomain = currentEmployer ? scoutEmployerDomain(currentEmployer) : "";
+  const currentCompanyWebsite = currentEmployer ? scoutEmployerWebsite(currentEmployer) : "";
 
   const eduRaw = Array.isArray(p.education_background) ? p.education_background : [];
   const education: PeopleScoutProfile["education"] = eduRaw.map((ed) => ({
@@ -716,9 +787,11 @@ function mapFjProfileToPeopleScoutProfile(p: FjScoutProfile | null | undefined):
         : "—",
     about: typeof p.summary === "string" ? p.summary : "",
     currentCompany:
-      current[0] && typeof current[0].employer_name === "string"
-        ? current[0].employer_name
+      currentEmployer && typeof currentEmployer.employer_name === "string"
+        ? currentEmployer.employer_name
         : "",
+    currentCompanyWebsiteDomain: currentCompanyDomain || undefined,
+    currentCompanyWebsite: currentCompanyWebsite || undefined,
     experiences: experiences.length > 0 ? experiences : [],
     education: education.length > 0 ? education : [],
     skills: Array.isArray(p.skills) ? p.skills.slice(0, 40) : [],
@@ -910,103 +983,6 @@ function SessionCandidateGridAvatar({
   );
 }
 
-function PeopleScoutProfileSummaryRow({
-  name,
-  photoUrl,
-  location,
-  currentCompany,
-  connections,
-}: {
-  name: string;
-  photoUrl: string;
-  location: string;
-  currentCompany: string;
-  connections: string;
-}) {
-  const [imgFailed, setImgFailed] = useState(false);
-  const [photoViewerOpen, setPhotoViewerOpen] = useState(false);
-  const showImage = photoUrl && !imgFailed;
-
-  useEffect(() => {
-    if (!photoViewerOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setPhotoViewerOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [photoViewerOpen]);
-
-  return (
-    <section className="border-b border-slate-100 pb-6">
-      <div className="flex items-start gap-4">
-        <div className="flex shrink-0 flex-col items-center">
-          {showImage ? (
-            <button
-              type="button"
-              onClick={() => setPhotoViewerOpen(true)}
-              className="relative h-24 w-24 shrink-0 cursor-pointer overflow-hidden rounded-full bg-slate-100 ring-2 ring-slate-200 ring-offset-2 ring-offset-white transition hover:ring-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2"
-              aria-label={`View ${name} profile photo larger`}
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element -- external scout URLs (LinkedIn/CDN) */}
-              <img
-                src={photoUrl}
-                alt=""
-                className="pointer-events-none h-full w-full object-cover"
-                onError={() => setImgFailed(true)}
-              />
-            </button>
-          ) : (
-            <div
-              className="relative h-24 w-24 shrink-0 overflow-hidden rounded-full bg-slate-100 ring-2 ring-slate-200 ring-offset-2 ring-offset-white"
-              aria-hidden
-            >
-              <div className="flex h-full w-full items-center justify-center bg-linear-to-br from-slate-100 to-slate-200 text-2xl font-semibold tracking-tight text-slate-600">
-                {peopleScoutNameInitials(name)}
-              </div>
-            </div>
-          )}
-        </div>
-        <div className="min-w-0 flex-1 space-y-1 pt-0.5 text-sm text-slate-700">
-          {location ? <p className="text-slate-600">{location}</p> : null}
-          {currentCompany ? <p className="text-slate-600">{currentCompany}</p> : null}
-          {connections ? <p className="text-xs text-slate-500">{connections}</p> : null}
-        </div>
-      </div>
-
-      {photoViewerOpen && showImage ? (
-        <div
-          className="fixed inset-0 z-130 flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Profile photo"
-        >
-          <button
-            type="button"
-            aria-label="Close photo"
-            className="absolute inset-0 bg-slate-950/75"
-            onClick={() => setPhotoViewerOpen(false)}
-          />
-          <div className="relative z-10 flex max-h-[min(90vh,900px)] max-w-[min(90vw,720px)] flex-col items-center">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={photoUrl}
-              alt={`${name} — profile photo (full size)`}
-              className="max-h-[min(85vh,860px)] w-auto max-w-full rounded-lg object-contain shadow-2xl"
-            />
-            <button
-              type="button"
-              onClick={() => setPhotoViewerOpen(false)}
-              className="mt-4 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-lg ring-1 ring-slate-200 transition hover:bg-slate-50"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
 export default function UserDashboardPage() {
   const router = useRouter();
   const userActionAlert = useUserActionAlert();
@@ -1018,6 +994,8 @@ export default function UserDashboardPage() {
   const [aiPrompt, setAiPrompt] = useState("");
   const [peopleScoutQuery, setPeopleScoutQuery] = useState("");
   const [activeTab, setActiveTab] = useState("Dashboard");
+  const [accountRole, setAccountRole] = useState<"owner" | "member" | null>(null);
+  const [accountBlocked, setAccountBlocked] = useState(false);
   const [searchedCandidates, setSearchedCandidates] = useState<CandidateRow[]>(
     []
   );
@@ -1147,7 +1125,7 @@ export default function UserDashboardPage() {
   const [dashboardOverview, setDashboardOverview] = useState<DashboardOverviewData | null>(
     null
   );
-  const [dashboardOverviewLoading, setDashboardOverviewLoading] = useState(false);
+  const [dashboardOverviewLoading, setDashboardOverviewLoading] = useState(true);
   const [dashboardOverviewError, setDashboardOverviewError] = useState("");
   const [peopleScoutProfile, setPeopleScoutProfile] = useState<PeopleScoutProfile | null>(
     null
@@ -1193,8 +1171,16 @@ export default function UserDashboardPage() {
     fetch(`${apiBase}/api/users/me/dashboard`, {
       headers: authHeaders(auth.token),
     })
-      .then((res) => res.json())
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (isBlockedAccountResponse(res, data)) {
+          setAccountBlocked(true);
+          return null;
+        }
+        return data;
+      })
       .then((data) => {
+        if (!data) return;
         if (!data.success) {
           throw new Error(
             typeof data.message === "string" ? data.message : "Failed to load dashboard"
@@ -1263,11 +1249,59 @@ export default function UserDashboardPage() {
       router.replace("/login");
       return;
     }
-    if (!auth.onboardingCompleted && auth.role !== "admin") {
+    if (
+      !auth.onboardingCompleted &&
+      auth.role !== "admin" &&
+      auth.accountRole !== "member"
+    ) {
       router.replace("/onboarding");
       return;
     }
+    setAccountRole(
+      auth.accountRole === "owner" || auth.accountRole === "member"
+        ? auth.accountRole
+        : null
+    );
+    if (isBlockedMemberStatus(auth.memberStatus)) {
+      setAccountBlocked(true);
+    }
     setShowAdminLink(auth.role === "admin");
+
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+    fetch(`${apiBase}/api/users/me`, { headers: authHeaders(auth.token) })
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (isBlockedAccountResponse(res, data)) {
+          setAccountBlocked(true);
+          return null;
+        }
+        return data;
+      })
+      .then((data) => {
+        if (!data) return;
+        if (data?.success && data.user) {
+          if (isBlockedMemberStatus(data.user.memberStatus)) {
+            setAccountBlocked(true);
+          }
+          const role =
+            data.user.accountRole === "owner" || data.user.accountRole === "member"
+              ? data.user.accountRole
+              : null;
+          setAccountRole(role);
+          mergeStoredAuthUser({
+            accountRole: role,
+            organizationId:
+              typeof data.user.organizationId === "string"
+                ? data.user.organizationId
+                : null,
+            ownerUserId:
+              typeof data.user.ownerUserId === "string" ? data.user.ownerUserId : null,
+            memberStatus:
+              typeof data.user.memberStatus === "string" ? data.user.memberStatus : undefined,
+          });
+        }
+      })
+      .catch(() => {});
     setMyProfileForm((prev) => ({
       ...prev,
       fullName: auth.fullName || "",
@@ -1436,6 +1470,8 @@ export default function UserDashboardPage() {
               role?: unknown;
               headline?: unknown;
               company?: unknown;
+              companyWebsiteDomain?: unknown;
+              companyWebsite?: unknown;
               location?: unknown;
               linkedinUrl?: unknown;
               thumbnailUrl?: unknown;
@@ -1452,6 +1488,14 @@ export default function UserDashboardPage() {
                     ? row.headline
                     : "—",
               company: typeof row.company === "string" ? row.company : "—",
+              companyWebsiteDomain:
+                typeof row.companyWebsiteDomain === "string" && row.companyWebsiteDomain.trim()
+                  ? row.companyWebsiteDomain.trim()
+                  : scoutCompanyMetaFromProfile(row.profile).companyWebsiteDomain,
+              companyWebsite:
+                typeof row.companyWebsite === "string" && row.companyWebsite.trim()
+                  ? row.companyWebsite.trim()
+                  : scoutCompanyMetaFromProfile(row.profile).companyWebsite,
               location: typeof row.location === "string" ? row.location : "—",
               linkedinUrl: typeof row.linkedinUrl === "string" ? row.linkedinUrl : "",
               thumbnailUrl: typeof row.thumbnailUrl === "string" ? row.thumbnailUrl : "",
@@ -1905,6 +1949,8 @@ export default function UserDashboardPage() {
                 role?: unknown;
                 headline?: unknown;
                 company?: unknown;
+                companyWebsiteDomain?: unknown;
+                companyWebsite?: unknown;
                 location?: unknown;
                 linkedinUrl?: unknown;
                 thumbnailUrl?: unknown;
@@ -1921,6 +1967,15 @@ export default function UserDashboardPage() {
                       ? row.headline
                       : "—",
                 company: typeof row.company === "string" ? row.company : "—",
+                companyWebsiteDomain:
+                  typeof row.companyWebsiteDomain === "string" &&
+                  row.companyWebsiteDomain.trim()
+                    ? row.companyWebsiteDomain.trim()
+                    : scoutCompanyMetaFromProfile(row.profile).companyWebsiteDomain,
+                companyWebsite:
+                  typeof row.companyWebsite === "string" && row.companyWebsite.trim()
+                    ? row.companyWebsite.trim()
+                    : scoutCompanyMetaFromProfile(row.profile).companyWebsite,
                 location: typeof row.location === "string" ? row.location : "—",
                 linkedinUrl: typeof row.linkedinUrl === "string" ? row.linkedinUrl : "",
                 thumbnailUrl:
@@ -2707,18 +2762,24 @@ export default function UserDashboardPage() {
       });
 
       const canFetchMore = data.canFetchMore !== false;
+      const storedProfileCount =
+        typeof data.storedProfileCount === "number"
+          ? data.storedProfileCount
+          : nextDocs.length;
       setSessionCanFetchMore(canFetchMore);
       setSearchSummary((prev) =>
         prev
           ? {
               ...prev,
-              candidateCount: nextDocs.length,
-              totalDocs: nextDocs.length,
+              candidateCount: storedProfileCount,
+              totalDocs: storedProfileCount,
               canFetchMore,
             }
           : prev
       );
       setWorkspaceCandidatesRefresh((n) => n + 1);
+      setSourcingSessionsRefresh((n) => n + 1);
+      setRecentSearchesRefresh((n) => n + 1);
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Could not fetch more profiles";
@@ -3296,6 +3357,7 @@ export default function UserDashboardPage() {
 
   return (
     <main className="dashboard-page">
+      <BlockedAccountModal open={accountBlocked} />
       <div className="dashboard-shell flex min-w-0 w-full">
         <aside
           className={`dashboard-sidebar hidden flex-col lg:flex${
@@ -3330,7 +3392,7 @@ export default function UserDashboardPage() {
           <nav className="dashboard-sidebar-nav">
             <div className="dashboard-sidebar-nav-scroll">
               <div className="space-y-2">
-              {userSidebarItems.map((item) => {
+              {sidebarItemsForRole(accountRole).map((item) => {
                 const tabKey = "tabKey" in item && typeof item.tabKey === "string" ? item.tabKey : item.label;
                 return (
                 <button
@@ -4045,6 +4107,8 @@ export default function UserDashboardPage() {
                 currentPlanId={userPlanId}
                 onViewPlans={() => setActiveTab("Plans and pricing")}
               />
+            ) : activeTab === "Team" ? (
+              <TeamManagementPanel />
             ) : activeTab === "Plans and pricing" ? (
               <PlansPricingPanel
                 loading={userPricingPlansLoading}
@@ -4134,317 +4198,21 @@ export default function UserDashboardPage() {
       ) : null}
 
       {peopleScoutProfile ? (
-        <div
-          className={`dashboard-overlay fixed inset-0 transition-opacity duration-300 ${
-            isPeopleScoutDrawerOpen
-              ? "pointer-events-auto opacity-100"
-              : "pointer-events-none opacity-0"
-          }`}
-          role="dialog"
-          aria-modal="true"
-          aria-label="People Scout profile"
-          aria-hidden={!isPeopleScoutDrawerOpen}
-        >
-          <button
-            type="button"
-            aria-label="Close profile panel"
-            className="dashboard-drawer-overlay absolute inset-0"
-            onClick={() => {
-              clearRevealContactNotice();
-              setIsPeopleScoutDrawerOpen(false);
-            }}
-          />
-          <aside
-            className={`dashboard-drawer-panel dashboard-drawer-panel--scout absolute right-0 top-0 h-full w-full overflow-y-auto transition-transform duration-300 ease-out ${
-              isPeopleScoutDrawerOpen ? "translate-x-0" : "translate-x-full"
-            }`}
-          >
-            <div className="sticky top-0 z-10 border-b border-[color-mix(in_srgb,var(--dash-outline)_40%,transparent)] bg-white/95 px-5 py-4 backdrop-blur-md">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="dashboard-label-upper">People Scout</p>
-                  <h3 className="mt-1 truncate dashboard-section-title">
-                    {peopleScoutProfile.name}
-                  </h3>
-                  {peopleScoutProfile.headline ? (
-                    <p className="mt-0.5 line-clamp-2 dashboard-text-body">
-                      {peopleScoutProfile.headline}
-                    </p>
-                  ) : null}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    clearRevealContactNotice();
-                    setIsPeopleScoutDrawerOpen(false);
-                  }}
-                  className="dashboard-btn-ghost shrink-0 p-1.5"
-                  aria-label="Close profile panel"
-                >
-                  <MaterialIcon name="close" className="text-xl" />
-                </button>
-              </div>
-              <div
-                className={`dashboard-drawer-actions ${
-                  peopleScoutProfile.linkedinUrl
-                    ? "dashboard-drawer-actions--cols-3"
-                    : "dashboard-drawer-actions--cols-2"
-                }`}
-                role="group"
-                aria-label="Profile actions"
-              >
-                {peopleScoutProfile.linkedinUrl ? (
-                  <a
-                    href={peopleScoutProfile.linkedinUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="dashboard-drawer-action dashboard-drawer-action--linkedin"
-                  >
-                    <span className="dashboard-drawer-action-icon" aria-hidden>
-                      <MaterialIcon name="work" className="text-[20px]" />
-                    </span>
-                    <span className="dashboard-drawer-action-body">
-                      <span className="dashboard-drawer-action-label">Open LinkedIn</span>
-                      <span className="dashboard-drawer-action-hint">View public profile</span>
-                    </span>
-                    <MaterialIcon
-                      name="open_in_new"
-                      className="dashboard-drawer-action-trail text-[18px]"
-                      aria-hidden
-                    />
-                  </a>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={() => void revealPeopleScoutContactFromApi("EMAIL")}
-                  disabled={peopleScoutRevealEmailBusy}
-                  className={`dashboard-drawer-action${
-                    peopleScoutRevealEmail ? " dashboard-drawer-action--active" : ""
-                  }`}
-                >
-                  <span className="dashboard-drawer-action-icon" aria-hidden>
-                    <MaterialIcon name="mail" className="text-[20px]" />
-                  </span>
-                  <span className="dashboard-drawer-action-body">
-                    <span className="dashboard-drawer-action-label">
-                      {peopleScoutRevealEmailBusy
-                        ? "Revealing…"
-                        : peopleScoutRevealEmail
-                          ? "Email revealed"
-                          : "Reveal email"}
-                    </span>
-                    <span className="dashboard-drawer-action-hint">
-                      {peopleScoutRevealEmail ? "Shown below" : "Uses lookup credit"}
-                    </span>
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void revealPeopleScoutContactFromApi("PHONE")}
-                  disabled={peopleScoutRevealPhoneBusy}
-                  className={`dashboard-drawer-action${
-                    peopleScoutRevealPhone ? " dashboard-drawer-action--active" : ""
-                  }`}
-                >
-                  <span className="dashboard-drawer-action-icon" aria-hidden>
-                    <MaterialIcon name="call" className="text-[20px]" />
-                  </span>
-                  <span className="dashboard-drawer-action-body">
-                    <span className="dashboard-drawer-action-label">
-                      {peopleScoutRevealPhoneBusy
-                        ? "Revealing…"
-                        : peopleScoutRevealPhone
-                          ? "Phone revealed"
-                          : "Reveal phone"}
-                    </span>
-                    <span className="dashboard-drawer-action-hint">
-                      {peopleScoutRevealPhone ? "Shown below" : "Uses lookup credit"}
-                    </span>
-                  </span>
-                </button>
-              </div>
-              {revealContactNotice ? (
-                <p className="mx-5 mt-3 dashboard-alert-warning">{revealContactNotice}</p>
-              ) : null}
-              {peopleScoutRevealEmail || peopleScoutRevealPhone ? (
-                <div className="dashboard-drawer-revealed-card">
-                  {peopleScoutRevealEmail ? (
-                    <div className="dashboard-drawer-revealed-row">
-                      <span className="dashboard-drawer-action-icon" aria-hidden>
-                        <MaterialIcon name="mail" className="text-base" />
-                      </span>
-                      <span className="dashboard-drawer-revealed-label">Email</span>
-                      <span className="dashboard-drawer-revealed-value">
-                        {peopleScoutProfile.email.trim() ? (
-                          <a href={`mailto:${peopleScoutProfile.email}`}>
-                            {peopleScoutProfile.email}
-                          </a>
-                        ) : (
-                          <span className="text-[#424656]/70">Not available</span>
-                        )}
-                      </span>
-                    </div>
-                  ) : null}
-                  {peopleScoutRevealPhone ? (
-                    <div className="dashboard-drawer-revealed-row">
-                      <span className="dashboard-drawer-action-icon" aria-hidden>
-                        <MaterialIcon name="call" className="text-base" />
-                      </span>
-                      <span className="dashboard-drawer-revealed-label">Phone</span>
-                      <span className="dashboard-drawer-revealed-value">
-                        {peopleScoutProfile.phone.trim() ? (
-                          <a href={`tel:${peopleScoutProfile.phone.replace(/\s/g, "")}`}>
-                            {peopleScoutProfile.phone}
-                          </a>
-                        ) : (
-                          <span className="text-[#424656]/70">Not available</span>
-                        )}
-                      </span>
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-
-            <div className="space-y-6 px-5 py-5 pb-10">
-              <PeopleScoutProfileSummaryRow
-                key={`${peopleScoutProfile.name}-${peopleScoutProfile.profilePhotoUrl}`}
-                name={peopleScoutProfile.name}
-                photoUrl={peopleScoutProfile.profilePhotoUrl}
-                location={peopleScoutProfile.location}
-                currentCompany={peopleScoutProfile.currentCompany}
-                connections={peopleScoutProfile.connections}
-              />
-
-              {peopleScoutProfile.about ? (
-                <section>
-                  <h4 className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                    About
-                  </h4>
-                  <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
-                    {peopleScoutProfile.about}
-                  </p>
-                </section>
-              ) : null}
-
-              {peopleScoutProfile.experiences.length > 0 ? (
-                <section>
-                  <h4 className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                    Experience
-                  </h4>
-                  <ul className="mt-3 space-y-4">
-                    {peopleScoutProfile.experiences.map((exp, idx) => (
-                      <li
-                        key={`${exp.company}-${exp.title}-${idx}`}
-                        className="border-b border-slate-100 pb-4 last:border-0 last:pb-0"
-                      >
-                        <p className="font-semibold text-slate-900">{exp.title}</p>
-                        <p className="mt-0.5 text-sm text-slate-700">{exp.company}</p>
-                        <p className="mt-1 text-xs text-slate-500">{exp.duration}</p>
-                        {exp.location ? (
-                          <p className="mt-0.5 text-xs text-slate-500">{exp.location}</p>
-                        ) : null}
-                        {exp.description ? (
-                          <p className="mt-2 text-sm leading-relaxed text-slate-600">
-                            {exp.description}
-                          </p>
-                        ) : null}
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              ) : null}
-
-              {peopleScoutProfile.education.length > 0 ? (
-                <section>
-                  <h4 className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                    Education
-                  </h4>
-                  <ul className="mt-3 space-y-3">
-                    {peopleScoutProfile.education.map((ed, idx) => (
-                      <li key={`${ed.school}-${idx}`}>
-                        <p className="font-medium text-slate-900">{ed.school}</p>
-                        {ed.degree ? (
-                          <p className="mt-0.5 text-sm text-slate-700">{ed.degree}</p>
-                        ) : null}
-                        {ed.duration ? (
-                          <p className="mt-1 text-xs text-slate-500">{ed.duration}</p>
-                        ) : null}
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              ) : null}
-
-              {peopleScoutProfile.skills.length > 0 ? (
-                <section>
-                  <h4 className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                    Skills
-                  </h4>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {peopleScoutProfile.skills.map((skill) => (
-                      <span
-                        key={skill}
-                        className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700"
-                      >
-                        {skill}
-                      </span>
-                    ))}
-                  </div>
-                </section>
-              ) : null}
-
-              {(peopleScoutProfile.languages.length > 0 ||
-                peopleScoutProfile.certifications.length > 0) ? (
-                <section className="space-y-4">
-                  {peopleScoutProfile.languages.length > 0 ? (
-                    <div>
-                      <h4 className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                        Languages
-                      </h4>
-                      <p className="mt-2 text-sm text-slate-700">
-                        {peopleScoutProfile.languages.join(", ")}
-                      </p>
-                    </div>
-                  ) : null}
-                  {peopleScoutProfile.certifications.length > 0 ? (
-                    <div>
-                      <h4 className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                        Certifications
-                      </h4>
-                      <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-slate-700">
-                        {peopleScoutProfile.certifications.map((c) => (
-                          <li key={c}>{c}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
-                </section>
-              ) : null}
-
-              {peopleScoutProfile.website &&
-              peopleScoutProfile.website !== peopleScoutProfile.linkedinUrl ? (
-                <section className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">
-                  <p>
-                    <span className="font-medium text-slate-600">Website: </span>
-                    <a
-                      href={
-                        peopleScoutProfile.website.startsWith("http")
-                          ? peopleScoutProfile.website
-                          : `https://${peopleScoutProfile.website}`
-                      }
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="break-all text-slate-900 underline decoration-slate-300 underline-offset-2 hover:decoration-slate-600"
-                    >
-                      {peopleScoutProfile.website}
-                    </a>
-                  </p>
-                </section>
-              ) : null}
-            </div>
-          </aside>
-        </div>
+        <PeopleScoutDetailDrawer
+          open={isPeopleScoutDrawerOpen}
+          profile={peopleScoutProfile}
+          onClose={() => {
+            clearRevealContactNotice();
+            setIsPeopleScoutDrawerOpen(false);
+          }}
+          onRevealEmail={() => void revealPeopleScoutContactFromApi("EMAIL")}
+          onRevealPhone={() => void revealPeopleScoutContactFromApi("PHONE")}
+          emailRevealed={peopleScoutRevealEmail}
+          phoneRevealed={peopleScoutRevealPhone}
+          emailRevealBusy={peopleScoutRevealEmailBusy}
+          phoneRevealBusy={peopleScoutRevealPhoneBusy}
+          contactRevealNotice={revealContactNotice}
+        />
       ) : null}
 
       <ApplyFiltersSessionChoiceModal

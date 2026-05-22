@@ -8,9 +8,11 @@ const {
 const { logApi, safeJsonPreview } = require("../utils/logger");
 const { incrementUserUsage } = require("../utils/incrementUserUsage");
 const { assertQuotaAvailableByUserId } = require("../services/planQuotas");
+const { userIdFilterForActor } = require("../utils/orgScope");
 const { respondIfQuotaExceeded } = require("../utils/quotaHttp");
 const { resolveContactReveal } = require("../services/contactRevealService");
 const { resolvePeopleScoutLookup } = require("../services/peopleScoutLookupService");
+const { companyMetaFromFjProfile } = require("../utils/peopleScoutEmployer");
 
 async function bumpScoutRevealUsage(userId, revealType) {
   if (!userId || !mongoose.Types.ObjectId.isValid(String(userId))) return;
@@ -60,6 +62,7 @@ function extractSummaryFromFjProfile(profile) {
       : "";
   const numConnections =
     typeof profile.num_of_connections === "number" ? profile.num_of_connections : null;
+  const { companyWebsiteDomain, companyWebsite } = companyMetaFromFjProfile(profile);
 
   return {
     fjProfileId,
@@ -68,6 +71,8 @@ function extractSummaryFromFjProfile(profile) {
     headline,
     location,
     company,
+    companyWebsiteDomain,
+    companyWebsite,
     role,
     linkedinFlagshipUrl,
     linkedinProfileUrl,
@@ -415,9 +420,11 @@ const listRecentPeopleScout = async (req, res) => {
 
     logApi("candidates/scout-people/recent", "incoming", { userId, limit });
 
-    const rows = await PeopleScoutLookup.find({
-      userId: new mongoose.Types.ObjectId(userId),
-    })
+    const scopeFilter =
+      (await userIdFilterForActor(userId)) || {
+        userId: new mongoose.Types.ObjectId(userId),
+      };
+    const rows = await PeopleScoutLookup.find(scopeFilter)
       .sort({ createdAt: -1 })
       .limit(limit)
       .lean();
@@ -430,28 +437,34 @@ const listRecentPeopleScout = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      lookups: rows.map((r) => ({
-        id: r._id.toString(),
-        queryType: r.queryType,
-        queryLabel: r.queryLabel,
-        scoutId: r.scoutId,
-        name: r.name,
-        role: r.role || r.title,
-        company: r.company,
-        location: r.location,
-        headline: r.headline,
-        linkedinUrl: r.linkedinFlagshipUrl || r.linkedinProfileUrl || "",
-        thumbnailUrl: r.profilePictureUrl || "",
-        createdAt: r.createdAt,
-        fjStatus: r.fjStatus,
-        fjMessage: r.fjMessage,
-        profile:
+      lookups: rows.map((r) => {
+        const profile =
           r.fjResponseData &&
           r.fjResponseData.profile &&
           typeof r.fjResponseData.profile === "object"
             ? r.fjResponseData.profile
-            : null,
-      })),
+            : null;
+        const companyMeta = companyMetaFromFjProfile(profile);
+        return {
+          id: r._id.toString(),
+          queryType: r.queryType,
+          queryLabel: r.queryLabel,
+          scoutId: r.scoutId,
+          name: r.name,
+          role: r.role || r.title,
+          company: r.company,
+          companyWebsiteDomain: r.companyWebsiteDomain || companyMeta.companyWebsiteDomain,
+          companyWebsite: r.companyWebsite || companyMeta.companyWebsite,
+          location: r.location,
+          headline: r.headline,
+          linkedinUrl: r.linkedinFlagshipUrl || r.linkedinProfileUrl || "",
+          thumbnailUrl: r.profilePictureUrl || "",
+          createdAt: r.createdAt,
+          fjStatus: r.fjStatus,
+          fjMessage: r.fjMessage,
+          profile,
+        };
+      }),
     });
   } catch (error) {
     logApi("candidates/scout-people/recent", "error", {

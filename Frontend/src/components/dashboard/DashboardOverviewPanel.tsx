@@ -101,14 +101,21 @@ export function DashboardOverviewPanel({
             Dashboard
           </h3>
           <p className="mt-1 dashboard-text-body">
-            {loading
-              ? "Loading your workspace…"
-              : data
-                ? `Welcome back, ${firstName}. Here’s what’s happening in your hiring workspace.`
-                : "Your workspace overview"}
+            {loading ? (
+              <span className="dashboard-shimmer inline-block h-4 w-full max-w-md rounded" />
+            ) : data ? (
+              `Welcome back, ${firstName}. Here’s what’s happening in your hiring workspace.`
+            ) : (
+              "Your workspace overview"
+            )}
           </p>
         </div>
-        {data && !loading ? (
+        {loading ? (
+          <div
+            className="dashboard-shimmer h-9 w-28 shrink-0 rounded-full"
+            aria-hidden
+          />
+        ) : data ? (
           <button
             type="button"
             onClick={() => onNavigate("Plans and pricing")}

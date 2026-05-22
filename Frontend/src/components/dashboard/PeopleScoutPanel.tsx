@@ -2,7 +2,9 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 
+import { CompanyLogo } from "@/components/dashboard/CompanyLogo";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { companyFaviconUrl } from "@/lib/companyLogo";
 import { nameInitials } from "@/lib/sessionResultUi";
 
 export type PeopleScoutRecentUser = {
@@ -11,6 +13,8 @@ export type PeopleScoutRecentUser = {
   role: string;
   location: string;
   company: string;
+  companyWebsiteDomain?: string;
+  companyWebsite?: string;
   lastSearchedAt: string;
   linkedinUrl: string;
   thumbnailUrl?: string;
@@ -22,6 +26,36 @@ function greetingFirstName(fullName: string): string {
   const trimmed = fullName.trim();
   if (!trimmed) return "there";
   return trimmed.split(/\s+/)[0] ?? "there";
+}
+
+function RecentCompanyLine({
+  company,
+  domain,
+  website,
+}: {
+  company: string;
+  domain?: string;
+  website?: string;
+}) {
+  const label = company.trim();
+  if (!label || label === "—") return null;
+  const hasLogo = Boolean(companyFaviconUrl(domain, website));
+
+  return (
+    <span className="dashboard-people-scout-recent-company mt-0.5 flex min-w-0 items-center gap-1.5">
+      {hasLogo ? (
+        <CompanyLogo
+          domain={domain}
+          website={website}
+          alt=""
+          className="dashboard-profile-company-logo shrink-0"
+        />
+      ) : (
+        <MaterialIcon name="business" className="shrink-0 text-[14px] opacity-70" />
+      )}
+      <span className="truncate">{label}</span>
+    </span>
+  );
 }
 
 function RecentAvatar({ name, thumbnailUrl }: { name: string; thumbnailUrl?: string }) {
@@ -228,31 +262,21 @@ export function PeopleScoutPanel({
                       <span className="dashboard-table-candidate-sub block truncate">
                         {user.role || "—"}
                       </span>
+                      <RecentCompanyLine
+                        company={user.company}
+                        domain={user.companyWebsiteDomain}
+                        website={user.companyWebsite}
+                      />
                     </div>
                   </div>
                   <span className="dashboard-chip shrink-0 tabular-nums">{user.lastSearchedAt}</span>
                 </div>
-                {(user.company || user.location) && (
+                {user.location && user.location !== "—" ? (
                   <p className="dashboard-people-scout-recent-meta line-clamp-1">
-                    {user.company ? (
-                      <>
-                        <MaterialIcon name="business" className="text-sm opacity-70" />
-                        <span className="truncate">{user.company}</span>
-                      </>
-                    ) : null}
-                    {user.company && user.location ? (
-                      <span className="opacity-40" aria-hidden>
-                        ·
-                      </span>
-                    ) : null}
-                    {user.location ? (
-                      <>
-                        <MaterialIcon name="location_on" className="text-sm opacity-70" />
-                        <span className="truncate">{user.location}</span>
-                      </>
-                    ) : null}
+                    <MaterialIcon name="location_on" className="text-sm opacity-70" />
+                    <span className="truncate">{user.location}</span>
                   </p>
-                )}
+                ) : null}
                 <div className="dashboard-people-scout-recent-footer">
                   <span className="text-xs font-medium text-[#0050cb]">View profile</span>
                   <MaterialIcon name="arrow_forward" className="text-base text-[#0050cb]" />

@@ -93,6 +93,39 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    organizationId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Organization",
+      default: null,
+      index: true,
+    },
+    /** owner = master after onboarding; member = sub-user */
+    accountRole: {
+      type: String,
+      enum: ["owner", "member"],
+      default: undefined,
+    },
+    ownerUserId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+      index: true,
+    },
+    memberStatus: {
+      type: String,
+      enum: ["active", "blocked"],
+      default: "active",
+    },
+    memberPermission: {
+      type: String,
+      enum: ["search", "full"],
+      default: "full",
+    },
+    createdByUserId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
   },
   {
     timestamps: true,
