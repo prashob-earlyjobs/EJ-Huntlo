@@ -6,7 +6,11 @@ const Organization = require("../models/Organization");
 const UsageHistory = require("../models/UsageHistory");
 const SourcingSession = require("../models/SourcingSession");
 const { utilisationFromUser } = require("../utils/userUsage");
-const { getUserPlanSummary } = require("../services/planQuotas");
+const {
+  assertCanAddTeamMember,
+  getUserPlanSummary,
+  TeamMemberLimitError,
+} = require("../services/planQuotas");
 const {
   assertTeamOwner,
   getBillingUser,
@@ -43,6 +47,8 @@ const getMyTeam = async (req, res) => {
     const teamUtilisation = utilisationFromUser(billingUser || owner);
 
     const subMembers = members.filter((m) => m.accountRole === "member");
+    const subMemberCount = subMembers.length;
+    const maxSubUsers = plan?.limits?.maxSubUsers ?? null;
 
     return res.status(200).json({
       success: true,
@@ -56,7 +62,9 @@ const getMyTeam = async (req, res) => {
       plan,
       teamUtilisation,
       members: members.map(sanitizeTeamMember),
-      subMemberCount: subMembers.length,
+      subMemberCount,
+      maxSubUsers,
+      canAddSubUser: maxSubUsers === null || subMemberCount < maxSubUsers,
     });
   } catch (error) {
     const status = error.statusCode || 500;
@@ -100,6 +108,12 @@ const createTeamMember = async (req, res) => {
       });
     }
 
+    const subMemberCount = await User.countDocuments({
+      organizationId: owner.organizationId,
+      accountRole: "member",
+    });
+    await assertCanAddTeamMember(owner, subMemberCount);
+
     const hashedPassword = await bcrypt.hash(password, 10);
     const member = await User.create({
       fullName,
@@ -130,10 +144,14 @@ const createTeamMember = async (req, res) => {
     });
   } catch (error) {
     const status = error.statusCode || 500;
-    return res.status(status).json({
+    const payload = {
       success: false,
       message: error.message || "Failed to create team member",
-    });
+    };
+    if (error instanceof TeamMemberLimitError) {
+      payload.code = error.code;
+    }
+    return res.status(status).json(payload);
   }
 };
 

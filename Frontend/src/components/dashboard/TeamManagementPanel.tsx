@@ -157,6 +157,11 @@ export function TeamManagementPanel() {
 
   const subMembers = (team?.members || []).filter((m) => m.accountRole === "member");
   const plan = team?.plan;
+  const maxSubUsers =
+    team?.maxSubUsers ?? plan?.limits?.maxSubUsers ?? null;
+  const canAddSubUser =
+    team?.canAddSubUser ?? (maxSubUsers === null || subMembers.length < maxSubUsers);
+  const atSubUserLimit = !canAddSubUser;
 
   return (
     <div className="space-y-6">
@@ -169,12 +174,31 @@ export function TeamManagementPanel() {
             </h2>
             <p className="dashboard-text-body mt-2">
               Sub-users share your plan. Usage counts against the workspace owner account.
+              {maxSubUsers === null ? (
+                <> Your plan allows unlimited sub-users.</>
+              ) : maxSubUsers === 0 ? (
+                <> Your plan does not include sub-users — upgrade to add team members.</>
+              ) : (
+                <>
+                  {" "}
+                  Sub-user limit: {subMembers.length} / {maxSubUsers}.
+                </>
+              )}
             </p>
           </div>
           <button
             type="button"
             className={dashboardBtnPrimaryClass}
-            onClick={() => setCreateOpen((o) => !o)}
+            disabled={atSubUserLimit && !createOpen}
+            title={
+              atSubUserLimit
+                ? "Sub-user limit reached for your plan"
+                : undefined
+            }
+            onClick={() => {
+              if (atSubUserLimit && !createOpen) return;
+              setCreateOpen((o) => !o);
+            }}
           >
             {createOpen ? "Cancel" : "Add sub-user"}
           </button>
@@ -200,7 +224,10 @@ export function TeamManagementPanel() {
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                 Sub-users
               </p>
-              <p className="mt-1 text-sm font-semibold text-slate-900">{subMembers.length}</p>
+              <p className="mt-1 text-sm font-semibold text-slate-900">
+                {subMembers.length}
+                {maxSubUsers === null ? "" : ` / ${maxSubUsers}`}
+              </p>
             </div>
             <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">

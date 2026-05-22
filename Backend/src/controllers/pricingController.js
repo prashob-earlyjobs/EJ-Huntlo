@@ -17,6 +17,7 @@ const DEFAULT_PRICING_PLANS = {
       candidateUnlocks: 25,
       verifiedEmails: 25,
       phoneNumbers: 10,
+      maxSubUsers: 0,
       features: [
         "AI candidate search",
         "Filter drawer & session results",
@@ -37,6 +38,7 @@ const DEFAULT_PRICING_PLANS = {
       candidateUnlocks: 100,
       verifiedEmails: 100,
       phoneNumbers: 100,
+      maxSubUsers: 1,
       features: [
         "100 outreach credits",
         "AI sourcing workflows",
@@ -58,6 +60,7 @@ const DEFAULT_PRICING_PLANS = {
       candidateUnlocks: 700,
       verifiedEmails: 350,
       phoneNumbers: 120,
+      maxSubUsers: 5,
       features: [
         "1,000 outreach credits",
         "WhatsApp + Email outreach",
@@ -80,6 +83,7 @@ const DEFAULT_PRICING_PLANS = {
       candidateUnlocks: 4000,
       verifiedEmails: 2000,
       phoneNumbers: 800,
+      maxSubUsers: null,
       features: [
         "5,000+ outreach credits",
         "AI recruiter workflows",
@@ -131,18 +135,26 @@ function quotaDisplayLine(n, kind) {
       return `${q} verified emails`;
     case "phones":
       return `${q} phone numbers`;
+    case "subUsers":
+      if (q === 0) return "No sub-users (owner only)";
+      return q === 1 ? "1 sub-user" : `${q} sub-users`;
     default:
       return null;
   }
 }
 
 function quotaStripSetFromNumbers(defTier) {
+  const subLine =
+    defTier.maxSubUsers === null || defTier.maxSubUsers === undefined
+      ? "Unlimited sub-users"
+      : quotaDisplayLine(defTier.maxSubUsers, "subUsers");
   return new Set(
     [
       quotaDisplayLine(defTier.searches, "searches"),
       quotaDisplayLine(defTier.candidateUnlocks, "unlocks"),
       quotaDisplayLine(defTier.verifiedEmails, "emails"),
       quotaDisplayLine(defTier.phoneNumbers, "phones"),
+      subLine,
     ].filter(Boolean)
   );
 }
@@ -166,6 +178,10 @@ function normalizePayload(body) {
     const candidateUnlocks = normalizeQuotaNumber(t?.candidateUnlocks);
     const verifiedEmails = normalizeQuotaNumber(t?.verifiedEmails);
     const phoneNumbers = normalizeQuotaNumber(t?.phoneNumbers);
+    const maxSubUsers =
+      t?.maxSubUsers === null || t?.maxSubUsers === undefined || t?.maxSubUsers === ""
+        ? null
+        : normalizeQuotaNumber(t?.maxSubUsers);
     const features = Array.isArray(t?.features)
       ? t.features
           .map((f) => String(f ?? "").trim())
@@ -188,6 +204,7 @@ function normalizePayload(body) {
       candidateUnlocks,
       verifiedEmails,
       phoneNumbers,
+      maxSubUsers,
       features,
       isPopular,
       popularBadge,
@@ -234,6 +251,17 @@ function enrichPlansData(raw) {
     merged.candidateUnlocks = pick("candidateUnlocks");
     merged.verifiedEmails = pick("verifiedEmails");
     merged.phoneNumbers = pick("phoneNumbers");
+    const pickSubUsers = () => {
+      if (Object.prototype.hasOwnProperty.call(tier, "maxSubUsers") && tier.maxSubUsers === null) {
+        return null;
+      }
+      const n = normalizeQuotaNumber(tier.maxSubUsers);
+      if (n !== null) return n;
+      if (def.maxSubUsers === null) return null;
+      const d = normalizeQuotaNumber(def.maxSubUsers);
+      return d !== null ? d : 0;
+    };
+    merged.maxSubUsers = pickSubUsers();
 
     const strip = quotaStripSetFromNumbers(def);
     let feats = Array.isArray(tier.features)
@@ -269,6 +297,12 @@ function planDocumentToTierPayload(doc) {
     candidateUnlocks: coerceStoredQuota(o.candidateUnlocks),
     verifiedEmails: coerceStoredQuota(o.verifiedEmails),
     phoneNumbers: coerceStoredQuota(o.phoneNumbers),
+    maxSubUsers:
+      o.maxSubUsers === null
+        ? null
+        : o.maxSubUsers === undefined
+          ? undefined
+          : coerceStoredQuota(o.maxSubUsers),
     features: Array.isArray(o.features) ? o.features : [],
     isPopular: Boolean(o.isPopular),
     popularBadge: o.popularBadge || "⭐ Most Popular",
@@ -291,6 +325,7 @@ async function upsertPricingPlanFromNormalized(t, sortOrder) {
         candidateUnlocks: t.candidateUnlocks,
         verifiedEmails: t.verifiedEmails,
         phoneNumbers: t.phoneNumbers,
+        maxSubUsers: t.maxSubUsers,
         features: t.features,
         isPopular: t.isPopular,
         popularBadge: t.popularBadge,
@@ -432,7 +467,7 @@ const getPricingPlans = async (_req, res) => {
 /**
  * PUT /api/pricing-plans — admin only
  * Body: { intro, tiers: [...] }
- * Quota fields (searches, candidateUnlocks, verifiedEmails, phoneNumbers) are stored as numbers only.
+ * Quota fields (searches, candidateUnlocks, verifiedEmails, phoneNumbers, maxSubUsers) are stored as numbers only; maxSubUsers null = unlimited.
  */
 const updatePricingPlans = async (req, res) => {
   try {

@@ -29,6 +29,8 @@ export type TeamPayload = {
   teamUtilisation: TeamMember["utilisation"];
   members: TeamMember[];
   subMemberCount: number;
+  maxSubUsers?: number | null;
+  canAddSubUser?: boolean;
 };
 
 export type TeamUtilisationRow = {

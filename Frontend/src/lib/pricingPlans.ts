@@ -8,6 +8,8 @@ export type PricingTier = {
   candidateUnlocks?: number | null;
   verifiedEmails?: number | null;
   phoneNumbers?: number | null;
+  /** null = unlimited sub-users */
+  maxSubUsers?: number | null;
   features: string[];
   isPopular?: boolean;
   popularBadge?: string;
@@ -29,6 +31,14 @@ export function parsePricingQuotaFromApi(v: unknown): number | null {
   return null;
 }
 
+export function subUsersDisplayLabel(n: number | null | undefined): string | null {
+  if (n === null || n === undefined) return "Unlimited sub-users";
+  const q = Math.floor(n);
+  if (q < 0) return null;
+  if (q === 0) return "No sub-users (owner only)";
+  return q === 1 ? "1 sub-user" : `${q.toLocaleString()} sub-users`;
+}
+
 export function pricingQuotaDisplayLabel(
   n: number | null | undefined,
   kind: "searches" | "unlocks" | "emails" | "phones"
@@ -47,6 +57,7 @@ export function tierFeatureLines(tier: PricingTier): string[] {
     pricingQuotaDisplayLabel(tier.candidateUnlocks, "unlocks"),
     pricingQuotaDisplayLabel(tier.verifiedEmails, "emails"),
     pricingQuotaDisplayLabel(tier.phoneNumbers, "phones"),
+    subUsersDisplayLabel(tier.maxSubUsers),
   ].filter((line): line is string => line !== null);
 
   const features = tier.features
@@ -76,6 +87,10 @@ export function parsePricingPlansFromApi(plans: unknown): PricingPlansPayload | 
       candidateUnlocks: parsePricingQuotaFromApi(t.candidateUnlocks),
       verifiedEmails: parsePricingQuotaFromApi(t.verifiedEmails),
       phoneNumbers: parsePricingQuotaFromApi(t.phoneNumbers),
+      maxSubUsers:
+        t.maxSubUsers === null
+          ? null
+          : parsePricingQuotaFromApi(t.maxSubUsers),
       features: features.map((f) => String(f ?? "").trim()).filter((line) => line !== ""),
       isPopular: Boolean(t.isPopular),
       popularBadge:

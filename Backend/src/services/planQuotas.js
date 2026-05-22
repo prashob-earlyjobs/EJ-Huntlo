@@ -12,6 +12,28 @@ class QuotaExceededError extends Error {
   }
 }
 
+class TeamMemberLimitError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "TeamMemberLimitError";
+    this.code = "TEAM_MEMBER_LIMIT";
+    this.statusCode = 403;
+  }
+}
+
+/** null = unlimited; number = max member accounts (accountRole member). */
+function getMaxSubUsersForTier(tier) {
+  if (!tier) return null;
+  if (Object.prototype.hasOwnProperty.call(tier, "maxSubUsers") && tier.maxSubUsers === null) {
+    return null;
+  }
+  const n =
+    typeof tier.maxSubUsers === "number" && Number.isFinite(tier.maxSubUsers)
+      ? Math.max(0, Math.floor(tier.maxSubUsers))
+      : null;
+  return n;
+}
+
 function getDefaultPlanId(tiers) {
   const list = Array.isArray(tiers) && tiers.length > 0 ? tiers : DEFAULT_PRICING_PLANS.tiers;
   const trial = list.find((t) => t.id === "trial");
@@ -96,6 +118,28 @@ async function assertQuotaAvailableByUserId(userId, key, amount = 1) {
   await assertQuotaAvailable(user, key, amount);
 }
 
+function teamMemberLimitMessage(tier, maxSubUsers) {
+  const planName = tier?.name || "your plan";
+  if (maxSubUsers === 0) {
+    return `${planName} does not include sub-users. Upgrade your plan to add team members.`;
+  }
+  return `Sub-user limit reached for ${planName} (${maxSubUsers} max). Upgrade or remove a member.`;
+}
+
+/**
+ * @param {import("mongoose").Document | object} owner — workspace owner (billing user)
+ * @param {number} currentSubMemberCount — existing accountRole "member" count
+ */
+async function assertCanAddTeamMember(owner, currentSubMemberCount) {
+  const { tier } = await resolveTierForUser(owner);
+  const maxSubUsers = getMaxSubUsersForTier(tier);
+  if (maxSubUsers === null) return;
+  const count = Math.max(0, Math.floor(Number(currentSubMemberCount) || 0));
+  if (count >= maxSubUsers) {
+    throw new TeamMemberLimitError(teamMemberLimitMessage(tier, maxSubUsers));
+  }
+}
+
 async function getUserPlanSummary(user) {
   const { planId, tier, tiers, billingUser } = await resolveTierForUser(user);
   const utilisation = utilisationFromUser(billingUser || user);
@@ -107,6 +151,7 @@ async function getUserPlanSummary(user) {
       candidateUnlocks: tier?.candidateUnlocks ?? null,
       verifiedEmails: tier?.verifiedEmails ?? null,
       phoneNumbers: tier?.phoneNumbers ?? null,
+      maxSubUsers: getMaxSubUsersForTier(tier),
     },
     utilisation,
     availablePlanIds: tiers.map((t) => t.id).filter(Boolean),
@@ -125,11 +170,14 @@ async function validatePlanIdExists(planId) {
 
 module.exports = {
   QuotaExceededError,
+  TeamMemberLimitError,
   getDefaultPlanId,
   normalizePlanId,
   resolveTierForUser,
+  getMaxSubUsersForTier,
   assertQuotaAvailable,
   assertQuotaAvailableByUserId,
+  assertCanAddTeamMember,
   getUserPlanSummary,
   validatePlanIdExists,
   getEnrichedTiers,

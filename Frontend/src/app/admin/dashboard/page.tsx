@@ -163,6 +163,7 @@ type UserPlanDetailsState = {
     candidateUnlocks: number | null;
     verifiedEmails: number | null;
     phoneNumbers: number | null;
+    maxSubUsers: number | null;
   };
   utilisation: {
     candidateSearches: number;
@@ -499,6 +500,7 @@ type PricingTierForm = {
   candidateUnlocks: string;
   verifiedEmails: string;
   phoneNumbers: string;
+  maxSubUsers: string;
   featuresText: string;
   isPopular: boolean;
   popularBadge: string;
@@ -544,6 +546,10 @@ function apiPlansToForm(plans: { intro?: unknown; tiers?: unknown }): PricingPla
       candidateUnlocks: quotaApiValueToFormField(t.candidateUnlocks),
       verifiedEmails: quotaApiValueToFormField(t.verifiedEmails),
       phoneNumbers: quotaApiValueToFormField(t.phoneNumbers),
+      maxSubUsers:
+        t.maxSubUsers === null
+          ? ""
+          : quotaApiValueToFormField(t.maxSubUsers),
       featuresText: lines.join("\n"),
       isPopular: Boolean(t.isPopular),
       popularBadge:
@@ -568,6 +574,7 @@ function formToApiPayload(form: PricingPlansFormState) {
       candidateUnlocks: formQuotaFieldToApi(t.candidateUnlocks),
       verifiedEmails: formQuotaFieldToApi(t.verifiedEmails),
       phoneNumbers: formQuotaFieldToApi(t.phoneNumbers),
+      maxSubUsers: t.maxSubUsers.trim() === "" ? null : formQuotaFieldToApi(t.maxSubUsers),
       features: t.featuresText
         .split("\n")
         .map((s) => s.trim())
@@ -948,6 +955,7 @@ export default function AdminDashboardPage() {
               candidateUnlocks: limNum("candidateUnlocks"),
               verifiedEmails: limNum("verifiedEmails"),
               phoneNumbers: limNum("phoneNumbers"),
+              maxSubUsers: limNum("maxSubUsers"),
             },
             utilisation: {
               candidateSearches: num("candidateSearches"),
@@ -1695,6 +1703,24 @@ export default function AdminDashboardPage() {
                                 className="mt-1 w-full dashboard-input"
                               />
                             </div>
+                            <div>
+                              <label className="text-xs text-slate-600">Sub-users (max)</label>
+                              <input
+                                type="number"
+                                min={0}
+                                step={1}
+                                inputMode="numeric"
+                                value={tier.maxSubUsers}
+                                onChange={(e) =>
+                                  patchPricingTier(idx, { maxSubUsers: e.target.value })
+                                }
+                                placeholder="Leave empty for unlimited"
+                                className="mt-1 w-full dashboard-input"
+                              />
+                              <p className="mt-1 text-[10px] text-slate-500">
+                                0 = owner only. Empty = unlimited (e.g. Enterprise).
+                              </p>
+                            </div>
                           </div>
                         </div>
                         <div className="mt-3">
@@ -2047,6 +2073,14 @@ export default function AdminDashboardPage() {
                                   userPlanDetails.utilisation.linkedinLookups,
                                   userPlanDetails.limits.searches
                                 )}
+                              </td>
+                            </tr>
+                            <tr>
+                              <td className="px-3 py-2">Sub-users allowed</td>
+                              <td className="px-3 py-2 text-right tabular-nums">
+                                {userPlanDetails.limits.maxSubUsers === null
+                                  ? "Unlimited"
+                                  : String(userPlanDetails.limits.maxSubUsers)}
                               </td>
                             </tr>
                           </tbody>
