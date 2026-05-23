@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { DashboardToast } from "@/components/dashboard/DashboardToast";
+import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import {
   dashboardBtnPrimaryClass,
@@ -19,7 +20,7 @@ export type ExistingOutreachPlanOption = {
 };
 
 export type CreateOutreachChoice =
-  | { type: "scratch" }
+  | { type: "scratch"; channel: "gmail" | "whatsapp" }
   | { type: "template"; templateId: string }
   | { type: "clone"; planId: string };
 
@@ -82,22 +83,37 @@ function pickerStyles(variant: Variant) {
 function OptionRow({
   styles: s,
   icon,
+  brandProvider,
   iconVariant = "default",
   label,
   disabled,
   onClick,
 }: {
   styles: ReturnType<typeof pickerStyles>;
-  icon: string;
+  icon?: string;
+  brandProvider?: "gmail" | "whatsapp";
   iconVariant?: "default" | "ai";
   label: string;
   disabled?: boolean;
   onClick: () => void;
 }) {
+  const compact = s.iconBox.includes("h-6");
+  const brandLogoClass = compact
+    ? "dashboard-integration-brand-logo--sm"
+    : "dashboard-integration-brand-logo";
+
   return (
     <button type="button" className={s.optionBtn} onClick={onClick} disabled={disabled}>
       <span className={iconVariant === "ai" ? s.iconBoxAi : s.iconBox} aria-hidden>
-        <MaterialIcon name={icon} className={s.iconSize} />
+        {brandProvider ? (
+          <IntegrationBrandLogo
+            provider={brandProvider}
+            title={label}
+            className={brandLogoClass}
+          />
+        ) : icon ? (
+          <MaterialIcon name={icon} className={s.iconSize} />
+        ) : null}
       </span>
       <span className={s.label}>{label}</span>
       <MaterialIcon name="chevron_right" className={s.chevron} aria-hidden />
@@ -114,7 +130,7 @@ export function OutreachSequencePicker({
   lead,
   onChoose,
 }: Props) {
-  const [step, setStep] = useState<"choose" | "clone">("choose");
+  const [step, setStep] = useState<"choose" | "clone" | "scratchChannel">("choose");
   const [clonePlanId, setClonePlanId] = useState("");
   const [aiToast, setAiToast] = useState(false);
   const s = pickerStyles(variant);
@@ -127,6 +143,37 @@ export function OutreachSequencePicker({
   const listLoading = templatesLoading || plansLoading;
   const hasTemplateList =
     globalTemplates.length > 0 || userTemplates.length > 0 || existingPlans.length > 0;
+
+  if (step === "scratchChannel") {
+    return (
+      <div className={`${s.root} dashboard-outreach-scroll`}>
+        <p className={s.lead}>Choose a channel for your outreach sequence.</p>
+        <div className={s.options}>
+          <OptionRow
+            styles={s}
+            brandProvider="gmail"
+            label="Gmail"
+            onClick={() => onChoose({ type: "scratch", channel: "gmail" })}
+          />
+          <OptionRow
+            styles={s}
+            brandProvider="whatsapp"
+            label="WhatsApp"
+            onClick={() => onChoose({ type: "scratch", channel: "whatsapp" })}
+          />
+        </div>
+        <div className={s.actions}>
+          <button
+            type="button"
+            onClick={() => setStep("choose")}
+            className={`${dashboardBtnSecondaryClass} px-4 py-2.5 text-sm`}
+          >
+            Back
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (step === "clone") {
     return (
@@ -188,7 +235,7 @@ export function OutreachSequencePicker({
           styles={s}
           icon="add"
           label="Start from scratch"
-          onClick={() => onChoose({ type: "scratch" })}
+          onClick={() => setStep("scratchChannel")}
         />
         <OptionRow
           styles={s}

@@ -9,31 +9,47 @@ import {
 } from "@/components/dashboard/CreateOutreachModal";
 import { EmailOutreachPanel } from "@/components/dashboard/EmailOutreachPanel";
 import { OutreachPlanEditor } from "@/components/dashboard/OutreachPlanEditor";
+import { WhatsAppOutreachEditor } from "@/components/dashboard/WhatsAppOutreachEditor";
 import { authHeaders, getStoredAuth } from "@/lib/auth";
 import {
   createEmptyTouchpoint,
   type OutreachTemplateListItem,
   type OutreachTouchpointDraft,
 } from "@/lib/outreachTemplates";
+import {
+  createInitialWhatsAppSequence,
+  type WhatsAppTouchpointDraft,
+} from "@/lib/whatsappOutreach";
 
 const ENTERPRISE_PLAN_ID = "enterprise";
 
-type EditorState = {
+type GmailEditorState = {
   planId: string | "new";
   planName: string;
   touchpoints: OutreachTouchpointDraft[];
   lockSchedule: boolean;
 };
 
+type WhatsAppEditorState = {
+  planId: string | "new";
+  planName: string;
+  touchpoints: WhatsAppTouchpointDraft[];
+};
+
+type ActiveEditor =
+  | { channel: "gmail"; state: GmailEditorState }
+  | { channel: "whatsapp"; state: WhatsAppEditorState };
+
 type Props = {
   currentPlanId: string;
   onViewPlans: () => void;
-  onGoToIntegrations: () => void;
+  onGoToIntegrations?: () => void;
 };
 
 export function OutreachesPanel({
   currentPlanId,
   onViewPlans,
+  onGoToIntegrations,
 }: Props) {
   const isEnterprise = currentPlanId === ENTERPRISE_PLAN_ID;
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
@@ -44,7 +60,7 @@ export function OutreachesPanel({
   const [modalTemplates, setModalTemplates] = useState<OutreachTemplateListItem[]>([]);
   const [modalTemplatesLoading, setModalTemplatesLoading] = useState(false);
   const [notice, setNotice] = useState("");
-  const [editor, setEditor] = useState<EditorState | null>(null);
+  const [editor, setEditor] = useState<ActiveEditor | null>(null);
 
   const loadModalPlans = useCallback(async () => {
     const auth = getStoredAuth();
@@ -112,9 +128,14 @@ export function OutreachesPanel({
     setCreateOutreachOpen(true);
   };
 
-  const openEditor = (state: EditorState) => {
+  const openGmailEditor = (state: GmailEditorState) => {
     setNotice("");
-    setEditor(state);
+    setEditor({ channel: "gmail", state });
+  };
+
+  const openWhatsAppEditor = (state: WhatsAppEditorState) => {
+    setNotice("");
+    setEditor({ channel: "whatsapp", state });
   };
 
   const handleCreateOutreachChoice = async (choice: CreateOutreachChoice) => {
@@ -126,12 +147,20 @@ export function OutreachesPanel({
         day: "2-digit",
         year: "numeric",
       });
-      openEditor({
-        planId: "new",
-        planName: `First Project - ${today}`,
-        touchpoints: [createEmptyTouchpoint(1)],
-        lockSchedule: false,
-      });
+      if (choice.channel === "whatsapp") {
+        openWhatsAppEditor({
+          planId: "new",
+          planName: `WhatsApp - ${today}`,
+          touchpoints: createInitialWhatsAppSequence(),
+        });
+      } else {
+        openGmailEditor({
+          planId: "new",
+          planName: `First Project - ${today}`,
+          touchpoints: [createEmptyTouchpoint(1)],
+          lockSchedule: false,
+        });
+      }
       return;
     }
 
@@ -162,7 +191,7 @@ export function OutreachesPanel({
         day: "2-digit",
         year: "numeric",
       });
-      openEditor({
+      openGmailEditor({
         planId: "new",
         planName: `${tpl.planName} - ${today}`,
         touchpoints: tpl.touchpoints.map((tp) => ({ ...tp })),
@@ -184,7 +213,7 @@ export function OutreachesPanel({
             name: string;
             touchpoints: OutreachTouchpointDraft[];
           };
-          openEditor({
+          openGmailEditor({
             planId: "new",
             planName: `Copy of ${plan.name}`,
             touchpoints:
@@ -202,14 +231,30 @@ export function OutreachesPanel({
     }
   };
 
-  if (editor) {
+  if (editor?.channel === "gmail") {
     return (
       <OutreachPlanEditor
-        planId={editor.planId}
-        initialPlanName={editor.planName}
-        initialTouchpoints={editor.touchpoints}
-        lockSchedule={editor.lockSchedule}
+        planId={editor.state.planId}
+        initialPlanName={editor.state.planName}
+        initialTouchpoints={editor.state.touchpoints}
+        lockSchedule={editor.state.lockSchedule}
         onCancel={() => setEditor(null)}
+        onSaved={(message) => {
+          setEditor(null);
+          setNotice(message);
+        }}
+      />
+    );
+  }
+
+  if (editor?.channel === "whatsapp") {
+    return (
+      <WhatsAppOutreachEditor
+        planId={editor.state.planId}
+        initialPlanName={editor.state.planName}
+        initialTouchpoints={editor.state.touchpoints}
+        onCancel={() => setEditor(null)}
+        onGoToIntegrations={onGoToIntegrations}
         onSaved={(message) => {
           setEditor(null);
           setNotice(message);

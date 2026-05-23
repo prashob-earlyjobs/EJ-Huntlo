@@ -8,6 +8,7 @@ import {
   type ExistingOutreachPlanOption,
 } from "@/components/dashboard/OutreachSequencePicker";
 import { OutreachPlanEditor } from "@/components/dashboard/OutreachPlanEditor";
+import { WhatsAppOutreachEditor } from "@/components/dashboard/WhatsAppOutreachEditor";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { authHeaders, getStoredAuth } from "@/lib/auth";
 import type { CampaignContact, CampaignRecord } from "@/lib/campaigns";
@@ -17,6 +18,10 @@ import {
   type OutreachTemplateListItem,
   type OutreachTouchpointDraft,
 } from "@/lib/outreachTemplates";
+import {
+  createInitialWhatsAppSequence,
+  type WhatsAppTouchpointDraft,
+} from "@/lib/whatsappOutreach";
 
 export type CampaignWorkspaceTab =
   | "Editor"
@@ -37,12 +42,22 @@ const CAMPAIGN_TABS: CampaignWorkspaceTab[] = [
 
 const COMING_SOON_TABS = new Set<CampaignWorkspaceTab>(["Activity", "Report", "Settings"]);
 
-type EditorState = {
+type GmailEditorState = {
   planId: string | "new";
   planName: string;
   touchpoints: OutreachTouchpointDraft[];
   lockSchedule: boolean;
 };
+
+type WhatsAppEditorState = {
+  planId: string | "new";
+  planName: string;
+  touchpoints: WhatsAppTouchpointDraft[];
+};
+
+type ActiveEditor =
+  | { channel: "gmail"; state: GmailEditorState }
+  | { channel: "whatsapp"; state: WhatsAppEditorState };
 
 type Props = {
   campaign: CampaignRecord;
@@ -165,7 +180,7 @@ export function CampaignWorkspace({ campaign, onBack, onCampaignUpdated }: Props
   const [activeTab, setActiveTab] = useState<CampaignWorkspaceTab>("Editor");
   const [starred, setStarred] = useState(false);
   const [editorPhase, setEditorPhase] = useState<"choose" | "editing">("choose");
-  const [editor, setEditor] = useState<EditorState | null>(null);
+  const [editor, setEditor] = useState<ActiveEditor | null>(null);
   const [editorNotice, setEditorNotice] = useState("");
 
   const [modalPlans, setModalPlans] = useState<ExistingOutreachPlanOption[]>([]);
@@ -254,9 +269,15 @@ export function CampaignWorkspace({ campaign, onBack, onCampaignUpdated }: Props
     }
   }, [activeTab, editorPhase, loadSequenceOptions]);
 
-  const openEditor = (state: EditorState) => {
+  const openGmailEditor = (state: GmailEditorState) => {
     setEditorNotice("");
-    setEditor(state);
+    setEditor({ channel: "gmail", state });
+    setEditorPhase("editing");
+  };
+
+  const openWhatsAppEditor = (state: WhatsAppEditorState) => {
+    setEditorNotice("");
+    setEditor({ channel: "whatsapp", state });
     setEditorPhase("editing");
   };
 
@@ -268,12 +289,20 @@ export function CampaignWorkspace({ campaign, onBack, onCampaignUpdated }: Props
 
   const handleSequenceChoice = async (choice: CreateOutreachChoice) => {
     if (choice.type === "scratch") {
-      openEditor({
-        planId: "new",
-        planName: campaign.name,
-        touchpoints: [createEmptyTouchpoint(1)],
-        lockSchedule: false,
-      });
+      if (choice.channel === "whatsapp") {
+        openWhatsAppEditor({
+          planId: "new",
+          planName: campaign.name,
+          touchpoints: createInitialWhatsAppSequence(),
+        });
+      } else {
+        openGmailEditor({
+          planId: "new",
+          planName: campaign.name,
+          touchpoints: [createEmptyTouchpoint(1)],
+          lockSchedule: false,
+        });
+      }
       return;
     }
 
@@ -299,7 +328,7 @@ export function CampaignWorkspace({ campaign, onBack, onCampaignUpdated }: Props
         setEditorNotice("Template not found.");
         return;
       }
-      openEditor({
+      openGmailEditor({
         planId: "new",
         planName: campaign.name,
         touchpoints: tpl.touchpoints.map((tp) => ({ ...tp })),
@@ -321,7 +350,7 @@ export function CampaignWorkspace({ campaign, onBack, onCampaignUpdated }: Props
             name: string;
             touchpoints: OutreachTouchpointDraft[];
           };
-          openEditor({
+          openGmailEditor({
             planId: "new",
             planName: campaign.name,
             touchpoints:
@@ -395,13 +424,24 @@ export function CampaignWorkspace({ campaign, onBack, onCampaignUpdated }: Props
 
       <div className="flex min-h-0 flex-1 flex-col bg-[#f8f9fc]">
         {activeTab === "Editor" ? (
-          editorPhase === "editing" && editor ? (
+          editorPhase === "editing" && editor?.channel === "gmail" ? (
             <OutreachPlanEditor
               embedded
-              planId={editor.planId}
-              initialPlanName={editor.planName}
-              initialTouchpoints={editor.touchpoints}
-              lockSchedule={editor.lockSchedule}
+              planId={editor.state.planId}
+              initialPlanName={editor.state.planName}
+              initialTouchpoints={editor.state.touchpoints}
+              lockSchedule={editor.state.lockSchedule}
+              onCancel={backToSequenceChoose}
+              onSaved={() => {
+                /* stay on campaign */
+              }}
+            />
+          ) : editorPhase === "editing" && editor?.channel === "whatsapp" ? (
+            <WhatsAppOutreachEditor
+              embedded
+              planId={editor.state.planId}
+              initialPlanName={editor.state.planName}
+              initialTouchpoints={editor.state.touchpoints}
               onCancel={backToSequenceChoose}
               onSaved={() => {
                 /* stay on campaign */
