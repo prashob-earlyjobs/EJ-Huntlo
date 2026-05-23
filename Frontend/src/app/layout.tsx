@@ -4,6 +4,7 @@ import { Inter, Syne } from "next/font/google";
 import "./globals.css";
 import "./landing.css";
 import "./dashboard.css";
+import {GoogleOAuthProvider} from "@react-oauth/google";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -56,7 +57,9 @@ export default function RootLayout({
         />
       </head>
       <body className="flex min-h-full flex-col" suppressHydrationWarning>
-        {children}
+        <GoogleOAuthProvider clientId={process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ""}>
+          {children}
+        </GoogleOAuthProvider>
       </body>
     </html>
   );

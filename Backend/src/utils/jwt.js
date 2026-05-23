@@ -11,8 +11,8 @@ const getJwtSecret = () => {
 };
 
 const signToken = (payload, options = {}) => {
-  const { jwtid } = options;
-  const signOptions = { expiresIn: JWT_EXPIRES_IN };
+  const { jwtid, expiresIn } = options;
+  const signOptions = { expiresIn: expiresIn || JWT_EXPIRES_IN };
   if (jwtid) signOptions.jwtid = jwtid;
   return jwt.sign(payload, getJwtSecret(), signOptions);
 };
