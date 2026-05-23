@@ -1,7 +1,7 @@
 const express = require("express");
 const path = require("path");
 const cors = require("cors");
-
+const morgan = require("morgan");
 const apiRoutes = require("./routes");
 
 const DEFAULT_CORS_ORIGINS = [
@@ -26,6 +26,7 @@ function parseCorsOrigins() {
 
 const app = express();
 
+app.use(morgan("dev"));
 app.use(
   cors({
     origin: parseCorsOrigins(),

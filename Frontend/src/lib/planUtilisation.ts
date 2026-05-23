@@ -52,6 +52,42 @@ export function parseUtilisationHistoryPagination(
   return { page, limit, totalDocs, totalPages };
 }
 
+export type MePlanSnapshot = {
+  planId: string;
+  planName: string;
+  utilisation: UserUtilisationStats | null;
+};
+
+/** Reads plan + utilisation from GET /api/users/me (or equivalent) response. */
+export function parsePlanFromMeResponse(raw: unknown): MePlanSnapshot | null {
+  if (!raw || typeof raw !== "object") return null;
+  const meData = raw as Record<string, unknown>;
+  if (!meData.success) return null;
+
+  const planRaw = meData.plan;
+  const userRaw = meData.user;
+  const planObj =
+    planRaw && typeof planRaw === "object" ? (planRaw as Record<string, unknown>) : null;
+  const userObj =
+    userRaw && typeof userRaw === "object" ? (userRaw as Record<string, unknown>) : null;
+
+  const planId =
+    typeof planObj?.planId === "string"
+      ? planObj.planId
+      : typeof userObj?.planId === "string"
+        ? userObj.planId
+        : "starter";
+  const planName =
+    typeof planObj?.planName === "string" ? planObj.planName : planId;
+
+  return {
+    planId,
+    planName,
+    utilisation:
+      meData.utilisation != null ? parseUtilisationPayload(meData.utilisation) : null,
+  };
+}
+
 export function parseUtilisationPayload(raw: unknown): UserUtilisationStats {
   const empty: UserUtilisationStats = {
     candidateSearches: 0,

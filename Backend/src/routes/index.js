@@ -2,6 +2,9 @@ const express = require("express");
 const userRoutes = require("./users");
 const candidateRoutes = require("./candidates");
 const pricingRoutes = require("./pricing");
+const integrationRoutes = require("./integrations");
+const outreachRoutes = require("./outreach");
+const campaignRoutes = require("./campaigns");
 
 const router = express.Router();
 
@@ -16,5 +19,8 @@ router.get("/health", (req, res) => {
 router.use("/users", userRoutes);
 router.use("/candidates", candidateRoutes);
 router.use("/pricing-plans", pricingRoutes);
+router.use("/integrations", integrationRoutes);
+router.use("/outreach", outreachRoutes);
+router.use("/campaigns", campaignRoutes);
 
 module.exports = router;

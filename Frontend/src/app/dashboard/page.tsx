@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 
 import { CandidateFilterDrawer } from "@/components/CandidateFilterDrawer";
@@ -50,7 +50,10 @@ import {
   SearchCandidatesPanel,
   type RecentAiSearchItem,
 } from "@/components/dashboard/SearchCandidatesPanel";
+import { AddToCampaignModal } from "@/components/dashboard/AddToCampaignModal";
+import { CampaignsPanel } from "@/components/dashboard/CampaignsPanel";
 import { IntegrationsPanel } from "@/components/dashboard/IntegrationsPanel";
+import { OutreachesPanel } from "@/components/dashboard/OutreachesPanel";
 import { SavedCandidatesPanel } from "@/components/dashboard/SavedCandidatesPanel";
 import { LandingLogo } from "@/components/landing/LandingLogo";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
@@ -61,6 +64,7 @@ import {
   type DashboardOverviewData,
 } from "@/lib/dashboardOverview";
 import {
+  parsePlanFromMeResponse,
   parseUtilisationHistoryPagination,
   parseUtilisationHistoryPayload,
   parseUtilisationPayload,
@@ -80,6 +84,12 @@ import {
   type RevealContactType,
 } from "@/lib/revealContactMessages";
 import { useUserActionAlert } from "@/lib/useUserActionAlert";
+import type { CampaignContact, CampaignRecord } from "@/lib/campaigns";
+import {
+  addContactsToCampaignApi,
+  createCampaign,
+  fetchCampaigns,
+} from "@/lib/campaignsApi";
 import { candidateScoreBadgeClass, formatCandidateScore } from "@/lib/sessionResultUi";
 import {
   DEFAULT_CANDIDATE_FILTER_FORM,
@@ -111,39 +121,78 @@ type SourcingSessionRow = {
   updatedAt: string;
 };
 
-const teamSidebarItem = {
-  label: "Team",
-  subtitle: "Manage Sub Users",
+type UserSidebarNavItem = {
+  label: string;
+  subtitle: string;
+  icon: ReactNode;
+  tabKey?: string;
+};
+
+type UserSidebarNavGroup = {
+  label: string;
+  subtitle: string;
+  icon: ReactNode;
+  children: UserSidebarNavItem[];
+};
+
+type UserSidebarNavEntry = UserSidebarNavItem | UserSidebarNavGroup;
+
+function isSidebarNavGroup(entry: UserSidebarNavEntry): entry is UserSidebarNavGroup {
+  return "children" in entry && Array.isArray(entry.children);
+}
+
+const outreachesSidebarItem: UserSidebarNavItem = {
+  label: "Outreaches",
+  subtitle: "Email plans & send",
   icon: (
-    <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
+    <svg viewBox="0 0 24 24" fill="none" className="h-3.5 w-3.5">
       <path
-        d="M17 21V19C17 17.9 16.1 17 15 17H9C7.9 17 7 17.9 7 19V21"
+        d="M4 6H20V18H4V6Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M4 7L12 13L20 7"
         stroke="currentColor"
         strokeWidth="1.8"
         strokeLinecap="round"
-      />
-      <path
-        d="M12 11C14.21 11 16 9.21 16 7C16 4.79 14.21 3 12 3C9.79 3 8 4.79 8 7C8 9.21 9.79 11 12 11Z"
-        stroke="currentColor"
-        strokeWidth="1.8"
-      />
-      <path
-        d="M22 21V19C22 17.34 20.66 16 19 16H18"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-      <path
-        d="M2 21V19C2 17.34 3.34 16 5 16H6"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
+        strokeLinejoin="round"
       />
     </svg>
   ),
 };
 
-const userSidebarItems = [
+const campaignsSidebarItem: UserSidebarNavItem = {
+  label: "Campaigns",
+  subtitle: "Group & run outreach",
+  icon: <MaterialIcon name="flag" className="text-[1.125rem]" />,
+};
+
+const integrationsSidebarItem: UserSidebarNavItem = {
+  label: "Integrations",
+  subtitle: "Gmail, WhatsApp, Calendar",
+  icon: (
+    <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
+      <path
+        d="M12 2V6M12 18V22M2 12H6M18 12H22M5.64 5.64L8.46 8.46M15.54 15.54L18.36 18.36M5.64 18.36L8.46 15.54M15.54 8.46L18.36 5.64"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.8" />
+    </svg>
+  ),
+};
+
+const engagementsSidebarGroup: UserSidebarNavGroup = {
+  label: "Engagements",
+  subtitle: "Outreach & connections",
+  icon: <MaterialIcon name="campaign" className="text-[1.125rem]" />,
+  children: [outreachesSidebarItem, campaignsSidebarItem, integrationsSidebarItem],
+};
+
+const userSidebarNavEntries: UserSidebarNavEntry[] = [
   {
     label: "Dashboard",
     subtitle: "Your workspace overview",
@@ -270,21 +319,7 @@ const userSidebarItems = [
       </svg>
     ),
   },
-  {
-    label: "Integrations",
-    subtitle: "Gmail, WhatsApp, Calendar",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
-        <path
-          d="M12 2V6M12 18V22M2 12H6M18 12H22M5.64 5.64L8.46 8.46M15.54 15.54L18.36 18.36M5.64 18.36L8.46 15.54M15.54 8.46L18.36 5.64"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-        />
-        <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.8" />
-      </svg>
-    ),
-  },
+  engagementsSidebarGroup,
   {
     label: "Plans and pricing",
     subtitle: "Compare plans and limits",
@@ -321,8 +356,40 @@ const userSidebarItems = [
   },
 ];
 
+const teamSidebarItem: UserSidebarNavItem = {
+  label: "Team",
+  subtitle: "Manage Sub Users",
+  icon: (
+    <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
+      <path
+        d="M17 21V19C17 17.9 16.1 17 15 17H9C7.9 17 7 17.9 7 19V21"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+      <path
+        d="M12 11C14.21 11 16 9.21 16 7C16 4.79 14.21 3 12 3C9.79 3 8 4.79 8 7C8 9.21 9.79 11 12 11Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+      <path
+        d="M22 21V19C22 17.34 20.66 16 19 16H18"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+      <path
+        d="M2 21V19C2 17.34 3.34 16 5 16H6"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  ),
+};
+
 function sidebarItemsForRole(accountRole: "owner" | "member" | null) {
-  const items = [...userSidebarItems];
+  const items = [...userSidebarNavEntries];
   if (accountRole === "owner") {
     const pricingIndex = items.findIndex((item) => item.label === "Plans and pricing");
     items.splice(pricingIndex >= 0 ? pricingIndex : items.length, 0, teamSidebarItem);
@@ -548,6 +615,15 @@ function candidateIdentityKey(candidate: {
   const profile = String(candidate.linkedin_profile_url || "").trim();
   if (profile) return `li:${source}:${profile}`;
   return `name:${String(candidate.name || "").trim().toLowerCase()}`;
+}
+
+function sessionResultDocSelectionKey(
+  doc: SessionResultDoc,
+  idx: number,
+  candidateKey: string
+): string {
+  const id = typeof doc._id === "string" ? doc._id.trim() : "";
+  return id || `session-doc-${idx}-${candidateKey}`;
 }
 
 function mapSavedApiRowToCandidate(row: {
@@ -1006,6 +1082,7 @@ export default function UserDashboardPage() {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [engagementsNavExpanded, setEngagementsNavExpanded] = useState(true);
   const profileMenuRef = useRef<HTMLDivElement>(null);
   const [showAdminLink, setShowAdminLink] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -1029,12 +1106,20 @@ export default function UserDashboardPage() {
   const [sessionResultTotalPages, setSessionResultTotalPages] = useState<number | null>(
     null
   );
+  const [sessionResultHasNext, setSessionResultHasNext] = useState(false);
+  const [sessionResultLoadingMore, setSessionResultLoadingMore] = useState(false);
   const [sessionCanFetchMore, setSessionCanFetchMore] = useState(false);
   const [sessionFetchMoreLoading, setSessionFetchMoreLoading] = useState(false);
   const [dashboardToast, setDashboardToast] = useState<{
     message: string;
     variant: DashboardToastVariant;
   } | null>(null);
+  const [sessionResultSelectedKeys, setSessionResultSelectedKeys] = useState<string[]>([]);
+  const [addToCampaignOpen, setAddToCampaignOpen] = useState(false);
+  const [sessionResultNotice, setSessionResultNotice] = useState("");
+  const [campaigns, setCampaigns] = useState<CampaignRecord[]>([]);
+  const [campaignsLoading, setCampaignsLoading] = useState(false);
+  const [addToCampaignBusy, setAddToCampaignBusy] = useState(false);
   const [savedSessionCandidateKeys, setSavedSessionCandidateKeys] = useState<string[]>([]);
   const [savedCandidatesList, setSavedCandidatesList] = useState<CandidateRow[]>([]);
   const [savedCandidatesLoading, setSavedCandidatesLoading] = useState(false);
@@ -1191,6 +1276,8 @@ export default function UserDashboardPage() {
           throw new Error("Invalid dashboard response");
         }
         setDashboardOverview(parsed);
+        setUserPlanId(parsed.plan.planId);
+        setUserPlanName(parsed.plan.planName);
       })
       .catch((err) => {
         setDashboardOverview(null);
@@ -1202,6 +1289,52 @@ export default function UserDashboardPage() {
         setDashboardOverviewLoading(false);
       });
   }, [activeTab]);
+
+  useEffect(() => {
+    const auth = getStoredAuth();
+    if (!auth?.token) return;
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+    fetch(`${apiBase}/api/users/me`, { headers: authHeaders(auth.token) })
+      .then((res) => res.json())
+      .then((data) => {
+        const snapshot = parsePlanFromMeResponse(data);
+        if (!snapshot) return;
+        setUserPlanId(snapshot.planId);
+        setUserPlanName(snapshot.planName);
+        if (snapshot.utilisation) setPlanUtilisation(snapshot.utilisation);
+      })
+      .catch(() => {
+        /* keep defaults until another tab loads plan */
+      });
+  }, []);
+
+  const loadCampaignsList = useCallback(async () => {
+    const auth = getStoredAuth();
+    if (!auth?.token || userPlanId !== "enterprise") {
+      setCampaigns([]);
+      return;
+    }
+    setCampaignsLoading(true);
+    try {
+      const list = await fetchCampaigns(auth.token);
+      setCampaigns(list);
+    } catch {
+      /* keep previous list */
+    } finally {
+      setCampaignsLoading(false);
+    }
+  }, [userPlanId]);
+
+  useEffect(() => {
+    if (userPlanId !== "enterprise") return;
+    void loadCampaignsList();
+  }, [userPlanId, loadCampaignsList]);
+
+  useEffect(() => {
+    if (userPlanId !== "enterprise") return;
+    if (activeTab !== "Campaigns" && !addToCampaignOpen) return;
+    void loadCampaignsList();
+  }, [activeTab, addToCampaignOpen, userPlanId, loadCampaignsList]);
 
   useEffect(() => {
     if (activeTab !== "Saved" && activeTab !== "Session Results" && activeTab !== "Candidates") return;
@@ -1561,28 +1694,11 @@ export default function UserDashboardPage() {
         }
 
         if (meResult.status === "fulfilled" && meResult.value) {
-          const meData = meResult.value as {
-            success?: boolean;
-            user?: Record<string, unknown>;
-            utilisation?: unknown;
-            plan?: { planId?: unknown; planName?: unknown };
-          };
-          if (meData.success && meData.utilisation != null) {
-            setPlanUtilisation(parseUtilisationPayload(meData.utilisation));
-          }
-          if (meData.success) {
-            const pid =
-              typeof meData.plan?.planId === "string"
-                ? meData.plan.planId
-                : typeof meData.user?.planId === "string"
-                  ? meData.user.planId
-                  : "trial";
-            const pname =
-              typeof meData.plan?.planName === "string"
-                ? meData.plan.planName
-                : pid;
-            setUserPlanId(pid);
-            setUserPlanName(pname);
+          const snapshot = parsePlanFromMeResponse(meResult.value);
+          if (snapshot) {
+            setUserPlanId(snapshot.planId);
+            setUserPlanName(snapshot.planName);
+            if (snapshot.utilisation) setPlanUtilisation(snapshot.utilisation);
           }
         }
       })
@@ -1635,6 +1751,16 @@ export default function UserDashboardPage() {
       })
       .finally(() => setUtilisationHistoryLoading(false));
   }, [activeTab, utilisationHistoryPage]);
+
+  useEffect(() => {
+    if (
+      activeTab === "Outreaches" ||
+      activeTab === "Campaigns" ||
+      activeTab === "Integrations"
+    ) {
+      setEngagementsNavExpanded(true);
+    }
+  }, [activeTab]);
 
   useEffect(() => {
     if (activeTab === "Plans and pricing") {
@@ -2842,6 +2968,7 @@ export default function UserDashboardPage() {
         setCandidateFilterForm(DEFAULT_CANDIDATE_FILTER_FORM);
       }
       setSessionResultDocs(detailedDocs);
+      setSessionResultSelectedKeys([]);
       setSessionResultsFromDb(true);
       const pg = data.profilesPagination;
       const warn =
@@ -3261,8 +3388,157 @@ export default function UserDashboardPage() {
     setIsSessionCandidateDrawerOpen(false);
     setSelectedSessionDetailDoc(null);
     setSelectedSessionDetailCandidate(null);
-    setSessionDetailLoading(false);
-    setSessionDetailError("");
+  };
+
+  const sessionResultVisibleSelectionKeys = useMemo(() => {
+    const sessionId = searchSummary?.sessionId ?? null;
+    return sessionResultDocs.map((doc, idx) => {
+      const reveal = sessionDocToCandidateRow(doc, idx, sessionId);
+      return sessionResultDocSelectionKey(doc, idx, candidateIdentityKey(reveal));
+    });
+  }, [sessionResultDocs, searchSummary?.sessionId]);
+
+  const allVisibleSessionResultsSelected =
+    sessionResultVisibleSelectionKeys.length > 0 &&
+    sessionResultVisibleSelectionKeys.every((key) =>
+      sessionResultSelectedKeys.includes(key)
+    );
+
+  const toggleSessionResultSelection = useCallback((key: string) => {
+    setSessionResultSelectedKeys((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+    );
+  }, []);
+
+  const toggleSelectAllSessionResults = useCallback(() => {
+    setSessionResultSelectedKeys((prev) => {
+      if (allVisibleSessionResultsSelected) {
+        return prev.filter((k) => !sessionResultVisibleSelectionKeys.includes(k));
+      }
+      const next = new Set(prev);
+      for (const key of sessionResultVisibleSelectionKeys) next.add(key);
+      return [...next];
+    });
+  }, [allVisibleSessionResultsSelected, sessionResultVisibleSelectionKeys]);
+
+  const clearSessionResultSelection = useCallback(() => {
+    setSessionResultSelectedKeys([]);
+  }, []);
+
+  const resolveSelectedSessionContacts = useCallback((): CampaignContact[] => {
+    const sessionId = searchSummary?.sessionId ?? null;
+    const contacts: CampaignContact[] = [];
+    for (let idx = 0; idx < sessionResultDocs.length; idx += 1) {
+      const doc = sessionResultDocs[idx];
+      const row = sessionDocToCandidateRow(doc, idx, sessionId);
+      const key = sessionResultDocSelectionKey(doc, idx, candidateIdentityKey(row));
+      if (!sessionResultSelectedKeys.includes(key)) continue;
+      const emailKey = candidateRowKey(row);
+      const email =
+        revealedContactValues[emailKey]?.email || row.email || "";
+      contacts.push({
+        candidateKey: key,
+        candidateId: String(row.id || key),
+        name: row.name,
+        email,
+        role: row.role,
+        company: row.currentCompany || "",
+        location: row.location,
+        linkedinUrl: row.linkedin_profile_url || "",
+        sourcingSessionId: row.sourcingSessionId || "",
+        addedAt: new Date().toISOString(),
+      });
+    }
+    return contacts;
+  }, [
+    sessionResultDocs,
+    searchSummary?.sessionId,
+    sessionResultSelectedKeys,
+    revealedContactValues,
+  ]);
+
+  const handleCreateCampaign = useCallback(
+    async (name: string): Promise<CampaignRecord | null> => {
+      const auth = getStoredAuth();
+      if (!auth?.token) return null;
+      try {
+        const record = await createCampaign(auth.token, name);
+        setCampaigns((prev) => [record, ...prev]);
+        return record;
+      } catch {
+        return null;
+      }
+    },
+    []
+  );
+
+  const handleAddToCampaignConfirm = useCallback(
+    async (payload: { campaignId: string } | { newCampaignName: string }) => {
+      if (addToCampaignBusy) return;
+      const auth = getStoredAuth();
+      if (!auth?.token) {
+        setSessionResultNotice("Sign in to manage campaigns.");
+        return;
+      }
+
+      const incoming = resolveSelectedSessionContacts();
+      if (incoming.length === 0) {
+        setSessionResultNotice("No candidates selected.");
+        setAddToCampaignOpen(false);
+        return;
+      }
+
+      setAddToCampaignBusy(true);
+      try {
+        if ("newCampaignName" in payload) {
+          const record = await createCampaign(auth.token, payload.newCampaignName, incoming);
+          setCampaigns((prev) => [record, ...prev]);
+          setAddToCampaignOpen(false);
+          setSessionResultNotice(
+            `Added ${incoming.length} candidate${incoming.length === 1 ? "" : "s"} to new campaign "${record.name}".`
+          );
+          return;
+        }
+
+        const { campaign, addedCount, skippedCount } = await addContactsToCampaignApi(
+          auth.token,
+          payload.campaignId,
+          incoming
+        );
+        setCampaigns((prev) =>
+          prev.map((c) => (c.id === campaign.id ? campaign : c))
+        );
+        const campaignName = campaign.name || "Campaign";
+        setAddToCampaignOpen(false);
+        if (addedCount === 0 && skippedCount > 0) {
+          setSessionResultNotice(`All selected candidates are already in "${campaignName}".`);
+        } else if (skippedCount > 0) {
+          setSessionResultNotice(
+            `Added ${addedCount} to "${campaignName}". ${skippedCount} duplicate${skippedCount === 1 ? " was" : "s were"} skipped.`
+          );
+        } else {
+          setSessionResultNotice(
+            `Added ${addedCount} candidate${addedCount === 1 ? "" : "s"} to "${campaignName}".`
+          );
+        }
+      } catch (err) {
+        setSessionResultNotice(
+          err instanceof Error ? err.message : "Could not add to campaign."
+        );
+      } finally {
+        setAddToCampaignBusy(false);
+      }
+    },
+    [addToCampaignBusy, resolveSelectedSessionContacts]
+  );
+
+  const openAddToCampaignModal = () => {
+    if (userPlanId !== "enterprise") {
+      setActiveTab("Plans and pricing");
+      return;
+    }
+    setSessionResultNotice("");
+    setAddToCampaignOpen(true);
   };
 
   const getDisplayedEmail = (candidate: CandidateRow) => {
@@ -3360,7 +3636,7 @@ export default function UserDashboardPage() {
       <BlockedAccountModal open={accountBlocked} />
       <div className="dashboard-shell flex min-w-0 w-full">
         <aside
-          className={`dashboard-sidebar hidden flex-col lg:flex${
+          className={`dashboard-sidebar dashboard-sidebar--compact hidden flex-col lg:flex${
             sidebarCollapsed ? " dashboard-sidebar--collapsed" : ""
           }`}
         >
@@ -3391,34 +3667,100 @@ export default function UserDashboardPage() {
 
           <nav className="dashboard-sidebar-nav">
             <div className="dashboard-sidebar-nav-scroll">
-              <div className="space-y-2">
-              {sidebarItemsForRole(accountRole).map((item) => {
-                const tabKey = "tabKey" in item && typeof item.tabKey === "string" ? item.tabKey : item.label;
+              <div className="dashboard-sidebar-nav-list">
+              {userSidebarNavEntries.map((entry) => {
+                if (isSidebarNavGroup(entry)) {
+                  const childActive = entry.children.some(
+                    (child) => activeTab === (child.tabKey ?? child.label)
+                  );
+                  return (
+                    <div key={entry.label} className="dashboard-nav-group">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (sidebarCollapsed) toggleSidebarCollapsed();
+                          else setEngagementsNavExpanded((open) => !open);
+                        }}
+                        title={sidebarCollapsed ? entry.label : entry.subtitle}
+                        aria-expanded={engagementsNavExpanded}
+                        className={`dashboard-nav-item dashboard-nav-item--compact dashboard-nav-item--group w-full ${
+                          childActive ? "dashboard-nav-item--active" : ""
+                        }`}
+                      >
+                        <span className="dashboard-nav-item-inner">
+                          <span
+                            className={`dashboard-nav-icon dashboard-nav-icon--compact ${
+                              childActive ? "dashboard-nav-icon--active" : ""
+                            }`}
+                          >
+                            {entry.icon}
+                          </span>
+                          <span className="dashboard-nav-item-text min-w-0">
+                            <span className="dashboard-nav-label">{entry.label}</span>
+                            <span className="dashboard-nav-subtitle">{entry.subtitle}</span>
+                          </span>
+                          <MaterialIcon
+                            name={engagementsNavExpanded ? "expand_less" : "expand_more"}
+                            className="dashboard-nav-group-chevron"
+                            aria-hidden
+                          />
+                        </span>
+                      </button>
+                      {engagementsNavExpanded && !sidebarCollapsed ? (
+                        <div className="dashboard-nav-sublist" role="group" aria-label={entry.label}>
+                          {entry.children.map((child) => {
+                            const tabKey = child.tabKey ?? child.label;
+                            const isActive = activeTab === tabKey;
+                            return (
+                              <button
+                                key={tabKey}
+                                type="button"
+                                onClick={() => setActiveTab(tabKey)}
+                                title={child.label}
+                                className={`dashboard-nav-item dashboard-nav-item--compact dashboard-nav-item--sub w-full ${
+                                  isActive ? "dashboard-nav-item--active" : ""
+                                }`}
+                              >
+                                <span className="dashboard-nav-item-inner dashboard-nav-item-inner--sub">
+                                  <span className="dashboard-nav-item-text min-w-0">
+                                    <span className="dashboard-nav-label">{child.label}</span>
+                                  </span>
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                }
+
+                const tabKey = entry.tabKey ?? entry.label;
                 return (
-                <button
-                  key={tabKey}
-                  type="button"
-                  onClick={() => setActiveTab(tabKey)}
-                  title={sidebarCollapsed ? item.label : undefined}
-                  className={`dashboard-nav-item w-full ${
-                    activeTab === tabKey ? "dashboard-nav-item--active" : ""
-                  }`}
-                >
-                  <span className="flex items-start gap-3">
-                    <span
-                      className={`dashboard-nav-icon ${
-                        activeTab === tabKey ? "dashboard-nav-icon--active" : ""
-                      }`}
-                    >
-                      {item.icon}
+                  <button
+                    key={tabKey}
+                    type="button"
+                    onClick={() => setActiveTab(tabKey)}
+                    title={sidebarCollapsed ? entry.label : entry.subtitle}
+                    className={`dashboard-nav-item dashboard-nav-item--compact w-full ${
+                      activeTab === tabKey ? "dashboard-nav-item--active" : ""
+                    }`}
+                  >
+                    <span className="dashboard-nav-item-inner">
+                      <span
+                        className={`dashboard-nav-icon dashboard-nav-icon--compact ${
+                          activeTab === tabKey ? "dashboard-nav-icon--active" : ""
+                        }`}
+                      >
+                        {entry.icon}
+                      </span>
+                      <span className="dashboard-nav-item-text min-w-0">
+                        <span className="dashboard-nav-label">{entry.label}</span>
+                        <span className="dashboard-nav-subtitle">{entry.subtitle}</span>
+                      </span>
                     </span>
-                    <span className="dashboard-nav-item-text min-w-0">
-                      <span className="block text-sm font-medium">{item.label}</span>
-                      <span className="dashboard-nav-subtitle">{item.subtitle}</span>
-                    </span>
-                  </span>
-                </button>
-              );
+                  </button>
+                );
               })}
               </div>
             </div>
@@ -3429,15 +3771,15 @@ export default function UserDashboardPage() {
                   type="button"
                   onClick={() => setActiveTab(userProfileSidebarItem.label)}
                   title={sidebarCollapsed ? userProfileSidebarItem.label : undefined}
-                  className={`dashboard-nav-item min-w-0 flex-1 ${
+                  className={`dashboard-nav-item dashboard-nav-item--compact min-w-0 flex-1 ${
                     activeTab === userProfileSidebarItem.label
                       ? "dashboard-nav-item--active"
                       : ""
                   }`}
                 >
-                  <span className="flex items-start gap-3">
+                  <span className="dashboard-nav-item-inner">
                     <span
-                      className={`dashboard-nav-icon ${
+                      className={`dashboard-nav-icon dashboard-nav-icon--compact ${
                         activeTab === userProfileSidebarItem.label
                           ? "dashboard-nav-icon--active"
                           : ""
@@ -3449,7 +3791,7 @@ export default function UserDashboardPage() {
                       )}
                     </span>
                     <span className="dashboard-nav-item-text min-w-0 text-left">
-                      <span className="block truncate text-sm font-medium">
+                      <span className="dashboard-nav-label block truncate">
                         {userProfileSidebarItem.label}
                       </span>
                       <span className="dashboard-nav-subtitle block truncate">
@@ -3554,14 +3896,29 @@ export default function UserDashboardPage() {
               <section className="dashboard-card dashboard-card--fill flex h-full min-w-0 max-w-full w-full flex-col p-6">
                 <div className="dashboard-card-panel-header">
                 <div className="dashboard-results-toolbar">
-                  <div>
-                    <h3 className="flex items-center gap-2 dashboard-section-title">
-                      <MaterialIcon name="groups" className="text-xl text-[#0050cb]" />
-                      Session results
-                    </h3>
-                    <p className="mt-1 dashboard-text-body">
-                      Candidates from your selected sourcing session.
-                    </p>
+                  <div className="dashboard-results-toolbar-leading">
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab(sessionResultsBackTab)}
+                      className="dashboard-btn-secondary dashboard-btn-icon"
+                      aria-label={`Back to ${sessionResultsBackTab}`}
+                    >
+                      <MaterialIcon name="arrow_back" className="text-xl" />
+                    </button>
+                    <div className="min-w-0">
+                      <h3 className="flex items-center gap-2 dashboard-section-title">
+                        <MaterialIcon name="groups" className="text-xl text-[#0050cb]" />
+                        Session results
+                      </h3>
+                      <p className="mt-1 dashboard-text-body">
+                        Candidates from your selected sourcing session.
+                        {searchSummary?.sessionId ? (
+                          <span className="mt-1 block font-mono text-[10px] text-[#424656]/75">
+                            {searchSummary.sessionId}
+                          </span>
+                        ) : null}
+                      </p>
+                    </div>
                   </div>
                   <div className="dashboard-results-toolbar-actions">
                     {sessionResultDocs.length > 0 ? (
@@ -3570,21 +3927,56 @@ export default function UserDashboardPage() {
                         {sessionResultDocs.length === 1 ? "" : "s"}
                       </span>
                     ) : null}
+                    {sessionResultDocs.length > 0 ? (
+                      <>
+                        {sessionResultSelectedKeys.length > 0 ? (
+                          <span className="dashboard-badge tabular-nums">
+                            {sessionResultSelectedKeys.length} selected
+                          </span>
+                        ) : null}
+                        {sessionResultSelectedKeys.length > 0 ? (
+                          <button
+                            type="button"
+                            onClick={openAddToCampaignModal}
+                            className="dashboard-btn-primary px-3 py-1.5 text-xs"
+                          >
+                            <MaterialIcon name="flag" className="text-sm" />
+                            Add to campaign
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={toggleSelectAllSessionResults}
+                          className="dashboard-btn-secondary px-3 py-1.5 text-xs"
+                        >
+                          <MaterialIcon
+                            name={
+                              allVisibleSessionResultsSelected
+                                ? "check_box"
+                                : "check_box_outline_blank"
+                            }
+                            className="text-sm"
+                          />
+                          {allVisibleSessionResultsSelected ? "Deselect all" : "Select all"}
+                        </button>
+                        {sessionResultSelectedKeys.length > 0 ? (
+                          <button
+                            type="button"
+                            onClick={clearSessionResultSelection}
+                            className="dashboard-btn-secondary px-3 py-1.5 text-xs"
+                          >
+                            Clear
+                          </button>
+                        ) : null}
+                      </>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => setIsFilterDrawerOpen(true)}
-                      className="dashboard-btn-secondary h-9 px-3 text-sm font-medium"
+                      className="dashboard-btn-secondary px-3 py-1.5 text-xs"
                     >
-                      <MaterialIcon name="tune" className="text-base" />
+                      <MaterialIcon name="tune" className="text-sm" />
                       Edit filter
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab(sessionResultsBackTab)}
-                      className="dashboard-btn-secondary h-9 px-3 text-sm font-medium"
-                    >
-                      <MaterialIcon name="arrow_back" className="text-base" />
-                      Back
                     </button>
                   </div>
                 </div>
@@ -3595,6 +3987,10 @@ export default function UserDashboardPage() {
                   <p className="mt-4 dashboard-alert-error">
                     {sessionResultError}
                   </p>
+                ) : null}
+
+                {sessionResultNotice ? (
+                  <p className="dashboard-alert-success mt-4">{sessionResultNotice}</p>
                 ) : null}
 
                 {searchLoading && sessionResultDocs.length === 0 ? (
@@ -3641,7 +4037,16 @@ export default function UserDashboardPage() {
 
                 {sessionResultDocs.length > 0 ? (
                   <>
-                    <div className="dashboard-results-grid mt-4">
+                    <p className="dashboard-session-select-touch-hint">
+                      Tap the circle on a card to select. Use Select all for faster multi-select.
+                    </p>
+                    <div
+                      className={`dashboard-results-grid mt-4${
+                        sessionResultSelectedKeys.length > 0
+                          ? " dashboard-results-grid--selecting"
+                          : ""
+                      }`}
+                    >
                       {sessionResultDocs.map((doc, idx) => {
                         const highlights = doc.profileAnalysis?.highlights ?? [];
                         const current = doc.profile?.current_employers_object?.[0];
@@ -3651,6 +4056,12 @@ export default function UserDashboardPage() {
                           searchSummary?.sessionId ?? null
                         );
                         const sessionCandidateKey = candidateIdentityKey(revealCandidate);
+                        const selectionKey = sessionResultDocSelectionKey(
+                          doc,
+                          idx,
+                          sessionCandidateKey
+                        );
+                        const isSelected = sessionResultSelectedKeys.includes(selectionKey);
                         const isSavedSessionCandidate =
                           savedSessionCandidateKeys.includes(sessionCandidateKey);
                         const isSaveBusy = saveCandidateBusyKeys.includes(sessionCandidateKey);
@@ -3680,41 +4091,45 @@ export default function UserDashboardPage() {
                                 openSessionCandidateDetail(doc, revealCandidate);
                               }
                             }}
-                            className={`dashboard-candidate-card ${
-                              isDetailOpen ? "dashboard-candidate-card--active" : ""
-                            }`}
+                            className={`dashboard-candidate-card${
+                              isSelected ? " dashboard-candidate-card--selected" : ""
+                            }${isDetailOpen ? " dashboard-candidate-card--active" : ""}`}
                           >
+                            <button
+                              type="button"
+                              className={`dashboard-candidate-card-select${
+                                isSelected ? " dashboard-candidate-card-select--on" : ""
+                              }`}
+                              aria-label={
+                                isSelected
+                                  ? `Deselect ${candidateName}`
+                                  : `Select ${candidateName}`
+                              }
+                              aria-pressed={isSelected}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleSessionResultSelection(selectionKey);
+                              }}
+                            >
+                              <MaterialIcon
+                                name={isSelected ? "check_circle" : "radio_button_unchecked"}
+                                aria-hidden
+                              />
+                            </button>
                             <div className="flex items-start gap-3">
                               <SessionCandidateGridAvatar
                                 name={candidateName}
                                 photoUrl={candidatePhotoUrl}
                               />
                               <div className="min-w-0 flex-1">
-                                <div className="flex items-start justify-between gap-3">
-                                  <div className="min-w-0">
-                                    <div className="dashboard-candidate-name-row">
-                                      <h4 className="text-base font-semibold text-slate-900">
-                                        {candidateName}
-                                      </h4>
-                                      {isOpenToWork(doc.profile?.open_to_cards) ? (
-                                        <OpenToWorkBadge compact />
-                                      ) : null}
-                                    </div>
-                                    <CandidateRoleCompanyLine
-                                      role={current?.job_title}
-                                      company={current?.company_name}
-                                      companyWebsiteDomain={current?.company_website_domain}
-                                      companyWebsite={current?.company_website}
-                                      variant="grid"
-                                    />
-                                  </div>
-                                  {typeof doc.finalScore === "number" ? (
-                                    <span
-                                      className={`shrink-0 ${candidateScoreBadgeClass(doc.finalScore)}`}
-                                    >
-                                      Score {formatCandidateScore(doc.finalScore)}/5
-                                    </span>
-                                  ) : null}
+                                <div className="min-w-0">
+                                  <h4 className="text-base font-semibold text-slate-900">
+                                    {candidateName}
+                                  </h4>
+                                  <p className="mt-1 text-xs text-slate-600">
+                                    {current?.job_title || "Role unavailable"}
+                                    {current?.company_name ? ` · ${current.company_name}` : ""}
+                                  </p>
                                 </div>
                               </div>
                             </div>
@@ -3904,6 +4319,15 @@ export default function UserDashboardPage() {
                   </>
                 ) : null}
                 </div>
+
+                <AddToCampaignModal
+                  open={addToCampaignOpen}
+                  selectedCount={sessionResultSelectedKeys.length}
+                  campaigns={campaigns}
+                  submitting={addToCampaignBusy}
+                  onClose={() => !addToCampaignBusy && setAddToCampaignOpen(false)}
+                  onConfirm={handleAddToCampaignConfirm}
+                />
               </section>
             ) : activeTab === "People Scout" ? (
               <PeopleScoutPanel
@@ -4101,6 +4525,25 @@ export default function UserDashboardPage() {
                 getDisplayedEmail={(candidate) => getDisplayedEmail(candidate as CandidateRow)}
                 getDisplayedPhone={(candidate) => getDisplayedPhone(candidate as CandidateRow)}
                 onGoToSessionResults={() => setActiveTab("Session Results")}
+              />
+            ) : activeTab === "Outreaches" ? (
+              <OutreachesPanel
+                currentPlanId={userPlanId}
+                onViewPlans={() => setActiveTab("Plans and pricing")}
+                onGoToIntegrations={() => setActiveTab("Integrations")}
+              />
+            ) : activeTab === "Campaigns" ? (
+              <CampaignsPanel
+                currentPlanId={userPlanId}
+                onViewPlans={() => setActiveTab("Plans and pricing")}
+                campaigns={campaigns}
+                campaignsLoading={campaignsLoading}
+                onCreateCampaign={handleCreateCampaign}
+                onCampaignUpdated={(updated) =>
+                  setCampaigns((prev) =>
+                    prev.map((c) => (c.id === updated.id ? updated : c))
+                  )
+                }
               />
             ) : activeTab === "Integrations" ? (
               <IntegrationsPanel
