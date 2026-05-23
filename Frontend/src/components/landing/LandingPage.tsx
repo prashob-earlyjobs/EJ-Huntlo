@@ -1,13 +1,15 @@
 import Link from "next/link";
 import type { PricingPlansPayload } from "@/lib/pricingPlans";
 
+import { BookDemoLink } from "./BookDemoLink";
+import { LandingDemoVideo } from "./LandingDemoVideo";
+import { LandingProductSourcingSection } from "./LandingProductSourcingSection";
+import { LandingWorkflowSteps } from "./LandingWorkflowSteps";
+import { HeroSearchTyping } from "./HeroSearchTyping";
 import { LandingLogo } from "./LandingLogo";
 import { LandingNav } from "./LandingNav";
 import { LandingPricingSection } from "./LandingPricingSection";
 import { MaterialIcon } from "./MaterialIcon";
-
-const HERO_SEARCH_PLACEHOLDER =
-  "Find software engineers in San Francisco with 5+ years of React experience...";
 
 const ADVANTAGE_METRICS = [
   {
@@ -34,42 +36,6 @@ const ADVANTAGE_METRICS = [
     title: "Cost per hire reduction",
     description: "Stop wasting budget on job boards that don't deliver.",
   },
-];
-
-const SOURCING_FEATURES = [
-  {
-    icon: "search",
-    title: "AI-powered candidate search",
-    description:
-      "Describe your ideal hire in plain English. Huntlo maps intent to talent across millions of profiles.",
-  },
-  {
-    icon: "filter_alt",
-    title: "Smart filters & scoring",
-    description:
-      "Refine by skills, location, experience, and company signals—with match scores you can trust.",
-  },
-  {
-    icon: "person_search",
-    title: "People Scout lookups",
-    description:
-      "Find a single profile by email or LinkedIn when you already know who you want to reach.",
-  },
-];
-
-const MOCK_CANDIDATES = [
-  { name: "Priya Sharma", role: "Senior React Engineer", location: "Bangalore", score: 94 },
-  { name: "James Chen", role: "Staff Frontend Dev", location: "San Francisco", score: 91 },
-  { name: "Anika Patel", role: "Full Stack Engineer", location: "Remote", score: 88 },
-  { name: "Marcus Webb", role: "Engineering Lead", location: "Austin", score: 86 },
-];
-
-const WORKFLOW_STEPS = [
-  { icon: "description", label: "Post job description" },
-  { icon: "manage_search", label: "AI sources candidates" },
-  { icon: "forward_to_inbox", label: "Automated outreach" },
-  { icon: "event", label: "Schedule interviews" },
-  { icon: "handshake", label: "Make an offer" },
 ];
 
 const SUITE_COLUMNS = [
@@ -141,46 +107,8 @@ type LandingPageProps = {
   pricingPlans?: PricingPlansPayload | null;
 };
 
-function CandidateRow({
-  name,
-  role,
-  location,
-  score,
-}: {
-  name: string;
-  role: string;
-  location: string;
-  score: number;
-}) {
-  const initials = name
-    .split(" ")
-    .map((n) => n[0])
-    .join("")
-    .slice(0, 2);
-  return (
-    <div className="flex items-center gap-3 border-b border-[#c3c6d6]/20 px-4 py-3 last:border-b-0">
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#0050cb]/15 text-xs font-bold text-[#0050cb]">
-        {initials}
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-semibold text-[#141b2b]">{name}</p>
-        <p className="truncate text-xs text-[#434654]">
-          {role} · {location}
-        </p>
-      </div>
-      <span className="shrink-0 rounded-full bg-[#0050cb]/10 px-2 py-0.5 text-xs font-semibold text-[#0050cb]">
-        {score}%
-      </span>
-      <button
-        type="button"
-        className="hidden shrink-0 rounded-lg bg-[#0050cb] px-3 py-1.5 text-xs font-medium text-white sm:block"
-      >
-        View
-      </button>
-    </div>
-  );
-}
-
+const bookDemoButtonClass =
+  "flex w-full items-center justify-center gap-2 rounded-full border border-[#c3c6d6]/50 bg-white px-8 py-3.5 text-sm font-semibold text-[#141b2b] transition-all hover:border-[#0050cb]/30 hover:bg-[#f1f3ff] sm:w-auto";
 
 export function LandingPage({ pricingPlans = null }: LandingPageProps) {
   return (
@@ -194,9 +122,11 @@ export function LandingPage({ pricingPlans = null }: LandingPageProps) {
         </div>
         <div className="relative z-10 mx-auto max-w-4xl text-center">
           <h1 className="text-4xl font-bold leading-[1.1] tracking-tight text-[#141b2b] md:text-5xl lg:text-[56px]">
-            Stop Posting Jobs.
+            Stop Posting and waiting.
             <br />
-            Start Getting Candidates Who Actually Reply.
+            <span className="text-[#0050cb]">
+              Huntlo finds and engages talent with AI.
+            </span>
           </h1>
           <p className="mx-auto mt-6 max-w-2xl text-base leading-relaxed text-[#434654] md:text-lg">
             The world&apos;s first AI-powered outbound recruiting platform. Reach top talent in
@@ -209,26 +139,10 @@ export function LandingPage({ pricingPlans = null }: LandingPageProps) {
             >
               Get Started
             </Link>
-            <button
-              type="button"
-              className="flex w-full items-center justify-center gap-2 rounded-full border border-[#c3c6d6]/50 bg-white px-8 py-3.5 text-sm font-semibold text-[#141b2b] transition-all hover:border-[#0050cb]/30 hover:bg-[#f1f3ff] sm:w-auto"
-            >
-              <MaterialIcon name="play_circle" className="text-[20px] text-[#0050cb]" />
-              Watch Demo
-            </button>
+            <BookDemoLink className={bookDemoButtonClass}>Book Demo</BookDemoLink>
           </div>
 
-          <div className="landing-ambient-shadow mx-auto mt-12 max-w-3xl rounded-2xl border border-[#c3c6d6]/30 bg-white p-2 shadow-xl">
-            <div className="flex items-center gap-2 rounded-xl bg-[#f1f3ff]/80 px-4 py-3">
-              <MaterialIcon name="search" className="shrink-0 text-[#0050cb]" />
-              <span className="flex-1 truncate text-left text-sm text-[#434654]/80">
-                {HERO_SEARCH_PLACEHOLDER}
-              </span>
-              <span className="shrink-0 rounded-lg bg-[#0050cb] px-4 py-2 text-xs font-semibold text-white">
-                Search
-              </span>
-            </div>
-          </div>
+          <HeroSearchTyping />
         </div>
       </section>
 
@@ -313,39 +227,7 @@ export function LandingPage({ pricingPlans = null }: LandingPageProps) {
         </div>
       </section>
 
-      {/* AI Sourcing */}
-      <section className="bg-white px-4 py-20 md:px-8 lg:px-12" id="product">
-        <div className="mx-auto grid max-w-7xl gap-12 lg:grid-cols-2 lg:items-center">
-          <div>
-            <h2 className="text-3xl font-bold tracking-tight text-[#141b2b] md:text-4xl">
-              Find the Right Candidates for Your Role—in Minutes
-            </h2>
-            <ul className="mt-8 space-y-6">
-              {SOURCING_FEATURES.map((f) => (
-                <li key={f.title} className="flex gap-4">
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#0050cb]/10 text-[#0050cb]">
-                    <MaterialIcon name={f.icon} />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-[#141b2b]">{f.title}</h3>
-                    <p className="mt-1 text-sm leading-relaxed text-[#434654]">{f.description}</p>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </div>
-          <div className="landing-ambient-shadow overflow-hidden rounded-2xl border border-[#c3c6d6]/30 bg-[#f1f3ff]/50">
-            <div className="border-b border-[#c3c6d6]/20 bg-white px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-[#434654]">
-                Matching candidates
-              </p>
-            </div>
-            {MOCK_CANDIDATES.map((c) => (
-              <CandidateRow key={c.name} {...c} />
-            ))}
-          </div>
-        </div>
-      </section>
+      <LandingProductSourcingSection />
 
       {/* Workflow */}
       <section className="bg-[#faf9ff] px-4 py-20 md:px-8 lg:px-12">
@@ -353,25 +235,10 @@ export function LandingPage({ pricingPlans = null }: LandingPageProps) {
           <h2 className="text-3xl font-bold tracking-tight text-[#141b2b] md:text-4xl">
             From Description to Offer
           </h2>
-          <p className="mt-2 text-[#434654]">The fastest way to hire top talent.</p>
-          <div className="mt-14 flex flex-col items-stretch gap-8 md:flex-row md:items-start md:justify-between">
-            {WORKFLOW_STEPS.map((step, idx) => (
-              <div key={step.label} className="relative flex flex-1 flex-col items-center">
-                {idx < WORKFLOW_STEPS.length - 1 ? (
-                  <div
-                    className="absolute left-[calc(50%+28px)] top-7 hidden h-0.5 w-[calc(100%-56px)] bg-[#0050cb]/20 md:block"
-                    aria-hidden
-                  />
-                ) : null}
-                <div className="relative z-10 flex h-14 w-14 items-center justify-center rounded-full border-2 border-[#0050cb]/30 bg-white text-[#0050cb] shadow-sm">
-                  <MaterialIcon name={step.icon} />
-                </div>
-                <p className="mt-4 max-w-[140px] text-center text-sm font-medium text-[#141b2b]">
-                  {step.label}
-                </p>
-              </div>
-            ))}
-          </div>
+          <p className="mx-auto mt-2 max-w-2xl text-[#434654]">
+            The 4-step workflow that powers high-growth teams.
+          </p>
+          <LandingWorkflowSteps />
         </div>
       </section>
 
@@ -450,16 +317,7 @@ export function LandingPage({ pricingPlans = null }: LandingPageProps) {
           <p className="mt-2 text-[#434654]">
             See how Huntlo transforms your hiring process in under two minutes.
           </p>
-          <button
-            type="button"
-            className="landing-ambient-shadow group relative mx-auto mt-10 flex aspect-video w-full max-w-3xl items-center justify-center overflow-hidden rounded-2xl border border-[#c3c6d6]/30 bg-white transition-shadow hover:shadow-xl"
-            aria-label="Play product demo video"
-          >
-            <div className="absolute inset-0 bg-gradient-to-br from-[#f1f3ff] to-[#dae1ff]/40" />
-            <span className="relative flex h-16 w-16 items-center justify-center rounded-full bg-[#0050cb] text-white shadow-lg transition-transform group-hover:scale-105">
-              <MaterialIcon name="play_arrow" className="text-[36px]" />
-            </span>
-          </button>
+          <LandingDemoVideo />
         </div>
       </section>
 
@@ -560,12 +418,9 @@ export function LandingPage({ pricingPlans = null }: LandingPageProps) {
             >
               Get Started
             </Link>
-            <Link
-              href="/signup"
-              className="w-full rounded-full border border-white/30 px-10 py-4 text-sm font-semibold text-white transition-all hover:bg-white/10 sm:w-auto"
-            >
+            <BookDemoLink className="w-full rounded-full border border-white/30 px-10 py-4 text-sm font-semibold text-white transition-all hover:bg-white/10 sm:w-auto">
               Book a Demo
-            </Link>
+            </BookDemoLink>
           </div>
         </div>
       </section>

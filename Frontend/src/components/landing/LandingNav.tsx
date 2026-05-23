@@ -2,8 +2,15 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { BookDemoLink } from "./BookDemoLink";
 import { LandingLogo } from "./LandingLogo";
 import { MaterialIcon } from "./MaterialIcon";
+
+const NAV_BOOK_DEMO_CLASS =
+  "rounded-full bg-[#0050cb] px-5 py-2.5 text-sm font-medium text-white shadow-md shadow-[#0050cb]/20 transition-all hover:bg-[#003fa4]";
+
+const NAV_BOOK_DEMO_MOBILE_CLASS =
+  "rounded-full bg-[#0050cb] px-6 py-2.5 text-center text-sm font-medium text-white";
 
 const NAV_LINKS = [
   { href: "#product", label: "Product" },
@@ -41,12 +48,7 @@ export function LandingNav() {
           >
             Login
           </Link>
-          <Link
-            href="/signup"
-            className="rounded-full bg-[#0050cb] px-5 py-2.5 text-sm font-medium text-white shadow-md shadow-[#0050cb]/20 transition-all hover:bg-[#003fa4]"
-          >
-            Book a Demo
-          </Link>
+          <BookDemoLink className={NAV_BOOK_DEMO_CLASS}>Book a Demo</BookDemoLink>
         </div>
 
         <button
@@ -75,12 +77,12 @@ export function LandingNav() {
             <Link href="/login" className="text-sm font-medium text-[#141b2b]">
               Login
             </Link>
-            <Link
-              href="/signup"
-              className="rounded-full bg-[#0050cb] px-6 py-2.5 text-center text-sm font-medium text-white"
+            <BookDemoLink
+              className={NAV_BOOK_DEMO_MOBILE_CLASS}
+              onClick={() => setMobileOpen(false)}
             >
               Book a Demo
-            </Link>
+            </BookDemoLink>
           </div>
         </div>
       ) : null}

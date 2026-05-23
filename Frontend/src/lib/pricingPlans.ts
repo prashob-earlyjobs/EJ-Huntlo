@@ -127,3 +127,59 @@ export function planCtaLabel(tier: PricingTier): string {
   if (tier.isPopular) return "Get started";
   return "Start deploying";
 }
+
+/** Landing page: Starter, popular tier center, Enterprise (no Trial). */
+export function landingDisplayTiers(tiers: PricingTier[]): PricingTier[] {
+  const paid = tiers.filter((t) => t.id !== "trial");
+  if (paid.length === 0) return tiers.slice(0, 3);
+
+  const popular = paid.find((t) => t.isPopular);
+  const others = paid.filter((t) => !t.isPopular);
+  if (popular && others.length >= 2) {
+    return [others[0], popular, others[1]];
+  }
+  return paid.slice(0, 3);
+}
+
+export function landingPlanCtaLabel(tier: PricingTier): string {
+  if (tier.id === "enterprise" || /custom/i.test(tier.primaryPrice)) {
+    return "Contact Sales";
+  }
+  if (tier.isPopular) return "Get Started";
+  return `Choose ${tier.name}`;
+}
+
+export function splitPrimaryPriceDisplay(primaryPrice: string): {
+  amount: string;
+  period: string;
+} {
+  const raw = primaryPrice.trim();
+  if (!raw) return { amount: "—", period: "" };
+  if (/^custom/i.test(raw)) return { amount: "Custom", period: "" };
+
+  const slashMo = raw.match(/^(.+?)(\s*\/\s*mo(?:nth)?\.?)$/i);
+  if (slashMo) {
+    return { amount: slashMo[1].trim(), period: "/mo" };
+  }
+
+  const perMonth = raw.match(/^(.+?)(\s+per\s+month\.?)$/i);
+  if (perMonth) {
+    return { amount: perMonth[1].trim(), period: "/mo" };
+  }
+
+  if (/free/i.test(raw)) return { amount: raw, period: "" };
+  return { amount: raw, period: "" };
+}
+
+/** Marketing bullets for landing cards (prefer configured features). */
+export function landingTierFeatureLines(tier: PricingTier, max = 5): string[] {
+  const configured = tier.features
+    .map((f) => String(f ?? "").trim())
+    .filter(Boolean);
+  if (configured.length > 0) return configured.slice(0, max);
+  return tierFeatureLines(tier).slice(0, max);
+}
+
+export function isEnterpriseTier(tier: PricingTier): boolean {
+  return tier.id === "enterprise" || /custom/i.test(tier.primaryPrice);
+}
