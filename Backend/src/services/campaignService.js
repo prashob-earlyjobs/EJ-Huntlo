@@ -1,5 +1,8 @@
 const mongoose = require("mongoose");
 const Campaign = require("../models/Campaign");
+const { lookupUserRevealedContacts } = require("./contactRevealService");
+const { deleteEnrollmentsForCampaign } = require("./campaignOutreachSendService");
+const { normalizeLinkedinProfileUrl } = require("../utils/contactReveal");
 
 function normalizeContact(raw) {
   if (!raw || typeof raw !== "object") return null;
@@ -10,6 +13,7 @@ function normalizeContact(raw) {
     candidateId: String(raw.candidateId || "").trim(),
     name: String(raw.name || "").trim(),
     email: String(raw.email || "").trim(),
+    phone: String(raw.phone || "").trim(),
     role: String(raw.role || "").trim(),
     company: String(raw.company || "").trim(),
     location: String(raw.location || "").trim(),
@@ -39,6 +43,7 @@ function formatContact(doc) {
     candidateId: doc.candidateId || "",
     name: doc.name || "",
     email: doc.email || "",
+    phone: doc.phone || "",
     role: doc.role || "",
     company: doc.company || "",
     location: doc.location || "",
@@ -53,6 +58,11 @@ function formatCampaign(doc) {
   return {
     id: String(doc._id),
     name: doc.name || "",
+    outreachPlanId: doc.outreachPlanId ? String(doc.outreachPlanId) : "",
+    outreachStatus: doc.outreachStatus || "idle",
+    outreachStartedAt: doc.outreachStartedAt
+      ? new Date(doc.outreachStartedAt).toISOString()
+      : null,
     contactCount: contacts.length,
     contacts: contacts.map(formatContact),
     createdAt: doc.createdAt,
@@ -121,10 +131,12 @@ async function addContactsToCampaign(userId, campaignId, contacts) {
   );
 
   let addedCount = 0;
+  const addedCandidateKeys = [];
   for (const contact of incoming) {
     if (existingKeys.has(contact.candidateKey)) continue;
     existingKeys.add(contact.candidateKey);
     doc.contacts.push(contact);
+    addedCandidateKeys.push(contact.candidateKey);
     addedCount += 1;
   }
 
@@ -137,7 +149,82 @@ async function addContactsToCampaign(userId, campaignId, contacts) {
     campaign: formatCampaign(doc.toObject()),
     addedCount,
     skippedCount,
+    addedCandidateKeys,
   };
+}
+
+async function updateCampaignContactFields(userId, campaignId, candidateKey, email, phone) {
+  await Campaign.updateOne(
+    {
+      _id: assertValidCampaignId(campaignId),
+      userId: userOid(userId),
+      "contacts.candidateKey": candidateKey,
+    },
+    {
+      $set: {
+        "contacts.$.email": String(email || "").trim(),
+        "contacts.$.phone": String(phone || "").trim(),
+      },
+    }
+  );
+}
+
+/**
+ * Copy email/phone from the user's reveal cache onto campaign contacts (no Future Jobs).
+ */
+async function syncCampaignContactsFromUserCache(userId, campaignId) {
+  const campaign = await getCampaign(userId, campaignId);
+  const linkedinUrls = (campaign.contacts || [])
+    .map((c) => c.linkedinUrl)
+    .filter(Boolean);
+  if (linkedinUrls.length === 0) return campaign;
+
+  const lookup = await lookupUserRevealedContacts(userId, linkedinUrls);
+
+  for (const contact of campaign.contacts) {
+    const key = normalizeLinkedinProfileUrl(contact.linkedinUrl);
+    const cached = lookup[key];
+    if (!cached) continue;
+
+    const email = String(cached.email || contact.email || "").trim();
+    const phone = String(cached.phone || contact.phone || "").trim();
+    if (email === contact.email && phone === contact.phone) continue;
+
+    await updateCampaignContactFields(
+      userId,
+      campaignId,
+      contact.candidateKey,
+      email,
+      phone
+    );
+  }
+
+  return getCampaign(userId, campaignId);
+}
+
+async function setCampaignOutreachPlan(userId, campaignId, outreachPlanId) {
+  const oid = assertValidCampaignId(campaignId);
+  const doc = await Campaign.findOne({ _id: oid, userId: userOid(userId) });
+  if (!doc) {
+    const err = new Error("Campaign not found");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const raw = outreachPlanId === null || outreachPlanId === undefined ? "" : String(outreachPlanId).trim();
+  if (!raw) {
+    doc.outreachPlanId = null;
+  } else {
+    if (!mongoose.Types.ObjectId.isValid(raw)) {
+      const err = new Error("Invalid outreach plan id");
+      err.statusCode = 400;
+      throw err;
+    }
+    doc.outreachPlanId = new mongoose.Types.ObjectId(raw);
+  }
+
+  await doc.save();
+  return formatCampaign(doc.toObject());
 }
 
 async function deleteCampaign(userId, campaignId) {
@@ -148,6 +235,7 @@ async function deleteCampaign(userId, campaignId) {
     err.statusCode = 404;
     throw err;
   }
+  await deleteEnrollmentsForCampaign(campaignId);
 }
 
 module.exports = {
@@ -155,5 +243,7 @@ module.exports = {
   getCampaign,
   createCampaign,
   addContactsToCampaign,
+  setCampaignOutreachPlan,
+  syncCampaignContactsFromUserCache,
   deleteCampaign,
 };

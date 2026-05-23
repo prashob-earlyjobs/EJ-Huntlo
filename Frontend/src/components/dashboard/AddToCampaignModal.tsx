@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
@@ -20,7 +20,9 @@ type Props = {
   campaigns: CampaignRecord[];
   submitting?: boolean;
   onClose: () => void;
-  onConfirm: (payload: { campaignId: string } | { newCampaignName: string }) => void | Promise<void>;
+  onConfirm: (
+    payload: { campaignId: string } | { newCampaignName: string }
+  ) => void | Promise<void>;
 };
 
 function CampaignOption({
@@ -84,6 +86,8 @@ export function AddToCampaignModal({
   const [mounted, setMounted] = useState(false);
   const [choice, setChoice] = useState("");
   const [newName, setNewName] = useState("");
+  const [submitError, setSubmitError] = useState("");
+  const wasOpenRef = useRef(false);
 
   useEffect(() => setMounted(true), []);
 
@@ -91,10 +95,21 @@ export function AddToCampaignModal({
     if (!open) {
       setChoice("");
       setNewName("");
+      setSubmitError("");
+      wasOpenRef.current = false;
       return;
     }
-    setChoice(campaigns.length === 0 ? NEW_CAMPAIGN_VALUE : (campaigns[0]?.id ?? NEW_CAMPAIGN_VALUE));
-  }, [open, campaigns]);
+    if (!wasOpenRef.current) {
+      setChoice(
+        campaigns.length === 0 ? NEW_CAMPAIGN_VALUE : (campaigns[0]?.id ?? NEW_CAMPAIGN_VALUE)
+      );
+      wasOpenRef.current = true;
+      return;
+    }
+    if (!choice && campaigns.length > 0) {
+      setChoice(campaigns[0]?.id ?? NEW_CAMPAIGN_VALUE);
+    }
+  }, [open, campaigns, choice]);
 
   useEffect(() => {
     if (!open) return;
@@ -116,13 +131,20 @@ export function AddToCampaignModal({
   const trimmedNew = newName.trim();
   const canSubmit = (isNew ? Boolean(trimmedNew) : Boolean(choice)) && !submitting;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canSubmit) return;
-    if (isNew) {
-      void onConfirm({ newCampaignName: trimmedNew });
-    } else {
-      void onConfirm({ campaignId: choice });
+    if (!canSubmit || submitting) return;
+    setSubmitError("");
+    try {
+      if (isNew) {
+        await onConfirm({ newCampaignName: trimmedNew });
+      } else {
+        await onConfirm({ campaignId: choice });
+      }
+    } catch (err) {
+      setSubmitError(
+        err instanceof Error ? err.message : "Could not add to campaign. Please try again."
+      );
     }
   };
 
@@ -211,6 +233,12 @@ export function AddToCampaignModal({
               </label>
             ) : null}
           </div>
+
+          {submitError ? (
+            <p className="dashboard-alert-warning mt-4" role="alert">
+              {submitError}
+            </p>
+          ) : null}
 
           <div className="mt-6 flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-4">
             <button

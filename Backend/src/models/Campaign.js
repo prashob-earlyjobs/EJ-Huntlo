@@ -6,6 +6,7 @@ const campaignContactSchema = new mongoose.Schema(
     candidateId: { type: String, default: "", trim: true },
     name: { type: String, default: "", trim: true },
     email: { type: String, default: "", trim: true },
+    phone: { type: String, default: "", trim: true },
     role: { type: String, default: "", trim: true },
     company: { type: String, default: "", trim: true },
     location: { type: String, default: "", trim: true },
@@ -25,6 +26,17 @@ const campaignSchema = new mongoose.Schema(
       index: true,
     },
     name: { type: String, trim: true, required: true },
+    outreachPlanId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "OutreachPlan",
+      default: null,
+    },
+    outreachStatus: {
+      type: String,
+      enum: ["idle", "active", "paused", "completed"],
+      default: "idle",
+    },
+    outreachStartedAt: { type: Date, default: null },
     contacts: {
       type: [campaignContactSchema],
       default: [],

@@ -13,6 +13,7 @@ function parseContact(raw: unknown): CampaignContact | null {
     candidateId: typeof o.candidateId === "string" ? o.candidateId : "",
     name: typeof o.name === "string" ? o.name : "",
     email: typeof o.email === "string" ? o.email : "",
+    phone: typeof o.phone === "string" ? o.phone : "",
     role: typeof o.role === "string" ? o.role : "",
     company: typeof o.company === "string" ? o.company : "",
     location: typeof o.location === "string" ? o.location : "",
@@ -42,14 +43,58 @@ function parseCampaign(raw: unknown): CampaignRecord | null {
       : o.createdAt
         ? new Date(String(o.createdAt)).toISOString()
         : new Date().toISOString();
-  return { id, name, createdAt, contacts };
+  const outreachPlanId =
+    typeof o.outreachPlanId === "string" && o.outreachPlanId.trim()
+      ? o.outreachPlanId.trim()
+      : undefined;
+  return { id, name, createdAt, contacts, ...(outreachPlanId ? { outreachPlanId } : {}) };
+}
+
+export async function setCampaignOutreachPlan(
+  token: string,
+  campaignId: string,
+  outreachPlanId: string | null
+): Promise<CampaignRecord> {
+  const res = await fetch(`${apiBase()}/api/campaigns/${campaignId}/outreach-plan`, {
+    method: "PATCH",
+    headers: authHeaders(token),
+    body: JSON.stringify({ outreachPlanId }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.success) {
+    throw new Error(
+      typeof data.message === "string" ? data.message : "Failed to link sequence to campaign"
+    );
+  }
+  const campaign = parseCampaign(data.campaign);
+  if (!campaign) throw new Error("Invalid campaign response");
+  return campaign;
+}
+
+export async function syncCampaignRevealedContacts(
+  token: string,
+  campaignId: string
+): Promise<CampaignRecord> {
+  const res = await fetch(`${apiBase()}/api/campaigns/${campaignId}/contacts/sync-revealed`, {
+    method: "POST",
+    headers: authHeaders(token),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.success) {
+    throw new Error(
+      typeof data.message === "string" ? data.message : "Failed to sync revealed contacts"
+    );
+  }
+  const campaign = parseCampaign(data.campaign);
+  if (!campaign) throw new Error("Invalid campaign response");
+  return campaign;
 }
 
 export async function fetchCampaign(token: string, campaignId: string): Promise<CampaignRecord> {
   const res = await fetch(`${apiBase()}/api/campaigns/${campaignId}`, {
     headers: authHeaders(token),
   });
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.success) {
     throw new Error(typeof data.message === "string" ? data.message : "Failed to load campaign");
   }
@@ -62,7 +107,7 @@ export async function fetchCampaigns(token: string): Promise<CampaignRecord[]> {
   const res = await fetch(`${apiBase()}/api/campaigns`, {
     headers: authHeaders(token),
   });
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.success) {
     throw new Error(typeof data.message === "string" ? data.message : "Failed to load campaigns");
   }
@@ -75,33 +120,51 @@ export async function fetchCampaigns(token: string): Promise<CampaignRecord[]> {
 export async function createCampaign(
   token: string,
   name: string,
-  contacts: CampaignContact[] = []
-): Promise<CampaignRecord> {
+  contacts: CampaignContact[] = [],
+  options?: { revealInBackground?: boolean }
+): Promise<{ campaign: CampaignRecord; revealJobId: string | null }> {
   const res = await fetch(`${apiBase()}/api/campaigns`, {
     method: "POST",
     headers: authHeaders(token),
-    body: JSON.stringify({ name, contacts }),
+    body: JSON.stringify({
+      name,
+      contacts,
+      revealInBackground: options?.revealInBackground !== false,
+    }),
   });
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.success) {
     throw new Error(typeof data.message === "string" ? data.message : "Failed to create campaign");
   }
   const campaign = parseCampaign(data.campaign);
   if (!campaign) throw new Error("Invalid campaign response");
-  return campaign;
+  const revealJobId =
+    data.revealJob && typeof data.revealJob === "object" && typeof data.revealJob.id === "string"
+      ? data.revealJob.id
+      : null;
+  return { campaign, revealJobId };
 }
 
 export async function addContactsToCampaignApi(
   token: string,
   campaignId: string,
-  contacts: CampaignContact[]
-): Promise<{ campaign: CampaignRecord; addedCount: number; skippedCount: number }> {
+  contacts: CampaignContact[],
+  options?: { revealInBackground?: boolean }
+): Promise<{
+  campaign: CampaignRecord;
+  addedCount: number;
+  skippedCount: number;
+  revealJobId: string | null;
+}> {
   const res = await fetch(`${apiBase()}/api/campaigns/${campaignId}/contacts`, {
     method: "POST",
     headers: authHeaders(token),
-    body: JSON.stringify({ contacts }),
+    body: JSON.stringify({
+      contacts,
+      revealInBackground: options?.revealInBackground !== false,
+    }),
   });
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.success) {
     throw new Error(typeof data.message === "string" ? data.message : "Failed to add contacts");
   }
@@ -109,5 +172,9 @@ export async function addContactsToCampaignApi(
   if (!campaign) throw new Error("Invalid campaign response");
   const addedCount = typeof data.addedCount === "number" ? data.addedCount : 0;
   const skippedCount = typeof data.skippedCount === "number" ? data.skippedCount : 0;
-  return { campaign, addedCount, skippedCount };
+  const revealJobId =
+    data.revealJob && typeof data.revealJob === "object" && typeof data.revealJob.id === "string"
+      ? data.revealJob.id
+      : null;
+  return { campaign, addedCount, skippedCount, revealJobId };
 }

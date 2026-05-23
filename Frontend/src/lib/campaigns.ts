@@ -3,6 +3,7 @@ export type CampaignContact = {
   candidateId: string;
   name: string;
   email: string;
+  phone: string;
   role: string;
   company: string;
   location: string;
@@ -15,5 +16,7 @@ export type CampaignRecord = {
   id: string;
   name: string;
   createdAt: string;
+  /** Linked outreach sequence for the campaign editor. */
+  outreachPlanId?: string;
   contacts: CampaignContact[];
 };

@@ -320,7 +320,9 @@ export function MyProfilePanel({
                 <span className="font-medium text-[var(--dash-on-surface)]">
                   {peopleScoutProfileName}
                 </span>
-                {peopleScoutLoading ? " (loading…)" : ""}
+                {peopleScoutLoading ? (
+                  <span className="dashboard-shimmer ml-1 inline-block h-3 w-16 align-middle rounded" />
+                ) : null}
               </p>
             </div>
           ) : null}
