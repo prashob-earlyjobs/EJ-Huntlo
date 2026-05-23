@@ -3922,62 +3922,66 @@ export default function UserDashboardPage() {
                   </div>
                   <div className="dashboard-results-toolbar-actions">
                     {sessionResultDocs.length > 0 ? (
-                      <span className="dashboard-badge tabular-nums">
-                        {sessionResultDocs.length.toLocaleString()} candidate
-                        {sessionResultDocs.length === 1 ? "" : "s"}
-                      </span>
-                    ) : null}
-                    {sessionResultDocs.length > 0 ? (
-                      <>
+                      <div className="dashboard-results-toolbar-meta">
+                        <span className="dashboard-results-toolbar-badge tabular-nums">
+                          {sessionResultDocs.length.toLocaleString()} candidate
+                          {sessionResultDocs.length === 1 ? "" : "s"}
+                        </span>
                         {sessionResultSelectedKeys.length > 0 ? (
-                          <span className="dashboard-badge tabular-nums">
+                          <span className="dashboard-results-toolbar-badge dashboard-results-toolbar-badge--selected tabular-nums">
                             {sessionResultSelectedKeys.length} selected
                           </span>
                         ) : null}
-                        {sessionResultSelectedKeys.length > 0 ? (
-                          <button
-                            type="button"
-                            onClick={openAddToCampaignModal}
-                            className="dashboard-btn-primary px-3 py-1.5 text-xs"
-                          >
-                            <MaterialIcon name="flag" className="text-sm" />
-                            Add to campaign
-                          </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          onClick={toggleSelectAllSessionResults}
-                          className="dashboard-btn-secondary px-3 py-1.5 text-xs"
-                        >
-                          <MaterialIcon
-                            name={
-                              allVisibleSessionResultsSelected
-                                ? "check_box"
-                                : "check_box_outline_blank"
-                            }
-                            className="text-sm"
-                          />
-                          {allVisibleSessionResultsSelected ? "Deselect all" : "Select all"}
-                        </button>
-                        {sessionResultSelectedKeys.length > 0 ? (
-                          <button
-                            type="button"
-                            onClick={clearSessionResultSelection}
-                            className="dashboard-btn-secondary px-3 py-1.5 text-xs"
-                          >
-                            Clear
-                          </button>
-                        ) : null}
-                      </>
+                      </div>
                     ) : null}
-                    <button
-                      type="button"
-                      onClick={() => setIsFilterDrawerOpen(true)}
-                      className="dashboard-btn-secondary px-3 py-1.5 text-xs"
-                    >
-                      <MaterialIcon name="tune" className="text-sm" />
-                      Edit filter
-                    </button>
+                    <div className="dashboard-results-toolbar-buttons">
+                      {sessionResultDocs.length > 0 ? (
+                        <>
+                          {sessionResultSelectedKeys.length > 0 ? (
+                            <button
+                              type="button"
+                              onClick={openAddToCampaignModal}
+                              className="dashboard-btn-primary"
+                            >
+                              <MaterialIcon name="flag" aria-hidden />
+                              Add to campaign
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={toggleSelectAllSessionResults}
+                            className="dashboard-btn-secondary"
+                          >
+                            <MaterialIcon
+                              name={
+                                allVisibleSessionResultsSelected
+                                  ? "check_box"
+                                  : "check_box_outline_blank"
+                              }
+                              aria-hidden
+                            />
+                            {allVisibleSessionResultsSelected ? "Deselect all" : "Select all"}
+                          </button>
+                          {sessionResultSelectedKeys.length > 0 ? (
+                            <button
+                              type="button"
+                              onClick={clearSessionResultSelection}
+                              className="dashboard-btn-secondary"
+                            >
+                              Clear
+                            </button>
+                          ) : null}
+                        </>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => setIsFilterDrawerOpen(true)}
+                        className="dashboard-btn-secondary"
+                      >
+                        <MaterialIcon name="tune" aria-hidden />
+                        Edit filter
+                      </button>
+                    </div>
                   </div>
                 </div>
                 </div>

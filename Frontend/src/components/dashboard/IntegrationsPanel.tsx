@@ -4,11 +4,14 @@ import { useCallback, useEffect, useState } from "react";
 import { useGoogleLogin } from "@react-oauth/google";
 
 import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
+import {
+  WhatsAppConnectModal,
+  type WhatsAppConnectFormValues,
+} from "@/components/dashboard/WhatsAppConnectModal";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { authHeaders, getStoredAuth } from "@/lib/auth";
 
 const ENTERPRISE_PLAN_ID = "enterprise";
-const AVAILABLE_INTEGRATION_COUNT = 3;
 const ENTERPRISE_LOCKED_MESSAGE =
   "Integrations are available on the Enterprise plan only. Upgrade to connect Gmail, WhatsApp, and Google Calendar.";
 
@@ -44,8 +47,7 @@ const CONNECT_OPTIONS: ConnectOption[] = [
     name: "WhatsApp",
     provider: "Meta",
     description: "Message candidates on WhatsApp from your workspace.",
-    connectable: false,
-    comingSoon: true,
+    connectable: true,
   },
 ];
 
@@ -71,8 +73,7 @@ function ConnectOptionCard({
       onLocked();
       return;
     }
-    if (option.comingSoon) return;
-    if (!connected && option.connectable) onConnect();
+    if (!connected) onConnect();
   };
 
   return (
@@ -123,11 +124,11 @@ function ConnectOptionCard({
       <p className="dashboard-integration-desc">{option.description}</p>
       <p className="dashboard-integration-provider-label">{option.provider}</p>
 
-      {!connected && !option.comingSoon ? (
+      {!connected ? (
         <button
           type="button"
           onClick={handleClick}
-          disabled={(busy && option.connectable) || (!locked && !option.connectable)}
+          disabled={busy}
           className={
             locked
               ? "dashboard-btn-secondary mt-auto w-full justify-center"
@@ -166,6 +167,7 @@ export function IntegrationsPanel({ currentPlanId, onViewPlans }: Props) {
   const [integrations, setIntegrations] = useState<IntegrationRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [busyProvider, setBusyProvider] = useState<string | null>(null);
+  const [whatsappModalOpen, setWhatsappModalOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
   const connectedProviders = new Set(integrations.map((row) => row.provider));
@@ -261,6 +263,64 @@ export function IntegrationsPanel({ currentPlanId, onViewPlans }: Props) {
     gmailLogin();
   }, [isEnterprise, showEnterpriseNotice, gmailLogin]);
 
+  const handleConnectWhatsApp = useCallback(() => {
+    if (!isEnterprise) {
+      showEnterpriseNotice();
+      return;
+    }
+    setNotice("");
+    setWhatsappModalOpen(true);
+  }, [isEnterprise, showEnterpriseNotice]);
+
+  const handleWhatsAppSubmit = useCallback(
+    async (values: WhatsAppConnectFormValues) => {
+      setBusyProvider("whatsapp");
+      setNotice("");
+      try {
+        const auth = getStoredAuth();
+        if (!auth?.token) {
+          throw new Error("Please sign in again.");
+        }
+        const res = await fetch(`${apiBase}/api/integrations/whatsapp/connect`, {
+          method: "POST",
+          headers: authHeaders(auth.token),
+          body: JSON.stringify({
+            gupshupMode: values.gupshupMode,
+            gupshupUserId: values.gupshupUserId,
+            gupshupPassword: values.gupshupPassword,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(
+            typeof data.message === "string" ? data.message : "Failed to connect WhatsApp"
+          );
+        }
+        const row = data.integration as IntegrationRow | undefined;
+        if (row?.id) {
+          setIntegrations((prev) => {
+            const rest = prev.filter((r) => r.provider !== "whatsapp");
+            return [row, ...rest];
+          });
+        } else {
+          void loadIntegrations();
+        }
+        setWhatsappModalOpen(false);
+        const viaHuntlo = values.gupshupMode === "huntlo";
+        setNotice(
+          viaHuntlo
+            ? "Huntlo WhatsApp connected."
+            : `WhatsApp connected for Gupshup user ${values.gupshupUserId}.`
+        );
+      } catch (err) {
+        setNotice(err instanceof Error ? err.message : "Failed to connect WhatsApp.");
+      } finally {
+        setBusyProvider(null);
+      }
+    },
+    [apiBase, loadIntegrations]
+  );
+
   const handleDisconnect = useCallback(
     async (provider: string) => {
       if (!isEnterprise) return;
@@ -293,8 +353,6 @@ export function IntegrationsPanel({ currentPlanId, onViewPlans }: Props) {
     },
     [apiBase, isEnterprise]
   );
-
-  const connectedCount = isEnterprise ? integrations.length : 0;
 
   return (
     <section className="dashboard-card dashboard-card--fill flex h-full min-w-0 max-w-full w-full flex-col p-6">
@@ -334,35 +392,27 @@ export function IntegrationsPanel({ currentPlanId, onViewPlans }: Props) {
                 busy={busyProvider === option.id}
                 onLocked={showEnterpriseNotice}
                 onConnect={
-                  option.id === "gmail" ? handleConnectGmail : () => undefined
+                  option.id === "gmail"
+                    ? handleConnectGmail
+                    : option.id === "whatsapp"
+                      ? handleConnectWhatsApp
+                      : () => undefined
                 }
               />
             ))}
           </div>
         </div>
 
-        <div className="dashboard-integration-summary">
-          {isEnterprise ? (
-            <>
-              <span className="dashboard-integration-summary-stat tabular-nums">
-                {connectedCount} of {AVAILABLE_INTEGRATION_COUNT} connected
-              </span>
-              <p className="dashboard-text-body">
-                Connect Gmail from the cards above. WhatsApp is planned next; Google Calendar
-                will follow.
-              </p>
-            </>
-          ) : (
-            <>
-              <span className="dashboard-integration-summary-stat">
-                Available on Enterprise plan
-              </span>
-              <p className="dashboard-text-body">
-                Upgrade to unlock Gmail, WhatsApp, and Google Calendar integrations.
-              </p>
-            </>
-          )}
-        </div>
+        {!isEnterprise ? (
+          <div className="dashboard-integration-summary">
+            <span className="dashboard-integration-summary-stat">
+              Available on Enterprise plan
+            </span>
+            <p className="dashboard-text-body">
+              Upgrade to unlock Gmail, WhatsApp, and Google Calendar integrations.
+            </p>
+          </div>
+        ) : null}
 
         {notice ? (
           <div className="dashboard-integration-notice-wrap">
@@ -409,7 +459,7 @@ export function IntegrationsPanel({ currentPlanId, onViewPlans }: Props) {
               ) : integrations.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="dashboard-pricing-table-empty">
-                    No integrations connected yet. Use Connect on the Gmail card above.
+                    No integrations connected yet. Use Connect on the cards above.
                   </td>
                 </tr>
               ) : (
@@ -472,6 +522,16 @@ export function IntegrationsPanel({ currentPlanId, onViewPlans }: Props) {
           </table>
         </div>
       </div>
+
+      <WhatsAppConnectModal
+        open={whatsappModalOpen}
+        busy={busyProvider === "whatsapp"}
+        onClose={() => {
+          if (busyProvider === "whatsapp") return;
+          setWhatsappModalOpen(false);
+        }}
+        onSubmit={(values) => void handleWhatsAppSubmit(values)}
+      />
     </section>
   );
 }

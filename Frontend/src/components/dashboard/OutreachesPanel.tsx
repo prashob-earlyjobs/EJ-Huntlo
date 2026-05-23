@@ -120,11 +120,6 @@ export function OutreachesPanel({
   const handleCreateOutreachChoice = async (choice: CreateOutreachChoice) => {
     setCreateOutreachOpen(false);
 
-    if (choice.type === "ai") {
-      setNotice("AI outreach generation is coming soon.");
-      return;
-    }
-
     if (choice.type === "scratch") {
       const today = new Date().toLocaleDateString(undefined, {
         month: "2-digit",

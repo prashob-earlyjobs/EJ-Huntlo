@@ -12,14 +12,24 @@ const userIntegrationSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
-      enum: ["gmail"],
+      enum: ["gmail", "whatsapp"],
     },
     email: { type: String, trim: true, default: "" },
     senderName: { type: String, trim: true, default: "" },
-    accessToken: { type: String, required: true },
+    /** Gmail OAuth access token only. */
+    accessToken: { type: String, default: "" },
+    /** Gmail OAuth refresh token, or Gupshup password when provider is whatsapp. */
     refreshToken: { type: String, default: "" },
     tokenExpiry: { type: Date, default: null },
     scopes: { type: [String], default: [] },
+    /** Gupshup WhatsApp: existing (user credentials) | huntlo (platform-managed). */
+    gupshupMode: {
+      type: String,
+      enum: ["", "existing", "huntlo"],
+      default: "",
+    },
+    gupshupUserId: { type: String, trim: true, default: "" },
+    gupshupAppName: { type: String, trim: true, default: "" },
   },
   { timestamps: true }
 );

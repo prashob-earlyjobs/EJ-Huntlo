@@ -1,9 +1,13 @@
 const mongoose = require("mongoose");
 const {
   connectGmail,
+  connectWhatsAppGupshup,
+  verifyWhatsAppGupshupCredentials,
   getGmailStatus,
+  getWhatsAppStatus,
   listUserIntegrations,
   disconnectGmail,
+  disconnectWhatsApp,
   disconnectIntegration,
 } = require("../services/integrationService");
 
@@ -70,6 +74,84 @@ const connectGmailWithAuthCode = async (req, res) => {
   }
 };
 
+const getWhatsAppStatusHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) {
+      return invalidSession(res);
+    }
+    const status = await getWhatsAppStatus(uid);
+    return res.status(200).json({ success: true, ...status });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to load WhatsApp status",
+    });
+  }
+};
+
+/** POST /api/integrations/whatsapp/verify — test credentials before connect */
+const verifyWhatsAppCredentialsHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) {
+      return invalidSession(res);
+    }
+
+    const result = await verifyWhatsAppGupshupCredentials(req.body || {});
+    return res.status(200).json({
+      success: true,
+      verified: result.verified,
+      mode: result.mode,
+      message: result.message,
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 400).json({
+      success: false,
+      verified: false,
+      message: error.message || "Credential verification failed",
+    });
+  }
+};
+
+/** POST /api/integrations/whatsapp/connect */
+const connectWhatsAppHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) {
+      return invalidSession(res);
+    }
+
+    const integration = await connectWhatsAppGupshup(uid, req.body || {});
+    return res.status(200).json({
+      success: true,
+      integration,
+      message: "WhatsApp connected",
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Failed to connect WhatsApp",
+    });
+  }
+};
+
+const disconnectWhatsAppHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) {
+      return invalidSession(res);
+    }
+    await disconnectWhatsApp(uid);
+    return res.status(200).json({ success: true, message: "WhatsApp disconnected" });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to disconnect WhatsApp",
+    });
+  }
+};
+
 const disconnectGmailHandler = async (req, res) => {
   try {
     const uid = req.auth?.userId;
@@ -109,7 +191,11 @@ const disconnectIntegrationHandler = async (req, res) => {
 module.exports = {
   listIntegrationsHandler,
   getGmailStatusHandler,
+  getWhatsAppStatusHandler,
   connectGmailWithAuthCode,
+  verifyWhatsAppCredentialsHandler,
+  connectWhatsAppHandler,
   disconnectGmailHandler,
+  disconnectWhatsAppHandler,
   disconnectIntegrationHandler,
 };

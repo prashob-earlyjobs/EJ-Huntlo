@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 import {
   OutreachSequencePicker,
@@ -35,6 +35,8 @@ const CAMPAIGN_TABS: CampaignWorkspaceTab[] = [
   "Settings",
 ];
 
+const COMING_SOON_TABS = new Set<CampaignWorkspaceTab>(["Activity", "Report", "Settings"]);
+
 type EditorState = {
   planId: string | "new";
   planName: string;
@@ -68,6 +70,93 @@ function formatAddedAt(iso: string) {
   } catch {
     return "";
   }
+}
+
+function CampaignContactsList({
+  contacts,
+  loading,
+  error,
+  emptyIcon,
+  emptyMessage,
+  showEmail,
+}: {
+  contacts: CampaignContact[];
+  loading: boolean;
+  error?: string;
+  emptyIcon: string;
+  emptyMessage: ReactNode;
+  showEmail?: boolean;
+}) {
+  if (loading) {
+    return <p className="dashboard-text-body py-12 text-center">Loading contacts…</p>;
+  }
+  if (error) {
+    return <p className="dashboard-alert-error py-12 text-center text-sm">{error}</p>;
+  }
+  if (contacts.length === 0) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 py-12 text-center">
+        <MaterialIcon name={emptyIcon} className="text-4xl text-slate-400" />
+        <p className="dashboard-text-body max-w-md">{emptyMessage}</p>
+      </div>
+    );
+  }
+
+  const sorted = [...contacts].sort(
+    (a, b) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime()
+  );
+
+  return (
+    <ul className="flex flex-col gap-2 p-1">
+      {sorted.map((contact) => {
+        const subtitle = showEmail
+          ? [contact.role, contact.company].filter(Boolean).join(" · ")
+          : [contact.role, contact.company, contact.location].filter(Boolean).join(" · ");
+        const email = contact.email.trim();
+
+        return (
+          <li
+            key={contact.candidateKey}
+            className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 transition hover:border-[#0050cb]/40 hover:bg-[#f8f9ff]"
+          >
+            <span
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#0050cb]/10 text-xs font-semibold text-[#0050cb]"
+              aria-hidden
+            >
+              {contactInitial(contact.name)}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-[#141b2b]">
+                {contact.name.trim() || "Unnamed contact"}
+              </p>
+              {subtitle ? (
+                <p className="mt-0.5 text-xs text-slate-500">{subtitle}</p>
+              ) : showEmail ? null : (
+                <p className="mt-0.5 text-xs italic text-slate-400">No details</p>
+              )}
+              {showEmail ? (
+                email ? (
+                  <a
+                    href={`mailto:${email}`}
+                    className="mt-1 block text-sm text-[#0050cb] hover:underline"
+                  >
+                    {email}
+                  </a>
+                ) : (
+                  <p className="mt-1 text-sm italic text-slate-400">No email on file</p>
+                )
+              ) : null}
+            </div>
+            {contact.addedAt ? (
+              <span className="shrink-0 pt-0.5 text-[11px] text-slate-400">
+                Added {formatAddedAt(contact.addedAt)}
+              </span>
+            ) : null}
+          </li>
+        );
+      })}
+    </ul>
+  );
 }
 
 export function CampaignWorkspace({ campaign, onBack, onCampaignUpdated }: Props) {
@@ -178,11 +267,6 @@ export function CampaignWorkspace({ campaign, onBack, onCampaignUpdated }: Props
   };
 
   const handleSequenceChoice = async (choice: CreateOutreachChoice) => {
-    if (choice.type === "ai") {
-      setEditorNotice("AI outreach generation is coming soon.");
-      return;
-    }
-
     if (choice.type === "scratch") {
       openEditor({
         planId: "new",
@@ -256,22 +340,26 @@ export function CampaignWorkspace({ campaign, onBack, onCampaignUpdated }: Props
   };
 
   return (
-    <section className="dashboard-campaign-workspace flex h-full min-h-0 min-w-0 w-full flex-col">
-      <header className="dashboard-campaign-workspace-header shrink-0">
-        <div className="dashboard-campaign-workspace-title-row">
+    <section className="flex h-full min-h-0 min-w-0 w-full flex-col overflow-hidden rounded-[inherit] bg-white">
+      <header className="shrink-0 border-b border-slate-200 bg-white px-4 py-3 sm:px-6">
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={onBack}
-            className="dashboard-campaign-workspace-back"
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-600 transition hover:bg-slate-100 hover:text-[#141b2b]"
             aria-label="Back to campaigns"
           >
             <MaterialIcon name="arrow_back" className="text-xl" />
           </button>
-          <h1 className="dashboard-campaign-workspace-title">{campaign.name}</h1>
+          <h1 className="dashboard-section-title min-w-0 flex-1 truncate text-lg">
+            {campaign.name}
+          </h1>
           <button
             type="button"
             onClick={() => setStarred((v) => !v)}
-            className={`dashboard-campaign-workspace-star${starred ? " dashboard-campaign-workspace-star--on" : ""}`}
+            className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition hover:bg-slate-100 ${
+              starred ? "text-amber-500" : "text-slate-500"
+            }`}
             aria-label={starred ? "Remove from favorites" : "Add to favorites"}
             aria-pressed={starred}
           >
@@ -279,25 +367,33 @@ export function CampaignWorkspace({ campaign, onBack, onCampaignUpdated }: Props
           </button>
         </div>
 
-        <nav className="dashboard-campaign-workspace-tabs" aria-label="Campaign sections">
-          {CAMPAIGN_TABS.map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              role="tab"
-              aria-selected={activeTab === tab}
-              className={`dashboard-campaign-workspace-tab${
-                activeTab === tab ? " dashboard-campaign-workspace-tab--active" : ""
-              }`}
-              onClick={() => setActiveTab(tab)}
-            >
-              {tab}
-            </button>
-          ))}
+        <nav
+          className="mt-3 flex gap-1 overflow-x-auto pb-0.5"
+          aria-label="Campaign sections"
+        >
+          {CAMPAIGN_TABS.map((tab) => {
+            const active = activeTab === tab;
+            return (
+              <button
+                key={tab}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                className={`shrink-0 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+                  active
+                    ? "bg-[#0050cb]/10 text-[#0050cb]"
+                    : "text-slate-600 hover:bg-slate-100 hover:text-[#141b2b]"
+                }`}
+                onClick={() => setActiveTab(tab)}
+              >
+                {tab}
+              </button>
+            );
+          })}
         </nav>
       </header>
 
-      <div className="dashboard-campaign-workspace-body flex min-h-0 flex-1 flex-col">
+      <div className="flex min-h-0 flex-1 flex-col bg-[#f8f9fc]">
         {activeTab === "Editor" ? (
           editorPhase === "editing" && editor ? (
             <OutreachPlanEditor
@@ -312,152 +408,63 @@ export function CampaignWorkspace({ campaign, onBack, onCampaignUpdated }: Props
               }}
             />
           ) : (
-            <div className="dashboard-campaign-editor-choose">
+            <div className="dashboard-outreach-scroll flex flex-1 flex-col items-center overflow-auto px-4 py-6 sm:px-8">
               {editorNotice ? (
-                <p className="dashboard-alert-notice mb-3 shrink-0 text-sm">{editorNotice}</p>
+                <p className="dashboard-alert-notice mb-4 w-full max-w-xl shrink-0 text-sm">
+                  {editorNotice}
+                </p>
               ) : null}
-              <OutreachSequencePicker
-                existingPlans={modalPlans}
-                plansLoading={modalPlansLoading}
-                templates={modalTemplates}
-                templatesLoading={modalTemplatesLoading}
-                lead="Create or select a sequence for this campaign"
-                onChoose={(choice) => void handleSequenceChoice(choice)}
-              />
+              <div className="w-full max-w-xl">
+                <OutreachSequencePicker
+                  variant="modal"
+                  existingPlans={modalPlans}
+                  plansLoading={modalPlansLoading}
+                  templates={modalTemplates}
+                  templatesLoading={modalTemplatesLoading}
+                  lead="Create or select a sequence for this campaign"
+                  onChoose={(choice) => void handleSequenceChoice(choice)}
+                />
+              </div>
             </div>
           )
-        ) : activeTab === "Emails" ? (
-          <div className="dashboard-campaign-emails-panel flex min-h-0 flex-1 flex-col">
-            <div className="dashboard-campaign-emails-toolbar shrink-0">
-              <p className="dashboard-campaign-emails-summary">
-                {contacts.length} contact{contacts.length === 1 ? "" : "s"} in this campaign
-              </p>
-            </div>
-            <div className="dashboard-campaign-emails-scroll flex min-h-0 flex-1 flex-col">
-              {contactsLoading ? (
-                <p className="dashboard-campaign-workspace-placeholder py-12">Loading contacts…</p>
-              ) : contactsError ? (
-                <p className="dashboard-campaign-workspace-placeholder dashboard-campaign-workspace-placeholder--error py-12">
-                  {contactsError}
-                </p>
-              ) : contacts.length === 0 ? (
-                <div className="dashboard-campaign-workspace-placeholder-wrap">
-                  <MaterialIcon name="mail" className="mb-2 text-4xl text-[#80868b]" />
-                  <p className="dashboard-campaign-workspace-placeholder">
-                    No contacts yet. Add candidates from{" "}
-                    <span className="font-medium text-[#202124]">Session Results</span> using{" "}
-                    <span className="font-medium text-[#202124]">Add to campaign</span>.
-                  </p>
-                </div>
-              ) : (
-                <ul className="dashboard-campaign-emails-list">
-                  {[...contacts]
-                    .sort(
-                      (a, b) =>
-                        new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime()
-                    )
-                    .map((contact) => {
-                      const subtitle = [contact.role, contact.company]
-                        .filter(Boolean)
-                        .join(" · ");
-                      const email = contact.email.trim();
-                      return (
-                        <li key={contact.candidateKey} className="dashboard-campaign-emails-row">
-                          <span className="dashboard-campaign-emails-avatar" aria-hidden>
-                            {contactInitial(contact.name)}
-                          </span>
-                          <div className="dashboard-campaign-emails-main min-w-0 flex-1">
-                            <p className="dashboard-campaign-emails-name">
-                              {contact.name.trim() || "Unnamed contact"}
-                            </p>
-                            {subtitle ? (
-                              <p className="dashboard-campaign-emails-meta">{subtitle}</p>
-                            ) : null}
-                            {email ? (
-                              <a
-                                href={`mailto:${email}`}
-                                className="dashboard-campaign-emails-address"
-                              >
-                                {email}
-                              </a>
-                            ) : (
-                              <p className="dashboard-campaign-emails-address dashboard-campaign-emails-address--empty">
-                                No email on file
-                              </p>
-                            )}
-                          </div>
-                          {contact.addedAt ? (
-                            <span className="dashboard-campaign-emails-added">
-                              Added {formatAddedAt(contact.addedAt)}
-                            </span>
-                          ) : null}
-                        </li>
-                      );
-                    })}
-                </ul>
-              )}
-            </div>
-          </div>
-        ) : activeTab === "Contacts" ? (
-          <div className="dashboard-campaign-emails-panel flex min-h-0 flex-1 flex-col">
-            <div className="dashboard-campaign-emails-toolbar shrink-0">
-              <p className="dashboard-campaign-emails-summary">
+        ) : activeTab === "Emails" || activeTab === "Contacts" ? (
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="shrink-0 border-b border-slate-200 bg-white px-4 py-3 sm:px-6">
+              <p className="text-sm text-slate-600">
                 {contacts.length} contact{contacts.length === 1 ? "" : "s"}
+                {activeTab === "Emails" ? " in this campaign" : ""}
               </p>
             </div>
-            <div className="dashboard-campaign-emails-scroll flex min-h-0 flex-1 flex-col">
-              {contactsLoading ? (
-                <p className="dashboard-campaign-workspace-placeholder py-12">Loading contacts…</p>
-              ) : contacts.length === 0 ? (
-                <div className="dashboard-campaign-workspace-placeholder-wrap">
-                  <MaterialIcon name="group" className="mb-2 text-4xl text-[#80868b]" />
-                  <p className="dashboard-campaign-workspace-placeholder">
-                    No contacts in this campaign yet.
-                  </p>
-                </div>
-              ) : (
-                <ul className="dashboard-campaign-emails-list">
-                  {[...contacts]
-                    .sort(
-                      (a, b) =>
-                        new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime()
-                    )
-                    .map((contact) => {
-                      const subtitle = [contact.role, contact.company, contact.location]
-                        .filter(Boolean)
-                        .join(" · ");
-                      return (
-                        <li key={contact.candidateKey} className="dashboard-campaign-emails-row">
-                          <span className="dashboard-campaign-emails-avatar" aria-hidden>
-                            {contactInitial(contact.name)}
-                          </span>
-                          <div className="dashboard-campaign-emails-main min-w-0 flex-1">
-                            <p className="dashboard-campaign-emails-name">
-                              {contact.name.trim() || "Unnamed contact"}
-                            </p>
-                            {subtitle ? (
-                              <p className="dashboard-campaign-emails-meta">{subtitle}</p>
-                            ) : (
-                              <p className="dashboard-campaign-emails-meta dashboard-campaign-emails-address--empty">
-                                No details
-                              </p>
-                            )}
-                          </div>
-                        </li>
-                      );
-                    })}
-                </ul>
-              )}
+            <div className="dashboard-outreach-scroll flex min-h-0 flex-1 flex-col overflow-auto px-4 py-4 sm:px-6">
+              <CampaignContactsList
+                contacts={contacts}
+                loading={contactsLoading}
+                error={activeTab === "Emails" ? contactsError : undefined}
+                emptyIcon={activeTab === "Emails" ? "mail" : "group"}
+                showEmail={activeTab === "Emails"}
+                emptyMessage={
+                  activeTab === "Emails" ? (
+                    <>
+                      No contacts yet. Add candidates from{" "}
+                      <span className="font-medium text-[#141b2b]">Session Results</span> using{" "}
+                      <span className="font-medium text-[#141b2b]">Add to campaign</span>.
+                    </>
+                  ) : (
+                    "No contacts in this campaign yet."
+                  )
+                }
+              />
             </div>
           </div>
-        ) : (
-          <div className="dashboard-campaign-workspace-placeholder-wrap">
-            <p className="dashboard-campaign-workspace-placeholder">
-              <span className="font-medium text-[#202124]">{activeTab}</span> for this campaign
+        ) : COMING_SOON_TABS.has(activeTab) ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-12 text-center">
+            <MaterialIcon name="construction" className="text-4xl text-slate-400" />
+            <p className="dashboard-text-body max-w-sm">
+              <span className="font-semibold text-[#141b2b]">{activeTab}</span> for this campaign
               is coming soon.
             </p>
           </div>
-        )}
+        ) : null}
       </div>
     </section>
   );

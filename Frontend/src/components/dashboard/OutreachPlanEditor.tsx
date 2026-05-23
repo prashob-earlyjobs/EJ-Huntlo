@@ -8,6 +8,11 @@ import { OutreachPillSelect } from "@/components/dashboard/OutreachPillSelect";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { authHeaders, getStoredAuth } from "@/lib/auth";
 import {
+  dashboardBtnPrimaryClass,
+  dashboardBtnSecondaryClass,
+  dashboardInputClass,
+} from "@/lib/dashboardStyles";
+import {
   createEmptyTouchpoint,
   type OutreachTouchpointDraft,
 } from "@/lib/outreachTemplates";
@@ -552,41 +557,80 @@ export function OutreachPlanEditor({
     railStepRefs.current[index] = el;
   };
 
+  const planTitleEditor = (centered: boolean) => (
+    <div className={centered ? "mx-auto min-w-0 max-w-md text-center" : "min-w-0"}>
+      {editingTitle ? (
+        <input
+          type="text"
+          value={planName}
+          onChange={(e) => setPlanName(e.target.value)}
+          onBlur={() => setEditingTitle(false)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") setEditingTitle(false);
+          }}
+          autoFocus
+          className={`${dashboardInputClass} w-full max-w-md text-sm font-semibold`}
+        />
+      ) : (
+        <button
+          type="button"
+          className={`inline-flex max-w-full items-center gap-1.5 text-left hover:text-[#0050cb] ${
+            centered ? "justify-center" : ""
+          }`}
+          onClick={() => setEditingTitle(true)}
+        >
+          <span className="dashboard-section-title truncate text-base">{planName}</span>
+          <MaterialIcon name="edit" className="shrink-0 text-base text-slate-400" aria-hidden />
+        </button>
+      )}
+      <p className="mt-0.5 text-xs text-slate-500">
+        Created by {createdMeta.name} · {createdMeta.date}
+      </p>
+    </div>
+  );
+
   if (touchpoints.length === 0) return null;
 
   return (
     <section
-      className={`dashboard-outreach-builder flex min-h-0 min-w-0 w-full flex-1 flex-col${
+      className={`dashboard-outreach-builder flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden bg-[#f8f9fc]${
         embedded ? " dashboard-outreach-builder--embedded" : " dashboard-card dashboard-card--fill max-w-full"
       }`}
     >
       {embedded ? (
-        <div className="dashboard-outreach-builder-embedded-bar shrink-0">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 sm:px-6">
           <button
             type="button"
             onClick={onCancel}
-            className="dashboard-btn-secondary px-3 py-1.5 text-xs"
+            className={`${dashboardBtnSecondaryClass} inline-flex items-center gap-1.5 px-3 py-1.5 text-sm`}
           >
+            <MaterialIcon name="arrow_back" className="text-base" />
             Change sequence
           </button>
+          <div className="hidden min-w-0 flex-1 px-4 sm:block">{planTitleEditor(true)}</div>
           <button
             type="button"
             onClick={() => void savePlan()}
             disabled={saving}
-            className="dashboard-btn-primary px-3 py-1.5 text-xs disabled:opacity-55"
+            className={`${dashboardBtnPrimaryClass} px-4 py-1.5 text-sm disabled:opacity-55`}
           >
             {saving ? "Saving…" : "Save sequence"}
           </button>
         </div>
       ) : (
-        <header className="dashboard-outreach-builder-top">
-          <div className="dashboard-outreach-builder-top-row">
-            <h3 className="dashboard-outreach-builder-title">Create outreach</h3>
-            <div className="dashboard-outreach-builder-top-actions">
+        <header className="shrink-0 border-b border-slate-200 bg-white px-4 py-4 sm:px-6">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h3 className="dashboard-section-title text-lg">Create outreach</h3>
+              <p className="dashboard-text-body mt-1 text-sm">
+                Build your email sequence step by step.
+              </p>
+            </div>
+            <div className="flex shrink-0 gap-2">
               <button
                 type="button"
                 onClick={onCancel}
-                className="dashboard-btn-secondary dashboard-outreach-builder-cancel"
+                className={`${dashboardBtnSecondaryClass} px-4 py-2 text-sm`}
               >
                 Cancel
               </button>
@@ -594,51 +638,30 @@ export function OutreachPlanEditor({
                 type="button"
                 onClick={() => void savePlan()}
                 disabled={saving}
-                className="dashboard-btn-primary dashboard-outreach-builder-save disabled:opacity-55"
+                className={`${dashboardBtnPrimaryClass} px-4 py-2 text-sm disabled:opacity-55`}
               >
-                {saving ? "Saving…" : "Save"}
+                {saving ? "Saving…" : "Save outreach"}
               </button>
             </div>
           </div>
-
-          <div className="dashboard-outreach-builder-plan-meta">
-            {editingTitle ? (
-              <input
-                type="text"
-                value={planName}
-                onChange={(e) => setPlanName(e.target.value)}
-                onBlur={() => setEditingTitle(false)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") setEditingTitle(false);
-                }}
-                autoFocus
-                className="dashboard-input dashboard-outreach-builder-plan-input"
-              />
-            ) : (
-              <button
-                type="button"
-                className="dashboard-outreach-builder-plan-name"
-                onClick={() => setEditingTitle(true)}
-              >
-                {planName}
-                <MaterialIcon name="edit" className="text-base opacity-60" aria-hidden />
-              </button>
-            )}
-            <p className="dashboard-outreach-builder-created">
-              Created by {createdMeta.name} · {createdMeta.date}
-            </p>
-          </div>
+          <div className="mt-4 border-t border-slate-100 pt-4">{planTitleEditor(false)}</div>
         </header>
       )}
 
-      {error ? <p className="dashboard-alert-error dashboard-outreach-builder-error">{error}</p> : null}
+      {embedded ? (
+        <div className="border-b border-slate-200 bg-white px-4 py-3 sm:hidden">{planTitleEditor(false)}</div>
+      ) : null}
+
+      {error ? (
+        <p className="dashboard-alert-error mx-4 mt-3 shrink-0 text-sm sm:mx-6">{error}</p>
+      ) : null}
 
       <div className="dashboard-outreach-builder-body">
         <aside
           className="dashboard-outreach-builder-rail dashboard-outreach-scroll"
           aria-label="Outreach sequence"
         >
-          <p className="dashboard-outreach-builder-rail-title">Sequence</p>
+          <p className="dashboard-outreach-builder-rail-title">Sequence steps</p>
           <ol className="dashboard-outreach-flow" role="tablist" aria-label="Touchpoints">
             {touchpoints.map((tp, index) => {
               const canvasIndex = index + 1;
@@ -925,16 +948,28 @@ export function OutreachPlanEditor({
                       isActive ? " dashboard-outreach-builder-step-block--active" : ""
                     }`}
                   >
-                    <div className="dashboard-outreach-builder-step-head">
-                      <div className="dashboard-outreach-builder-step-head-right">
-                        <button type="button" className="dashboard-btn-secondary px-3 py-1.5 text-xs">
+                    <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                      <span className="inline-flex items-center gap-2 rounded-lg border border-[#0050cb]/15 bg-[#0050cb]/10 px-2.5 py-1 text-sm font-semibold text-[#0050cb]">
+                        <MaterialIcon
+                          name={tp.order === 1 ? "mail" : "reply"}
+                          className="text-[18px]"
+                          aria-hidden
+                        />
+                        {touchpointTypeLabel(tp.order)}
+                        <span className="font-normal text-[#0050cb]/70">· Step {tp.order}</span>
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          className={`${dashboardBtnSecondaryClass} px-3 py-1.5 text-xs`}
+                        >
                           Preview and test
                         </button>
                         {touchpoints.length > 1 ? (
                           <button
                             type="button"
                             onClick={() => requestRemoveTouchpoint(tp.order)}
-                            className="dashboard-outreach-builder-delete"
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
                             aria-label="Delete step"
                           >
                             <MaterialIcon name="delete" className="text-lg" />

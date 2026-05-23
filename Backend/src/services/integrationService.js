@@ -6,14 +6,34 @@ const {
   fetchGoogleEmail,
   getGoogleOAuthConfig,
 } = require("./googleGmailOAuth");
+const { isHuntloGupshupConfigured } = require("./gupshupConfig");
+const { normalizeGupshupSourceNumber } = require("./gupshupClient");
 
 const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 
 const PROVIDER_LABELS = {
   gmail: { integration: "Gmail", provider: "Google" },
+  whatsapp: { integration: "WhatsApp Business", provider: "Gupshup" },
 };
 
 function formatIntegrationRow(doc) {
+  if (doc.provider === "whatsapp") {
+    const viaHuntlo = doc.gupshupMode === "huntlo";
+    return {
+      id: String(doc._id),
+      provider: "whatsapp",
+      integration: "WhatsApp Business",
+      providerLabel: viaHuntlo ? "Huntlo" : "Gupshup",
+      senderName: doc.senderName || (viaHuntlo ? "Huntlo managed" : doc.gupshupUserId || ""),
+      email: doc.email || (viaHuntlo ? "Managed sender" : ""),
+      status: "connected",
+      gupshupMode: doc.gupshupMode || "",
+      gupshupUserId: viaHuntlo ? "" : doc.gupshupUserId || "",
+      gupshupAppName: viaHuntlo ? "" : doc.gupshupAppName || "",
+      connectedAt: doc.updatedAt || doc.createdAt,
+    };
+  }
+
   const labels = PROVIDER_LABELS[doc.provider] || {
     integration: doc.provider,
     provider: "—",
@@ -134,10 +154,225 @@ async function disconnectGmail(userId) {
   return disconnectIntegration(userId, "gmail");
 }
 
+async function saveWhatsAppIntegration(userOid, patch) {
+  let doc = await UserIntegration.findOne({ userId: userOid, provider: "whatsapp" });
+  if (doc) {
+    Object.assign(doc, patch);
+  } else {
+    doc = new UserIntegration({
+      userId: userOid,
+      provider: "whatsapp",
+      ...patch,
+    });
+  }
+  await doc.save();
+  return doc;
+}
+
+/**
+ * Test Gupshup credentials before connect (no DB write).
+ * TODO: replace stub with live Gupshup API credential check.
+ */
+async function verifyWhatsAppGupshupCredentials(body) {
+  const mode = body?.gupshupMode === "huntlo" ? "huntlo" : "existing";
+
+  if (mode === "huntlo") {
+    if (!isHuntloGupshupConfigured()) {
+      const err = new Error(
+        "Huntlo WhatsApp is not configured on the server. Contact support or use your own Gupshup account."
+      );
+      err.statusCode = 503;
+      throw err;
+    }
+    return {
+      verified: true,
+      mode: "huntlo",
+      message: "Huntlo WhatsApp is available.",
+    };
+  }
+
+  const gupshupUserId = String(body?.gupshupUserId || "").trim();
+  const gupshupPassword = String(body?.gupshupPassword || "");
+
+  if (!gupshupUserId) {
+    const err = new Error("Gupshup user ID is required.");
+    err.statusCode = 400;
+    throw err;
+  }
+  if (!gupshupPassword) {
+    const err = new Error("Gupshup password is required.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Stub: accept well-formed credentials until Gupshup verify API is wired.
+  return {
+    verified: true,
+    mode: "existing",
+    message: "Credentials look valid. You can connect WhatsApp.",
+  };
+}
+
+/**
+ * Connect WhatsApp via Gupshup (user-owned or Huntlo-managed credentials).
+ */
+async function connectWhatsAppGupshup(userId, body) {
+  const mode = body?.gupshupMode === "huntlo" ? "huntlo" : "existing";
+  const userOid = new mongoose.Types.ObjectId(userId);
+
+  if (mode === "huntlo") {
+    if (!isHuntloGupshupConfigured()) {
+      const err = new Error(
+        "Huntlo WhatsApp is not configured on the server. Contact support or use your own Gupshup account."
+      );
+      err.statusCode = 503;
+      throw err;
+    }
+
+    const doc = await saveWhatsAppIntegration(userOid, {
+      gupshupMode: "huntlo",
+      gupshupUserId: "",
+      gupshupAppName: "",
+      senderName: "Huntlo managed",
+      email: "Managed sender",
+      accessToken: "",
+      refreshToken: "",
+      tokenExpiry: null,
+      scopes: ["whatsapp"],
+    });
+
+    return formatIntegrationRow(doc.toObject ? doc.toObject() : doc);
+  }
+
+  const gupshupUserId = String(body?.gupshupUserId || "").trim();
+  const gupshupPassword = String(body?.gupshupPassword || "");
+  const gupshupAppName = String(body?.gupshupAppName || "").trim();
+  const phoneNumber = String(body?.phoneNumber || "").trim().replace(/\s/g, "");
+
+  if (!gupshupUserId) {
+    const err = new Error("Gupshup user ID is required.");
+    err.statusCode = 400;
+    throw err;
+  }
+  if (!gupshupPassword) {
+    const err = new Error("Gupshup password is required.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const doc = await saveWhatsAppIntegration(userOid, {
+    gupshupMode: "existing",
+    gupshupUserId,
+    gupshupAppName,
+    senderName: gupshupUserId,
+    email: phoneNumber,
+    accessToken: "",
+    refreshToken: gupshupPassword,
+    tokenExpiry: null,
+    scopes: ["whatsapp"],
+  });
+
+  return formatIntegrationRow(doc.toObject ? doc.toObject() : doc);
+}
+
+async function getWhatsAppStatus(userId) {
+  const userOid = new mongoose.Types.ObjectId(userId);
+  const doc = await UserIntegration.findOne({
+    userId: userOid,
+    provider: "whatsapp",
+  }).lean();
+
+  if (!doc) {
+    return {
+      connected: false,
+      configured: isHuntloGupshupConfigured(),
+      huntloAvailable: isHuntloGupshupConfigured(),
+    };
+  }
+
+  const viaHuntlo = doc.gupshupMode === "huntlo";
+
+  return {
+    connected: true,
+    configured: true,
+    huntloAvailable: isHuntloGupshupConfigured(),
+    mode: doc.gupshupMode || "existing",
+    senderName: doc.senderName || "",
+    phoneNumber: viaHuntlo ? "" : doc.email || "",
+    gupshupUserId: viaHuntlo ? "" : doc.gupshupUserId || "",
+    gupshupAppName: viaHuntlo ? "" : doc.gupshupAppName || "",
+    providerLabel: viaHuntlo ? "Huntlo" : "Gupshup",
+    connectedAt: doc.updatedAt || doc.createdAt,
+  };
+}
+
+async function disconnectWhatsApp(userId) {
+  return disconnectIntegration(userId, "whatsapp");
+}
+
+/**
+ * Resolve Gupshup credentials for outbound WhatsApp (used by future send service).
+ */
+async function getGupshupCredentialsForUser(userId) {
+  const { getHuntloGupshupConfig } = require("./gupshupConfig");
+  const userOid = new mongoose.Types.ObjectId(userId);
+  const doc = await UserIntegration.findOne({
+    userId: userOid,
+    provider: "whatsapp",
+  });
+
+  if (!doc) {
+    const err = new Error("WhatsApp is not connected. Connect WhatsApp under Integrations first.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (doc.gupshupMode === "huntlo") {
+    const platform = getHuntloGupshupConfig();
+    if (!platform) {
+      const err = new Error("Huntlo WhatsApp is not configured on the server.");
+      err.statusCode = 503;
+      throw err;
+    }
+    const source =
+      platform.sourceNumber ||
+      normalizeGupshupSourceNumber(doc.email) ||
+      "";
+    return {
+      mode: "huntlo",
+      userId: platform.userId,
+      password: platform.password,
+      appName: platform.appName,
+      sourceNumber: source,
+      displayName: doc.senderName || "Huntlo",
+    };
+  }
+
+  if (!doc.gupshupUserId || !doc.refreshToken) {
+    const err = new Error("WhatsApp Gupshup credentials are incomplete. Reconnect under Integrations.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  return {
+    mode: "existing",
+    userId: doc.gupshupUserId,
+    password: doc.refreshToken,
+    appName: doc.gupshupAppName || "",
+    sourceNumber: normalizeGupshupSourceNumber(doc.email),
+    displayName: doc.senderName || doc.gupshupUserId,
+  };
+}
+
 module.exports = {
   connectGmail,
+  connectWhatsAppGupshup,
+  verifyWhatsAppGupshupCredentials,
   getGmailStatus,
+  getWhatsAppStatus,
+  getGupshupCredentialsForUser,
   listUserIntegrations,
   disconnectGmail,
+  disconnectWhatsApp,
   disconnectIntegration,
 };

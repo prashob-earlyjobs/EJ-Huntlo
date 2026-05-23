@@ -66,6 +66,7 @@ export function CampaignsPanel({
   const createModal = (
     <CreateCampaignModal
       open={createOpen}
+      busy={createBusy}
       onClose={() => !createBusy && setCreateOpen(false)}
       onCreate={handleCreateCampaign}
     />
@@ -88,12 +89,17 @@ export function CampaignsPanel({
 
   return (
     <>
-      <section className="dashboard-card dashboard-card--fill dashboard-outreach-panel flex h-full min-w-0 max-w-full w-full flex-col">
-        <div className="dashboard-card-panel-header dashboard-outreach-panel-header flex flex-wrap items-center justify-between gap-3">
-          <h3 className="dashboard-outreach-panel-title flex items-center gap-1.5">
-            <MaterialIcon name="flag" className="text-base text-[#0050cb]" />
-            Campaigns
-          </h3>
+      <section className="dashboard-card dashboard-card--fill flex h-full min-w-0 max-w-full w-full flex-col p-6">
+        <div className="dashboard-card-panel-header flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="dashboard-section-title flex items-center gap-2">
+              <MaterialIcon name="flag" className="text-xl text-[#0050cb]" />
+              Campaigns
+            </h3>
+            <p className="dashboard-text-body mt-1">
+              Organize outreach sequences and contacts into reusable campaigns.
+            </p>
+          </div>
           <button
             type="button"
             disabled={!isEnterprise}
@@ -105,7 +111,7 @@ export function CampaignsPanel({
           </button>
         </div>
 
-        <div className="dashboard-card-body-scroll dashboard-outreach-panel-body flex flex-1 flex-col">
+        <div className="dashboard-card-body-scroll mt-4 flex flex-1 flex-col">
           {!isEnterprise ? (
             <div className="dashboard-integration-notice-wrap">
               <p className="dashboard-alert-notice">{ENTERPRISE_LOCKED_MESSAGE}</p>
@@ -118,48 +124,40 @@ export function CampaignsPanel({
               </button>
             </div>
           ) : campaignsLoading ? (
-            <p className="dashboard-outreach-panel-desc py-12 text-center text-sm text-[#5f6368]">
-              Loading campaigns…
-            </p>
+            <p className="dashboard-text-body py-12 text-center">Loading campaigns…</p>
           ) : campaigns.length === 0 ? (
-            <div className="dashboard-outreach-panel-desc flex flex-1 flex-col items-center justify-center gap-2 py-12 text-center">
-              <MaterialIcon name="flag" className="text-4xl text-[#80868b]" />
-              <p className="dashboard-outreach-panel-desc-title text-base font-semibold text-[#202124]">
-                No campaigns yet
-              </p>
-              <p className="max-w-sm text-sm text-[#5f6368]">
+            <div className="flex flex-1 flex-col items-center justify-center gap-2 py-12 text-center">
+              <MaterialIcon name="flag" className="text-4xl text-slate-400" />
+              <p className="text-base font-semibold text-[#141b2b]">No campaigns yet</p>
+              <p className="dashboard-text-body max-w-sm">
                 Create a campaign to group outreach plans and track sends across your pipeline.
               </p>
             </div>
           ) : (
-            <ul className="flex flex-col gap-2 p-1">
+            <ul className="flex flex-col gap-2">
               {campaigns.map((campaign) => (
                 <li key={campaign.id}>
                   <button
                     type="button"
                     onClick={() => setActiveCampaignId(campaign.id)}
-                    className="flex w-full items-center gap-3 rounded-lg border border-[#e8eaed] bg-white px-4 py-3 text-left transition-colors hover:border-[#d2e3fc] hover:bg-[#fafbff]"
+                    className="flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left transition hover:border-[#0050cb]/40 hover:bg-[#f8f9ff]"
                   >
                     <span
-                      className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#e8f0fe] text-[#0050cb]"
+                      className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-[#0050cb]/15 bg-[#0050cb]/10 text-[#0050cb]"
                       aria-hidden
                     >
                       <MaterialIcon name="flag" className="text-xl" />
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-[#202124]">
+                      <p className="truncate text-sm font-semibold text-[#141b2b]">
                         {campaign.name}
                       </p>
-                      <p className="truncate text-xs text-[#5f6368]">
+                      <p className="truncate text-xs text-slate-500">
                         {campaign.contacts.length} contact
                         {campaign.contacts.length === 1 ? "" : "s"}
                       </p>
                     </div>
-                    <MaterialIcon
-                      name="chevron_right"
-                      className="shrink-0 text-[#9aa0a6]"
-                      aria-hidden
-                    />
+                    <MaterialIcon name="chevron_right" className="shrink-0 text-slate-400" aria-hidden />
                   </button>
                 </li>
               ))}
