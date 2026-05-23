@@ -3,11 +3,15 @@ const {
   connectGmail,
   connectWhatsAppGupshup,
   verifyWhatsAppGupshupCredentials,
+  connectCalendly,
+  verifyCalendlyCredentials,
   getGmailStatus,
   getWhatsAppStatus,
+  getCalendlyStatus,
   listUserIntegrations,
   disconnectGmail,
   disconnectWhatsApp,
+  disconnectCalendly,
   disconnectIntegration,
 } = require("../services/integrationService");
 
@@ -136,6 +140,84 @@ const connectWhatsAppHandler = async (req, res) => {
   }
 };
 
+const getCalendlyStatusHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) {
+      return invalidSession(res);
+    }
+    const status = await getCalendlyStatus(uid);
+    return res.status(200).json({ success: true, ...status });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to load Calendly status",
+    });
+  }
+};
+
+/** POST /api/integrations/calendly/verify */
+const verifyCalendlyCredentialsHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) {
+      return invalidSession(res);
+    }
+
+    const result = await verifyCalendlyCredentials(req.body || {});
+    return res.status(200).json({
+      success: true,
+      verified: result.verified,
+      message: result.message,
+      user: result.user,
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 400).json({
+      success: false,
+      verified: false,
+      message: error.message || "Credential verification failed",
+    });
+  }
+};
+
+/** POST /api/integrations/calendly/connect */
+const connectCalendlyHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) {
+      return invalidSession(res);
+    }
+
+    const integration = await connectCalendly(uid, req.body || {});
+    return res.status(200).json({
+      success: true,
+      integration,
+      message: "Calendly connected",
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Failed to connect Calendly",
+    });
+  }
+};
+
+const disconnectCalendlyHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) {
+      return invalidSession(res);
+    }
+    await disconnectCalendly(uid);
+    return res.status(200).json({ success: true, message: "Calendly disconnected" });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to disconnect Calendly",
+    });
+  }
+};
+
 const disconnectWhatsAppHandler = async (req, res) => {
   try {
     const uid = req.auth?.userId;
@@ -192,10 +274,14 @@ module.exports = {
   listIntegrationsHandler,
   getGmailStatusHandler,
   getWhatsAppStatusHandler,
+  getCalendlyStatusHandler,
   connectGmailWithAuthCode,
   verifyWhatsAppCredentialsHandler,
   connectWhatsAppHandler,
+  verifyCalendlyCredentialsHandler,
+  connectCalendlyHandler,
   disconnectGmailHandler,
   disconnectWhatsAppHandler,
+  disconnectCalendlyHandler,
   disconnectIntegrationHandler,
 };

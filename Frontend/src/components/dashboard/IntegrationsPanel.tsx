@@ -5,6 +5,10 @@ import { useGoogleLogin } from "@react-oauth/google";
 
 import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
 import {
+  CalendlyConnectModal,
+  type CalendlyConnectFormValues,
+} from "@/components/dashboard/CalendlyConnectModal";
+import {
   WhatsAppConnectModal,
   type WhatsAppConnectFormValues,
 } from "@/components/dashboard/WhatsAppConnectModal";
@@ -13,7 +17,7 @@ import { authHeaders, getStoredAuth } from "@/lib/auth";
 
 const ENTERPRISE_PLAN_ID = "enterprise";
 const ENTERPRISE_LOCKED_MESSAGE =
-  "Integrations are available on the Enterprise plan only. Upgrade to connect Gmail, WhatsApp, and Google Calendar.";
+  "Integrations are available on the Enterprise plan only. Upgrade to connect Gmail, WhatsApp, Calendly, and LinkedIn.";
 
 type IntegrationRow = {
   id: string;
@@ -48,6 +52,21 @@ const CONNECT_OPTIONS: ConnectOption[] = [
     provider: "Meta",
     description: "Message candidates on WhatsApp from your workspace.",
     connectable: true,
+  },
+  {
+    id: "calendly",
+    name: "Calendly",
+    provider: "Calendly",
+    description: "Share scheduling links and book meetings with candidates.",
+    connectable: true,
+  },
+  {
+    id: "linkedin",
+    name: "LinkedIn",
+    provider: "LinkedIn",
+    description: "Sync your LinkedIn account for outreach and profile enrichment.",
+    connectable: false,
+    comingSoon: true,
   },
 ];
 
@@ -124,7 +143,7 @@ function ConnectOptionCard({
       <p className="dashboard-integration-desc">{option.description}</p>
       <p className="dashboard-integration-provider-label">{option.provider}</p>
 
-      {!connected ? (
+      {!connected && !option.comingSoon ? (
         <button
           type="button"
           onClick={handleClick}
@@ -168,6 +187,7 @@ export function IntegrationsPanel({ currentPlanId, onViewPlans }: Props) {
   const [loading, setLoading] = useState(false);
   const [busyProvider, setBusyProvider] = useState<string | null>(null);
   const [whatsappModalOpen, setWhatsappModalOpen] = useState(false);
+  const [calendlyModalOpen, setCalendlyModalOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
   const connectedProviders = new Set(integrations.map((row) => row.provider));
@@ -272,6 +292,15 @@ export function IntegrationsPanel({ currentPlanId, onViewPlans }: Props) {
     setWhatsappModalOpen(true);
   }, [isEnterprise, showEnterpriseNotice]);
 
+  const handleConnectCalendly = useCallback(() => {
+    if (!isEnterprise) {
+      showEnterpriseNotice();
+      return;
+    }
+    setNotice("");
+    setCalendlyModalOpen(true);
+  }, [isEnterprise, showEnterpriseNotice]);
+
   const handleWhatsAppSubmit = useCallback(
     async (values: WhatsAppConnectFormValues) => {
       setBusyProvider("whatsapp");
@@ -314,6 +343,52 @@ export function IntegrationsPanel({ currentPlanId, onViewPlans }: Props) {
         );
       } catch (err) {
         setNotice(err instanceof Error ? err.message : "Failed to connect WhatsApp.");
+      } finally {
+        setBusyProvider(null);
+      }
+    },
+    [apiBase, loadIntegrations]
+  );
+
+  const handleCalendlySubmit = useCallback(
+    async (values: CalendlyConnectFormValues) => {
+      setBusyProvider("calendly");
+      setNotice("");
+      try {
+        const auth = getStoredAuth();
+        if (!auth?.token) {
+          throw new Error("Please sign in again.");
+        }
+        const res = await fetch(`${apiBase}/api/integrations/calendly/connect`, {
+          method: "POST",
+          headers: authHeaders(auth.token),
+          body: JSON.stringify({
+            personalAccessToken: values.personalAccessToken,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(
+            typeof data.message === "string" ? data.message : "Failed to connect Calendly"
+          );
+        }
+        const row = data.integration as IntegrationRow | undefined;
+        if (row?.id) {
+          setIntegrations((prev) => {
+            const rest = prev.filter((r) => r.provider !== "calendly");
+            return [row, ...rest];
+          });
+        } else {
+          void loadIntegrations();
+        }
+        setCalendlyModalOpen(false);
+        setNotice(
+          row?.email
+            ? `Calendly connected as ${row.email}.`
+            : "Calendly connected."
+        );
+      } catch (err) {
+        setNotice(err instanceof Error ? err.message : "Failed to connect Calendly.");
       } finally {
         setBusyProvider(null);
       }
@@ -396,7 +471,9 @@ export function IntegrationsPanel({ currentPlanId, onViewPlans }: Props) {
                     ? handleConnectGmail
                     : option.id === "whatsapp"
                       ? handleConnectWhatsApp
-                      : () => undefined
+                      : option.id === "calendly"
+                        ? handleConnectCalendly
+                        : () => undefined
                 }
               />
             ))}
@@ -409,7 +486,7 @@ export function IntegrationsPanel({ currentPlanId, onViewPlans }: Props) {
               Available on Enterprise plan
             </span>
             <p className="dashboard-text-body">
-              Upgrade to unlock Gmail, WhatsApp, and Google Calendar integrations.
+              Upgrade to unlock Gmail, WhatsApp, Calendly, and LinkedIn integrations.
             </p>
           </div>
         ) : null}
@@ -531,6 +608,16 @@ export function IntegrationsPanel({ currentPlanId, onViewPlans }: Props) {
           setWhatsappModalOpen(false);
         }}
         onSubmit={(values) => void handleWhatsAppSubmit(values)}
+      />
+
+      <CalendlyConnectModal
+        open={calendlyModalOpen}
+        busy={busyProvider === "calendly"}
+        onClose={() => {
+          if (busyProvider === "calendly") return;
+          setCalendlyModalOpen(false);
+        }}
+        onSubmit={(values) => void handleCalendlySubmit(values)}
       />
     </section>
   );

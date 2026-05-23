@@ -171,7 +171,7 @@ const campaignsSidebarItem: UserSidebarNavItem = {
 
 const integrationsSidebarItem: UserSidebarNavItem = {
   label: "Integrations",
-  subtitle: "Gmail, WhatsApp, Calendar",
+  subtitle: "Gmail, WhatsApp, Calendly, LinkedIn",
   icon: (
     <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
       <path

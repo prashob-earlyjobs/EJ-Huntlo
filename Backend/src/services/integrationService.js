@@ -11,12 +11,29 @@ const { normalizeGupshupSourceNumber } = require("./gupshupClient");
 
 const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 
+const { fetchCalendlyUser } = require("./calendlyClient");
+
 const PROVIDER_LABELS = {
   gmail: { integration: "Gmail", provider: "Google" },
   whatsapp: { integration: "WhatsApp Business", provider: "Gupshup" },
+  calendly: { integration: "Calendly", provider: "Calendly" },
 };
 
 function formatIntegrationRow(doc) {
+  if (doc.provider === "calendly") {
+    return {
+      id: String(doc._id),
+      provider: "calendly",
+      integration: "Calendly",
+      providerLabel: "Calendly",
+      senderName: doc.senderName || "",
+      email: doc.email || "",
+      status: "connected",
+      schedulingUrl: doc.accessToken || "",
+      connectedAt: doc.updatedAt || doc.createdAt,
+    };
+  }
+
   if (doc.provider === "whatsapp") {
     const viaHuntlo = doc.gupshupMode === "huntlo";
     return {
@@ -310,6 +327,102 @@ async function disconnectWhatsApp(userId) {
   return disconnectIntegration(userId, "whatsapp");
 }
 
+async function saveCalendlyIntegration(userOid, patch) {
+  let doc = await UserIntegration.findOne({ userId: userOid, provider: "calendly" });
+  if (doc) {
+    Object.assign(doc, patch);
+  } else {
+    doc = new UserIntegration({
+      userId: userOid,
+      provider: "calendly",
+      ...patch,
+    });
+  }
+  await doc.save();
+  return doc;
+}
+
+async function verifyCalendlyCredentials(body) {
+  const personalAccessToken = String(body?.personalAccessToken || "").trim();
+  const user = await fetchCalendlyUser(personalAccessToken);
+  return {
+    verified: true,
+    message: user.email
+      ? `Connected as ${user.name || user.email} (${user.email}).`
+      : `Connected as ${user.name || "Calendly user"}.`,
+    user,
+  };
+}
+
+async function connectCalendly(userId, body) {
+  const personalAccessToken = String(body?.personalAccessToken || "").trim();
+  const user = await fetchCalendlyUser(personalAccessToken);
+  const userOid = new mongoose.Types.ObjectId(userId);
+
+  const doc = await saveCalendlyIntegration(userOid, {
+    email: user.email,
+    senderName: user.name || user.slug || user.email,
+    accessToken: user.schedulingUrl,
+    refreshToken: personalAccessToken,
+    tokenExpiry: null,
+    scopes: ["calendly"],
+    gupshupMode: "",
+    gupshupUserId: "",
+    gupshupAppName: "",
+  });
+
+  return formatIntegrationRow(doc.toObject ? doc.toObject() : doc);
+}
+
+async function getCalendlyStatus(userId) {
+  const userOid = new mongoose.Types.ObjectId(userId);
+  const doc = await UserIntegration.findOne({
+    userId: userOid,
+    provider: "calendly",
+  }).lean();
+
+  if (!doc) {
+    return { connected: false, configured: true };
+  }
+
+  return {
+    connected: true,
+    configured: true,
+    email: doc.email || "",
+    senderName: doc.senderName || "",
+    schedulingUrl: doc.accessToken || "",
+    connectedAt: doc.updatedAt || doc.createdAt,
+  };
+}
+
+async function disconnectCalendly(userId) {
+  return disconnectIntegration(userId, "calendly");
+}
+
+/**
+ * Calendly API credentials for scheduling features.
+ */
+async function getCalendlyCredentialsForUser(userId) {
+  const userOid = new mongoose.Types.ObjectId(userId);
+  const doc = await UserIntegration.findOne({
+    userId: userOid,
+    provider: "calendly",
+  });
+
+  if (!doc || !doc.refreshToken) {
+    const err = new Error("Calendly is not connected. Connect Calendly under Integrations first.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  return {
+    personalAccessToken: doc.refreshToken,
+    email: doc.email || "",
+    name: doc.senderName || "",
+    schedulingUrl: doc.accessToken || "",
+  };
+}
+
 /**
  * Resolve Gupshup credentials for outbound WhatsApp (used by future send service).
  */
@@ -368,11 +481,16 @@ module.exports = {
   connectGmail,
   connectWhatsAppGupshup,
   verifyWhatsAppGupshupCredentials,
+  connectCalendly,
+  verifyCalendlyCredentials,
   getGmailStatus,
   getWhatsAppStatus,
+  getCalendlyStatus,
   getGupshupCredentialsForUser,
+  getCalendlyCredentialsForUser,
   listUserIntegrations,
   disconnectGmail,
   disconnectWhatsApp,
+  disconnectCalendly,
   disconnectIntegration,
 };

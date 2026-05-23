@@ -12,7 +12,7 @@ const userIntegrationSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
-      enum: ["gmail", "whatsapp"],
+      enum: ["gmail", "whatsapp", "calendly"],
     },
     email: { type: String, trim: true, default: "" },
     senderName: { type: String, trim: true, default: "" },

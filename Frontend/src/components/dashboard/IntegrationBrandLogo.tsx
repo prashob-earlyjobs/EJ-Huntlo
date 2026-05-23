@@ -7,6 +7,8 @@ type Props = {
 const BRAND_IMAGES: Record<string, { src: string; alt: string }> = {
   gmail: { src: "/integrations/gmail.svg", alt: "Gmail" },
   whatsapp: { src: "/integrations/whatsapp.svg", alt: "WhatsApp" },
+  linkedin: { src: "/integrations/linkedin.svg", alt: "LinkedIn" },
+  calendly: { src: "/integrations/calendly_logo.png", alt: "Calendly" },
 };
 
 function BrandImage({
