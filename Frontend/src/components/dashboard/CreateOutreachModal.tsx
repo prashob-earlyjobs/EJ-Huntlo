@@ -19,6 +19,7 @@ type Props = {
   plansLoading?: boolean;
   templates: OutreachTemplateListItem[];
   templatesLoading?: boolean;
+  optionsReady?: boolean;
   onClose: () => void;
   onChoose: (choice: CreateOutreachChoice) => void;
   onViewExisting?: () => void;
@@ -30,6 +31,7 @@ export function CreateOutreachModal({
   plansLoading = false,
   templates,
   templatesLoading = false,
+  optionsReady,
   onClose,
   onChoose,
   onViewExisting,
@@ -95,6 +97,8 @@ export function CreateOutreachModal({
             plansLoading={plansLoading}
             templates={templates}
             templatesLoading={templatesLoading}
+            optionsReady={optionsReady}
+            lead="Choose an outreach template"
             onChoose={onChoose}
           />
 

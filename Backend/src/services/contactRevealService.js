@@ -6,6 +6,7 @@ const {
   looksValidContact,
   extractRevealValues,
   normalizeLinkedinProfileUrl,
+  linkedinCacheLookupKeys,
 } = require("../utils/contactReveal");
 const {
   logUsageEvent,
@@ -55,47 +56,59 @@ async function upsertSharedContactCache(
 }
 
 async function loadSharedContactValues(linkedinProfileUrl, revealType) {
-  const linkedinKey = normalizeLinkedinProfileUrl(linkedinProfileUrl);
-  if (!linkedinKey) return [];
+  const keys = linkedinCacheLookupKeys(linkedinProfileUrl);
+  if (keys.length === 0) return [];
 
-  const shared = await CandidateContactCache.findOne({
-    linkedinProfileUrl: linkedinKey,
-    revealType,
-  }).lean();
+  const canonicalKey = keys[0];
 
-  let values = filterValidValues(shared?.values, revealType);
-  if (values.length > 0) return values;
+  for (const linkedinKey of keys) {
+    const shared = await CandidateContactCache.findOne({
+      linkedinProfileUrl: linkedinKey,
+      revealType,
+    }).lean();
 
-  const anyUnlock = await RevealedContact.findOne({
-    linkedinProfileUrl: linkedinKey,
-    revealType,
-  })
-    .sort({ updatedAt: -1 })
-    .lean();
+    let values = filterValidValues(shared?.values, revealType);
+    if (values.length > 0) {
+      if (linkedinKey !== canonicalKey) {
+        await upsertSharedContactCache(canonicalKey, revealType, values, {
+          status: shared?.status || "migrated",
+        });
+      }
+      return values;
+    }
 
-  values = filterValidValues(anyUnlock?.values, revealType);
-  if (values.length > 0) {
-    await upsertSharedContactCache(linkedinKey, revealType, values, {
-      status: anyUnlock?.status || "migrated",
-    });
-    return values;
+    const anyUnlock = await RevealedContact.findOne({
+      linkedinProfileUrl: linkedinKey,
+      revealType,
+    })
+      .sort({ updatedAt: -1 })
+      .lean();
+
+    values = filterValidValues(anyUnlock?.values, revealType);
+    if (values.length > 0) {
+      await upsertSharedContactCache(canonicalKey, revealType, values, {
+        status: anyUnlock?.status || "migrated",
+      });
+      return values;
+    }
+
+    const scoutUnlock = await PeopleScoutRevealedContact.findOne({
+      linkedinProfileUrl: linkedinKey,
+      revealType,
+    })
+      .sort({ updatedAt: -1 })
+      .lean();
+
+    values = filterValidValues(scoutUnlock?.values, revealType);
+    if (values.length > 0) {
+      await upsertSharedContactCache(canonicalKey, revealType, values, {
+        status: scoutUnlock?.status || "migrated_scout",
+      });
+      return values;
+    }
   }
 
-  const scoutUnlock = await PeopleScoutRevealedContact.findOne({
-    linkedinProfileUrl: linkedinKey,
-    revealType,
-  })
-    .sort({ updatedAt: -1 })
-    .lean();
-
-  values = filterValidValues(scoutUnlock?.values, revealType);
-  if (values.length > 0) {
-    await upsertSharedContactCache(linkedinKey, revealType, values, {
-      status: scoutUnlock?.status || "migrated_scout",
-    });
-  }
-
-  return values;
+  return [];
 }
 
 async function recordUserContactUnlock(
@@ -126,26 +139,44 @@ async function recordUserContactUnlock(
 }
 
 async function findUserContactUnlock(userId, linkedinProfileUrl, revealType) {
-  const linkedinKey = normalizeLinkedinProfileUrl(linkedinProfileUrl);
-  if (!linkedinKey || !mongoose.Types.ObjectId.isValid(String(userId))) {
+  const keys = linkedinCacheLookupKeys(linkedinProfileUrl);
+  if (keys.length === 0 || !mongoose.Types.ObjectId.isValid(String(userId))) {
     return null;
   }
 
   const uid = new mongoose.Types.ObjectId(String(userId));
+  let emptyUnlock = null;
 
-  const unlock = await RevealedContact.findOne({
-    userId: uid,
-    linkedinProfileUrl: linkedinKey,
-    revealType,
-  }).lean();
+  for (const linkedinKey of keys) {
+    const unlock = await RevealedContact.findOne({
+      userId: uid,
+      linkedinProfileUrl: linkedinKey,
+      revealType,
+    }).lean();
 
-  if (unlock) return unlock;
+    if (unlock) {
+      if (filterValidValues(unlock.values, revealType).length > 0) {
+        return unlock;
+      }
+      if (!emptyUnlock) emptyUnlock = unlock;
+      continue;
+    }
 
-  return PeopleScoutRevealedContact.findOne({
-    userId: uid,
-    linkedinProfileUrl: linkedinKey,
-    revealType,
-  }).lean();
+    const scoutUnlock = await PeopleScoutRevealedContact.findOne({
+      userId: uid,
+      linkedinProfileUrl: linkedinKey,
+      revealType,
+    }).lean();
+
+    if (scoutUnlock) {
+      if (filterValidValues(scoutUnlock.values, revealType).length > 0) {
+        return scoutUnlock;
+      }
+      if (!emptyUnlock) emptyUnlock = scoutUnlock;
+    }
+  }
+
+  return emptyUnlock;
 }
 
 function buildRevealResponse({ source, charged, revealType, values, futureJobs }) {
@@ -165,9 +196,9 @@ function buildRevealResponse({ source, charged, revealType, values, futureJobs }
 /**
  * Resolve contact reveal with shared cache + per-user unlock ledger.
  *
- * - Same user, already unlocked → return cached values, no Future Jobs, no credit.
- * - New user, contact in shared cache → return values, no Future Jobs, deduct credit.
- * - Not in cache → call Future Jobs, store shared + user unlock, deduct credit.
+ * - Same user, already unlocked (including prior not-found) → DB only, no Future Jobs, no credit.
+ * - New user, contact in shared cache → return values, no Future Jobs, deduct credit once.
+ * - Not in cache → call Future Jobs once, store shared + user unlock, deduct credit if found.
  *
  * @param {object} opts
  * @param {string} opts.userId
@@ -191,6 +222,23 @@ async function logContactRevealEvent(userId, product, revealType, response) {
       lookupId: response.lookupId || "",
     },
   });
+}
+
+async function resolveCachedValuesForUser(userId, linkedinKey, revealType, userUnlock) {
+  let values = filterValidValues(userUnlock?.values, revealType);
+  if (values.length === 0) {
+    values = await loadSharedContactValues(linkedinKey, revealType);
+  }
+  if (values.length > 0 && userUnlock) {
+    const stored = filterValidValues(userUnlock.values, revealType);
+    if (stored.length === 0) {
+      await recordUserContactUnlock(userId, linkedinKey, revealType, values, {
+        status: userUnlock.status || "backfilled_from_shared",
+        sourcingSessionId: userUnlock.sourcingSessionId || "",
+      });
+    }
+  }
+  return values;
 }
 
 async function resolveContactReveal({
@@ -220,13 +268,14 @@ async function resolveContactReveal({
     });
   }
 
-  let sharedValues = await loadSharedContactValues(linkedinKey, revealType);
-
+  // Same user + profile + type already attempted — never call Future Jobs again.
   if (userUnlock) {
-    const values =
-      sharedValues.length > 0
-        ? sharedValues
-        : filterValidValues(userUnlock.values, revealType);
+    const values = await resolveCachedValuesForUser(
+      userId,
+      linkedinKey,
+      revealType,
+      userUnlock
+    );
     if (values.length > 0) {
       const response = buildRevealResponse({
         source: "user_cache",
@@ -240,7 +289,29 @@ async function resolveContactReveal({
       });
       return response;
     }
+
+    const unlockKey = normalizeLinkedinProfileUrl(userUnlock.linkedinProfileUrl);
+    if (unlockKey === linkedinKey) {
+      const notFoundResponse = {
+        success: false,
+        found: false,
+        charged: false,
+        source: "user_cache",
+        revealType,
+        values: [],
+        value: "",
+        message: "Contact not found",
+      };
+      await logContactRevealEvent(userId, product, revealType, {
+        ...notFoundResponse,
+        linkedinProfileUrl: linkedinKey,
+      });
+      return notFoundResponse;
+    }
+    // Legacy lowercase not_found — fall through and retry Future Jobs with correct-case URL.
   }
+
+  const sharedValues = await loadSharedContactValues(linkedinKey, revealType);
 
   if (sharedValues.length > 0) {
     await assertQuota();
@@ -266,9 +337,21 @@ async function resolveContactReveal({
   }
 
   if (typeof fetchFromFutureJobs !== "function") {
-    const err = new Error("Contact not available");
-    err.statusCode = 404;
-    throw err;
+    const notFoundResponse = {
+      success: false,
+      found: false,
+      charged: false,
+      source: "cache_miss",
+      revealType,
+      values: [],
+      value: "",
+      message: "Contact not available",
+    };
+    await logContactRevealEvent(userId, product, revealType, {
+      ...notFoundResponse,
+      linkedinProfileUrl: linkedinKey,
+    });
+    return notFoundResponse;
   }
 
   await assertQuota();
@@ -279,6 +362,10 @@ async function resolveContactReveal({
     const message =
       (typeof fj?.message === "string" && fj.message.trim()) ||
       "Contact not found";
+    await recordUserContactUnlock(userId, linkedinKey, revealType, [], {
+      ...unlockMeta,
+      status: "not_found",
+    });
     const response = {
       success: false,
       found: false,
@@ -323,6 +410,38 @@ async function resolveContactReveal({
   return response;
 }
 
+/**
+ * Return email/phone already unlocked by this user (no Future Jobs call, no credit).
+ */
+async function lookupUserRevealedContacts(userId, linkedinUrls) {
+  const keys = [
+    ...new Set(
+      (Array.isArray(linkedinUrls) ? linkedinUrls : [])
+        .map((url) => normalizeLinkedinProfileUrl(url))
+        .filter(Boolean)
+    ),
+  ];
+
+  const contacts = {};
+  for (const key of keys) {
+    contacts[key] = { email: "", phone: "" };
+    for (const revealType of ["EMAIL", "PHONE"]) {
+      const unlock = await findUserContactUnlock(userId, key, revealType);
+      if (!unlock) continue;
+
+      let values = filterValidValues(unlock.values, revealType);
+      if (values.length === 0) {
+        values = await loadSharedContactValues(key, revealType);
+      }
+      const value = values[0] || "";
+      if (revealType === "EMAIL") contacts[key].email = value;
+      else contacts[key].phone = value;
+    }
+  }
+
+  return contacts;
+}
+
 module.exports = {
   resolveContactReveal,
   loadSharedContactValues,
@@ -330,4 +449,5 @@ module.exports = {
   upsertSharedContactCache,
   recordUserContactUnlock,
   findUserContactUnlock,
+  lookupUserRevealedContacts,
 };

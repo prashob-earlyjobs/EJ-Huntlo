@@ -15,6 +15,8 @@ const {
   listSourcingSessions,
   listRecentSearches,
   revealCandidateContact,
+  lookupRevealedContactsHandler,
+  bulkRevealContactsHandler,
   listSaveLists,
   createSaveList,
   deleteSaveList,
@@ -49,6 +51,8 @@ router.post("/scout-people/reveal-contact", authenticate, revealPeopleScoutConta
 router.post("/scout-people/lookup", authenticate, lookupPeopleScout);
 router.get("/scout-people/recent", authenticate, listRecentPeopleScout);
 router.post("/reveal-contact", authenticate, revealCandidateContact);
+router.post("/revealed-contacts/lookup", authenticate, lookupRevealedContactsHandler);
+router.post("/reveal-contacts/bulk", authenticate, bulkRevealContactsHandler);
 router.get(
   "/candidate/:candidateId/details",
   authenticate,

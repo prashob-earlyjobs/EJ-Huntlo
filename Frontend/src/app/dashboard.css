@@ -4016,6 +4016,7 @@
 
 .dashboard-campaign-workspace-tab {
   position: relative;
+  display: inline-block;
   margin: 0;
   padding: 0 0 0.5rem;
   border: none;
@@ -4024,6 +4025,7 @@
   font-weight: 400;
   line-height: 1.25;
   color: color-mix(in srgb, var(--dash-on-primary, #fff) 62%, transparent);
+  text-decoration: none;
   cursor: pointer;
   transition: color 0.15s ease;
 }
@@ -4345,6 +4347,87 @@
 .dashboard-outreach-builder-embedded-bar .dashboard-btn-primary {
   padding: 0.3125rem 0.625rem;
   font-size: 0.6875rem;
+}
+
+.dashboard-outreach-save-btn {
+  min-width: 6.75rem;
+  overflow: hidden;
+  transition:
+    background-color 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.2s ease;
+}
+
+.dashboard-outreach-save-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.dashboard-outreach-save-btn-inner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  animation: dashboard-save-label-in 0.28s ease forwards;
+}
+
+.dashboard-outreach-save-btn--success {
+  background: #137333 !important;
+  border-color: #137333 !important;
+  color: #fff !important;
+  box-shadow: 0 2px 10px rgba(19, 115, 51, 0.38);
+}
+
+.dashboard-outreach-save-btn--success:disabled {
+  opacity: 1 !important;
+}
+
+.dashboard-outreach-save-check {
+  font-size: 1.125rem !important;
+  line-height: 1;
+  animation: dashboard-save-check-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.dashboard-outreach-save-spinner {
+  width: 0.875rem;
+  height: 0.875rem;
+  flex-shrink: 0;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: dashboard-save-spin 0.7s linear infinite;
+}
+
+@keyframes dashboard-save-check-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.2) rotate(-45deg);
+  }
+  55% {
+    opacity: 1;
+    transform: scale(1.2) rotate(0deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+@keyframes dashboard-save-label-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes dashboard-save-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .dashboard-outreach-builder--embedded .dashboard-outreach-builder-body {

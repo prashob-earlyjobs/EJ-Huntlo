@@ -27,7 +27,11 @@ const { logApi, safeJsonPreview } = require("../utils/logger");
 const { incrementUserUsage } = require("../utils/incrementUserUsage");
 const { assertQuotaAvailableByUserId } = require("../services/planQuotas");
 const { respondIfQuotaExceeded } = require("../utils/quotaHttp");
-const { resolveContactReveal } = require("../services/contactRevealService");
+const {
+  resolveContactReveal,
+  lookupUserRevealedContacts,
+} = require("../services/contactRevealService");
+const { normalizeLinkedinProfileUrl } = require("../utils/contactReveal");
 const {
   userIdFilterForActor,
   findSessionInScope,
@@ -1123,9 +1127,100 @@ const searchCandidates = async (req, res) => {
   }
 };
 
+function detailPayloadFromStoredRawDoc(rawDoc, candidateId) {
+  if (!rawDoc || typeof rawDoc !== "object") return null;
+  const doc = rawDoc;
+  const profile =
+    doc.profile && typeof doc.profile === "object" ? doc.profile : null;
+  const cid =
+    doc._id != null && String(doc._id).trim() !== ""
+      ? String(doc._id).trim()
+      : candidateId;
+  if (!profile) return null;
+  return {
+    candidate: {
+      ...profile,
+      _id: profile._id != null ? profile._id : cid,
+    },
+    finalScore: typeof doc.finalScore === "number" ? doc.finalScore : undefined,
+    profileAnalysis:
+      doc.profileAnalysis && typeof doc.profileAnalysis === "object"
+        ? doc.profileAnalysis
+        : undefined,
+  };
+}
+
+async function findOwnedSourcedCandidateDetail(
+  userId,
+  candidateId,
+  { sessionId = "", linkedinUrl = "" } = {}
+) {
+  const uid = new mongoose.Types.ObjectId(userId);
+  const baseSelect = "_id sourcingSessionId candidateId linkedinProfileUrl rawDoc";
+
+  if (candidateId) {
+    const byId = await SourcedCandidateDetail.findOne({
+      userId: uid,
+      candidateId,
+    })
+      .select(baseSelect)
+      .lean();
+    if (byId) return byId;
+  }
+
+  const session = typeof sessionId === "string" ? sessionId.trim() : "";
+  const linkedin = normalizeLinkedinProfileUrl(
+    typeof linkedinUrl === "string" ? linkedinUrl : ""
+  );
+
+  if (session && linkedin) {
+    const byLinkedIn = await SourcedCandidateDetail.findOne({
+      userId: uid,
+      sourcingSessionId: session,
+      linkedinProfileUrl: linkedin,
+    })
+      .select(baseSelect)
+      .lean();
+    if (byLinkedIn) return byLinkedIn;
+  }
+
+  if (session && candidateId) {
+    const bySession = await SourcedCandidateDetail.findOne({
+      userId: uid,
+      sourcingSessionId: session,
+      candidateId,
+    })
+      .select(baseSelect)
+      .lean();
+    if (bySession) return bySession;
+  }
+
+  return null;
+}
+
+function alternateFjDetailCandidateIds(candidateId, owned) {
+  const ids = [];
+  const primary = String(candidateId || "").trim();
+  if (primary) ids.push(primary);
+
+  const storedDocId =
+    owned?.rawDoc?._id != null ? String(owned.rawDoc._id).trim() : "";
+  if (storedDocId && storedDocId !== primary) ids.push(storedDocId);
+
+  const profileId =
+    owned?.rawDoc?.profile?._id != null
+      ? String(owned.rawDoc.profile._id).trim()
+      : "";
+  if (profileId && profileId !== primary && profileId !== storedDocId) {
+    ids.push(profileId);
+  }
+
+  return ids;
+}
+
 /**
  * GET /api/candidates/candidate/:candidateId/details
- * Future Jobs full candidate profile (profile._id from session profiles list).
+ * Future Jobs full candidate profile (session profiles list doc._id).
  */
 const getSessionCandidateDetails = async (req, res) => {
   const userId = req.auth?.userId;
@@ -1150,15 +1245,17 @@ const getSessionCandidateDetails = async (req, res) => {
 
     const sessionIdFromQuery =
       typeof req.query.sessionId === "string" ? req.query.sessionId.trim() : "";
+    const linkedinFromQuery =
+      typeof req.query.linkedinUrl === "string" ? req.query.linkedinUrl.trim() : "";
 
-    const owned = await SourcedCandidateDetail.findOne({
-      userId: new mongoose.Types.ObjectId(userId),
-      candidateId,
-    })
-      .select("_id sourcingSessionId")
-      .lean();
+    const owned = await findOwnedSourcedCandidateDetail(userId, candidateId, {
+      sessionId: sessionIdFromQuery,
+      linkedinUrl: linkedinFromQuery,
+    });
 
     let sessionAllowed = Boolean(owned);
+    const effectiveSessionId =
+      owned?.sourcingSessionId || sessionIdFromQuery || "";
     if (!sessionAllowed && sessionIdFromQuery) {
       const sess = await findSessionInScope(userId, sessionIdFromQuery);
       sessionAllowed = Boolean(sess);
@@ -1175,26 +1272,71 @@ const getSessionCandidateDetails = async (req, res) => {
     logApi("candidates/candidate/details", "incoming", {
       userId,
       candidateId,
-      sourcingSessionId: owned?.sourcingSessionId || sessionIdFromQuery || undefined,
+      sourcingSessionId: effectiveSessionId || undefined,
+      hasStored: Boolean(owned?.rawDoc),
     });
 
-    const futureJobs = await getSourcingSessionCandidateDetails(candidateId);
-    const detail =
-      futureJobs?.data && typeof futureJobs.data === "object"
-        ? futureJobs.data
-        : null;
+    const storedDetail = detailPayloadFromStoredRawDoc(owned?.rawDoc, candidateId);
+    const idsToTry = alternateFjDetailCandidateIds(candidateId, owned);
 
-    logApi("candidates/candidate/details", "success", {
-      userId,
-      candidateId,
-      hasCandidate: Boolean(detail?.candidate),
-    });
+    let futureJobs = null;
+    let detail = null;
+    let lastFjError = null;
 
-    return res.status(200).json({
-      success: true,
-      candidateId,
-      detail,
-      futureJobs,
+    for (const fjId of idsToTry) {
+      try {
+        futureJobs = await getSourcingSessionCandidateDetails(fjId);
+        detail =
+          futureJobs?.data && typeof futureJobs.data === "object"
+            ? futureJobs.data
+            : null;
+        if (detail) break;
+      } catch (err) {
+        lastFjError = err;
+        if (err.statusCode !== 404) break;
+      }
+    }
+
+    if (detail) {
+      logApi("candidates/candidate/details", "success", {
+        userId,
+        candidateId,
+        hasCandidate: Boolean(detail?.candidate),
+        source: "futurejobs",
+      });
+      return res.status(200).json({
+        success: true,
+        candidateId,
+        detail,
+        futureJobs,
+      });
+    }
+
+    if (storedDetail) {
+      logApi("candidates/candidate/details", "success", {
+        userId,
+        candidateId,
+        hasCandidate: Boolean(storedDetail?.candidate),
+        source: "stored",
+        fjMessage: lastFjError?.message,
+      });
+      return res.status(200).json({
+        success: true,
+        candidateId,
+        detail: storedDetail,
+        fromStored: true,
+        futureJobsError:
+          lastFjError?.message || "Could not refresh profile from Future Jobs",
+      });
+    }
+
+    if (lastFjError) {
+      throw lastFjError;
+    }
+
+    return res.status(502).json({
+      success: false,
+      message: "Failed to load candidate details",
     });
   } catch (error) {
     const status = error.statusCode || 500;
@@ -2158,6 +2300,106 @@ const revealCandidateContact = async (req, res) => {
 };
 
 /**
+ * POST /api/candidates/revealed-contacts/lookup
+ * Body: { linkedinUrls: string[] }
+ * Returns contacts already unlocked for this user (no external API, no credits).
+ */
+const lookupRevealedContactsHandler = async (req, res) => {
+  const userId = req.auth?.userId;
+  try {
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    const linkedinUrls = Array.isArray(req.body?.linkedinUrls)
+      ? req.body.linkedinUrls
+      : [];
+
+    const contacts = await lookupUserRevealedContacts(userId, linkedinUrls);
+
+    return res.status(200).json({
+      success: true,
+      contacts,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to load revealed contacts",
+    });
+  }
+};
+
+/**
+ * POST /api/candidates/reveal-contacts/bulk
+ * Body: {
+ *   items: { sourcingSessionId, linkedin_profile_url }[],
+ *   revealTypes?: ("EMAIL"|"PHONE")[]
+ * }
+ */
+const bulkRevealContactsHandler = async (req, res) => {
+  const userId = req.auth?.userId;
+  try {
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    const items = Array.isArray(req.body?.items) ? req.body.items : [];
+    const revealTypes = Array.isArray(req.body?.revealTypes)
+      ? req.body.revealTypes
+          .map((t) => String(t || "").trim().toUpperCase())
+          .filter((t) => t === "EMAIL" || t === "PHONE")
+      : ["EMAIL", "PHONE"];
+
+    if (items.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "items array is required",
+      });
+    }
+
+    if (items.length > 100) {
+      return res.status(400).json({
+        success: false,
+        message: "Maximum 100 candidates per bulk reveal",
+      });
+    }
+
+    const { runBulkRevealItems } = require("../services/bulkRevealService");
+    let results;
+    try {
+      results = await runBulkRevealItems(userId, items, revealTypes);
+    } catch (error) {
+      if (respondIfQuotaExceeded(res, error)) {
+        return;
+      }
+      throw error;
+    }
+
+    logApi("candidates/reveal-contacts/bulk", "success", {
+      userId,
+      count: results.length,
+    });
+
+    return res.status(200).json({
+      success: true,
+      results,
+    });
+  } catch (error) {
+    if (respondIfQuotaExceeded(res, error)) return;
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Bulk reveal failed",
+    });
+  }
+};
+
+/**
  * GET /api/candidates/save-lists
  */
 const listSaveLists = async (req, res) => {
@@ -2583,6 +2825,8 @@ module.exports = {
   listSourcingSessions,
   listRecentSearches,
   revealCandidateContact,
+  lookupRevealedContactsHandler,
+  bulkRevealContactsHandler,
   listSaveLists,
   createSaveList,
   deleteSaveList,

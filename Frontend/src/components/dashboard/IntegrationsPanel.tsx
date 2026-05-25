@@ -12,6 +12,7 @@ import {
   WhatsAppConnectModal,
   type WhatsAppConnectFormValues,
 } from "@/components/dashboard/WhatsAppConnectModal";
+import { IntegrationsPanelSkeleton } from "@/components/dashboard/IntegrationsPanelSkeleton";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { authHeaders, getStoredAuth } from "@/lib/auth";
 
@@ -178,19 +179,29 @@ function ConnectOptionCard({
 
 type Props = {
   currentPlanId: string;
+  planResolved?: boolean;
   onViewPlans: () => void;
 };
 
-export function IntegrationsPanel({ currentPlanId, onViewPlans }: Props) {
+export function IntegrationsPanel({
+  currentPlanId,
+  planResolved = false,
+  onViewPlans,
+}: Props) {
   const isEnterprise = currentPlanId === ENTERPRISE_PLAN_ID;
   const [integrations, setIntegrations] = useState<IntegrationRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [listReady, setListReady] = useState(false);
   const [busyProvider, setBusyProvider] = useState<string | null>(null);
   const [whatsappModalOpen, setWhatsappModalOpen] = useState(false);
   const [calendlyModalOpen, setCalendlyModalOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
   const connectedProviders = new Set(integrations.map((row) => row.provider));
+  const AVAILABLE_INTEGRATION_COUNT = CONNECT_OPTIONS.length;
+  const connectedCount = CONNECT_OPTIONS.filter((option) =>
+    connectedProviders.has(option.id)
+  ).length;
 
   const showEnterpriseNotice = useCallback(() => {
     setNotice(ENTERPRISE_LOCKED_MESSAGE);
@@ -200,6 +211,7 @@ export function IntegrationsPanel({ currentPlanId, onViewPlans }: Props) {
     const auth = getStoredAuth();
     if (!auth?.token || !isEnterprise) {
       setIntegrations([]);
+      setLoading(false);
       return;
     }
     setLoading(true);
@@ -221,8 +233,25 @@ export function IntegrationsPanel({ currentPlanId, onViewPlans }: Props) {
   }, [apiBase, isEnterprise]);
 
   useEffect(() => {
+    if (!planResolved) return;
+    if (!isEnterprise) {
+      setIntegrations([]);
+      setLoading(false);
+      setListReady(true);
+      return;
+    }
+    setListReady(false);
     void loadIntegrations();
-  }, [loadIntegrations]);
+  }, [planResolved, isEnterprise, loadIntegrations]);
+
+  useEffect(() => {
+    if (!loading) setListReady(true);
+  }, [loading]);
+
+  const showShimmer =
+    !planResolved || (isEnterprise && (!listReady || loading));
+
+  const showEnterpriseLocked = planResolved && !isEnterprise;
 
   const gmailLogin = useGoogleLogin({
     flow: "auth-code",
@@ -444,7 +473,7 @@ export function IntegrationsPanel({ currentPlanId, onViewPlans }: Props) {
             </p>
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
-            {!isEnterprise ? (
+            {showEnterpriseLocked ? (
               <span className="dashboard-integration-enterprise-pill">
                 <MaterialIcon name="lock" className="text-sm" aria-hidden />
                 Enterprise
@@ -455,6 +484,10 @@ export function IntegrationsPanel({ currentPlanId, onViewPlans }: Props) {
       </div>
 
       <div className="dashboard-card-body-scroll">
+        {showShimmer ? (
+          <IntegrationsPanelSkeleton />
+        ) : (
+        <>
         <div className="dashboard-integration-connect-section">
           <h4 className="dashboard-integration-section-label">Available to connect</h4>
           <div className="dashboard-integration-grid dashboard-integration-grid--connect">
@@ -462,7 +495,7 @@ export function IntegrationsPanel({ currentPlanId, onViewPlans }: Props) {
               <ConnectOptionCard
                 key={option.id}
                 option={option}
-                locked={!isEnterprise}
+                locked={showEnterpriseLocked}
                 connected={isEnterprise && connectedProviders.has(option.id)}
                 busy={busyProvider === option.id}
                 onLocked={showEnterpriseNotice}
@@ -494,7 +527,7 @@ export function IntegrationsPanel({ currentPlanId, onViewPlans }: Props) {
         {notice ? (
           <div className="dashboard-integration-notice-wrap">
             <p className="dashboard-alert-notice">{notice}</p>
-            {!isEnterprise && notice === ENTERPRISE_LOCKED_MESSAGE ? (
+            {showEnterpriseLocked && notice === ENTERPRISE_LOCKED_MESSAGE ? (
               <button
                 type="button"
                 onClick={onViewPlans}
@@ -521,16 +554,10 @@ export function IntegrationsPanel({ currentPlanId, onViewPlans }: Props) {
               </tr>
             </thead>
             <tbody>
-              {!isEnterprise ? (
+              {showEnterpriseLocked ? (
                 <tr>
                   <td colSpan={6} className="dashboard-pricing-table-empty">
                     Upgrade to Enterprise to connect integrations.
-                  </td>
-                </tr>
-              ) : loading ? (
-                <tr>
-                  <td colSpan={6} className="dashboard-pricing-table-empty">
-                    Loading integrations…
                   </td>
                 </tr>
               ) : integrations.length === 0 ? (
@@ -598,6 +625,8 @@ export function IntegrationsPanel({ currentPlanId, onViewPlans }: Props) {
             </tbody>
           </table>
         </div>
+        </>
+        )}
       </div>
 
       <WhatsAppConnectModal

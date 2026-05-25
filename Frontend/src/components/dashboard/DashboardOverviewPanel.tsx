@@ -127,7 +127,7 @@ export function DashboardOverviewPanel({
         ) : null}
       </div>
 
-      {error ? <p className="mt-4 dashboard-alert-error">{error}</p> : null}
+      {error && !loading ? <p className="mt-4 dashboard-alert-error">{error}</p> : null}
 
       {loading ? (
         <DashboardOverviewSkeleton />

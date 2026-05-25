@@ -490,12 +490,21 @@ export function SessionCandidateDetailDrawer({
           <div className="dashboard-profile-drawer-content">
             <div className="dashboard-profile-drawer-body-inner">
               {detailLoading ? (
-                <div className="dashboard-profile-loading" role="status">
-                  <span className="dashboard-apply-progress-spinner" aria-hidden />
-                  Loading full profile…
+                <div className="space-y-4 py-2" aria-busy="true" aria-label="Loading profile">
+                  <div className="flex gap-4">
+                    <div className="dashboard-shimmer h-20 w-20 shrink-0 rounded-full" />
+                    <div className="min-w-0 flex-1 space-y-2 pt-2">
+                      <div className="dashboard-shimmer h-5 w-48 max-w-full rounded" />
+                      <div className="dashboard-shimmer h-4 w-36 max-w-full rounded" />
+                      <div className="dashboard-shimmer h-3 w-56 max-w-full rounded" />
+                    </div>
+                  </div>
+                  <div className="dashboard-shimmer h-24 w-full rounded-xl" />
+                  <div className="dashboard-shimmer h-4 w-full max-w-md rounded" />
+                  <div className="dashboard-shimmer h-4 w-[90%] max-w-lg rounded" />
                 </div>
               ) : null}
-              {detailError ? (
+              {detailError && !detailLoading ? (
                 <p className="dashboard-alert-warning" role="alert">
                   {detailError}
                 </p>

@@ -34,8 +34,62 @@ type Props = {
   /** Lock Start / Wait schedule pills when sequence came from template or saved plan. */
   lockSchedule?: boolean;
   onCancel: () => void;
-  onSaved: (message: string) => void;
+  onSaved: (
+    message: string,
+    plan?: { id: string; name: string; touchpoints: OutreachTouchpointDraft[] }
+  ) => void;
 };
+
+function SaveSequenceButton({
+  saving,
+  saveSucceeded,
+  onClick,
+  compact = false,
+  label = "Save sequence",
+}: {
+  saving: boolean;
+  saveSucceeded: boolean;
+  onClick: () => void;
+  compact?: boolean;
+  label?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={saving || saveSucceeded}
+      className={[
+        "dashboard-btn-primary dashboard-outreach-save-btn disabled:opacity-55",
+        compact ? "px-3 py-1.5 text-xs" : "dashboard-outreach-builder-save",
+        saving ? "dashboard-outreach-save-btn--saving" : "",
+        saveSucceeded ? "dashboard-outreach-save-btn--success" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      aria-live="polite"
+      aria-busy={saving}
+      aria-label={
+        saving ? "Saving sequence" : saveSucceeded ? "Sequence saved" : label
+      }
+    >
+      <span className="dashboard-outreach-save-btn-inner" key={saving ? "saving" : saveSucceeded ? "saved" : "idle"}>
+        {saving ? (
+          <>
+            <span className="dashboard-outreach-save-spinner" aria-hidden />
+            <span>Saving…</span>
+          </>
+        ) : saveSucceeded ? (
+          <>
+            <MaterialIcon name="check" className="dashboard-outreach-save-check" aria-hidden />
+            <span>Saved</span>
+          </>
+        ) : (
+          <span>{label}</span>
+        )}
+      </span>
+    </button>
+  );
+}
 
 function ScheduleStaticChip({ label }: { label: string }) {
   return (
@@ -251,6 +305,7 @@ export function OutreachPlanEditor({
   const [gmailEmail, setGmailEmail] = useState("");
   const [gmailConnected, setGmailConnected] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saveSucceeded, setSaveSucceeded] = useState(false);
   const [error, setError] = useState("");
   const [pendingDelete, setPendingDelete] = useState<{
     order: number;
@@ -262,6 +317,27 @@ export function OutreachPlanEditor({
   const railStepRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const scrollSyncLock = useRef(false);
   const scrollSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveSuccessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flashSaveSuccess = () => {
+    if (saveSuccessTimerRef.current) {
+      window.clearTimeout(saveSuccessTimerRef.current);
+    }
+    setSaveSucceeded(true);
+    saveSuccessTimerRef.current = setTimeout(() => {
+      setSaveSucceeded(false);
+      saveSuccessTimerRef.current = null;
+    }, 2200);
+  };
+
+  useEffect(
+    () => () => {
+      if (saveSuccessTimerRef.current) {
+        window.clearTimeout(saveSuccessTimerRef.current);
+      }
+    },
+    []
+  );
 
   const createdMeta = useMemo(() => {
     const name = auth?.fullName?.trim() || auth?.email?.split("@")[0] || "You";
@@ -527,6 +603,7 @@ export function OutreachPlanEditor({
     if (!auth?.token) return;
     setSaving(true);
     setError("");
+    setSaveSucceeded(false);
     try {
       const isNew = planId === "new";
       const url = isNew
@@ -541,7 +618,33 @@ export function OutreachPlanEditor({
       if (!res.ok || !data.success) {
         throw new Error(typeof data.message === "string" ? data.message : "Failed to save plan");
       }
-      onSaved(isNew ? "Outreach plan created." : "Outreach plan updated.");
+      const saved = data.plan as
+        | {
+            id: string;
+            name: string;
+            touchpoints: OutreachTouchpointDraft[];
+          }
+        | undefined;
+      const successMessage = isNew ? "Sequence saved." : "Sequence updated.";
+      onSaved(
+        successMessage,
+        saved?.id
+          ? {
+              id: saved.id,
+              name: saved.name || planName.trim() || "Untitled outreach",
+              touchpoints: Array.isArray(saved.touchpoints)
+                ? saved.touchpoints.map((tp) => ({
+                    order: tp.order,
+                    label: tp.label || "",
+                    subject: tp.subject || "",
+                    body: tp.body || "",
+                    waitDays: tp.waitDays ?? 0,
+                  }))
+                : touchpoints,
+            }
+          : undefined
+      );
+      flashSaveSuccess();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save outreach plan.");
     } finally {
@@ -608,14 +711,12 @@ export function OutreachPlanEditor({
             Change sequence
           </button>
           <div className="hidden min-w-0 flex-1 px-4 sm:block">{planTitleEditor(true)}</div>
-          <button
-            type="button"
+          <SaveSequenceButton
+            compact
+            saving={saving}
+            saveSucceeded={saveSucceeded}
             onClick={() => void savePlan()}
-            disabled={saving}
-            className={`${dashboardBtnPrimaryClass} px-4 py-1.5 text-sm disabled:opacity-55`}
-          >
-            {saving ? "Saving…" : "Save sequence"}
-          </button>
+          />
         </div>
       ) : (
         <header className="shrink-0 border-b border-slate-200 bg-white px-4 py-4 sm:px-6">
@@ -634,14 +735,12 @@ export function OutreachPlanEditor({
               >
                 Cancel
               </button>
-              <button
-                type="button"
+              <SaveSequenceButton
+                saving={saving}
+                saveSucceeded={saveSucceeded}
                 onClick={() => void savePlan()}
-                disabled={saving}
-                className={`${dashboardBtnPrimaryClass} px-4 py-2 text-sm disabled:opacity-55`}
-              >
-                {saving ? "Saving…" : "Save outreach"}
-              </button>
+                label="Save"
+              />
             </div>
           </div>
           <div className="mt-4 border-t border-slate-100 pt-4">{planTitleEditor(false)}</div>

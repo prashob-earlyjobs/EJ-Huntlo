@@ -42,12 +42,14 @@ type ActiveEditor =
 
 type Props = {
   currentPlanId: string;
+  planResolved?: boolean;
   onViewPlans: () => void;
   onGoToIntegrations?: () => void;
 };
 
 export function OutreachesPanel({
   currentPlanId,
+  planResolved = false,
   onViewPlans,
   onGoToIntegrations,
 }: Props) {
@@ -119,10 +121,12 @@ export function OutreachesPanel({
   }, [apiBase, isEnterprise]);
 
   const openCreateOutreach = () => {
-    if (!isEnterprise) {
-      onViewPlans();
+    if (!planResolved || !isEnterprise) {
+      if (planResolved) onViewPlans();
       return;
     }
+    setModalPlansLoading(true);
+    setModalTemplatesLoading(true);
     void loadModalPlans();
     void loadModalTemplates();
     setCreateOutreachOpen(true);
@@ -267,6 +271,7 @@ export function OutreachesPanel({
     <>
       <EmailOutreachPanel
         currentPlanId={currentPlanId}
+        planResolved={planResolved}
         onViewPlans={onViewPlans}
         onCreateOutreach={openCreateOutreach}
         externalNotice={notice}
@@ -278,6 +283,7 @@ export function OutreachesPanel({
         plansLoading={modalPlansLoading}
         templates={modalTemplates}
         templatesLoading={modalTemplatesLoading}
+        optionsReady={!modalPlansLoading && !modalTemplatesLoading}
         onClose={() => setCreateOutreachOpen(false)}
         onChoose={(choice) => void handleCreateOutreachChoice(choice)}
       />

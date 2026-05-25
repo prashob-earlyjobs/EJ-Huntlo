@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { DashboardToast } from "@/components/dashboard/DashboardToast";
 import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
+import { OutreachSequencePickerSkeleton } from "@/components/dashboard/OutreachSequencePickerSkeleton";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import {
   dashboardBtnPrimaryClass,
@@ -34,6 +35,8 @@ type Props = {
   plansLoading?: boolean;
   templates: OutreachTemplateListItem[];
   templatesLoading?: boolean;
+  /** False until the first templates/plans fetch has finished. */
+  optionsReady?: boolean;
   lead?: string;
   onChoose: (choice: CreateOutreachChoice) => void;
 };
@@ -127,7 +130,8 @@ export function OutreachSequencePicker({
   plansLoading = false,
   templates,
   templatesLoading = false,
-  lead,
+  optionsReady,
+  lead = "Choose how to build your sequence",
   onChoose,
 }: Props) {
   const [step, setStep] = useState<"choose" | "clone" | "scratchChannel">("choose");
@@ -141,6 +145,10 @@ export function OutreachSequencePicker({
   const globalTemplates = templates.filter((t) => t.isGlobal);
   const userTemplates = templates.filter((t) => !t.isGlobal);
   const listLoading = templatesLoading || plansLoading;
+  /** Explicit false = parent gates first paint (campaign editor); undefined = loading flags only. */
+  const pickerLoading =
+    optionsReady === undefined ? listLoading : !optionsReady || listLoading;
+  const showEmptyHints = optionsReady !== false && !pickerLoading;
   const hasTemplateList =
     globalTemplates.length > 0 || userTemplates.length > 0 || existingPlans.length > 0;
 
@@ -179,22 +187,29 @@ export function OutreachSequencePicker({
     return (
       <div className={`${s.root} dashboard-outreach-scroll`}>
         <p className={s.lead}>Pick a plan to duplicate as your starting point.</p>
-        <label className={`${dashboardLabelClass} block`}>
-          Outreach plan
-          <select
-            value={clonePlanId}
-            onChange={(e) => setClonePlanId(e.target.value)}
-            className={`${dashboardInputClass} mt-2 w-full`}
-            disabled={plansLoading}
-          >
-            <option value="">{plansLoading ? "Loading plans…" : "Select a plan…"}</option>
-            {existingPlans.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name} · {p.touchpointCount} touchpoints
-              </option>
-            ))}
-          </select>
-        </label>
+        {pickerLoading ? (
+          <div className="mt-2 space-y-2" aria-busy="true" aria-label="Loading outreach plans">
+            <div className="dashboard-shimmer h-10 w-full rounded-lg" />
+            <div className="dashboard-shimmer h-10 w-full rounded-lg" />
+          </div>
+        ) : (
+          <label className={`${dashboardLabelClass} block`}>
+            Outreach plan
+            <select
+              value={clonePlanId}
+              onChange={(e) => setClonePlanId(e.target.value)}
+              className={`${dashboardInputClass} mt-2 w-full`}
+              disabled={plansLoading}
+            >
+              <option value="">{plansLoading ? "Loading plans…" : "Select a plan…"}</option>
+              {existingPlans.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} · {p.touchpointCount} touchpoints
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <div className={s.actions}>
           <button
             type="button"
@@ -241,25 +256,27 @@ export function OutreachSequencePicker({
           styles={s}
           icon="content_copy"
           label="Clone an existing outreach"
-          disabled={!plansLoading && existingPlans.length === 0}
+          disabled={pickerLoading || (!plansLoading && existingPlans.length === 0)}
           onClick={() => {
-            if (existingPlans.length === 0 && !plansLoading) return;
+            if (pickerLoading || (existingPlans.length === 0 && !plansLoading)) return;
             setStep("clone");
           }}
         />
       </div>
 
-      {!plansLoading && existingPlans.length === 0 ? (
+      {showEmptyHints && existingPlans.length === 0 ? (
         <p className={s.hint}>Create and save a plan first to enable cloning.</p>
       ) : null}
 
       <div className={s.sectionGap}>
-        <h3 className={s.sectionTitle}>Templates</h3>
-        {listLoading ? (
-          <p className={s.hint}>Loading templates…</p>
-        ) : !hasTemplateList ? (
-          <p className={s.hint}>No templates yet. Save an outreach plan to reuse it here.</p>
+        {pickerLoading ? (
+          <OutreachSequencePickerSkeleton rows={4} />
         ) : (
+          <>
+            <h3 className={s.sectionTitle}>Templates</h3>
+            {!hasTemplateList ? (
+              <p className={s.hint}>No templates yet. Save an outreach plan to reuse it here.</p>
+            ) : (
           <div className="space-y-0">
             {globalTemplates.length > 0 ? (
               <>
@@ -354,6 +371,8 @@ export function OutreachSequencePicker({
               </>
             ) : null}
           </div>
+            )}
+          </>
         )}
       </div>
 
