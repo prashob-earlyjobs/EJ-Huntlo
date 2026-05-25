@@ -285,11 +285,22 @@ export function PlansPricingPanel({
                 </thead>
                 <tbody>
                   {historyLoading ? (
-                    <tr>
-                      <td colSpan={3} className="dashboard-pricing-table-empty">
-                        Loading history…
-                      </td>
-                    </tr>
+                    Array.from({ length: 5 }).map((_, idx) => (
+                      <tr key={`history-skeleton-${idx}`}>
+                        <td>
+                          <div className="dashboard-shimmer h-3 w-28 rounded" />
+                        </td>
+                        <td>
+                          <div
+                            className="dashboard-shimmer h-3 rounded"
+                            style={{ width: `${40 + (idx % 3) * 15}%`, maxWidth: "10rem" }}
+                          />
+                        </td>
+                        <td className="text-right">
+                          <div className="dashboard-shimmer ml-auto h-3 w-8 rounded" />
+                        </td>
+                      </tr>
+                    ))
                   ) : history.length === 0 ? (
                     <tr>
                       <td colSpan={3} className="dashboard-pricing-table-empty">

@@ -87,13 +87,59 @@ function extractRevealValues(fj, revealType) {
   return deduped;
 }
 
-/** Trim for DB keys and comparison */
+/**
+ * Canonical LinkedIn profile URL for DB keys. Host is normalized; slug case is preserved
+ * (member IDs like ACoAA… are case-sensitive for Future Jobs).
+ */
 function normalizeLinkedinProfileUrl(url) {
-  return String(url || "").trim();
+  let s = String(url || "").trim();
+  if (!s) return "";
+
+  try {
+    if (!/^https?:\/\//i.test(s)) {
+      s = `https://${s}`;
+    }
+    const parsed = new URL(s);
+    const host = parsed.hostname.replace(/^www\./i, "").toLowerCase();
+    if (host === "linkedin.com") {
+      const path = parsed.pathname.replace(/\/+$/, "");
+      const inMatch = path.match(/^\/in\/([^/]+)/i);
+      if (inMatch && inMatch[1]) {
+        const slug = decodeURIComponent(inMatch[1]).replace(/\/+$/, "");
+        if (slug) {
+          return `https://www.linkedin.com/in/${slug}`;
+        }
+      }
+      return `https://www.linkedin.com${path || ""}`.replace(/\/+$/, "");
+    }
+    return s.replace(/\/+$/, "");
+  } catch {
+    return s.replace(/\/+$/, "");
+  }
+}
+
+/** Lowercase slug variant for legacy cache rows written before case was preserved. */
+function lowercaseLinkedinProfileUrl(url) {
+  const canonical = normalizeLinkedinProfileUrl(url);
+  if (!canonical) return "";
+  return canonical.replace(
+    /^(https:\/\/www\.linkedin\.com\/in\/)([^/]+)/i,
+    (_, prefix, slug) => `${prefix}${slug.toLowerCase()}`
+  );
+}
+
+/** Keys to try when loading cache (canonical first, then legacy lowercase). */
+function linkedinCacheLookupKeys(url) {
+  const canonical = normalizeLinkedinProfileUrl(url);
+  if (!canonical) return [];
+  const lower = lowercaseLinkedinProfileUrl(canonical);
+  return lower && lower !== canonical ? [canonical, lower] : [canonical];
 }
 
 module.exports = {
   looksValidContact,
   extractRevealValues,
   normalizeLinkedinProfileUrl,
+  lowercaseLinkedinProfileUrl,
+  linkedinCacheLookupKeys,
 };

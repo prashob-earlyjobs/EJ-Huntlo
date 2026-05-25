@@ -1,0 +1,222 @@
+export type WhatsAppTouchpointDraft = {
+  order: number;
+  label: string;
+  body: string;
+  /** Hours to wait after the previous message (0 for the first step). */
+  waitHours: number;
+  /** Approved template id (opening or no-reply fallback). */
+  templateId?: string;
+  /** Auto-sent if the candidate does not reply (steps 2 & 3 in default sequence). */
+  isNoReplyFallback?: boolean;
+};
+
+export type WhatsAppMessageTemplate = {
+  id: string;
+  name: string;
+  description: string;
+  body: string;
+};
+
+/** @deprecated Use WhatsAppMessageTemplate */
+export type WhatsAppOpeningTemplate = WhatsAppMessageTemplate;
+
+export const WHATSAPP_OPENING_TEMPLATES: WhatsAppMessageTemplate[] = [
+  {
+    id: "professional_intro",
+    name: "Professional introduction",
+    description: "Formal outreach highlighting the role and a quick call to action.",
+    body: `Hi {{FirstName}},
+
+I'm {{SenderFirstName}}, and I came across your profile while hiring for a {{JobTitle}} opportunity. Your experience at {{CurrentCompany}} stood out to us.
+
+Would you be open to a brief chat this week?`,
+  },
+  {
+    id: "role_opportunity",
+    name: "Role opportunity",
+    description: "Direct message focused on the open position and candidate fit.",
+    body: `Hello {{FirstName}} 👋
+
+We're actively looking for a {{JobTitle}}, and your background looks like a strong match.
+
+Happy to share more details if you're interested — would that work for you?`,
+  },
+  {
+    id: "warm_connect",
+    name: "Warm connect",
+    description: "Friendly, low-pressure opener to start a conversation.",
+    body: `Hi {{FirstName}}, hope you're doing well!
+
+I wanted to reach out about an opportunity that aligns with your experience as {{JobTitle}}. No pressure — just checking if you'd be open to hearing more.`,
+  },
+];
+
+export const WHATSAPP_NO_REPLY_TEMPLATES: Record<1 | 2, WhatsAppMessageTemplate[]> = {
+  1: [
+    {
+      id: "no_reply_1_bump",
+      name: "Friendly bump",
+      description: "Light reminder in case the first message was missed.",
+      body: `Hi {{FirstName}}, just bumping this in case my earlier message got buried.
+
+Are you still open to a quick chat about the {{JobTitle}} opportunity?`,
+    },
+    {
+      id: "no_reply_1_value",
+      name: "Value reminder",
+      description: "Reinforces why the role could be a fit.",
+      body: `Hi {{FirstName}}, wanted to follow up — we're hiring for {{JobTitle}} and your background at {{CurrentCompany}} still looks like a strong match.
+
+Would a 10-minute call work this week?`,
+    },
+    {
+      id: "no_reply_1_soft",
+      name: "Soft check-in",
+      description: "Low-pressure nudge with an easy yes/no.",
+      body: `Hi {{FirstName}}, hope you're doing well! Still happy to share more about the {{JobTitle}} role if you're interested — should I send details?`,
+    },
+  ],
+  2: [
+    {
+      id: "no_reply_2_final",
+      name: "Final note",
+      description: "Polite last outreach before closing the loop.",
+      body: `Hi {{FirstName}} — last quick note from me.
+
+Happy to share more details whenever works for you. Should I close the loop on this side?`,
+    },
+    {
+      id: "no_reply_2_door_open",
+      name: "Door open",
+      description: "Leaves the conversation open without pressure.",
+      body: `Hi {{FirstName}}, I don't want to crowd your inbox — I'll pause here unless you'd like to hear more about the {{JobTitle}} opportunity. Just reply anytime.`,
+    },
+    {
+      id: "no_reply_2_close",
+      name: "Close the loop",
+      description: "Clear closing message if there is still no response.",
+      body: `Hi {{FirstName}}, I'll assume timing isn't right for the {{JobTitle}} role. Feel free to reach out if things change — wishing you all the best at {{CurrentCompany}}!`,
+    },
+  ],
+};
+
+export function getWhatsAppOpeningTemplate(id: string | undefined) {
+  if (!id) return undefined;
+  return WHATSAPP_OPENING_TEMPLATES.find((t) => t.id === id);
+}
+
+export function getWhatsAppNoReplyTemplate(slot: 1 | 2, id: string | undefined) {
+  if (!id) return undefined;
+  return WHATSAPP_NO_REPLY_TEMPLATES[slot].find((t) => t.id === id);
+}
+
+export type WhatsAppOutreachChannel = "whatsapp";
+
+export function createEmptyWhatsAppStep(order: number): WhatsAppTouchpointDraft {
+  return {
+    order,
+    label: order === 1 ? "Opening message" : `Follow-up ${order - 1}`,
+    body: "",
+    waitHours: order === 1 ? 0 : 24,
+  };
+}
+
+export function createNoReplyFallback(slot: 1 | 2): WhatsAppTouchpointDraft {
+  const tpl = WHATSAPP_NO_REPLY_TEMPLATES[slot][0];
+  return {
+    order: slot + 1,
+    label: `No-reply follow-up ${slot}`,
+    body: tpl.body,
+    templateId: tpl.id,
+    waitHours: slot === 1 ? 48 : 96,
+    isNoReplyFallback: true,
+  };
+}
+
+/** Ensures opening + 2 no-reply fallbacks (orders 1–3), then any extra steps. */
+export function ensureWhatsAppSequenceWithFallbacks(
+  touchpoints: WhatsAppTouchpointDraft[]
+): WhatsAppTouchpointDraft[] {
+  const opening = touchpoints.find((t) => t.order === 1) ?? createEmptyWhatsAppStep(1);
+  const existingFb = touchpoints.filter((t) => t.isNoReplyFallback);
+  const resolveFallback = (slot: 1 | 2, raw: WhatsAppTouchpointDraft | undefined) => {
+    const base = raw ?? createNoReplyFallback(slot);
+    if (base.templateId) return { ...base, isNoReplyFallback: true as const };
+    const matched = WHATSAPP_NO_REPLY_TEMPLATES[slot].find((t) => t.body === base.body);
+    const tpl = matched ?? WHATSAPP_NO_REPLY_TEMPLATES[slot][0];
+    return {
+      ...base,
+      templateId: tpl.id,
+      body: tpl.body,
+      isNoReplyFallback: true as const,
+    };
+  };
+
+  const fb1 =
+    resolveFallback(
+      1,
+      existingFb.find((t) => t.order === 2) ?? touchpoints.find((t) => t.order === 2)
+    );
+  const fb2 =
+    resolveFallback(
+      2,
+      existingFb.find((t) => t.order === 3) ?? touchpoints.find((t) => t.order === 3)
+    );
+  const extra = touchpoints
+    .filter((t) => t.order > 3 && !t.isNoReplyFallback)
+    .sort((a, b) => a.order - b.order);
+
+  return [
+    { ...opening, order: 1, label: "Opening message" },
+    { ...fb1, order: 2, isNoReplyFallback: true, label: "No-reply follow-up 1" },
+    { ...fb2, order: 3, isNoReplyFallback: true, label: "No-reply follow-up 2" },
+    ...extra.map((t, idx) => ({
+      ...t,
+      order: 4 + idx,
+      isNoReplyFallback: false,
+      label: `Follow-up ${idx + 1}`,
+    })),
+  ];
+}
+
+export function createInitialWhatsAppSequence(): WhatsAppTouchpointDraft[] {
+  return ensureWhatsAppSequenceWithFallbacks([createEmptyWhatsAppStep(1)]);
+}
+
+export function getNoReplyFallbacks(touchpoints: WhatsAppTouchpointDraft[]) {
+  return {
+    fallback1: touchpoints.find((t) => t.order === 2 && t.isNoReplyFallback),
+    fallback2: touchpoints.find((t) => t.order === 3 && t.isNoReplyFallback),
+  };
+}
+
+export const WHATSAPP_MERGE_TAGS = [
+  "FirstName",
+  "CurrentCompany",
+  "JobTitle",
+  "SenderFirstName",
+] as const;
+
+export const WHATSAPP_MESSAGE_MAX_LENGTH = 4096;
+
+export function formatWhatsAppWaitLabel(waitHours: number): string {
+  if (waitHours <= 0) return "Send immediately";
+  if (waitHours < 24) {
+    return waitHours === 1 ? "1 hour later" : `${waitHours} hours later`;
+  }
+  const days = Math.round(waitHours / 24);
+  return days === 1 ? "1 day later" : `${days} days later`;
+}
+
+export function waitHoursFromDisplay(amount: number, unit: "hours" | "days"): number {
+  const n = Math.max(0, Math.floor(amount) || 0);
+  return unit === "days" ? n * 24 : n;
+}
+
+export function inferWaitDisplay(waitHours: number): { amount: number; unit: "hours" | "days" } {
+  if (waitHours <= 0) return { amount: 0, unit: "hours" };
+  if (waitHours >= 24 && waitHours % 24 === 0) {
+    return { amount: waitHours / 24, unit: "days" };
+  }
+  return { amount: waitHours, unit: "hours" };
+}

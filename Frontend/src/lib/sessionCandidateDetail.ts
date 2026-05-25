@@ -88,16 +88,32 @@ export type SessionResultDoc = {
   };
 };
 
+/** Placeholder ids from sessionDocToCandidateRow when Future Jobs doc._id is missing. */
+export function isSyntheticSessionCandidateId(id: string): boolean {
+  const trimmed = id.trim();
+  return trimmed.startsWith("session-doc-");
+}
+
+/**
+ * Future Jobs GET …/sourcing-session/candidate/:id/details expects the session
+ * result doc id (profiles list `doc._id`), not `profile._id`.
+ */
 export function resolveCandidateProfileId(
   doc: SessionResultDoc,
   candidateId?: string
 ): string {
+  const docId = typeof doc._id === "string" ? doc._id.trim() : "";
+  if (docId && !isSyntheticSessionCandidateId(docId)) return docId;
+
+  const fromRow =
+    typeof candidateId === "string" ? candidateId.trim() : "";
+  if (fromRow && !isSyntheticSessionCandidateId(fromRow)) return fromRow;
+
   const fromProfile =
     typeof doc.profile?._id === "string" ? doc.profile._id.trim() : "";
   if (fromProfile) return fromProfile;
-  if (typeof doc._id === "string" && doc._id.trim()) return doc._id.trim();
-  if (typeof candidateId === "string" && candidateId.trim()) return candidateId.trim();
-  return "";
+
+  return docId || fromRow || "";
 }
 
 function mapEmployerRow(raw: Record<string, unknown>): SessionEmployerRow {

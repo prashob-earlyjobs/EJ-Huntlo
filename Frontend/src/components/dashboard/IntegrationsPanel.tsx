@@ -1,126 +1,115 @@
 "use client";
 
-import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useGoogleLogin } from "@react-oauth/google";
 
+import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
+import {
+  CalendlyConnectModal,
+  type CalendlyConnectFormValues,
+} from "@/components/dashboard/CalendlyConnectModal";
+import {
+  WhatsAppConnectModal,
+  type WhatsAppConnectFormValues,
+} from "@/components/dashboard/WhatsAppConnectModal";
+import { IntegrationsPanelSkeleton } from "@/components/dashboard/IntegrationsPanelSkeleton";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
-
-export type IntegrationId = "gmail" | "whatsapp" | "google_calendar";
+import { authHeaders, getStoredAuth } from "@/lib/auth";
 
 const ENTERPRISE_PLAN_ID = "enterprise";
 const ENTERPRISE_LOCKED_MESSAGE =
-  "Integrations are available on the Enterprise plan only. Upgrade to connect Gmail, WhatsApp, and Google Calendar.";
+  "Integrations are available on the Enterprise plan only. Upgrade to connect Gmail, WhatsApp, Calendly, and LinkedIn.";
 
-type IntegrationDef = {
-  id: IntegrationId;
-  name: string;
-  description: string;
-  icon: string;
-  accent: string;
-  features: string[];
+type IntegrationRow = {
+  id: string;
+  provider: string;
+  integration: string;
+  providerLabel: string;
+  senderName: string;
+  email: string;
+  status: string;
 };
 
-const INTEGRATIONS_STORAGE_KEY = "ejhunter_integrations_connected";
+type ConnectOption = {
+  id: string;
+  name: string;
+  provider: string;
+  description: string;
+  connectable: boolean;
+  comingSoon?: boolean;
+};
 
-const INTEGRATION_OPTIONS: IntegrationDef[] = [
+const CONNECT_OPTIONS: ConnectOption[] = [
   {
     id: "gmail",
     name: "Gmail",
-    description: "Send and track candidate outreach from your work inbox.",
-    icon: "mail",
-    accent: "#EA4335",
-    features: ["Send outreach emails", "Track opens & replies", "Use templates"],
+    provider: "Google",
+    description: "Send and track candidate outreach from your inbox.",
+    connectable: true,
   },
   {
     id: "whatsapp",
     name: "WhatsApp",
-    description: "Message candidates on WhatsApp without leaving Huntlo.",
-    icon: "chat",
-    accent: "#25D366",
-    features: ["Quick candidate messages", "Template messages", "Conversation history"],
+    provider: "Meta",
+    description: "Message candidates on WhatsApp from your workspace.",
+    connectable: true,
   },
   {
-    id: "google_calendar",
-    name: "Google Calendar",
-    description: "Schedule interviews and sync availability with your calendar.",
-    icon: "calendar_month",
-    accent: "#4285F4",
-    features: ["Book interview slots", "Send calendar invites", "Avoid double-booking"],
+    id: "calendly",
+    name: "Calendly",
+    provider: "Calendly",
+    description: "Share scheduling links and book meetings with candidates.",
+    connectable: true,
+  },
+  {
+    id: "linkedin",
+    name: "LinkedIn",
+    provider: "LinkedIn",
+    description: "Sync your LinkedIn account for outreach and profile enrichment.",
+    connectable: false,
+    comingSoon: true,
   },
 ];
 
-function readConnectedIds(): IntegrationId[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(INTEGRATIONS_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    const allowed = new Set(INTEGRATION_OPTIONS.map((o) => o.id));
-    return parsed.filter(
-      (id): id is IntegrationId =>
-        typeof id === "string" && allowed.has(id as IntegrationId)
-    );
-  } catch {
-    return [];
-  }
-}
-
-function writeConnectedIds(ids: IntegrationId[]) {
-  try {
-    localStorage.setItem(INTEGRATIONS_STORAGE_KEY, JSON.stringify(ids));
-  } catch {
-    /* ignore */
-  }
-}
-
-type IntegrationCardProps = {
-  integration: IntegrationDef;
+type ConnectOptionCardProps = {
+  option: ConnectOption;
   locked: boolean;
   connected: boolean;
   busy: boolean;
   onLocked: () => void;
-  onToggle: () => void;
+  onConnect: () => void;
 };
 
-function IntegrationCard({
-  integration,
+function ConnectOptionCard({
+  option,
   locked,
   connected,
   busy,
   onLocked,
-  onToggle,
-}: IntegrationCardProps) {
-  const handleAction = () => {
+  onConnect,
+}: ConnectOptionCardProps) {
+  const handleClick = () => {
     if (locked) {
       onLocked();
       return;
     }
-    onToggle();
+    if (!connected) onConnect();
   };
 
   return (
     <article
-      className={`dashboard-integration-card${locked ? " dashboard-integration-card--locked" : ""}`}
+      className={`dashboard-integration-card dashboard-integration-card--compact${
+        locked ? " dashboard-integration-card--locked" : ""
+      }${option.comingSoon ? " dashboard-integration-card--soon" : ""}`}
     >
-      {locked ? (
-        <span className="dashboard-integration-lock-badge" aria-hidden>
-          <MaterialIcon name="lock" className="text-[15px]" />
-        </span>
-      ) : null}
-
       <div className="dashboard-integration-card-top">
         <span
-          className={`dashboard-integration-icon${
+          className={`dashboard-integration-icon dashboard-integration-icon--brand${
             locked ? " dashboard-integration-icon--locked" : ""
           }`}
-          style={{ "--integration-accent": integration.accent } as CSSProperties}
           aria-hidden
         >
-          {locked ? (
-            <MaterialIcon name="lock" className="text-[20px]" />
-          ) : (
-            <MaterialIcon name={integration.icon} className="text-[22px]" />
-          )}
+          <IntegrationBrandLogo provider={option.id} title={option.name} />
         </span>
         <span
           className={`dashboard-integration-status${
@@ -128,10 +117,14 @@ function IntegrationCard({
               ? " dashboard-integration-status--locked"
               : connected
                 ? " dashboard-integration-status--connected"
-                : ""
+                : option.comingSoon
+                  ? " dashboard-integration-status--soon"
+                  : ""
           }`}
         >
-          {!locked ? <span className="dashboard-integration-status-dot" aria-hidden /> : null}
+          {!locked && (connected || !option.comingSoon) ? (
+            <span className="dashboard-integration-status-dot" aria-hidden />
+          ) : null}
           {locked ? (
             <>
               <MaterialIcon name="workspace_premium" className="text-sm" aria-hidden />
@@ -139,137 +132,337 @@ function IntegrationCard({
             </>
           ) : connected ? (
             "Connected"
+          ) : option.comingSoon ? (
+            "Coming soon"
           ) : (
             "Not connected"
           )}
         </span>
       </div>
 
-      <h4 className="dashboard-integration-name">{integration.name}</h4>
-      <p className="dashboard-integration-desc">{integration.description}</p>
+      <h4 className="dashboard-integration-name">{option.name}</h4>
+      <p className="dashboard-integration-desc">{option.description}</p>
+      <p className="dashboard-integration-provider-label">{option.provider}</p>
 
-      <ul className="dashboard-integration-features">
-        {integration.features.map((feature) => (
-          <li key={feature}>
-            <MaterialIcon name="check_circle" className="text-sm opacity-80" aria-hidden />
-            <span>{feature}</span>
-          </li>
-        ))}
-      </ul>
-
-      <button
-        type="button"
-        onClick={handleAction}
-        disabled={busy && !locked}
-        className={
-          locked
-            ? "dashboard-btn-secondary w-full justify-center"
-            : connected
-              ? "dashboard-btn-secondary w-full justify-center disabled:opacity-55"
-              : "dashboard-btn-primary w-full justify-center disabled:opacity-55"
-        }
-      >
-        {locked ? (
-          <>
-            <MaterialIcon name="lock" className="text-base" />
-            Enterprise plan required
-          </>
-        ) : busy ? (
-          <>
-            <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-            {connected ? "Disconnecting…" : "Connecting…"}
-          </>
-        ) : connected ? (
-          <>
-            <MaterialIcon name="link_off" className="text-base" />
-            Disconnect
-          </>
-        ) : (
-          <>
-            <MaterialIcon name="link" className="text-base" />
-            Connect
-          </>
-        )}
-      </button>
+      {!connected && !option.comingSoon ? (
+        <button
+          type="button"
+          onClick={handleClick}
+          disabled={busy}
+          className={
+            locked
+              ? "dashboard-btn-secondary mt-auto w-full justify-center"
+              : "dashboard-btn-primary mt-auto w-full justify-center disabled:opacity-55"
+          }
+        >
+          {locked ? (
+            <>
+              <MaterialIcon name="lock" className="text-base" />
+              Enterprise plan required
+            </>
+          ) : busy ? (
+            <>
+              <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
+              Connecting…
+            </>
+          ) : (
+            <>
+              <MaterialIcon name="link" className="text-base" />
+              Connect
+            </>
+          )}
+        </button>
+      ) : null}
     </article>
   );
 }
 
 type Props = {
   currentPlanId: string;
+  planResolved?: boolean;
   onViewPlans: () => void;
 };
 
-export function IntegrationsPanel({ currentPlanId, onViewPlans }: Props) {
+export function IntegrationsPanel({
+  currentPlanId,
+  planResolved = false,
+  onViewPlans,
+}: Props) {
   const isEnterprise = currentPlanId === ENTERPRISE_PLAN_ID;
-  const [connectedIds, setConnectedIds] = useState<IntegrationId[]>([]);
-  const [ready, setReady] = useState(false);
-  const [busyId, setBusyId] = useState<IntegrationId | null>(null);
+  const [integrations, setIntegrations] = useState<IntegrationRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [listReady, setListReady] = useState(false);
+  const [busyProvider, setBusyProvider] = useState<string | null>(null);
+  const [whatsappModalOpen, setWhatsappModalOpen] = useState(false);
+  const [calendlyModalOpen, setCalendlyModalOpen] = useState(false);
   const [notice, setNotice] = useState("");
-
-  useEffect(() => {
-    setConnectedIds(readConnectedIds());
-    setReady(true);
-  }, []);
+  const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+  const connectedProviders = new Set(integrations.map((row) => row.provider));
+  const AVAILABLE_INTEGRATION_COUNT = CONNECT_OPTIONS.length;
+  const connectedCount = CONNECT_OPTIONS.filter((option) =>
+    connectedProviders.has(option.id)
+  ).length;
 
   const showEnterpriseNotice = useCallback(() => {
     setNotice(ENTERPRISE_LOCKED_MESSAGE);
   }, []);
 
-  const toggleConnection = useCallback(
-    async (id: IntegrationId) => {
-      if (!isEnterprise) {
-        showEnterpriseNotice();
-        return;
-      }
-      setNotice("");
-      setBusyId(id);
-      await new Promise((resolve) => window.setTimeout(resolve, 650));
-      const label = INTEGRATION_OPTIONS.find((o) => o.id === id)?.name ?? "Integration";
-      setConnectedIds((prev) => {
-        const wasConnected = prev.includes(id);
-        const next = wasConnected ? prev.filter((x) => x !== id) : [...prev, id];
-        writeConnectedIds(next);
-        setNotice(
-          wasConnected
-            ? `${label} disconnected.`
-            : `${label} connected. OAuth sign-in will be available in a future release.`
-        );
-        return next;
+  const loadIntegrations = useCallback(async () => {
+    const auth = getStoredAuth();
+    if (!auth?.token || !isEnterprise) {
+      setIntegrations([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch(`${apiBase}/api/integrations`, {
+        headers: authHeaders(auth.token),
       });
-      setBusyId(null);
+      const data = await res.json();
+      if (data.success && Array.isArray(data.integrations)) {
+        setIntegrations(data.integrations as IntegrationRow[]);
+      } else {
+        setIntegrations([]);
+      }
+    } catch {
+      setIntegrations([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [apiBase, isEnterprise]);
+
+  useEffect(() => {
+    if (!planResolved) return;
+    if (!isEnterprise) {
+      setIntegrations([]);
+      setLoading(false);
+      setListReady(true);
+      return;
+    }
+    setListReady(false);
+    void loadIntegrations();
+  }, [planResolved, isEnterprise, loadIntegrations]);
+
+  useEffect(() => {
+    if (!loading) setListReady(true);
+  }, [loading]);
+
+  const showShimmer =
+    !planResolved || (isEnterprise && (!listReady || loading));
+
+  const showEnterpriseLocked = planResolved && !isEnterprise;
+
+  const gmailLogin = useGoogleLogin({
+    flow: "auth-code",
+    scope: [
+      "https://www.googleapis.com/auth/gmail.send",
+      "https://www.googleapis.com/auth/userinfo.email",
+      "openid",
+    ].join(" "),
+    onSuccess: async (codeResponse) => {
+      try {
+        const auth = getStoredAuth();
+        if (!auth?.token) {
+          throw new Error("Please sign in again.");
+        }
+        const res = await fetch(`${apiBase}/api/integrations/gmail/callback`, {
+          method: "POST",
+          headers: authHeaders(auth.token),
+          body: JSON.stringify({ code: codeResponse.code }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(
+            typeof data.message === "string" ? data.message : "Failed to connect Gmail"
+          );
+        }
+        const row = data.integration as IntegrationRow | undefined;
+        if (row?.id) {
+          setIntegrations((prev) => {
+            const rest = prev.filter((r) => r.provider !== row.provider);
+            return [row, ...rest];
+          });
+          setNotice(
+            row.email ? `Gmail connected as ${row.email}.` : "Gmail connected."
+          );
+        } else {
+          setNotice("Gmail connected.");
+          void loadIntegrations();
+        }
+      } catch (err) {
+        setNotice(err instanceof Error ? err.message : "Failed to connect Gmail.");
+      } finally {
+        setBusyProvider(null);
+      }
     },
-    [isEnterprise, showEnterpriseNotice]
+    onError: () => {
+      setNotice("Gmail sign-in was cancelled or failed.");
+      setBusyProvider(null);
+    },
+  });
+
+  const handleConnectGmail = useCallback(() => {
+    if (!isEnterprise) {
+      showEnterpriseNotice();
+      return;
+    }
+    setNotice("");
+    setBusyProvider("gmail");
+    gmailLogin();
+  }, [isEnterprise, showEnterpriseNotice, gmailLogin]);
+
+  const handleConnectWhatsApp = useCallback(() => {
+    if (!isEnterprise) {
+      showEnterpriseNotice();
+      return;
+    }
+    setNotice("");
+    setWhatsappModalOpen(true);
+  }, [isEnterprise, showEnterpriseNotice]);
+
+  const handleConnectCalendly = useCallback(() => {
+    if (!isEnterprise) {
+      showEnterpriseNotice();
+      return;
+    }
+    setNotice("");
+    setCalendlyModalOpen(true);
+  }, [isEnterprise, showEnterpriseNotice]);
+
+  const handleWhatsAppSubmit = useCallback(
+    async (values: WhatsAppConnectFormValues) => {
+      setBusyProvider("whatsapp");
+      setNotice("");
+      try {
+        const auth = getStoredAuth();
+        if (!auth?.token) {
+          throw new Error("Please sign in again.");
+        }
+        const res = await fetch(`${apiBase}/api/integrations/whatsapp/connect`, {
+          method: "POST",
+          headers: authHeaders(auth.token),
+          body: JSON.stringify({
+            gupshupMode: values.gupshupMode,
+            gupshupUserId: values.gupshupUserId,
+            gupshupPassword: values.gupshupPassword,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(
+            typeof data.message === "string" ? data.message : "Failed to connect WhatsApp"
+          );
+        }
+        const row = data.integration as IntegrationRow | undefined;
+        if (row?.id) {
+          setIntegrations((prev) => {
+            const rest = prev.filter((r) => r.provider !== "whatsapp");
+            return [row, ...rest];
+          });
+        } else {
+          void loadIntegrations();
+        }
+        setWhatsappModalOpen(false);
+        const viaHuntlo = values.gupshupMode === "huntlo";
+        setNotice(
+          viaHuntlo
+            ? "Huntlo WhatsApp connected."
+            : `WhatsApp connected for Gupshup user ${values.gupshupUserId}.`
+        );
+      } catch (err) {
+        setNotice(err instanceof Error ? err.message : "Failed to connect WhatsApp.");
+      } finally {
+        setBusyProvider(null);
+      }
+    },
+    [apiBase, loadIntegrations]
   );
 
-  const connectedCount = isEnterprise ? connectedIds.length : 0;
+  const handleCalendlySubmit = useCallback(
+    async (values: CalendlyConnectFormValues) => {
+      setBusyProvider("calendly");
+      setNotice("");
+      try {
+        const auth = getStoredAuth();
+        if (!auth?.token) {
+          throw new Error("Please sign in again.");
+        }
+        const res = await fetch(`${apiBase}/api/integrations/calendly/connect`, {
+          method: "POST",
+          headers: authHeaders(auth.token),
+          body: JSON.stringify({
+            personalAccessToken: values.personalAccessToken,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(
+            typeof data.message === "string" ? data.message : "Failed to connect Calendly"
+          );
+        }
+        const row = data.integration as IntegrationRow | undefined;
+        if (row?.id) {
+          setIntegrations((prev) => {
+            const rest = prev.filter((r) => r.provider !== "calendly");
+            return [row, ...rest];
+          });
+        } else {
+          void loadIntegrations();
+        }
+        setCalendlyModalOpen(false);
+        setNotice(
+          row?.email
+            ? `Calendly connected as ${row.email}.`
+            : "Calendly connected."
+        );
+      } catch (err) {
+        setNotice(err instanceof Error ? err.message : "Failed to connect Calendly.");
+      } finally {
+        setBusyProvider(null);
+      }
+    },
+    [apiBase, loadIntegrations]
+  );
 
-  if (!ready) {
-    return (
-      <section className="dashboard-card dashboard-card--fill flex h-full min-w-0 max-w-full w-full flex-col p-6">
-        <div className="dashboard-shimmer h-8 w-48 rounded" />
-        <div className="dashboard-integration-grid mt-6">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div
-              key={`integration-skel-${i}`}
-              className="dashboard-integration-card dashboard-integration-card--static"
-            >
-              <div className="dashboard-shimmer h-10 w-10 rounded-lg" />
-              <div className="dashboard-shimmer mt-4 h-5 w-32 rounded" />
-              <div className="dashboard-shimmer mt-2 h-4 w-full max-w-xs rounded" />
-              <div className="dashboard-shimmer mt-6 h-9 w-full rounded-md" />
-            </div>
-          ))}
-        </div>
-      </section>
-    );
-  }
+  const handleDisconnect = useCallback(
+    async (provider: string) => {
+      if (!isEnterprise) return;
+      setNotice("");
+      setBusyProvider(provider);
+      const auth = getStoredAuth();
+      if (auth?.token) {
+        try {
+          const res = await fetch(`${apiBase}/api/integrations/${provider}`, {
+            method: "DELETE",
+            headers: authHeaders(auth.token),
+          });
+          const data = await res.json();
+          if (!res.ok || !data.success) {
+            throw new Error(
+              typeof data.message === "string"
+                ? data.message
+                : "Failed to disconnect integration"
+            );
+          }
+          setIntegrations((prev) => prev.filter((r) => r.provider !== provider));
+          setNotice("Integration disconnected.");
+        } catch (err) {
+          setNotice(
+            err instanceof Error ? err.message : "Failed to disconnect integration."
+          );
+        }
+      }
+      setBusyProvider(null);
+    },
+    [apiBase, isEnterprise]
+  );
 
   return (
     <section className="dashboard-card dashboard-card--fill flex h-full min-w-0 max-w-full w-full flex-col p-6">
       <div className="dashboard-card-panel-header">
         <div className="dashboard-results-toolbar dashboard-results-toolbar--pool">
-          <div>
+          <div className="min-w-0 flex-1">
             <h3 className="flex items-center gap-2 dashboard-section-title">
               <MaterialIcon name="hub" className="text-xl text-[#0050cb]" />
               Integrations
@@ -279,42 +472,62 @@ export function IntegrationsPanel({ currentPlanId, onViewPlans }: Props) {
               workspace.
             </p>
           </div>
-          {!isEnterprise ? (
-            <span className="dashboard-integration-enterprise-pill">
-              <MaterialIcon name="lock" className="text-sm" aria-hidden />
-              Enterprise
-            </span>
-          ) : null}
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {showEnterpriseLocked ? (
+              <span className="dashboard-integration-enterprise-pill">
+                <MaterialIcon name="lock" className="text-sm" aria-hidden />
+                Enterprise
+              </span>
+            ) : null}
+          </div>
         </div>
       </div>
 
       <div className="dashboard-card-body-scroll">
-        <div className="dashboard-integration-summary">
-          {isEnterprise ? (
-            <>
-              <span className="dashboard-integration-summary-stat tabular-nums">
-                {connectedCount} of {INTEGRATION_OPTIONS.length} connected
-              </span>
-              <p className="dashboard-text-body">
-                OAuth sign-in for each provider is coming soon.
-              </p>
-            </>
-          ) : (
-            <>
-              <span className="dashboard-integration-summary-stat">
-                Available on Enterprise plan
-              </span>
-              <p className="dashboard-text-body">
-                Upgrade to unlock Gmail, WhatsApp, and Google Calendar integrations.
-              </p>
-            </>
-          )}
+        {showShimmer ? (
+          <IntegrationsPanelSkeleton />
+        ) : (
+        <>
+        <div className="dashboard-integration-connect-section">
+          <h4 className="dashboard-integration-section-label">Available to connect</h4>
+          <div className="dashboard-integration-grid dashboard-integration-grid--connect">
+            {CONNECT_OPTIONS.map((option) => (
+              <ConnectOptionCard
+                key={option.id}
+                option={option}
+                locked={showEnterpriseLocked}
+                connected={isEnterprise && connectedProviders.has(option.id)}
+                busy={busyProvider === option.id}
+                onLocked={showEnterpriseNotice}
+                onConnect={
+                  option.id === "gmail"
+                    ? handleConnectGmail
+                    : option.id === "whatsapp"
+                      ? handleConnectWhatsApp
+                      : option.id === "calendly"
+                        ? handleConnectCalendly
+                        : () => undefined
+                }
+              />
+            ))}
+          </div>
         </div>
+
+        {!isEnterprise ? (
+          <div className="dashboard-integration-summary">
+            <span className="dashboard-integration-summary-stat">
+              Available on Enterprise plan
+            </span>
+            <p className="dashboard-text-body">
+              Upgrade to unlock Gmail, WhatsApp, Calendly, and LinkedIn integrations.
+            </p>
+          </div>
+        ) : null}
 
         {notice ? (
           <div className="dashboard-integration-notice-wrap">
             <p className="dashboard-alert-notice">{notice}</p>
-            {!isEnterprise && notice === ENTERPRISE_LOCKED_MESSAGE ? (
+            {showEnterpriseLocked && notice === ENTERPRISE_LOCKED_MESSAGE ? (
               <button
                 type="button"
                 onClick={onViewPlans}
@@ -327,20 +540,114 @@ export function IntegrationsPanel({ currentPlanId, onViewPlans }: Props) {
           </div>
         ) : null}
 
-        <div className="dashboard-integration-grid">
-          {INTEGRATION_OPTIONS.map((integration) => (
-            <IntegrationCard
-              key={integration.id}
-              integration={integration}
-              locked={!isEnterprise}
-              connected={isEnterprise && connectedIds.includes(integration.id)}
-              busy={busyId === integration.id}
-              onLocked={showEnterpriseNotice}
-              onToggle={() => void toggleConnection(integration.id)}
-            />
-          ))}
+        <h4 className="dashboard-integration-section-label mt-2">Connected accounts</h4>
+        <div className="dashboard-table-wrap mt-3">
+          <table className="dashboard-table">
+            <thead>
+              <tr>
+                <th>Integration</th>
+                <th>Provider</th>
+                <th>Sender name</th>
+                <th>Email</th>
+                <th>Status</th>
+                <th className="dashboard-table-actions-head">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {showEnterpriseLocked ? (
+                <tr>
+                  <td colSpan={6} className="dashboard-pricing-table-empty">
+                    Upgrade to Enterprise to connect integrations.
+                  </td>
+                </tr>
+              ) : integrations.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="dashboard-pricing-table-empty">
+                    No integrations connected yet. Use Connect on the cards above.
+                  </td>
+                </tr>
+              ) : (
+                integrations.map((row) => {
+                  const disconnecting = busyProvider === row.provider;
+                  return (
+                    <tr key={row.id}>
+                      <td>
+                        <span className="flex items-center gap-2">
+                          <IntegrationBrandLogo
+                            provider={row.provider}
+                            title={row.integration}
+                            className="dashboard-integration-brand-logo--sm"
+                          />
+                          <span className="font-medium">{row.integration}</span>
+                        </span>
+                      </td>
+                      <td>{row.providerLabel}</td>
+                      <td>{row.senderName || "—"}</td>
+                      <td>
+                        {row.email ? (
+                          <span className="truncate" title={row.email}>
+                            {row.email}
+                          </span>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                      <td>
+                        <span className="dashboard-integration-status dashboard-integration-status--connected">
+                          <span className="dashboard-integration-status-dot" aria-hidden />
+                          Connected
+                        </span>
+                      </td>
+                      <td className="dashboard-table-actions-cell">
+                        <button
+                          type="button"
+                          onClick={() => void handleDisconnect(row.provider)}
+                          disabled={disconnecting}
+                          className="dashboard-btn-secondary px-3 py-1.5 text-xs disabled:opacity-55"
+                        >
+                          {disconnecting ? (
+                            <>
+                              <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
+                              Disconnecting…
+                            </>
+                          ) : (
+                            <>
+                              <MaterialIcon name="link_off" className="text-sm" />
+                              Disconnect
+                            </>
+                          )}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
         </div>
+        </>
+        )}
       </div>
+
+      <WhatsAppConnectModal
+        open={whatsappModalOpen}
+        busy={busyProvider === "whatsapp"}
+        onClose={() => {
+          if (busyProvider === "whatsapp") return;
+          setWhatsappModalOpen(false);
+        }}
+        onSubmit={(values) => void handleWhatsAppSubmit(values)}
+      />
+
+      <CalendlyConnectModal
+        open={calendlyModalOpen}
+        busy={busyProvider === "calendly"}
+        onClose={() => {
+          if (busyProvider === "calendly") return;
+          setCalendlyModalOpen(false);
+        }}
+        onSubmit={(values) => void handleCalendlySubmit(values)}
+      />
     </section>
   );
 }

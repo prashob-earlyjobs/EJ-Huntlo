@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { CandidateFilterDrawer } from "@/components/CandidateFilterDrawer";
 import {
@@ -19,6 +19,7 @@ import { OpenToWorkBadge } from "@/components/dashboard/OpenToWorkBadge";
 import { isOpenToWork } from "@/lib/openToWork";
 import {
   mergeSessionDetailFromFj,
+  isSyntheticSessionCandidateId,
   resolveCandidateProfileId,
 } from "@/lib/sessionCandidateDetail";
 import { SearchHistoryTable } from "@/components/dashboard/SearchHistoryTable";
@@ -50,7 +51,10 @@ import {
   SearchCandidatesPanel,
   type RecentAiSearchItem,
 } from "@/components/dashboard/SearchCandidatesPanel";
+import { AddToCampaignModal } from "@/components/dashboard/AddToCampaignModal";
+import { CampaignsPanel } from "@/components/dashboard/CampaignsPanel";
 import { IntegrationsPanel } from "@/components/dashboard/IntegrationsPanel";
+import { OutreachesPanel } from "@/components/dashboard/OutreachesPanel";
 import { SavedCandidatesPanel } from "@/components/dashboard/SavedCandidatesPanel";
 import { LandingLogo } from "@/components/landing/LandingLogo";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
@@ -61,6 +65,7 @@ import {
   type DashboardOverviewData,
 } from "@/lib/dashboardOverview";
 import {
+  parsePlanFromMeResponse,
   parseUtilisationHistoryPagination,
   parseUtilisationHistoryPayload,
   parseUtilisationPayload,
@@ -80,6 +85,27 @@ import {
   type RevealContactType,
 } from "@/lib/revealContactMessages";
 import { useUserActionAlert } from "@/lib/useUserActionAlert";
+import type { CampaignContact, CampaignRecord } from "@/lib/campaigns";
+import {
+  addContactsToCampaignApi,
+  createCampaign,
+  fetchCampaigns,
+} from "@/lib/campaignsApi";
+import {
+  startCampaignReveal,
+  waitForCampaignRevealAndRefresh,
+} from "@/lib/campaignRevealJob";
+import {
+  lookupRevealedContacts,
+  mergeRevealedLookupIntoContacts,
+  normalizeLinkedinUrl,
+} from "@/lib/revealContactsApi";
+import {
+  pathForDashboardTab,
+  tabFromPathSegments,
+  tabKeyFromSidebarLabel,
+  type DashboardTabKey,
+} from "@/lib/dashboardRoutes";
 import { candidateScoreBadgeClass, formatCandidateScore } from "@/lib/sessionResultUi";
 import {
   DEFAULT_CANDIDATE_FILTER_FORM,
@@ -111,39 +137,78 @@ type SourcingSessionRow = {
   updatedAt: string;
 };
 
-const teamSidebarItem = {
-  label: "Team",
-  subtitle: "Manage Sub Users",
+type UserSidebarNavItem = {
+  label: string;
+  subtitle: string;
+  icon: ReactNode;
+  tabKey?: string;
+};
+
+type UserSidebarNavGroup = {
+  label: string;
+  subtitle: string;
+  icon: ReactNode;
+  children: UserSidebarNavItem[];
+};
+
+type UserSidebarNavEntry = UserSidebarNavItem | UserSidebarNavGroup;
+
+function isSidebarNavGroup(entry: UserSidebarNavEntry): entry is UserSidebarNavGroup {
+  return "children" in entry && Array.isArray(entry.children);
+}
+
+const outreachesSidebarItem: UserSidebarNavItem = {
+  label: "Outreaches",
+  subtitle: "Email plans & send",
   icon: (
-    <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
+    <svg viewBox="0 0 24 24" fill="none" className="h-3.5 w-3.5">
       <path
-        d="M17 21V19C17 17.9 16.1 17 15 17H9C7.9 17 7 17.9 7 19V21"
+        d="M4 6H20V18H4V6Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M4 7L12 13L20 7"
         stroke="currentColor"
         strokeWidth="1.8"
         strokeLinecap="round"
-      />
-      <path
-        d="M12 11C14.21 11 16 9.21 16 7C16 4.79 14.21 3 12 3C9.79 3 8 4.79 8 7C8 9.21 9.79 11 12 11Z"
-        stroke="currentColor"
-        strokeWidth="1.8"
-      />
-      <path
-        d="M22 21V19C22 17.34 20.66 16 19 16H18"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-      <path
-        d="M2 21V19C2 17.34 3.34 16 5 16H6"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
+        strokeLinejoin="round"
       />
     </svg>
   ),
 };
 
-const userSidebarItems = [
+const campaignsSidebarItem: UserSidebarNavItem = {
+  label: "Campaigns",
+  subtitle: "Group & run outreach",
+  icon: <MaterialIcon name="flag" className="text-[1.125rem]" />,
+};
+
+const integrationsSidebarItem: UserSidebarNavItem = {
+  label: "Integrations",
+  subtitle: "Gmail, WhatsApp, Calendly, LinkedIn",
+  icon: (
+    <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
+      <path
+        d="M12 2V6M12 18V22M2 12H6M18 12H22M5.64 5.64L8.46 8.46M15.54 15.54L18.36 18.36M5.64 18.36L8.46 15.54M15.54 8.46L18.36 5.64"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.8" />
+    </svg>
+  ),
+};
+
+const engagementsSidebarGroup: UserSidebarNavGroup = {
+  label: "Engagements",
+  subtitle: "Outreach & connections",
+  icon: <MaterialIcon name="campaign" className="text-[1.125rem]" />,
+  children: [outreachesSidebarItem, campaignsSidebarItem, integrationsSidebarItem],
+};
+
+const userSidebarNavEntries: UserSidebarNavEntry[] = [
   {
     label: "Dashboard",
     subtitle: "Your workspace overview",
@@ -270,21 +335,7 @@ const userSidebarItems = [
       </svg>
     ),
   },
-  {
-    label: "Integrations",
-    subtitle: "Gmail, WhatsApp, Calendar",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
-        <path
-          d="M12 2V6M12 18V22M2 12H6M18 12H22M5.64 5.64L8.46 8.46M15.54 15.54L18.36 18.36M5.64 18.36L8.46 15.54M15.54 8.46L18.36 5.64"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-        />
-        <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.8" />
-      </svg>
-    ),
-  },
+  engagementsSidebarGroup,
   {
     label: "Plans and pricing",
     subtitle: "Compare plans and limits",
@@ -321,8 +372,40 @@ const userSidebarItems = [
   },
 ];
 
+const teamSidebarItem: UserSidebarNavItem = {
+  label: "Team",
+  subtitle: "Manage Sub Users",
+  icon: (
+    <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
+      <path
+        d="M17 21V19C17 17.9 16.1 17 15 17H9C7.9 17 7 17.9 7 19V21"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+      <path
+        d="M12 11C14.21 11 16 9.21 16 7C16 4.79 14.21 3 12 3C9.79 3 8 4.79 8 7C8 9.21 9.79 11 12 11Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+      <path
+        d="M22 21V19C22 17.34 20.66 16 19 16H18"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+      <path
+        d="M2 21V19C2 17.34 3.34 16 5 16H6"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  ),
+};
+
 function sidebarItemsForRole(accountRole: "owner" | "member" | null) {
-  const items = [...userSidebarItems];
+  const items = [...userSidebarNavEntries];
   if (accountRole === "owner") {
     const pricingIndex = items.findIndex((item) => item.label === "Plans and pricing");
     items.splice(pricingIndex >= 0 ? pricingIndex : items.length, 0, teamSidebarItem);
@@ -548,6 +631,93 @@ function candidateIdentityKey(candidate: {
   const profile = String(candidate.linkedin_profile_url || "").trim();
   if (profile) return `li:${source}:${profile}`;
   return `name:${String(candidate.name || "").trim().toLowerCase()}`;
+}
+
+function sessionResultDocSelectionKey(
+  doc: SessionResultDoc,
+  idx: number,
+  candidateKey: string
+): string {
+  const id = typeof doc._id === "string" ? doc._id.trim() : "";
+  return id || `session-doc-${idx}-${candidateKey}`;
+}
+
+/** Keep selections valid when profile docs gain _id or list order changes. */
+function reconcileSessionResultSelectionKeys(
+  docs: SessionResultDoc[],
+  selectedKeys: string[],
+  sessionId: string | null
+): string[] {
+  if (selectedKeys.length === 0 || docs.length === 0) return selectedKeys;
+
+  const byIdentity = new Map<string, string>();
+  const byDocId = new Map<string, string>();
+  const currentKeys = new Set<string>();
+
+  for (let idx = 0; idx < docs.length; idx += 1) {
+    const doc = docs[idx];
+    const row = sessionDocToCandidateRow(doc, idx, sessionId);
+    const identityKey = candidateIdentityKey(row);
+    const selectionKey = sessionResultDocSelectionKey(doc, idx, identityKey);
+    byIdentity.set(identityKey, selectionKey);
+    currentKeys.add(selectionKey);
+    const docId = typeof doc._id === "string" ? doc._id.trim() : "";
+    if (docId) byDocId.set(docId, selectionKey);
+  }
+
+  const next = new Set<string>();
+  for (const oldKey of selectedKeys) {
+    if (currentKeys.has(oldKey)) {
+      next.add(oldKey);
+      continue;
+    }
+    const legacy = oldKey.match(/^session-doc-\d+-(.+)$/);
+    if (legacy) {
+      const mapped = byIdentity.get(legacy[1]);
+      if (mapped) {
+        next.add(mapped);
+        continue;
+      }
+    }
+    if (
+      oldKey.startsWith("id:") ||
+      oldKey.startsWith("li:") ||
+      oldKey.startsWith("name:")
+    ) {
+      const mapped = byIdentity.get(oldKey);
+      if (mapped) {
+        next.add(mapped);
+        continue;
+      }
+    }
+    const mapped = byDocId.get(oldKey);
+    if (mapped) next.add(mapped);
+  }
+
+  const result = [...next];
+  if (
+    result.length === selectedKeys.length &&
+    result.every((key) => selectedKeys.includes(key))
+  ) {
+    return selectedKeys;
+  }
+  return result;
+}
+
+function isSessionResultRowSelected(
+  selectedKeys: string[],
+  selectionKey: string,
+  identityKey: string,
+  docId: string
+): boolean {
+  if (selectedKeys.includes(selectionKey)) return true;
+  if (docId && selectedKeys.includes(docId)) return true;
+  if (selectedKeys.includes(identityKey)) return true;
+  for (const key of selectedKeys) {
+    const legacy = key.match(/^session-doc-\d+-(.+)$/);
+    if (legacy && legacy[1] === identityKey) return true;
+  }
+  return false;
 }
 
 function mapSavedApiRowToCandidate(row: {
@@ -985,6 +1155,23 @@ function SessionCandidateGridAvatar({
 
 export default function UserDashboardPage() {
   const router = useRouter();
+  const routeParams = useParams();
+  const urlSearchParams = useSearchParams();
+
+  const segments = useMemo(() => {
+    const raw = routeParams?.segments;
+    if (Array.isArray(raw)) return raw.map(String);
+    if (typeof raw === "string") return [raw];
+    return [];
+  }, [routeParams?.segments]);
+
+  const {
+    tab: tabFromRoute,
+    sessionId: routeSessionId = "",
+    campaignId: routeCampaignId = "",
+    campaignWorkspaceTab = "Editor",
+  } = useMemo(() => tabFromPathSegments(segments), [segments]);
+
   const userActionAlert = useUserActionAlert();
   const showRevealContactNotice = (message: string) => {
     const trimmed = message.trim();
@@ -993,7 +1180,12 @@ export default function UserDashboardPage() {
   const clearRevealContactNotice = () => setRevealContactNotice("");
   const [aiPrompt, setAiPrompt] = useState("");
   const [peopleScoutQuery, setPeopleScoutQuery] = useState("");
-  const [activeTab, setActiveTab] = useState("Dashboard");
+  const [activeTab, setActiveTab] = useState<string>(tabFromRoute);
+
+  useEffect(() => {
+    setActiveTab(tabFromRoute);
+  }, [tabFromRoute]);
+
   const [accountRole, setAccountRole] = useState<"owner" | "member" | null>(null);
   const [accountBlocked, setAccountBlocked] = useState(false);
   const [searchedCandidates, setSearchedCandidates] = useState<CandidateRow[]>(
@@ -1006,6 +1198,7 @@ export default function UserDashboardPage() {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [engagementsNavExpanded, setEngagementsNavExpanded] = useState(true);
   const profileMenuRef = useRef<HTMLDivElement>(null);
   const [showAdminLink, setShowAdminLink] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -1029,12 +1222,20 @@ export default function UserDashboardPage() {
   const [sessionResultTotalPages, setSessionResultTotalPages] = useState<number | null>(
     null
   );
+  const [sessionResultHasNext, setSessionResultHasNext] = useState(false);
+  const [sessionResultLoadingMore, setSessionResultLoadingMore] = useState(false);
   const [sessionCanFetchMore, setSessionCanFetchMore] = useState(false);
   const [sessionFetchMoreLoading, setSessionFetchMoreLoading] = useState(false);
   const [dashboardToast, setDashboardToast] = useState<{
     message: string;
     variant: DashboardToastVariant;
   } | null>(null);
+  const [sessionResultSelectedKeys, setSessionResultSelectedKeys] = useState<string[]>([]);
+  const [addToCampaignOpen, setAddToCampaignOpen] = useState(false);
+  const [sessionResultNotice, setSessionResultNotice] = useState("");
+  const [campaigns, setCampaigns] = useState<CampaignRecord[]>([]);
+  const [campaignsLoading, setCampaignsLoading] = useState(false);
+  const [addToCampaignBusy, setAddToCampaignBusy] = useState(false);
   const [savedSessionCandidateKeys, setSavedSessionCandidateKeys] = useState<string[]>([]);
   const [savedCandidatesList, setSavedCandidatesList] = useState<CandidateRow[]>([]);
   const [savedCandidatesLoading, setSavedCandidatesLoading] = useState(false);
@@ -1058,6 +1259,36 @@ export default function UserDashboardPage() {
   const [isFilterDrawerOpen, setIsFilterDrawerOpen] = useState(false);
   const [candidateFilterForm, setCandidateFilterForm] = useState<CandidateFilterForm>(
     DEFAULT_CANDIDATE_FILTER_FORM
+  );
+
+  useEffect(() => {
+    if (urlSearchParams.get("filters") === "1") {
+      setIsFilterDrawerOpen(true);
+    }
+    if (urlSearchParams.get("addToCampaign") === "1") {
+      setAddToCampaignOpen(true);
+    }
+  }, [urlSearchParams]);
+
+  const navigateToTab = useCallback(
+    (tab: string, options?: { sessionId?: string; replace?: boolean }) => {
+      const tabKey = tabKeyFromSidebarLabel(tab) as DashboardTabKey;
+      const sid =
+        options?.sessionId?.trim() ||
+        (tabKey === "Session Results" ? searchSummary?.sessionId?.trim() : "") ||
+        "";
+      const path = pathForDashboardTab(
+        tabKey,
+        sid ? { sessionId: sid } : undefined
+      );
+      if (options?.replace) {
+        router.replace(path);
+      } else {
+        router.push(path);
+      }
+      setActiveTab(tabKey);
+    },
+    [router, searchSummary?.sessionId]
   );
   const [filterSearchPrompt, setFilterSearchPrompt] = useState("");
   const [pendingSearchSessionId, setPendingSearchSessionId] = useState<string | null>(null);
@@ -1117,6 +1348,7 @@ export default function UserDashboardPage() {
   }));
   const [userPlanId, setUserPlanId] = useState("trial");
   const [userPlanName, setUserPlanName] = useState("Trial");
+  const [userPlanReady, setUserPlanReady] = useState(false);
   const [utilisationHistory, setUtilisationHistory] = useState<UtilisationHistoryRow[]>([]);
   const [utilisationHistoryLoading, setUtilisationHistoryLoading] = useState(false);
   const [utilisationHistoryPage, setUtilisationHistoryPage] = useState(1);
@@ -1191,6 +1423,9 @@ export default function UserDashboardPage() {
           throw new Error("Invalid dashboard response");
         }
         setDashboardOverview(parsed);
+        setUserPlanId(parsed.plan.planId);
+        setUserPlanName(parsed.plan.planName);
+        setUserPlanReady(true);
       })
       .catch((err) => {
         setDashboardOverview(null);
@@ -1202,6 +1437,59 @@ export default function UserDashboardPage() {
         setDashboardOverviewLoading(false);
       });
   }, [activeTab]);
+
+  useEffect(() => {
+    const auth = getStoredAuth();
+    if (!auth?.token) {
+      setUserPlanReady(true);
+      return;
+    }
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+    fetch(`${apiBase}/api/users/me`, { headers: authHeaders(auth.token) })
+      .then((res) => res.json())
+      .then((data) => {
+        const snapshot = parsePlanFromMeResponse(data);
+        if (snapshot) {
+          setUserPlanId(snapshot.planId);
+          setUserPlanName(snapshot.planName);
+          if (snapshot.utilisation) setPlanUtilisation(snapshot.utilisation);
+        }
+        setUserPlanReady(true);
+      })
+      .catch(() => {
+        setUserPlanReady(true);
+      });
+  }, []);
+
+  const loadCampaignsList = useCallback(async () => {
+    const auth = getStoredAuth();
+    if (!auth?.token || userPlanId !== "enterprise") {
+      setCampaigns([]);
+      setCampaignsLoading(false);
+      return;
+    }
+    setCampaignsLoading(true);
+    try {
+      const list = await fetchCampaigns(auth.token);
+      setCampaigns(list);
+    } catch {
+      /* keep previous list */
+    } finally {
+      setCampaignsLoading(false);
+    }
+  }, [userPlanId]);
+
+  useEffect(() => {
+    if (userPlanId !== "enterprise") return;
+    void loadCampaignsList();
+  }, [userPlanId, loadCampaignsList]);
+
+  useEffect(() => {
+    if (userPlanId !== "enterprise") return;
+    if (activeTab !== "Campaigns" && !addToCampaignOpen && !routeCampaignId) return;
+    setCampaignsLoading(true);
+    void loadCampaignsList();
+  }, [activeTab, addToCampaignOpen, userPlanId, loadCampaignsList, routeCampaignId]);
 
   useEffect(() => {
     if (activeTab !== "Saved" && activeTab !== "Session Results" && activeTab !== "Candidates") return;
@@ -1561,28 +1849,11 @@ export default function UserDashboardPage() {
         }
 
         if (meResult.status === "fulfilled" && meResult.value) {
-          const meData = meResult.value as {
-            success?: boolean;
-            user?: Record<string, unknown>;
-            utilisation?: unknown;
-            plan?: { planId?: unknown; planName?: unknown };
-          };
-          if (meData.success && meData.utilisation != null) {
-            setPlanUtilisation(parseUtilisationPayload(meData.utilisation));
-          }
-          if (meData.success) {
-            const pid =
-              typeof meData.plan?.planId === "string"
-                ? meData.plan.planId
-                : typeof meData.user?.planId === "string"
-                  ? meData.user.planId
-                  : "trial";
-            const pname =
-              typeof meData.plan?.planName === "string"
-                ? meData.plan.planName
-                : pid;
-            setUserPlanId(pid);
-            setUserPlanName(pname);
+          const snapshot = parsePlanFromMeResponse(meResult.value);
+          if (snapshot) {
+            setUserPlanId(snapshot.planId);
+            setUserPlanName(snapshot.planName);
+            if (snapshot.utilisation) setPlanUtilisation(snapshot.utilisation);
           }
         }
       })
@@ -1635,6 +1906,16 @@ export default function UserDashboardPage() {
       })
       .finally(() => setUtilisationHistoryLoading(false));
   }, [activeTab, utilisationHistoryPage]);
+
+  useEffect(() => {
+    if (
+      activeTab === "Outreaches" ||
+      activeTab === "Campaigns" ||
+      activeTab === "Integrations"
+    ) {
+      setEngagementsNavExpanded(true);
+    }
+  }, [activeTab]);
 
   useEffect(() => {
     if (activeTab === "Plans and pricing") {
@@ -1856,7 +2137,7 @@ export default function UserDashboardPage() {
     if (!item.id.startsWith("fallback-")) {
       setHighlightSessionId(item.id);
     }
-    setActiveTab("Search history");
+    navigateToTab("Search history");
   };
 
   const openRecentAiSearch = (item: RecentSearchItem) => {
@@ -2413,7 +2694,11 @@ export default function UserDashboardPage() {
     );
     setHasSearched(true);
     setSessionResultsBackTab(backTab);
-    setActiveTab("Session Results");
+    const sessionIdFromData =
+      typeof data.sessionId === "string" ? data.sessionId.trim() : "";
+    navigateToTab("Session Results", {
+      sessionId: sessionIdFromData || searchSummary?.sessionId || undefined,
+    });
     setSessionResultError("");
     setWorkspaceCandidatesPage(1);
     setWorkspaceCandidatesRefresh((n) => n + 1);
@@ -2441,6 +2726,28 @@ export default function UserDashboardPage() {
     }
     applySessionProfilesFromSearchResponse(data as Record<string, unknown>, backTab, options);
   };
+
+  useEffect(() => {
+    if (tabFromRoute !== "Session Results" || !routeSessionId) return;
+    if (searchSummary?.sessionId === routeSessionId && sessionResultDocs.length > 0) {
+      return;
+    }
+    const auth = getStoredAuth();
+    if (!auth?.token) return;
+
+    void loadSessionProfilesFirstPage(routeSessionId, 20, auth.token, "Search history").catch(
+      (err) => {
+        setSessionResultError(
+          err instanceof Error ? err.message : "Could not load session results"
+        );
+      }
+    );
+  }, [
+    tabFromRoute,
+    routeSessionId,
+    searchSummary?.sessionId,
+    sessionResultDocs.length,
+  ]);
 
   const handleSearch = async () => {
     const prompt = aiPrompt.trim();
@@ -2668,7 +2975,7 @@ export default function UserDashboardPage() {
         }
         setIsFilterDrawerOpen(false);
         setSessionResultsBackTab(backTab);
-        setActiveTab("Session Results");
+        navigateToTab("Session Results", { sessionId });
         setSessionResultError("");
         await loadSessionProfilesFirstPage(
           sessionId,
@@ -2801,7 +3108,7 @@ export default function UserDashboardPage() {
       return;
     }
     setSessionResultsBackTab(backTab);
-    setActiveTab("Session Results");
+    navigateToTab("Session Results", { sessionId: row.futureJobsSessionId });
     setSearchLoading(true);
     setProfilesWarning("");
     setSearchError("");
@@ -2842,6 +3149,7 @@ export default function UserDashboardPage() {
         setCandidateFilterForm(DEFAULT_CANDIDATE_FILTER_FORM);
       }
       setSessionResultDocs(detailedDocs);
+      setSessionResultSelectedKeys([]);
       setSessionResultsFromDb(true);
       const pg = data.profilesPagination;
       const warn =
@@ -2869,7 +3177,7 @@ export default function UserDashboardPage() {
       setFilterSearchPrompt(row.prompt || row.sessionTitle || "");
       setSessionResultPage(1);
       setSessionResultTotalPages(1);
-      setActiveTab("Session Results");
+      navigateToTab("Session Results", { sessionId: row.futureJobsSessionId });
     } catch (err) {
       setSearchError(
         err instanceof Error ? err.message : "Could not open this session"
@@ -3212,8 +3520,11 @@ export default function UserDashboardPage() {
     setIsSessionCandidateDrawerOpen(true);
 
     const profileId = resolveCandidateProfileId(doc, candidate.id);
-    if (!profileId) {
+    if (!profileId || isSyntheticSessionCandidateId(profileId)) {
       setSessionDetailLoading(false);
+      setSessionDetailError(
+        "This profile cannot be refreshed. Re-open it from Session Results or Search history."
+      );
       return;
     }
 
@@ -3226,9 +3537,19 @@ export default function UserDashboardPage() {
       return;
     }
     const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
-    const sessionQ = searchSummary?.sessionId?.trim()
-      ? `?sessionId=${encodeURIComponent(searchSummary.sessionId.trim())}`
-      : "";
+    const sessionId =
+      doc.sourcingSessionId?.trim() ||
+      candidate.sourcingSessionId?.trim() ||
+      searchSummary?.sessionId?.trim() ||
+      "";
+    const linkedinUrl =
+      doc.profile?.linkedin_profile_url?.trim() ||
+      candidate.linkedin_profile_url?.trim() ||
+      "";
+    const detailQuery = new URLSearchParams();
+    if (sessionId) detailQuery.set("sessionId", sessionId);
+    if (linkedinUrl) detailQuery.set("linkedinUrl", linkedinUrl);
+    const sessionQ = detailQuery.toString() ? `?${detailQuery.toString()}` : "";
 
     try {
       const res = await fetch(
@@ -3237,11 +3558,20 @@ export default function UserDashboardPage() {
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
-        setSessionDetailError(
+        const msg =
           typeof data.message === "string"
             ? data.message
-            : "Failed to load profile details"
-        );
+            : "Failed to load profile details";
+        if (data.fromStored === true && data.detail) {
+          setSelectedSessionDetailDoc(
+            mergeSessionDetailFromFj(doc, data.detail) as SessionResultDoc
+          );
+          setSessionDetailError(
+            `${msg} Showing the last saved copy from your search.`
+          );
+        } else {
+          setSessionDetailError(msg);
+        }
         return;
       }
       setSelectedSessionDetailDoc(
@@ -3261,8 +3591,394 @@ export default function UserDashboardPage() {
     setIsSessionCandidateDrawerOpen(false);
     setSelectedSessionDetailDoc(null);
     setSelectedSessionDetailCandidate(null);
-    setSessionDetailLoading(false);
-    setSessionDetailError("");
+  };
+
+  const sessionResultVisibleSelectionKeys = useMemo(() => {
+    const sessionId = searchSummary?.sessionId ?? null;
+    return sessionResultDocs.map((doc, idx) => {
+      const reveal = sessionDocToCandidateRow(doc, idx, sessionId);
+      return sessionResultDocSelectionKey(doc, idx, candidateIdentityKey(reveal));
+    });
+  }, [sessionResultDocs, searchSummary?.sessionId]);
+
+  useEffect(() => {
+    if (sessionResultDocs.length === 0 || sessionResultSelectedKeys.length === 0) return;
+    const sessionId = searchSummary?.sessionId ?? null;
+    setSessionResultSelectedKeys((prev) =>
+      reconcileSessionResultSelectionKeys(sessionResultDocs, prev, sessionId)
+    );
+  }, [sessionResultDocs, searchSummary?.sessionId]);
+
+  const allVisibleSessionResultsSelected =
+    sessionResultVisibleSelectionKeys.length > 0 &&
+    sessionResultVisibleSelectionKeys.every((key) =>
+      sessionResultSelectedKeys.includes(key)
+    );
+
+  const toggleSessionResultSelection = useCallback((key: string) => {
+    setSessionResultSelectedKeys((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+    );
+  }, []);
+
+  const toggleSelectAllSessionResults = useCallback(() => {
+    setSessionResultSelectedKeys((prev) => {
+      if (allVisibleSessionResultsSelected) {
+        return prev.filter((k) => !sessionResultVisibleSelectionKeys.includes(k));
+      }
+      const next = new Set(prev);
+      for (const key of sessionResultVisibleSelectionKeys) next.add(key);
+      return [...next];
+    });
+  }, [allVisibleSessionResultsSelected, sessionResultVisibleSelectionKeys]);
+
+  const clearSessionResultSelection = useCallback(() => {
+    setSessionResultSelectedKeys([]);
+  }, []);
+
+  const applyRevealedLookupToCandidateRows = useCallback(async (rows: CandidateRow[]) => {
+    const auth = getStoredAuth();
+    if (!auth?.token || rows.length === 0) return;
+
+    const rowKeyByLinkedin = new Map<string, string>();
+    const urls: string[] = [];
+    for (const row of rows) {
+      const linkedin = normalizeLinkedinUrl(row.linkedin_profile_url || "");
+      if (!linkedin) continue;
+      urls.push(linkedin);
+      rowKeyByLinkedin.set(linkedin, candidateRowKey(row));
+    }
+    if (urls.length === 0) return;
+
+    const lookup = await lookupRevealedContacts(auth.token, urls);
+    if (Object.keys(lookup).length === 0) return;
+
+    setRevealedContactValues((prev) => {
+      const next = { ...prev };
+      for (const [linkedin, cached] of Object.entries(lookup)) {
+        const rowKey = rowKeyByLinkedin.get(linkedin);
+        if (!rowKey) continue;
+        const email = cached.email?.trim() || "";
+        const phone = cached.phone?.trim() || "";
+        if (!email && !phone) continue;
+        next[rowKey] = {
+          email: email || next[rowKey]?.email,
+          phone: phone || next[rowKey]?.phone,
+        };
+      }
+      return next;
+    });
+
+    setRevealedEmail((prev) => {
+      const next = new Set(prev);
+      for (const [linkedin, cached] of Object.entries(lookup)) {
+        if (!cached.email?.trim()) continue;
+        const rowKey = rowKeyByLinkedin.get(linkedin);
+        if (rowKey) next.add(rowKey);
+      }
+      return [...next];
+    });
+
+    setRevealedPhone((prev) => {
+      const next = new Set(prev);
+      for (const [linkedin, cached] of Object.entries(lookup)) {
+        if (!cached.phone?.trim()) continue;
+        const rowKey = rowKeyByLinkedin.get(linkedin);
+        if (rowKey) next.add(rowKey);
+      }
+      return [...next];
+    });
+  }, []);
+
+  const hydrateSessionRevealedContacts = useCallback(async () => {
+    if (sessionResultDocs.length === 0) return;
+    const sessionId = searchSummary?.sessionId ?? null;
+    const rows = sessionResultDocs.map((doc, idx) =>
+      sessionDocToCandidateRow(doc, idx, sessionId)
+    );
+    await applyRevealedLookupToCandidateRows(rows);
+  }, [sessionResultDocs, searchSummary?.sessionId, applyRevealedLookupToCandidateRows]);
+
+  useEffect(() => {
+    if (activeTab !== "Session Results") return;
+    void hydrateSessionRevealedContacts();
+  }, [activeTab, hydrateSessionRevealedContacts]);
+
+  useEffect(() => {
+    if (activeTab !== "Candidates" || workspaceCandidates.length === 0) return;
+    void applyRevealedLookupToCandidateRows(workspaceCandidates);
+  }, [activeTab, workspaceCandidates, applyRevealedLookupToCandidateRows]);
+
+  useEffect(() => {
+    if (activeTab !== "Saved" || savedCandidatesList.length === 0) return;
+    void applyRevealedLookupToCandidateRows(savedCandidatesList);
+  }, [activeTab, savedCandidatesList, applyRevealedLookupToCandidateRows]);
+
+  const applyCampaignContactsToSessionReveals = useCallback(
+    (contacts: CampaignContact[]) => {
+      const sessionId = searchSummary?.sessionId ?? null;
+      const byLinkedin = new Map(
+        contacts.map((c) => [normalizeLinkedinUrl(c.linkedinUrl), c])
+      );
+
+      const emailKeys: string[] = [];
+      const phoneKeys: string[] = [];
+
+      setRevealedContactValues((prev) => {
+        const next = { ...prev };
+        for (let idx = 0; idx < sessionResultDocs.length; idx += 1) {
+          const row = sessionDocToCandidateRow(sessionResultDocs[idx], idx, sessionId);
+          const linkedin = normalizeLinkedinUrl(row.linkedin_profile_url || "");
+          const contact = byLinkedin.get(linkedin);
+          if (!contact) continue;
+          const key = candidateRowKey(row);
+          const email = contact.email?.trim() || "";
+          const phone = contact.phone?.trim() || "";
+          if (!email && !phone) continue;
+          next[key] = {
+            email: email || next[key]?.email,
+            phone: phone || next[key]?.phone,
+          };
+          if (email) emailKeys.push(key);
+          if (phone) phoneKeys.push(key);
+        }
+        return next;
+      });
+
+      if (emailKeys.length > 0) {
+        setRevealedEmail((prev) => [...new Set([...prev, ...emailKeys])]);
+      }
+      if (phoneKeys.length > 0) {
+        setRevealedPhone((prev) => [...new Set([...prev, ...phoneKeys])]);
+      }
+    },
+    [searchSummary?.sessionId, sessionResultDocs]
+  );
+
+  const followCampaignRevealJob = useCallback(
+    (jobId: string, campaignName: string) => {
+      const auth = getStoredAuth();
+      if (!auth?.token) return;
+
+      void (async () => {
+        try {
+          const { job, campaign } = await waitForCampaignRevealAndRefresh(
+            auth.token,
+            jobId,
+            (progressJob) => {
+              if (progressJob.status === "running" && progressJob.total > 0) {
+                setSessionResultNotice(
+                  `Revealing contacts for "${campaignName}" (${progressJob.processed}/${progressJob.total})…`
+                );
+              }
+            }
+          );
+
+          setCampaigns((prev) => prev.map((c) => (c.id === campaign.id ? campaign : c)));
+          applyCampaignContactsToSessionReveals(campaign.contacts);
+
+          if (job.status === "completed") {
+            setSessionResultNotice(
+              `Finished revealing contacts for "${campaignName}" (${job.revealedEmailCount} emails, ${job.revealedPhoneCount} phones).`
+            );
+          } else if (job.status === "quota_exceeded") {
+            setSessionResultNotice(
+              `Plan limit reached while revealing contacts for "${campaignName}". Partial results were saved.`
+            );
+          } else if (job.status === "failed") {
+            setSessionResultNotice(
+              job.errorMessage || `Could not finish revealing contacts for "${campaignName}".`
+            );
+          }
+        } catch (err) {
+          setSessionResultNotice(
+            err instanceof Error
+              ? err.message
+              : `Background reveal failed for "${campaignName}".`
+          );
+        }
+      })();
+    },
+    [applyCampaignContactsToSessionReveals]
+  );
+
+  const resolveSelectedSessionContacts = useCallback((): CampaignContact[] => {
+    const sessionId = searchSummary?.sessionId ?? null;
+    const contacts: CampaignContact[] = [];
+    for (let idx = 0; idx < sessionResultDocs.length; idx += 1) {
+      const doc = sessionResultDocs[idx];
+      const row = sessionDocToCandidateRow(doc, idx, sessionId);
+      const identityKey = candidateIdentityKey(row);
+      const key = sessionResultDocSelectionKey(doc, idx, identityKey);
+      const docId = typeof doc._id === "string" ? doc._id.trim() : "";
+      if (!isSessionResultRowSelected(sessionResultSelectedKeys, key, identityKey, docId)) {
+        continue;
+      }
+      const emailKey = candidateRowKey(row);
+      const email =
+        revealedContactValues[emailKey]?.email || row.email || "";
+      const phone =
+        revealedContactValues[emailKey]?.phone || row.phone || "";
+      contacts.push({
+        candidateKey: key,
+        candidateId: String(row.id || key),
+        name: row.name,
+        email,
+        phone,
+        role: row.role,
+        company: row.currentCompany || "",
+        location: row.location,
+        linkedinUrl: row.linkedin_profile_url || "",
+        sourcingSessionId:
+          row.sourcingSessionId || searchSummary?.sessionId || "",
+        addedAt: new Date().toISOString(),
+      });
+    }
+    return contacts;
+  }, [
+    sessionResultDocs,
+    searchSummary?.sessionId,
+    sessionResultSelectedKeys,
+    revealedContactValues,
+  ]);
+
+  const handleCreateCampaign = useCallback(
+    async (name: string): Promise<CampaignRecord | null> => {
+      const auth = getStoredAuth();
+      if (!auth?.token) return null;
+      try {
+        const { campaign: record } = await createCampaign(auth.token, name);
+        setCampaigns((prev) => [record, ...prev]);
+        return record;
+      } catch {
+        return null;
+      }
+    },
+    []
+  );
+
+  const handleCampaignUpdated = useCallback((updated: CampaignRecord) => {
+    setCampaigns((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+  }, []);
+
+  const handleAddToCampaignConfirm = useCallback(
+    async (payload: { campaignId: string } | { newCampaignName: string }) => {
+      if (addToCampaignBusy) return;
+      const auth = getStoredAuth();
+      if (!auth?.token) {
+        throw new Error("Sign in to manage campaigns.");
+      }
+
+      let incoming = resolveSelectedSessionContacts();
+      if (incoming.length === 0) {
+        throw new Error(
+          "No candidates could be matched. Clear selection, select candidates again, then retry."
+        );
+      }
+
+      setAddToCampaignBusy(true);
+
+      const linkedinUrls = incoming.map((c) => c.linkedinUrl).filter(Boolean);
+      if (linkedinUrls.length > 0) {
+        const lookup = await lookupRevealedContacts(auth.token, linkedinUrls);
+        incoming = mergeRevealedLookupIntoContacts(incoming, lookup);
+      }
+
+      try {
+        if ("newCampaignName" in payload) {
+          const { campaign: record, revealJobId } = await createCampaign(
+            auth.token,
+            payload.newCampaignName,
+            incoming,
+            { revealInBackground: true }
+          );
+          setCampaigns((prev) => [record, ...prev]);
+          setAddToCampaignOpen(false);
+          setSessionResultNotice(
+            `Added ${incoming.length} candidate${incoming.length === 1 ? "" : "s"} to "${record.name}". Revealing email and phone automatically…`
+          );
+          let jobId = revealJobId;
+          if (!jobId && incoming.length > 0) {
+            try {
+              const job = await startCampaignReveal(
+                auth.token,
+                record.id,
+                incoming.map((c) => c.candidateKey)
+              );
+              jobId = job.id;
+            } catch {
+              /* campaign workspace will auto-start reveal */
+            }
+          }
+          if (jobId) {
+            followCampaignRevealJob(jobId, record.name);
+          }
+          return;
+        }
+
+        const { campaign, addedCount, skippedCount, revealJobId } =
+          await addContactsToCampaignApi(auth.token, payload.campaignId, incoming, {
+            revealInBackground: true,
+          });
+        setCampaigns((prev) =>
+          prev.map((c) => (c.id === campaign.id ? campaign : c))
+        );
+        const campaignName = campaign.name || "Campaign";
+        setAddToCampaignOpen(false);
+        if (addedCount === 0 && skippedCount > 0) {
+          setSessionResultNotice(`All selected candidates are already in "${campaignName}".`);
+        } else if (skippedCount > 0) {
+          setSessionResultNotice(
+            `Added ${addedCount} to "${campaignName}". ${skippedCount} duplicate${skippedCount === 1 ? " was" : "s were"} skipped. Revealing contacts automatically…`
+          );
+        } else {
+          setSessionResultNotice(
+            `Added ${addedCount} candidate${addedCount === 1 ? "" : "s"} to "${campaignName}". Revealing email and phone automatically…`
+          );
+        }
+        let jobId = revealJobId;
+        if (!jobId && addedCount > 0) {
+          try {
+            const job = await startCampaignReveal(
+              auth.token,
+              campaign.id,
+              incoming.map((c) => c.candidateKey)
+            );
+            jobId = job.id;
+          } catch {
+            /* campaign workspace will auto-start reveal */
+          }
+        }
+        if (jobId && addedCount > 0) {
+          followCampaignRevealJob(jobId, campaignName);
+        }
+      } catch (err) {
+        if (!userActionAlert.fromThrown(err)) {
+          const message =
+            err instanceof Error ? err.message : "Could not add to campaign.";
+          setSessionResultNotice(message);
+          throw err instanceof Error ? err : new Error(message);
+        }
+        throw err instanceof Error ? err : new Error("Could not add to campaign.");
+      } finally {
+        setAddToCampaignBusy(false);
+      }
+    },
+    [
+      addToCampaignBusy,
+      followCampaignRevealJob,
+      resolveSelectedSessionContacts,
+      userActionAlert,
+    ]
+  );
+
+  const openAddToCampaignModal = () => {
+    if (userPlanId !== "enterprise") {
+      navigateToTab("Plans and pricing");
+      return;
+    }
+    setSessionResultNotice("");
+    setAddToCampaignOpen(true);
   };
 
   const getDisplayedEmail = (candidate: CandidateRow) => {
@@ -3360,7 +4076,7 @@ export default function UserDashboardPage() {
       <BlockedAccountModal open={accountBlocked} />
       <div className="dashboard-shell flex min-w-0 w-full">
         <aside
-          className={`dashboard-sidebar hidden flex-col lg:flex${
+          className={`dashboard-sidebar dashboard-sidebar--compact hidden flex-col lg:flex${
             sidebarCollapsed ? " dashboard-sidebar--collapsed" : ""
           }`}
         >
@@ -3391,53 +4107,120 @@ export default function UserDashboardPage() {
 
           <nav className="dashboard-sidebar-nav">
             <div className="dashboard-sidebar-nav-scroll">
-              <div className="space-y-2">
-              {sidebarItemsForRole(accountRole).map((item) => {
-                const tabKey = "tabKey" in item && typeof item.tabKey === "string" ? item.tabKey : item.label;
+              <div className="dashboard-sidebar-nav-list">
+              {sidebarItemsForRole(accountRole).map((entry) => {
+                if (isSidebarNavGroup(entry)) {
+                  const childActive = entry.children.some(
+                    (child) => activeTab === (child.tabKey ?? child.label)
+                  );
+                  return (
+                    <div key={entry.label} className="dashboard-nav-group">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (sidebarCollapsed) toggleSidebarCollapsed();
+                          else setEngagementsNavExpanded((open) => !open);
+                        }}
+                        title={sidebarCollapsed ? entry.label : entry.subtitle}
+                        aria-expanded={engagementsNavExpanded}
+                        className={`dashboard-nav-item dashboard-nav-item--compact dashboard-nav-item--group w-full ${
+                          childActive ? "dashboard-nav-item--active" : ""
+                        }`}
+                      >
+                        <span className="dashboard-nav-item-inner">
+                          <span
+                            className={`dashboard-nav-icon dashboard-nav-icon--compact ${
+                              childActive ? "dashboard-nav-icon--active" : ""
+                            }`}
+                          >
+                            {entry.icon}
+                          </span>
+                          <span className="dashboard-nav-item-text min-w-0">
+                            <span className="dashboard-nav-label">{entry.label}</span>
+                            <span className="dashboard-nav-subtitle">{entry.subtitle}</span>
+                          </span>
+                          <MaterialIcon
+                            name={engagementsNavExpanded ? "expand_less" : "expand_more"}
+                            className="dashboard-nav-group-chevron"
+                            aria-hidden
+                          />
+                        </span>
+                      </button>
+                      {engagementsNavExpanded && !sidebarCollapsed ? (
+                        <div className="dashboard-nav-sublist" role="group" aria-label={entry.label}>
+                          {entry.children.map((child) => {
+                            const tabKey = child.tabKey ?? child.label;
+                            const isActive = activeTab === tabKey;
+                            return (
+                              <Link
+                                key={tabKey}
+                                href={pathForDashboardTab(
+                                  tabKeyFromSidebarLabel(child.label, child.tabKey) as DashboardTabKey
+                                )}
+                                title={child.label}
+                                className={`dashboard-nav-item dashboard-nav-item--compact dashboard-nav-item--sub w-full ${
+                                  isActive ? "dashboard-nav-item--active" : ""
+                                }`}
+                              >
+                                <span className="dashboard-nav-item-inner dashboard-nav-item-inner--sub">
+                                  <span className="dashboard-nav-item-text min-w-0">
+                                    <span className="dashboard-nav-label">{child.label}</span>
+                                  </span>
+                                </span>
+                              </Link>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                }
+
+                const tabKey = entry.tabKey ?? entry.label;
                 return (
-                <button
-                  key={tabKey}
-                  type="button"
-                  onClick={() => setActiveTab(tabKey)}
-                  title={sidebarCollapsed ? item.label : undefined}
-                  className={`dashboard-nav-item w-full ${
-                    activeTab === tabKey ? "dashboard-nav-item--active" : ""
-                  }`}
-                >
-                  <span className="flex items-start gap-3">
-                    <span
-                      className={`dashboard-nav-icon ${
-                        activeTab === tabKey ? "dashboard-nav-icon--active" : ""
-                      }`}
-                    >
-                      {item.icon}
+                  <Link
+                    key={tabKey}
+                    href={pathForDashboardTab(
+                      tabKeyFromSidebarLabel(entry.label, entry.tabKey) as DashboardTabKey
+                    )}
+                    title={sidebarCollapsed ? entry.label : entry.subtitle}
+                    className={`dashboard-nav-item dashboard-nav-item--compact w-full ${
+                      activeTab === tabKey ? "dashboard-nav-item--active" : ""
+                    }`}
+                  >
+                    <span className="dashboard-nav-item-inner">
+                      <span
+                        className={`dashboard-nav-icon dashboard-nav-icon--compact ${
+                          activeTab === tabKey ? "dashboard-nav-icon--active" : ""
+                        }`}
+                      >
+                        {entry.icon}
+                      </span>
+                      <span className="dashboard-nav-item-text min-w-0">
+                        <span className="dashboard-nav-label">{entry.label}</span>
+                        <span className="dashboard-nav-subtitle">{entry.subtitle}</span>
+                      </span>
                     </span>
-                    <span className="dashboard-nav-item-text min-w-0">
-                      <span className="block text-sm font-medium">{item.label}</span>
-                      <span className="dashboard-nav-subtitle">{item.subtitle}</span>
-                    </span>
-                  </span>
-                </button>
-              );
+                  </Link>
+                );
               })}
               </div>
             </div>
 
             <div className="dashboard-sidebar-footer" ref={profileMenuRef}>
               <div className="dashboard-sidebar-profile-row">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab(userProfileSidebarItem.label)}
+                <Link
+                  href={pathForDashboardTab("My Profile")}
                   title={sidebarCollapsed ? userProfileSidebarItem.label : undefined}
-                  className={`dashboard-nav-item min-w-0 flex-1 ${
+                  className={`dashboard-nav-item dashboard-nav-item--compact min-w-0 flex-1 ${
                     activeTab === userProfileSidebarItem.label
                       ? "dashboard-nav-item--active"
                       : ""
                   }`}
                 >
-                  <span className="flex items-start gap-3">
+                  <span className="dashboard-nav-item-inner">
                     <span
-                      className={`dashboard-nav-icon ${
+                      className={`dashboard-nav-icon dashboard-nav-icon--compact ${
                         activeTab === userProfileSidebarItem.label
                           ? "dashboard-nav-icon--active"
                           : ""
@@ -3449,7 +4232,7 @@ export default function UserDashboardPage() {
                       )}
                     </span>
                     <span className="dashboard-nav-item-text min-w-0 text-left">
-                      <span className="block truncate text-sm font-medium">
+                      <span className="dashboard-nav-label block truncate">
                         {userProfileSidebarItem.label}
                       </span>
                       <span className="dashboard-nav-subtitle block truncate">
@@ -3457,7 +4240,7 @@ export default function UserDashboardPage() {
                       </span>
                     </span>
                   </span>
-                </button>
+                </Link>
 
                 <button
                   type="button"
@@ -3514,7 +4297,7 @@ export default function UserDashboardPage() {
                 loading={dashboardOverviewLoading}
                 error={dashboardOverviewError}
                 data={dashboardOverview}
-                onNavigate={setActiveTab}
+                onNavigate={navigateToTab}
                 onOpenSession={(session) => {
                   if (!session.futureJobsSessionId.trim()) return;
                   void openSessionFromHistory(
@@ -3548,44 +4331,98 @@ export default function UserDashboardPage() {
                 recentSearches={recentSearches}
                 recentLoading={recentSearchesLoading}
                 onOpenRecent={openRecentAiSearch}
-                onViewAllHistory={() => setActiveTab("Search history")}
+                onViewAllHistory={() => navigateToTab("Search history")}
               />
             ) : activeTab === "Session Results" ? (
               <section className="dashboard-card dashboard-card--fill flex h-full min-w-0 max-w-full w-full flex-col p-6">
                 <div className="dashboard-card-panel-header">
                 <div className="dashboard-results-toolbar">
-                  <div>
-                    <h3 className="flex items-center gap-2 dashboard-section-title">
-                      <MaterialIcon name="groups" className="text-xl text-[#0050cb]" />
-                      Session results
-                    </h3>
-                    <p className="mt-1 dashboard-text-body">
-                      Candidates from your selected sourcing session.
-                    </p>
+                  <div className="dashboard-results-toolbar-leading">
+                    <button
+                      type="button"
+                      onClick={() => navigateToTab(sessionResultsBackTab)}
+                      className="dashboard-btn-secondary dashboard-btn-icon"
+                      aria-label={`Back to ${sessionResultsBackTab}`}
+                    >
+                      <MaterialIcon name="arrow_back" className="text-xl" />
+                    </button>
+                    <div className="min-w-0">
+                      <h3 className="flex items-center gap-2 dashboard-section-title">
+                        <MaterialIcon name="groups" className="text-xl text-[#0050cb]" />
+                        Session results
+                      </h3>
+                      <p className="mt-1 dashboard-text-body">
+                        Candidates from your selected sourcing session.
+                        {searchSummary?.sessionId ? (
+                          <span className="mt-1 block font-mono text-[10px] text-[#424656]/75">
+                            {searchSummary.sessionId}
+                          </span>
+                        ) : null}
+                      </p>
+                    </div>
                   </div>
                   <div className="dashboard-results-toolbar-actions">
                     {sessionResultDocs.length > 0 ? (
-                      <span className="dashboard-badge tabular-nums">
-                        {sessionResultDocs.length.toLocaleString()} candidate
-                        {sessionResultDocs.length === 1 ? "" : "s"}
-                      </span>
+                      <div className="dashboard-results-toolbar-meta">
+                        <span className="dashboard-results-toolbar-badge tabular-nums">
+                          {sessionResultDocs.length.toLocaleString()} candidate
+                          {sessionResultDocs.length === 1 ? "" : "s"}
+                        </span>
+                        {sessionResultSelectedKeys.length > 0 ? (
+                          <span className="dashboard-results-toolbar-badge dashboard-results-toolbar-badge--selected tabular-nums">
+                            {sessionResultSelectedKeys.length} selected
+                          </span>
+                        ) : null}
+                      </div>
                     ) : null}
-                    <button
-                      type="button"
-                      onClick={() => setIsFilterDrawerOpen(true)}
-                      className="dashboard-btn-secondary h-9 px-3 text-sm font-medium"
-                    >
-                      <MaterialIcon name="tune" className="text-base" />
-                      Edit filter
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab(sessionResultsBackTab)}
-                      className="dashboard-btn-secondary h-9 px-3 text-sm font-medium"
-                    >
-                      <MaterialIcon name="arrow_back" className="text-base" />
-                      Back
-                    </button>
+                    <div className="dashboard-results-toolbar-buttons">
+                      {sessionResultDocs.length > 0 ? (
+                        <>
+                          {sessionResultSelectedKeys.length > 0 ? (
+                            <button
+                              type="button"
+                              onClick={openAddToCampaignModal}
+                              className="dashboard-btn-primary"
+                            >
+                              <MaterialIcon name="flag" aria-hidden />
+                              Add to campaign
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={toggleSelectAllSessionResults}
+                            className="dashboard-btn-secondary"
+                          >
+                            <MaterialIcon
+                              name={
+                                allVisibleSessionResultsSelected
+                                  ? "check_box"
+                                  : "check_box_outline_blank"
+                              }
+                              aria-hidden
+                            />
+                            {allVisibleSessionResultsSelected ? "Deselect all" : "Select all"}
+                          </button>
+                          {sessionResultSelectedKeys.length > 0 ? (
+                            <button
+                              type="button"
+                              onClick={clearSessionResultSelection}
+                              className="dashboard-btn-secondary"
+                            >
+                              Clear
+                            </button>
+                          ) : null}
+                        </>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => setIsFilterDrawerOpen(true)}
+                        className="dashboard-btn-secondary"
+                      >
+                        <MaterialIcon name="tune" aria-hidden />
+                        Edit filter
+                      </button>
+                    </div>
                   </div>
                 </div>
                 </div>
@@ -3595,6 +4432,10 @@ export default function UserDashboardPage() {
                   <p className="mt-4 dashboard-alert-error">
                     {sessionResultError}
                   </p>
+                ) : null}
+
+                {sessionResultNotice ? (
+                  <p className="dashboard-alert-success mt-4">{sessionResultNotice}</p>
                 ) : null}
 
                 {searchLoading && sessionResultDocs.length === 0 ? (
@@ -3630,7 +4471,7 @@ export default function UserDashboardPage() {
                     </p>
                     <button
                       type="button"
-                      onClick={() => setActiveTab("Search history")}
+                      onClick={() => navigateToTab("Search history")}
                       className="dashboard-btn-primary mt-6"
                     >
                       <MaterialIcon name="history" className="text-base" />
@@ -3641,7 +4482,16 @@ export default function UserDashboardPage() {
 
                 {sessionResultDocs.length > 0 ? (
                   <>
-                    <div className="dashboard-results-grid mt-4">
+                    <p className="dashboard-session-select-touch-hint">
+                      Tap the circle on a card to select. Use Select all for faster multi-select.
+                    </p>
+                    <div
+                      className={`dashboard-results-grid mt-4${
+                        sessionResultSelectedKeys.length > 0
+                          ? " dashboard-results-grid--selecting"
+                          : ""
+                      }`}
+                    >
                       {sessionResultDocs.map((doc, idx) => {
                         const highlights = doc.profileAnalysis?.highlights ?? [];
                         const current = doc.profile?.current_employers_object?.[0];
@@ -3651,6 +4501,18 @@ export default function UserDashboardPage() {
                           searchSummary?.sessionId ?? null
                         );
                         const sessionCandidateKey = candidateIdentityKey(revealCandidate);
+                        const selectionKey = sessionResultDocSelectionKey(
+                          doc,
+                          idx,
+                          sessionCandidateKey
+                        );
+                        const docId = typeof doc._id === "string" ? doc._id.trim() : "";
+                        const isSelected = isSessionResultRowSelected(
+                          sessionResultSelectedKeys,
+                          selectionKey,
+                          sessionCandidateKey,
+                          docId
+                        );
                         const isSavedSessionCandidate =
                           savedSessionCandidateKeys.includes(sessionCandidateKey);
                         const isSaveBusy = saveCandidateBusyKeys.includes(sessionCandidateKey);
@@ -3680,41 +4542,45 @@ export default function UserDashboardPage() {
                                 openSessionCandidateDetail(doc, revealCandidate);
                               }
                             }}
-                            className={`dashboard-candidate-card ${
-                              isDetailOpen ? "dashboard-candidate-card--active" : ""
-                            }`}
+                            className={`dashboard-candidate-card${
+                              isSelected ? " dashboard-candidate-card--selected" : ""
+                            }${isDetailOpen ? " dashboard-candidate-card--active" : ""}`}
                           >
+                            <button
+                              type="button"
+                              className={`dashboard-candidate-card-select${
+                                isSelected ? " dashboard-candidate-card-select--on" : ""
+                              }`}
+                              aria-label={
+                                isSelected
+                                  ? `Deselect ${candidateName}`
+                                  : `Select ${candidateName}`
+                              }
+                              aria-pressed={isSelected}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleSessionResultSelection(selectionKey);
+                              }}
+                            >
+                              <MaterialIcon
+                                name={isSelected ? "check_circle" : "radio_button_unchecked"}
+                                aria-hidden
+                              />
+                            </button>
                             <div className="flex items-start gap-3">
                               <SessionCandidateGridAvatar
                                 name={candidateName}
                                 photoUrl={candidatePhotoUrl}
                               />
                               <div className="min-w-0 flex-1">
-                                <div className="flex items-start justify-between gap-3">
-                                  <div className="min-w-0">
-                                    <div className="dashboard-candidate-name-row">
-                                      <h4 className="text-base font-semibold text-slate-900">
-                                        {candidateName}
-                                      </h4>
-                                      {isOpenToWork(doc.profile?.open_to_cards) ? (
-                                        <OpenToWorkBadge compact />
-                                      ) : null}
-                                    </div>
-                                    <CandidateRoleCompanyLine
-                                      role={current?.job_title}
-                                      company={current?.company_name}
-                                      companyWebsiteDomain={current?.company_website_domain}
-                                      companyWebsite={current?.company_website}
-                                      variant="grid"
-                                    />
-                                  </div>
-                                  {typeof doc.finalScore === "number" ? (
-                                    <span
-                                      className={`shrink-0 ${candidateScoreBadgeClass(doc.finalScore)}`}
-                                    >
-                                      Score {formatCandidateScore(doc.finalScore)}/5
-                                    </span>
-                                  ) : null}
+                                <div className="min-w-0">
+                                  <h4 className="text-base font-semibold text-slate-900">
+                                    {candidateName}
+                                  </h4>
+                                  <p className="mt-1 text-xs text-slate-600">
+                                    {current?.job_title || "Role unavailable"}
+                                    {current?.company_name ? ` · ${current.company_name}` : ""}
+                                  </p>
                                 </div>
                               </div>
                             </div>
@@ -3904,6 +4770,15 @@ export default function UserDashboardPage() {
                   </>
                 ) : null}
                 </div>
+
+                <AddToCampaignModal
+                  open={addToCampaignOpen}
+                  selectedCount={sessionResultSelectedKeys.length}
+                  campaigns={campaigns}
+                  submitting={addToCampaignBusy}
+                  onClose={() => !addToCampaignBusy && setAddToCampaignOpen(false)}
+                  onConfirm={handleAddToCampaignConfirm}
+                />
               </section>
             ) : activeTab === "People Scout" ? (
               <PeopleScoutPanel
@@ -3986,7 +4861,7 @@ export default function UserDashboardPage() {
                   highlightSessionId={highlightSessionId}
                   actionLoading={searchLoading}
                   onOpenSession={(row) => void openSessionFromHistory(row)}
-                  onGoToSearch={() => setActiveTab("Search Candidates")}
+                  onGoToSearch={() => navigateToTab("Search Candidates")}
                 />
                 </div>
 
@@ -4042,7 +4917,7 @@ export default function UserDashboardPage() {
                     openSessionCandidateDetail
                   )
                 }
-                onGoToSearch={() => setActiveTab("Search Candidates")}
+                onGoToSearch={() => navigateToTab("Search Candidates")}
               />
             ) : activeTab === "Saved" ? (
               <SavedCandidatesPanel
@@ -4100,12 +4975,36 @@ export default function UserDashboardPage() {
                 onRevealPhone={(candidate) => revealPhone(candidate as CandidateRow)}
                 getDisplayedEmail={(candidate) => getDisplayedEmail(candidate as CandidateRow)}
                 getDisplayedPhone={(candidate) => getDisplayedPhone(candidate as CandidateRow)}
-                onGoToSessionResults={() => setActiveTab("Session Results")}
+                onGoToSessionResults={() =>
+                  navigateToTab("Session Results", {
+                    sessionId: searchSummary?.sessionId ?? undefined,
+                  })
+                }
+              />
+            ) : activeTab === "Outreaches" ? (
+              <OutreachesPanel
+                currentPlanId={userPlanId}
+                planResolved={userPlanReady}
+                onViewPlans={() => navigateToTab("Plans and pricing")}
+                onGoToIntegrations={() => navigateToTab("Integrations")}
+              />
+            ) : activeTab === "Campaigns" ? (
+              <CampaignsPanel
+                currentPlanId={userPlanId}
+                planResolved={userPlanReady}
+                onViewPlans={() => navigateToTab("Plans and pricing")}
+                campaigns={campaigns}
+                campaignsLoading={campaignsLoading}
+                onCreateCampaign={handleCreateCampaign}
+                onCampaignUpdated={handleCampaignUpdated}
+                routeCampaignId={routeCampaignId}
+                routeWorkspaceTab={campaignWorkspaceTab}
               />
             ) : activeTab === "Integrations" ? (
               <IntegrationsPanel
                 currentPlanId={userPlanId}
-                onViewPlans={() => setActiveTab("Plans and pricing")}
+                planResolved={userPlanReady}
+                onViewPlans={() => navigateToTab("Plans and pricing")}
               />
             ) : activeTab === "Team" ? (
               <TeamManagementPanel />
@@ -4228,7 +5127,7 @@ export default function UserDashboardPage() {
         onClose={userActionAlert.close}
         onViewPlans={() => {
           userActionAlert.close();
-          setActiveTab("Plans and pricing");
+          navigateToTab("Plans and pricing");
         }}
       />
 

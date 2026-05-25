@@ -52,7 +52,13 @@ async function ensureOrganizationForOwner(user) {
   if (!user?._id || user.role === "admin") return user;
   if (user.accountRole === "member") return user;
   if (!user.onboardingCompleted) return user;
-  if (user.organizationId && user.accountRole === "owner") return user;
+  if (user.organizationId && user.accountRole === "owner") {
+    if (!user.ownerUserId) {
+      user.ownerUserId = user._id;
+      await user.save();
+    }
+    return user;
+  }
 
   await createOrganizationForOwner(user);
   return User.findById(user._id);

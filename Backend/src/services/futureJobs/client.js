@@ -212,7 +212,7 @@ const updateSourcingSession = async (sessionId, body) => {
 
 /**
  * GET /wl/sourcing-session/candidate/:candidateId/details — full candidate profile.
- * @param {string} candidateId — profile._id from session profiles list
+ * @param {string} candidateId — session profiles list doc._id
  */
 const getSourcingSessionCandidateDetails = async (candidateId) => {
   const { baseUrl, apiKey } = getFutureJobsConfig();
@@ -646,7 +646,7 @@ const revealSourcingSessionContact = async (
   }
 
   if (!res.ok) {
-    logOutbound("futurejobs", "reveal contact response error", {
+    logOutbound("futurejobs", "reveal contact response error",userId, {
       httpStatus: res.status,
       elapsedMs,
       message: data.message || data.status || data.error,
