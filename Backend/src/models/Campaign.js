@@ -28,8 +28,13 @@ const campaignSchema = new mongoose.Schema(
     name: { type: String, trim: true, required: true },
     outreachPlanId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "OutreachPlan",
       default: null,
+    },
+    /** gmail = OutreachPlan; whatsapp = WhatsAppOutreachPlan */
+    outreachChannel: {
+      type: String,
+      enum: ["gmail", "whatsapp"],
+      default: "gmail",
     },
     outreachStatus: {
       type: String,

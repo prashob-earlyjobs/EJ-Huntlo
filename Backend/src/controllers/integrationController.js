@@ -1,8 +1,8 @@
 const mongoose = require("mongoose");
 const {
   connectGmail,
-  connectWhatsAppGupshup,
-  verifyWhatsAppGupshupCredentials,
+  connectWhatsApp,
+  verifyWhatsAppIntegrationCredentials,
   connectCalendly,
   verifyCalendlyCredentials,
   getGmailStatus,
@@ -102,7 +102,7 @@ const verifyWhatsAppCredentialsHandler = async (req, res) => {
       return invalidSession(res);
     }
 
-    const result = await verifyWhatsAppGupshupCredentials(req.body || {});
+    const result = await verifyWhatsAppIntegrationCredentials(req.body || {});
     return res.status(200).json({
       success: true,
       verified: result.verified,
@@ -126,7 +126,7 @@ const connectWhatsAppHandler = async (req, res) => {
       return invalidSession(res);
     }
 
-    const integration = await connectWhatsAppGupshup(uid, req.body || {});
+    const integration = await connectWhatsApp(uid, req.body || {});
     return res.status(200).json({
       success: true,
       integration,

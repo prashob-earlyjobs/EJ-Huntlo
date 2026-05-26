@@ -14,6 +14,7 @@ const {
   pauseCampaignSequenceHandler,
   resumeCampaignSequenceHandler,
   getCampaignSequenceStatusHandler,
+  getCampaignWhatsAppConversationsHandler,
   deleteCampaignHandler,
 } = require("../controllers/campaignController");
 
@@ -28,6 +29,7 @@ router.post("/:id/launch-sequence", authenticate, launchCampaignSequenceHandler)
 router.post("/:id/pause-sequence", authenticate, pauseCampaignSequenceHandler);
 router.post("/:id/resume-sequence", authenticate, resumeCampaignSequenceHandler);
 router.get("/:id/sequence-status", authenticate, getCampaignSequenceStatusHandler);
+router.get("/:id/whatsapp-conversations", authenticate, getCampaignWhatsAppConversationsHandler);
 router.get("/:id", authenticate, getCampaignHandler);
 router.post("/:id/contacts", authenticate, addContactsHandler);
 router.post("/:id/contacts/sync-revealed", authenticate, syncCampaignContactsHandler);

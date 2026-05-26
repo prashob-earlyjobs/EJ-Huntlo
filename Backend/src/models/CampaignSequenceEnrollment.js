@@ -21,6 +21,7 @@ const campaignSequenceEnrollmentSchema = new mongoose.Schema(
     },
     candidateKey: { type: String, required: true, trim: true },
     contactEmail: { type: String, trim: true, default: "" },
+    contactPhone: { type: String, trim: true, default: "" },
     contactName: { type: String, trim: true, default: "" },
     contactRole: { type: String, trim: true, default: "" },
     contactCompany: { type: String, trim: true, default: "" },

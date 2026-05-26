@@ -222,7 +222,7 @@ export function CampaignsPanel({
       <>
         <section className="dashboard-card dashboard-card--fill dashboard-campaign-workspace-card flex h-full min-w-0 max-w-full w-full flex-col overflow-hidden p-0">
           {awaitingCampaignResolve ? (
-            <CampaignWorkspaceSkeleton />
+            <CampaignWorkspaceSkeleton workspaceTab={routeWorkspaceTab} />
           ) : (
             <div className="dashboard-card-body-scroll flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
               <p className="text-sm text-[#5f6368]">

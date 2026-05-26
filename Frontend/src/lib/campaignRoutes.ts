@@ -6,7 +6,7 @@ export type CampaignWorkspaceTab =
   | "Editor"
   | "Contacts"
   | "Emails"
-  | "Phones"
+  | "WhatsApp"
   | "Activity"
   | "Report"
   | "Settings";
@@ -15,7 +15,7 @@ export const CAMPAIGN_WORKSPACE_TABS: CampaignWorkspaceTab[] = [
   "Editor",
   "Contacts",
   "Emails",
-  "Phones",
+  "WhatsApp",
   "Activity",
   "Report",
   "Settings",
@@ -25,15 +25,19 @@ const TAB_TO_SLUG: Record<CampaignWorkspaceTab, string> = {
   Editor: "editor",
   Contacts: "contacts",
   Emails: "emails",
-  Phones: "phones",
+  WhatsApp: "whatsapp",
   Activity: "activity",
   Report: "report",
   Settings: "settings",
 };
 
-const SLUG_TO_TAB: Record<string, CampaignWorkspaceTab> = Object.fromEntries(
-  Object.entries(TAB_TO_SLUG).map(([tab, slug]) => [slug, tab as CampaignWorkspaceTab])
-) as Record<string, CampaignWorkspaceTab>;
+const SLUG_TO_TAB: Record<string, CampaignWorkspaceTab> = {
+  ...Object.fromEntries(
+    Object.entries(TAB_TO_SLUG).map(([tab, slug]) => [slug, tab as CampaignWorkspaceTab])
+  ),
+  /** @deprecated legacy URL segment */
+  phones: "WhatsApp",
+};
 
 export function slugForCampaignWorkspaceTab(tab: CampaignWorkspaceTab): string {
   return TAB_TO_SLUG[tab];

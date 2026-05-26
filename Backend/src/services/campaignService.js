@@ -1,5 +1,7 @@
 const mongoose = require("mongoose");
 const Campaign = require("../models/Campaign");
+const OutreachPlan = require("../models/OutreachPlan");
+const WhatsAppOutreachPlan = require("../models/WhatsAppOutreachPlan");
 const { lookupUserRevealedContacts } = require("./contactRevealService");
 const { deleteEnrollmentsForCampaign } = require("./campaignOutreachSendService");
 const { normalizeLinkedinProfileUrl } = require("../utils/contactReveal");
@@ -59,6 +61,8 @@ function formatCampaign(doc) {
     id: String(doc._id),
     name: doc.name || "",
     outreachPlanId: doc.outreachPlanId ? String(doc.outreachPlanId) : "",
+    outreachChannel:
+      doc.outreachChannel === "whatsapp" ? "whatsapp" : "gmail",
     outreachStatus: doc.outreachStatus || "idle",
     outreachStartedAt: doc.outreachStartedAt
       ? new Date(doc.outreachStartedAt).toISOString()
@@ -202,7 +206,12 @@ async function syncCampaignContactsFromUserCache(userId, campaignId) {
   return getCampaign(userId, campaignId);
 }
 
-async function setCampaignOutreachPlan(userId, campaignId, outreachPlanId) {
+async function setCampaignOutreachPlan(
+  userId,
+  campaignId,
+  outreachPlanId,
+  outreachChannel = "gmail"
+) {
   const oid = assertValidCampaignId(campaignId);
   const doc = await Campaign.findOne({ _id: oid, userId: userOid(userId) });
   if (!doc) {
@@ -211,16 +220,36 @@ async function setCampaignOutreachPlan(userId, campaignId, outreachPlanId) {
     throw err;
   }
 
+  const channel = outreachChannel === "whatsapp" ? "whatsapp" : "gmail";
   const raw = outreachPlanId === null || outreachPlanId === undefined ? "" : String(outreachPlanId).trim();
   if (!raw) {
     doc.outreachPlanId = null;
+    doc.outreachChannel = "gmail";
   } else {
     if (!mongoose.Types.ObjectId.isValid(raw)) {
       const err = new Error("Invalid outreach plan id");
       err.statusCode = 400;
       throw err;
     }
-    doc.outreachPlanId = new mongoose.Types.ObjectId(raw);
+    const planOid = new mongoose.Types.ObjectId(raw);
+    const ownerOid = userOid(userId);
+    if (channel === "whatsapp") {
+      const plan = await WhatsAppOutreachPlan.findOne({ _id: planOid, userId: ownerOid }).lean();
+      if (!plan) {
+        const err = new Error("WhatsApp outreach plan not found");
+        err.statusCode = 404;
+        throw err;
+      }
+    } else {
+      const plan = await OutreachPlan.findOne({ _id: planOid, userId: ownerOid }).lean();
+      if (!plan) {
+        const err = new Error("Outreach plan not found");
+        err.statusCode = 404;
+        throw err;
+      }
+    }
+    doc.outreachPlanId = planOid;
+    doc.outreachChannel = channel;
   }
 
   await doc.save();

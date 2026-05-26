@@ -28,7 +28,11 @@ export function DashboardToast({
   if (!message.trim()) return null;
 
   return (
-    <div className="dashboard-toast" role="status" aria-live="polite">
+    <div
+      className={`dashboard-toast dashboard-toast--${variant}`}
+      role="status"
+      aria-live="polite"
+    >
       <p className={`dashboard-toast-body dashboard-toast-body--${variant}`}>{message}</p>
       <button
         type="button"

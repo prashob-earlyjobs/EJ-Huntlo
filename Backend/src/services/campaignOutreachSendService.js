@@ -3,8 +3,15 @@ const Campaign = require("../models/Campaign");
 const CampaignSequenceEnrollment = require("../models/CampaignSequenceEnrollment");
 const UserIntegration = require("../models/UserIntegration");
 const OutreachPlan = require("../models/OutreachPlan");
+const WhatsAppOutreachPlan = require("../models/WhatsAppOutreachPlan");
 const { sendGmailMessage } = require("./gmailSendService");
 const { applyMergeFields } = require("./outreachMergeService");
+const {
+  assertWhatsAppReadyForSend,
+  sendWhatsAppMessage,
+} = require("./whatsappSendService");
+const { assertValidRecipientPhone } = require("./whatsappPhoneUtils");
+const { logCampaignWhatsAppMessage } = require("./campaignWhatsAppCommsService");
 
 const SEND_BATCH_SIZE = Math.max(
   1,
@@ -18,6 +25,12 @@ function userOid(userId) {
 function addDays(baseDate, days) {
   const d = new Date(baseDate);
   d.setUTCDate(d.getUTCDate() + Math.max(0, Number(days) || 0));
+  return d;
+}
+
+function addHours(baseDate, hours) {
+  const d = new Date(baseDate);
+  d.setUTCHours(d.getUTCHours() + Math.max(0, Number(hours) || 0));
   return d;
 }
 
@@ -45,6 +58,22 @@ async function getSenderFirstName(userId) {
   return "";
 }
 
+async function getWhatsAppSenderFirstName(userId) {
+  const doc = await UserIntegration.findOne({
+    userId: userOid(userId),
+    provider: "whatsapp",
+  })
+    .select("senderName email gupshupUserId")
+    .lean();
+  if (doc?.senderName?.trim()) {
+    return doc.senderName.trim().split(/\s+/)[0] || doc.senderName.trim();
+  }
+  if (doc?.gupshupUserId?.trim()) {
+    return doc.gupshupUserId.trim();
+  }
+  return "";
+}
+
 async function loadCampaignAndPlan(userId, campaignId) {
   const campaign = await Campaign.findOne({
     _id: new mongoose.Types.ObjectId(campaignId),
@@ -64,15 +93,25 @@ async function loadCampaignAndPlan(userId, campaignId) {
     throw err;
   }
 
-  const plan = await OutreachPlan.findOne({
-    _id: new mongoose.Types.ObjectId(planId),
-    userId: userOid(userId),
-  }).lean();
+  const channel = campaign.outreachChannel === "whatsapp" ? "whatsapp" : "gmail";
+  const planOid = new mongoose.Types.ObjectId(planId);
+  const ownerOid = userOid(userId);
 
-  if (!plan) {
-    const err = new Error("Outreach plan not found");
-    err.statusCode = 404;
-    throw err;
+  let plan;
+  if (channel === "whatsapp") {
+    plan = await WhatsAppOutreachPlan.findOne({ _id: planOid, userId: ownerOid }).lean();
+    if (!plan) {
+      const err = new Error("WhatsApp outreach plan not found");
+      err.statusCode = 404;
+      throw err;
+    }
+  } else {
+    plan = await OutreachPlan.findOne({ _id: planOid, userId: ownerOid }).lean();
+    if (!plan) {
+      const err = new Error("Outreach plan not found");
+      err.statusCode = 404;
+      throw err;
+    }
   }
 
   const touchpoints = sortTouchpoints(plan.touchpoints);
@@ -82,7 +121,7 @@ async function loadCampaignAndPlan(userId, campaignId) {
     throw err;
   }
 
-  return { campaign, plan, touchpoints };
+  return { campaign, plan, touchpoints, channel };
 }
 
 function formatEnrollment(doc) {
@@ -119,8 +158,15 @@ async function getSequenceStatus(userId, campaignId) {
 
   let touchpointCount = 0;
   if (campaign.outreachPlanId) {
-    const plan = await OutreachPlan.findById(campaign.outreachPlanId).select("touchpoints").lean();
-    touchpointCount = Array.isArray(plan?.touchpoints) ? plan.touchpoints.length : 0;
+    if (campaign.outreachChannel === "whatsapp") {
+      const plan = await WhatsAppOutreachPlan.findById(campaign.outreachPlanId)
+        .select("touchpoints")
+        .lean();
+      touchpointCount = Array.isArray(plan?.touchpoints) ? plan.touchpoints.length : 0;
+    } else {
+      const plan = await OutreachPlan.findById(campaign.outreachPlanId).select("touchpoints").lean();
+      touchpointCount = Array.isArray(plan?.touchpoints) ? plan.touchpoints.length : 0;
+    }
   }
 
   const counts = await CampaignSequenceEnrollment.aggregate([
@@ -161,7 +207,11 @@ async function getSequenceStatus(userId, campaignId) {
  * Enroll all campaign contacts with an email and start the sequence clock.
  */
 async function launchCampaignSequence(userId, campaignId) {
-  const { campaign, plan, touchpoints } = await loadCampaignAndPlan(userId, campaignId);
+  const { campaign, plan, touchpoints, channel } = await loadCampaignAndPlan(userId, campaignId);
+  const isWhatsApp = channel === "whatsapp";
+  if (isWhatsApp) {
+    await assertWhatsAppReadyForSend(userId);
+  }
   const now = new Date();
   const contacts = Array.isArray(campaign.contacts) ? campaign.contacts : [];
 
@@ -171,11 +221,14 @@ async function launchCampaignSequence(userId, campaignId) {
   for (const contact of contacts) {
     const candidateKey = String(contact.candidateKey || "").trim();
     const email = String(contact.email || "").trim();
+    const phone = String(contact.phone || "").trim();
     if (!candidateKey) {
       skipped += 1;
       continue;
     }
-    if (!email || !email.includes("@")) {
+
+    const hasContact = isWhatsApp ? Boolean(phone) : Boolean(email && email.includes("@"));
+    if (!hasContact) {
       await CampaignSequenceEnrollment.findOneAndUpdate(
         {
           campaignId: campaign._id,
@@ -185,12 +238,13 @@ async function launchCampaignSequence(userId, campaignId) {
           $set: {
             userId: userOid(userId),
             outreachPlanId: plan._id,
-            contactEmail: "",
+            contactEmail: email,
+            contactPhone: phone,
             contactName: String(contact.name || "").trim(),
             contactRole: String(contact.role || "").trim(),
             contactCompany: String(contact.company || "").trim(),
             status: "skipped",
-            lastError: "No email on file",
+            lastError: isWhatsApp ? "No phone on file" : "No email on file",
             nextSendAt: now,
           },
         },
@@ -210,6 +264,7 @@ async function launchCampaignSequence(userId, campaignId) {
           userId: userOid(userId),
           outreachPlanId: plan._id,
           contactEmail: email,
+          contactPhone: phone,
           contactName: String(contact.name || "").trim(),
           contactRole: String(contact.role || "").trim(),
           contactCompany: String(contact.company || "").trim(),
@@ -235,6 +290,17 @@ async function launchCampaignSequence(userId, campaignId) {
       },
     }
   );
+
+  if (isWhatsApp && enrolled > 0) {
+    setImmediate(() => {
+      processDueEnrollments().catch((err) => {
+        console.error(
+          "[outreach-send] immediate WhatsApp tick:",
+          err?.message || err
+        );
+      });
+    });
+  }
 
   return {
     enrolled,
@@ -292,15 +358,23 @@ async function resumeCampaignSequence(userId, campaignId) {
 }
 
 async function processEnrollmentDoc(enrollment) {
-  const enrollmentId = enrollment._id;
-  const userId = String(enrollment.userId);
-  const campaignId = String(enrollment.campaignId);
-  const stepOrder = enrollment.currentStepOrder || 1;
-
   const campaign = await Campaign.findById(enrollment.campaignId).lean();
   if (!campaign || campaign.outreachStatus !== "active") {
     return;
   }
+
+  if (campaign.outreachChannel === "whatsapp") {
+    return processWhatsAppEnrollmentDoc(enrollment, campaign);
+  }
+
+  return processGmailEnrollmentDoc(enrollment, campaign);
+}
+
+async function processGmailEnrollmentDoc(enrollment, campaign) {
+  const enrollmentId = enrollment._id;
+  const userId = String(enrollment.userId);
+  const campaignId = String(enrollment.campaignId);
+  const stepOrder = enrollment.currentStepOrder || 1;
 
   const plan = await OutreachPlan.findById(enrollment.outreachPlanId).lean();
   if (!plan) {
@@ -398,6 +472,169 @@ async function processEnrollmentDoc(enrollment) {
   );
 }
 
+async function processWhatsAppEnrollmentDoc(enrollment, campaign) {
+  const enrollmentId = enrollment._id;
+  const userId = String(enrollment.userId);
+  const campaignId = String(enrollment.campaignId);
+  const stepOrder = enrollment.currentStepOrder || 1;
+
+  const plan = await WhatsAppOutreachPlan.findById(enrollment.outreachPlanId).lean();
+  if (!plan) {
+    await CampaignSequenceEnrollment.updateOne(
+      { _id: enrollmentId },
+      { $set: { status: "failed", lastError: "WhatsApp outreach plan missing" } }
+    );
+    return;
+  }
+
+  const touchpoints = sortTouchpoints(plan.touchpoints);
+  const touchpoint = getTouchpointByOrder(touchpoints, stepOrder);
+  if (!touchpoint) {
+    await CampaignSequenceEnrollment.updateOne(
+      { _id: enrollmentId },
+      { $set: { status: "completed", lastError: "" } }
+    );
+    await maybeCompleteCampaign(campaignId);
+    return;
+  }
+
+  const phoneRaw = String(enrollment.contactPhone || "").trim();
+  let phoneE164;
+  try {
+    phoneE164 = assertValidRecipientPhone(phoneRaw);
+  } catch (err) {
+    await CampaignSequenceEnrollment.updateOne(
+      { _id: enrollmentId },
+      {
+        $set: {
+          status: "skipped",
+          lastError: err instanceof Error ? err.message : "No valid phone",
+        },
+      }
+    );
+    return;
+  }
+
+  const senderFirstName = await getWhatsAppSenderFirstName(userId);
+  const contact = {
+    name: enrollment.contactName,
+    company: enrollment.contactCompany,
+    role: enrollment.contactRole,
+  };
+  const body = applyMergeFields(touchpoint.body, { contact, senderFirstName });
+  const templateId = String(touchpoint.templateId || "").trim();
+  const sequenceStepLabel =
+    String(touchpoint.label || "").trim() ||
+    (touchpoint.isNoReplyFallback
+      ? `No-reply follow-up ${stepOrder - 1}`
+      : stepOrder === 1
+        ? "Opening message"
+        : `Follow-up ${stepOrder - 1}`);
+
+  if (!templateId && !body.trim()) {
+    await CampaignSequenceEnrollment.updateOne(
+      { _id: enrollmentId },
+      { $set: { status: "failed", lastError: "Touchpoint has no message body" } }
+    );
+    return;
+  }
+
+  let sendResult;
+  try {
+    sendResult = await sendWhatsAppMessage(userId, {
+      to: phoneE164,
+      body,
+      templateId: templateId || undefined,
+    });
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : "WhatsApp send failed";
+    await CampaignSequenceEnrollment.updateOne(
+      { _id: enrollmentId },
+      {
+        $set: {
+          status: "failed",
+          lastError: errorMessage,
+        },
+      }
+    );
+    try {
+      await logCampaignWhatsAppMessage({
+        userId,
+        campaignId,
+        enrollmentId,
+        candidateKey: enrollment.candidateKey,
+        contactPhone: phoneE164,
+        direction: "outbound",
+        body: body.trim() || sequenceStepLabel,
+        sequenceStepOrder: stepOrder,
+        sequenceStepLabel,
+        status: "failed",
+        errorMessage,
+      });
+    } catch (logErr) {
+      console.error("[outreach-send] WhatsApp message log:", logErr?.message || logErr);
+    }
+    return;
+  }
+
+  const now = new Date();
+  try {
+    await logCampaignWhatsAppMessage({
+      userId,
+      campaignId,
+      enrollmentId,
+      candidateKey: enrollment.candidateKey,
+      contactPhone: phoneE164,
+      direction: "outbound",
+      body: body.trim() || sequenceStepLabel,
+      sequenceStepOrder: stepOrder,
+      sequenceStepLabel,
+      provider: sendResult.provider,
+      externalMessageId: sendResult.messageId || "",
+      status: "sent",
+      sentAt: now,
+    });
+  } catch (logErr) {
+    console.error("[outreach-send] WhatsApp message log:", logErr?.message || logErr);
+  }
+  const sentCount = (enrollment.sentCount || 0) + 1;
+  const nextOrder = stepOrder + 1;
+  const nextTouchpoint = getTouchpointByOrder(touchpoints, nextOrder);
+
+  if (!nextTouchpoint) {
+    await CampaignSequenceEnrollment.updateOne(
+      { _id: enrollmentId },
+      {
+        $set: {
+          status: "completed",
+          sentCount,
+          lastSentAt: now,
+          lastMessageId: sendResult.messageId || "",
+          lastError: "",
+        },
+      }
+    );
+    await maybeCompleteCampaign(campaignId);
+    return;
+  }
+
+  const waitHours = Math.max(0, Number(nextTouchpoint.waitHours) || 0);
+  await CampaignSequenceEnrollment.updateOne(
+    { _id: enrollmentId },
+    {
+      $set: {
+        status: "active",
+        currentStepOrder: nextOrder,
+        nextSendAt: addHours(now, waitHours),
+        sentCount,
+        lastSentAt: now,
+        lastMessageId: sendResult.messageId || "",
+        lastError: "",
+      },
+    }
+  );
+}
+
 async function maybeCompleteCampaign(campaignId) {
   const remaining = await CampaignSequenceEnrollment.countDocuments({
     campaignId: new mongoose.Types.ObjectId(campaignId),
@@ -445,9 +682,11 @@ async function processDueEnrollments() {
 }
 
 async function deleteEnrollmentsForCampaign(campaignId) {
+  const { deleteWhatsAppMessagesForCampaign } = require("./campaignWhatsAppCommsService");
   await CampaignSequenceEnrollment.deleteMany({
     campaignId: new mongoose.Types.ObjectId(campaignId),
   });
+  await deleteWhatsAppMessagesForCampaign(campaignId);
 }
 
 module.exports = {

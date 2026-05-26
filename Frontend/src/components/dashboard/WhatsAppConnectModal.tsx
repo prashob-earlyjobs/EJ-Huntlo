@@ -19,6 +19,9 @@ export type WhatsAppConnectFormValues = {
   gupshupMode: GupshupConnectMode;
   gupshupUserId: string;
   gupshupPassword: string;
+  metaPhoneNumberId: string;
+  metaAccessToken: string;
+  metaWabaId: string;
   confirmRegistered: boolean;
 };
 
@@ -27,6 +30,9 @@ const EMPTY_FORM: WhatsAppConnectFormValues = {
   gupshupMode: "existing",
   gupshupUserId: "",
   gupshupPassword: "",
+  metaPhoneNumberId: "",
+  metaAccessToken: "",
+  metaWabaId: "",
   confirmRegistered: false,
 };
 
@@ -62,9 +68,13 @@ export function WhatsAppConnectModal({ open, busy, onClose, onSubmit }: Props) {
   const patch = useCallback((fields: Partial<WhatsAppConnectFormValues>) => {
     setForm((prev) => ({ ...prev, ...fields }));
     if (
+      fields.provider !== undefined ||
       fields.gupshupMode !== undefined ||
       fields.gupshupUserId !== undefined ||
-      fields.gupshupPassword !== undefined
+      fields.gupshupPassword !== undefined ||
+      fields.metaPhoneNumberId !== undefined ||
+      fields.metaAccessToken !== undefined ||
+      fields.metaWabaId !== undefined
     ) {
       setCredsVerified(false);
       setTestSuccessMessage("");
@@ -72,21 +82,35 @@ export function WhatsAppConnectModal({ open, busy, onClose, onSubmit }: Props) {
     setError("");
   }, []);
 
+  const isMeta = form.provider === "meta_api";
   const isExisting = form.gupshupMode === "existing";
   const canConnect =
-    form.provider === "gupshup" &&
     form.confirmRegistered &&
-    (form.gupshupMode === "huntlo" || credsVerified);
+    credsVerified &&
+    (isMeta
+      ? Boolean(form.metaPhoneNumberId.trim()) && Boolean(form.metaAccessToken.trim())
+      : form.gupshupMode === "huntlo" ||
+        (Boolean(form.gupshupUserId.trim()) && Boolean(form.gupshupPassword)));
 
-  const canTestExisting =
+  const canTestGupshupExisting =
+    !isMeta &&
     isExisting &&
     Boolean(form.gupshupUserId.trim()) &&
     Boolean(form.gupshupPassword) &&
     !testing &&
     !busy;
 
+  const canTestMeta =
+    isMeta &&
+    Boolean(form.metaPhoneNumberId.trim()) &&
+    Boolean(form.metaAccessToken.trim()) &&
+    !testing &&
+    !busy;
+
+  const canTest = isMeta ? canTestMeta : form.gupshupMode === "huntlo" || canTestGupshupExisting;
+
   const handleTestCredentials = async () => {
-    if (!canTestExisting && form.gupshupMode !== "huntlo") return;
+    if (!canTest && !(form.gupshupMode === "huntlo" && !isMeta)) return;
 
     setTesting(true);
     setError("");
@@ -98,14 +122,24 @@ export function WhatsAppConnectModal({ open, busy, onClose, onSubmit }: Props) {
         throw new Error("Please sign in again.");
       }
 
+      const body = isMeta
+        ? {
+            provider: "meta_api",
+            phoneNumberId: form.metaPhoneNumberId.trim(),
+            accessToken: form.metaAccessToken.trim(),
+            wabaId: form.metaWabaId.trim(),
+          }
+        : {
+            provider: "gupshup",
+            gupshupMode: form.gupshupMode,
+            gupshupUserId: form.gupshupUserId.trim(),
+            gupshupPassword: form.gupshupPassword,
+          };
+
       const res = await fetch(`${apiBase}/api/integrations/whatsapp/verify`, {
         method: "POST",
         headers: authHeaders(auth.token),
-        body: JSON.stringify({
-          gupshupMode: form.gupshupMode,
-          gupshupUserId: form.gupshupUserId.trim(),
-          gupshupPassword: form.gupshupPassword,
-        }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
 
@@ -132,42 +166,54 @@ export function WhatsAppConnectModal({ open, busy, onClose, onSubmit }: Props) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (form.provider !== "gupshup") {
-      setError("Meta WhatsApp API is not available yet. Use Gupshup to connect.");
-      return;
+    if (isMeta) {
+      if (!form.metaPhoneNumberId.trim()) {
+        setError("Phone Number ID is required.");
+        return;
+      }
+      if (!form.metaAccessToken.trim()) {
+        setError("Meta access token is required.");
+        return;
+      }
+    } else {
+      const userId = form.gupshupUserId.trim();
+      const password = form.gupshupPassword;
+
+      if (isExisting) {
+        if (!userId) {
+          setError("Gupshup user ID is required.");
+          return;
+        }
+        if (!password) {
+          setError("Gupshup password is required.");
+          return;
+        }
+      }
     }
 
-    const userId = form.gupshupUserId.trim();
-    const password = form.gupshupPassword;
-
-    if (isExisting) {
-      if (!userId) {
-        setError("Gupshup user ID is required.");
-        return;
-      }
-      if (!password) {
-        setError("Gupshup password is required.");
-        return;
-      }
-      if (!credsVerified) {
-        setError("Test your credentials before connecting WhatsApp.");
-        return;
-      }
+    if (!credsVerified) {
+      setError("Test your credentials before connecting WhatsApp.");
+      return;
     }
 
     if (!form.confirmRegistered) {
       setError(
-        isExisting
-          ? "Confirm that your Gupshup account is set up for WhatsApp Business messaging."
-          : "Please accept the terms to connect Huntlo WhatsApp."
+        isMeta
+          ? "Confirm that your Meta app has WhatsApp messaging permissions."
+          : isExisting
+            ? "Confirm that your Gupshup account is set up for WhatsApp Business messaging."
+            : "Please accept the terms to connect Huntlo WhatsApp."
       );
       return;
     }
 
     onSubmit({
       ...form,
-      gupshupUserId: isExisting ? userId : "",
-      gupshupPassword: isExisting ? password : "",
+      gupshupUserId: !isMeta && isExisting ? form.gupshupUserId.trim() : "",
+      gupshupPassword: !isMeta && isExisting ? form.gupshupPassword : "",
+      metaPhoneNumberId: isMeta ? form.metaPhoneNumberId.trim() : "",
+      metaAccessToken: isMeta ? form.metaAccessToken.trim() : "",
+      metaWabaId: isMeta ? form.metaWabaId.trim() : "",
     });
   };
 
@@ -201,7 +247,8 @@ export function WhatsAppConnectModal({ open, busy, onClose, onSubmit }: Props) {
                 Connect WhatsApp Business
               </h3>
               <p className="dashboard-text-body mt-1 text-sm">
-                Connect via Gupshup WhatsApp API. Meta direct API support is coming soon.
+                Connect via Meta WhatsApp Cloud API or Gupshup. Choose the provider you use for
+                Business messaging.
               </p>
             </div>
             <button
@@ -225,26 +272,26 @@ export function WhatsAppConnectModal({ open, busy, onClose, onSubmit }: Props) {
               Provider
             </legend>
 
-            <div className="relative flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-3 opacity-80">
+            <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-white px-3 py-3 has-[:checked]:border-[#0050cb]/40 has-[:checked]:bg-[#f8f9ff]">
               <input
                 type="radio"
                 name="wa-provider"
                 className="mt-1"
-                disabled
-                aria-disabled="true"
+                checked={form.provider === "meta_api"}
+                onChange={() => patch({ provider: "meta_api" })}
               />
               <span className="min-w-0 flex-1 text-left">
                 <span className="flex flex-wrap items-center gap-2">
                   <span className="text-sm font-semibold text-[#141b2b]">Meta WhatsApp API</span>
-                  <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600">
-                    Coming soon
+                  <span className="rounded-full bg-[#0050cb]/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#0050cb]">
+                    Available
                   </span>
                 </span>
                 <span className="mt-0.5 block text-xs text-slate-500">
-                  Direct Cloud API via Meta Business — templates and session messaging.
+                  Direct Cloud API via Meta Business — Phone Number ID and access token.
                 </span>
               </span>
-            </div>
+            </label>
 
             <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-white px-3 py-3 has-[:checked]:border-[#0050cb]/40 has-[:checked]:bg-[#f8f9ff]">
               <input
@@ -268,7 +315,104 @@ export function WhatsAppConnectModal({ open, busy, onClose, onSubmit }: Props) {
             </label>
           </fieldset>
 
-          {form.provider === "gupshup" ? (
+          {isMeta ? (
+            <>
+              <div className="mt-6 space-y-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Meta Cloud API credentials
+                </p>
+                <label className={dashboardLabelClass}>
+                  Phone Number ID
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    className={`mt-1 w-full ${dashboardInputClass}`}
+                    value={form.metaPhoneNumberId}
+                    onChange={(e) => patch({ metaPhoneNumberId: e.target.value })}
+                    placeholder="e.g. 123456789012345"
+                    required
+                    autoComplete="off"
+                  />
+                  <FieldHelp>
+                    From Meta Business Manager → WhatsApp → API Setup → Phone number ID.
+                  </FieldHelp>
+                </label>
+                <label className={dashboardLabelClass}>
+                  Permanent access token
+                  <input
+                    type="password"
+                    className={`mt-1 w-full ${dashboardInputClass}`}
+                    value={form.metaAccessToken}
+                    onChange={(e) => patch({ metaAccessToken: e.target.value })}
+                    placeholder="System user or app token with whatsapp_business_messaging"
+                    required
+                    autoComplete="off"
+                  />
+                  <FieldHelp>
+                    Token needs permission to send messages for this phone number. Stored securely
+                    and never shown again.
+                  </FieldHelp>
+                </label>
+                <label className={dashboardLabelClass}>
+                  WhatsApp Business Account ID{" "}
+                  <span className="font-normal text-slate-500">(optional)</span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    className={`mt-1 w-full ${dashboardInputClass}`}
+                    value={form.metaWabaId}
+                    onChange={(e) => patch({ metaWabaId: e.target.value })}
+                    placeholder="WABA ID"
+                    autoComplete="off"
+                  />
+                  <FieldHelp>Only needed if you want Huntlo to validate account access.</FieldHelp>
+                </label>
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    className={`${dashboardBtnSecondaryClass} px-4 py-2 text-sm disabled:opacity-55`}
+                    disabled={!canTestMeta}
+                    onClick={() => void handleTestCredentials()}
+                  >
+                    {testing ? (
+                      <>
+                        <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
+                        Testing…
+                      </>
+                    ) : credsVerified ? (
+                      <>
+                        <MaterialIcon name="check_circle" className="text-base text-emerald-600" />
+                        Test again
+                      </>
+                    ) : (
+                      <>
+                        <MaterialIcon name="verified_user" className="text-base" />
+                        Test credentials
+                      </>
+                    )}
+                  </button>
+                  {!credsVerified ? (
+                    <span className="text-xs text-slate-500">
+                      Test credentials to enable Connect WhatsApp.
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+
+              <label className="mt-5 flex cursor-pointer items-start gap-2 text-sm text-[#434654]">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 rounded border-slate-300"
+                  checked={form.confirmRegistered}
+                  onChange={(e) => patch({ confirmRegistered: e.target.checked })}
+                />
+                <span>
+                  I confirm my Meta app and phone number are approved for WhatsApp Business
+                  messaging.
+                </span>
+              </label>
+            </>
+          ) : form.provider === "gupshup" ? (
             <>
               <fieldset className="mt-5 space-y-3">
                 <legend className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -347,7 +491,7 @@ export function WhatsAppConnectModal({ open, busy, onClose, onSubmit }: Props) {
                     <button
                       type="button"
                       className={`${dashboardBtnSecondaryClass} px-4 py-2 text-sm disabled:opacity-55`}
-                      disabled={!canTestExisting}
+                      disabled={!canTestGupshupExisting}
                       onClick={() => void handleTestCredentials()}
                     >
                       {testing ? (
@@ -389,6 +533,34 @@ export function WhatsAppConnectModal({ open, busy, onClose, onSubmit }: Props) {
                     : "I agree to use Huntlo's managed WhatsApp sender for recruiting outreach."}
                 </span>
               </label>
+
+              {form.gupshupMode === "huntlo" ? (
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    className={`${dashboardBtnSecondaryClass} px-4 py-2 text-sm disabled:opacity-55`}
+                    disabled={testing || busy}
+                    onClick={() => void handleTestCredentials()}
+                  >
+                    {testing ? (
+                      <>
+                        <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
+                        Checking…
+                      </>
+                    ) : credsVerified ? (
+                      <>
+                        <MaterialIcon name="check_circle" className="text-base text-emerald-600" />
+                        Available
+                      </>
+                    ) : (
+                      <>
+                        <MaterialIcon name="verified_user" className="text-base" />
+                        Check availability
+                      </>
+                    )}
+                  </button>
+                </div>
+              ) : null}
             </>
           ) : null}
 
@@ -418,7 +590,7 @@ export function WhatsAppConnectModal({ open, busy, onClose, onSubmit }: Props) {
               disabled={busy || testing || !canConnect}
               className={`${dashboardBtnPrimaryClass} disabled:opacity-60`}
               title={
-                isExisting && !credsVerified
+                !credsVerified
                   ? "Test credentials first"
                   : !form.confirmRegistered
                     ? "Accept the confirmation to continue"

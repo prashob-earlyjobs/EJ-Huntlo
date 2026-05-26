@@ -8,8 +8,10 @@ import {
   type ExistingOutreachPlanOption,
 } from "@/components/dashboard/OutreachSequencePicker";
 import { CampaignContactsSkeleton } from "@/components/dashboard/CampaignContactsSkeleton";
+import { CampaignWhatsAppCommunicationsPanel } from "@/components/dashboard/CampaignWhatsAppCommunicationsPanel";
 import { OutreachSequencePickerSkeleton } from "@/components/dashboard/OutreachSequencePickerSkeleton";
 import { OutreachPlanEditor } from "@/components/dashboard/OutreachPlanEditor";
+import { DashboardToast } from "@/components/dashboard/DashboardToast";
 import { WhatsAppOutreachEditor } from "@/components/dashboard/WhatsAppOutreachEditor";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { authHeaders, getStoredAuth } from "@/lib/auth";
@@ -21,6 +23,7 @@ import {
 } from "@/lib/campaignRevealJob";
 import {
   fetchCampaign,
+  launchCampaignSequence,
   setCampaignOutreachPlan,
   syncCampaignRevealedContacts,
 } from "@/lib/campaignsApi";
@@ -37,6 +40,10 @@ import {
   createInitialWhatsAppSequence,
   type WhatsAppTouchpointDraft,
 } from "@/lib/whatsappOutreach";
+import {
+  fetchWhatsAppOutreachPlan,
+  type WhatsAppOutreachPlanRecord,
+} from "@/lib/whatsappOutreachApi";
 
 export type { CampaignWorkspaceTab };
 
@@ -128,6 +135,10 @@ export function CampaignWorkspace({
   const [editorPhase, setEditorPhase] = useState<"choose" | "editing">("choose");
   const [editor, setEditor] = useState<ActiveEditor | null>(null);
   const [editorNotice, setEditorNotice] = useState("");
+  const [saveToast, setSaveToast] = useState<{
+    message: string;
+    variant: "success" | "error";
+  } | null>(null);
 
   const [modalPlans, setModalPlans] = useState<ExistingOutreachPlanOption[]>([]);
   const [modalPlansLoading, setModalPlansLoading] = useState(false);
@@ -141,6 +152,7 @@ export function CampaignWorkspace({
   const [contactsLoading, setContactsLoading] = useState(false);
   const [contactsError, setContactsError] = useState("");
   const [revealInProgress, setRevealInProgress] = useState(false);
+  const [waCommsRefreshKey, setWaCommsRefreshKey] = useState(0);
   const [revealStarting, setRevealStarting] = useState(false);
 
   const onCampaignUpdatedRef = useRef(onCampaignUpdated);
@@ -294,7 +306,7 @@ export function CampaignWorkspace({
 
   useEffect(() => {
     const isContactTab =
-      activeTab === "Emails" || activeTab === "Phones" || activeTab === "Contacts";
+      activeTab === "Emails" || activeTab === "WhatsApp" || activeTab === "Contacts";
     if (!isContactTab || contactsLoading) return;
 
     const needing = contacts.filter(campaignContactNeedsReveal);
@@ -412,31 +424,44 @@ export function CampaignWorkspace({
     if (!planId) return;
     const auth = getStoredAuth();
     if (!auth?.token) return;
+    const channel = campaign.outreachChannel === "whatsapp" ? "whatsapp" : "gmail";
 
     setLinkedPlanLoading(true);
     try {
-      const res = await fetch(`${apiBase}/api/outreach/plans/${planId}`, {
-        headers: authHeaders(auth.token),
-      });
-      const data = await res.json();
-      if (data.success && data.plan) {
-        const plan = data.plan as {
-          id: string;
-          name: string;
-          touchpoints: OutreachTouchpointDraft[];
-        };
-        openGmailEditor({
+      if (channel === "whatsapp") {
+        const plan = await fetchWhatsAppOutreachPlan(auth.token, planId);
+        openWhatsAppEditor({
           planId: plan.id,
           planName: plan.name || campaign.name,
           touchpoints:
-            Array.isArray(plan.touchpoints) && plan.touchpoints.length > 0
+            plan.touchpoints.length > 0
               ? plan.touchpoints.map((tp) => ({ ...tp }))
-              : [createEmptyTouchpoint(1)],
-          lockSchedule: true,
+              : createInitialWhatsAppSequence(),
         });
       } else {
-        setEditorNotice("Saved sequence not found. Choose a new one below.");
-        setBypassLinkedPlan(true);
+        const res = await fetch(`${apiBase}/api/outreach/plans/${planId}`, {
+          headers: authHeaders(auth.token),
+        });
+        const data = await res.json();
+        if (data.success && data.plan) {
+          const plan = data.plan as {
+            id: string;
+            name: string;
+            touchpoints: OutreachTouchpointDraft[];
+          };
+          openGmailEditor({
+            planId: plan.id,
+            planName: plan.name || campaign.name,
+            touchpoints:
+              Array.isArray(plan.touchpoints) && plan.touchpoints.length > 0
+                ? plan.touchpoints.map((tp) => ({ ...tp }))
+                : [createEmptyTouchpoint(1)],
+            lockSchedule: true,
+          });
+        } else {
+          setEditorNotice("Saved sequence not found. Choose a new one below.");
+          setBypassLinkedPlan(true);
+        }
       }
     } catch {
       setEditorNotice("Could not load saved sequence.");
@@ -444,7 +469,7 @@ export function CampaignWorkspace({
     } finally {
       setLinkedPlanLoading(false);
     }
-  }, [apiBase, campaign.name, campaign.outreachPlanId]);
+  }, [apiBase, campaign.name, campaign.outreachPlanId, campaign.outreachChannel]);
 
   useEffect(() => {
     if (activeTab !== "Editor" || bypassLinkedPlan) return;
@@ -461,10 +486,82 @@ export function CampaignWorkspace({
     bypassLinkedPlan,
     campaign.id,
     campaign.outreachPlanId,
+    campaign.outreachChannel,
     editor,
     editorPhase,
     loadLinkedOutreachPlan,
   ]);
+
+  const handleWhatsAppPlanSaved = useCallback(
+    async (
+      _message: string,
+      savedPlan?: { id: string; name: string; touchpoints: WhatsAppTouchpointDraft[] }
+    ) => {
+      if (!savedPlan?.id) return;
+
+      setEditor({
+        channel: "whatsapp",
+        state: {
+          planId: savedPlan.id,
+          planName: savedPlan.name,
+          touchpoints: savedPlan.touchpoints,
+        },
+      });
+      setEditorPhase("editing");
+      setBypassLinkedPlan(false);
+      setEditorNotice("");
+      setSaveToast({
+        message: _message || "WhatsApp sequence saved.",
+        variant: "success",
+      });
+
+      const auth = getStoredAuth();
+      if (!auth?.token) return;
+      try {
+        const updated = await setCampaignOutreachPlan(
+          auth.token,
+          campaign.id,
+          savedPlan.id,
+          "whatsapp"
+        );
+        onCampaignUpdatedRef.current?.(updated);
+      } catch {
+        setSaveToast({
+          message: "Sequence saved, but could not link to this campaign. Try saving again.",
+          variant: "error",
+        });
+      }
+    },
+    [campaign.id]
+  );
+
+  const handleLaunchWhatsAppCampaign = useCallback(
+    async (savedPlan: WhatsAppOutreachPlanRecord) => {
+      const auth = getStoredAuth();
+      if (!auth?.token) {
+        setSaveToast({ message: "Please sign in again.", variant: "error" });
+        return;
+      }
+      try {
+        const updated = await setCampaignOutreachPlan(
+          auth.token,
+          campaign.id,
+          savedPlan.id,
+          "whatsapp"
+        );
+        onCampaignUpdatedRef.current?.(updated);
+
+        await launchCampaignSequence(auth.token, campaign.id);
+      } catch (err) {
+        setSaveToast({
+          message: err instanceof Error ? err.message : "Failed to launch campaign.",
+          variant: "error",
+        });
+        throw err;
+      }
+    },
+    [campaign.id]
+  );
 
   const handlePlanSaved = useCallback(
     async (
@@ -485,14 +582,26 @@ export function CampaignWorkspace({
       setEditorPhase("editing");
       setBypassLinkedPlan(false);
       setEditorNotice("");
+      setSaveToast({
+        message: _message || "Sequence saved.",
+        variant: "success",
+      });
 
       const auth = getStoredAuth();
       if (!auth?.token) return;
       try {
-        const updated = await setCampaignOutreachPlan(auth.token, campaign.id, savedPlan.id);
+        const updated = await setCampaignOutreachPlan(
+          auth.token,
+          campaign.id,
+          savedPlan.id,
+          "gmail"
+        );
         onCampaignUpdatedRef.current?.(updated);
       } catch {
-        setEditorNotice("Sequence saved, but could not link to this campaign. Try saving again.");
+        setSaveToast({
+          message: "Sequence saved, but could not link to this campaign. Try saving again.",
+          variant: "error",
+        });
       }
     },
     [campaign.id]
@@ -500,7 +609,7 @@ export function CampaignWorkspace({
 
   const handleSequenceChoice = async (choice: CreateOutreachChoice) => {
     if (choice.type === "scratch") {
-      if (choice.channel === "whatsapp") {
+        if (choice.channel === "whatsapp") {
         openWhatsAppEditor({
           planId: "new",
           planName: campaign.name,
@@ -643,9 +752,7 @@ export function CampaignWorkspace({
               initialTouchpoints={editor.state.touchpoints}
               lockSchedule={editor.state.lockSchedule}
               onCancel={backToSequenceChoose}
-              onSaved={() => {
-                /* stay on campaign */
-              }}
+              onSaved={(message, saved) => void handlePlanSaved(message, saved)}
             />
           ) : editorPhase === "editing" && editor?.channel === "whatsapp" ? (
             <WhatsAppOutreachEditor
@@ -654,8 +761,11 @@ export function CampaignWorkspace({
               initialPlanName={editor.state.planName}
               initialTouchpoints={editor.state.touchpoints}
               onCancel={backToSequenceChoose}
-              onSaved={() => {
-                /* stay on campaign */
+              onSaved={(message, saved) => void handleWhatsAppPlanSaved(message, saved)}
+              onLaunchCampaign={(saved) => handleLaunchWhatsAppCampaign(saved)}
+              onLaunchComplete={() => {
+                onWorkspaceTabChange("WhatsApp");
+                setWaCommsRefreshKey((k) => k + 1);
               }}
             />
           ) : (
@@ -751,74 +861,12 @@ export function CampaignWorkspace({
               )}
             </div>
           </div>
-        ) : activeTab === "Phones" ? (
-          <div className="dashboard-campaign-emails-panel flex min-h-0 flex-1 flex-col">
-            <div className="dashboard-campaign-emails-toolbar shrink-0">
-              <p className="dashboard-campaign-emails-summary">
-                {contacts.length} contact{contacts.length === 1 ? "" : "s"} in this campaign
-              </p>
-            </div>
-            <div className="dashboard-campaign-emails-scroll flex min-h-0 flex-1 flex-col">
-              {contactsLoading ? (
-                <CampaignContactsSkeleton rows={6} />
-              ) : contactsError && !contactsLoading ? (
-                <p className="dashboard-campaign-workspace-placeholder dashboard-campaign-workspace-placeholder--error py-12">
-                  {contactsError}
-                </p>
-              ) : contacts.length === 0 ? (
-                <div className="dashboard-campaign-workspace-placeholder-wrap">
-                  <MaterialIcon name="phone" className="mb-2 text-4xl text-[#80868b]" />
-                  <p className="dashboard-campaign-workspace-placeholder">
-                    No contacts yet. Add candidates from Session Results — phones are revealed
-                    automatically when you add to a campaign.
-                  </p>
-                </div>
-              ) : (
-                <ul className="dashboard-campaign-emails-list">
-                  {[...contacts]
-                    .sort(
-                      (a, b) =>
-                        new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime()
-                    )
-                    .map((contact) => {
-                      const subtitle = [contact.role, contact.company]
-                        .filter(Boolean)
-                        .join(" · ");
-                      const phone = contact.phone.trim();
-                      return (
-                        <li key={contact.candidateKey} className="dashboard-campaign-emails-row">
-                          <span className="dashboard-campaign-emails-avatar" aria-hidden>
-                            {contactInitial(contact.name)}
-                          </span>
-                          <div className="dashboard-campaign-emails-main min-w-0 flex-1">
-                            <p className="dashboard-campaign-emails-name">
-                              {contact.name.trim() || "Unnamed contact"}
-                            </p>
-                            {subtitle ? (
-                              <p className="dashboard-campaign-emails-meta">{subtitle}</p>
-                            ) : null}
-                            {phone ? (
-                              <a href={`tel:${phone}`} className="dashboard-campaign-emails-address">
-                                {phone}
-                              </a>
-                            ) : (
-                              <p className="dashboard-campaign-emails-address dashboard-campaign-emails-address--empty">
-                                {phoneEmptyLabel(contact, revealInProgress)}
-                              </p>
-                            )}
-                          </div>
-                          {contact.addedAt ? (
-                            <span className="dashboard-campaign-emails-added">
-                              Added {formatAddedAt(contact.addedAt)}
-                            </span>
-                          ) : null}
-                        </li>
-                      );
-                    })}
-                </ul>
-              )}
-            </div>
-          </div>
+        ) : activeTab === "WhatsApp" ? (
+          <CampaignWhatsAppCommunicationsPanel
+            campaignId={campaign.id}
+            refreshKey={waCommsRefreshKey}
+            revealInProgress={revealInProgress}
+          />
         ) : activeTab === "Contacts" ? (
           <div className="dashboard-campaign-emails-panel flex min-h-0 flex-1 flex-col">
             <div className="dashboard-campaign-emails-toolbar shrink-0">
@@ -896,6 +944,14 @@ export function CampaignWorkspace({
           </div>
         ) : null}
       </div>
+
+      {saveToast ? (
+        <DashboardToast
+          message={saveToast.message}
+          variant={saveToast.variant}
+          onDismiss={() => setSaveToast(null)}
+        />
+      ) : null}
     </section>
   );
 }

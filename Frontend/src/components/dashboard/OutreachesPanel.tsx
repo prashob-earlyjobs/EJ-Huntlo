@@ -7,6 +7,7 @@ import {
   type CreateOutreachChoice,
   type ExistingOutreachPlanOption,
 } from "@/components/dashboard/CreateOutreachModal";
+import { DashboardToast } from "@/components/dashboard/DashboardToast";
 import { EmailOutreachPanel } from "@/components/dashboard/EmailOutreachPanel";
 import { OutreachPlanEditor } from "@/components/dashboard/OutreachPlanEditor";
 import { WhatsAppOutreachEditor } from "@/components/dashboard/WhatsAppOutreachEditor";
@@ -62,6 +63,7 @@ export function OutreachesPanel({
   const [modalTemplates, setModalTemplates] = useState<OutreachTemplateListItem[]>([]);
   const [modalTemplatesLoading, setModalTemplatesLoading] = useState(false);
   const [notice, setNotice] = useState("");
+  const [saveToast, setSaveToast] = useState<string | null>(null);
   const [editor, setEditor] = useState<ActiveEditor | null>(null);
 
   const loadModalPlans = useCallback(async () => {
@@ -245,7 +247,7 @@ export function OutreachesPanel({
         onCancel={() => setEditor(null)}
         onSaved={(message) => {
           setEditor(null);
-          setNotice(message);
+          setSaveToast(message || "Sequence saved.");
         }}
       />
     );
@@ -261,7 +263,7 @@ export function OutreachesPanel({
         onGoToIntegrations={onGoToIntegrations}
         onSaved={(message) => {
           setEditor(null);
-          setNotice(message);
+          setSaveToast(message || "WhatsApp sequence saved.");
         }}
       />
     );
@@ -287,6 +289,13 @@ export function OutreachesPanel({
         onClose={() => setCreateOutreachOpen(false)}
         onChoose={(choice) => void handleCreateOutreachChoice(choice)}
       />
+      {saveToast ? (
+        <DashboardToast
+          message={saveToast}
+          variant="success"
+          onDismiss={() => setSaveToast(null)}
+        />
+      ) : null}
     </>
   );
 }

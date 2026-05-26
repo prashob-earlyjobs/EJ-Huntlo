@@ -18,5 +18,7 @@ export type CampaignRecord = {
   createdAt: string;
   /** Linked outreach sequence for the campaign editor. */
   outreachPlanId?: string;
+  /** gmail = email sequence; whatsapp = WhatsApp sequence */
+  outreachChannel?: "gmail" | "whatsapp";
   contacts: CampaignContact[];
 };

@@ -2,6 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import {
+  CampaignLaunchAgentOverlay,
+  LAUNCH_AGENT_MIN_DURATION_MS,
+} from "@/components/dashboard/CampaignLaunchAgentOverlay";
 import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
 import { OutreachPillSelect } from "@/components/dashboard/OutreachPillSelect";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
@@ -27,6 +31,10 @@ import {
   type WhatsAppMessageTemplate,
   type WhatsAppTouchpointDraft,
 } from "@/lib/whatsappOutreach";
+import {
+  saveWhatsAppOutreachPlan,
+  type WhatsAppOutreachPlanRecord,
+} from "@/lib/whatsappOutreachApi";
 
 type Props = {
   planId?: string | "new";
@@ -34,8 +42,12 @@ type Props = {
   initialTouchpoints: WhatsAppTouchpointDraft[];
   embedded?: boolean;
   onCancel: () => void;
-  onSaved: (message: string) => void;
+  onSaved: (message: string, savedPlan?: WhatsAppOutreachPlanRecord) => void;
   onGoToIntegrations?: () => void;
+  /** Campaign workspace: save then launch outreach for all contacts. */
+  onLaunchCampaign?: (savedPlan: WhatsAppOutreachPlanRecord) => void | Promise<void>;
+  /** Called after launch API + overlay animation finish (e.g. switch workspace tab). */
+  onLaunchComplete?: () => void;
 };
 
 const WAIT_UNIT_OPTIONS = [
@@ -240,6 +252,8 @@ export function WhatsAppOutreachEditor({
   onCancel,
   onSaved,
   onGoToIntegrations,
+  onLaunchCampaign,
+  onLaunchComplete,
 }: Props) {
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
 
@@ -273,6 +287,8 @@ export function WhatsAppOutreachEditor({
 
   const openingTouchpoint = touchpoints.find((tp) => tp.order === 1);
   const [saving, setSaving] = useState(false);
+  const [launching, setLaunching] = useState(false);
+  const [currentPlanId, setCurrentPlanId] = useState(planId);
   const [error, setError] = useState("");
   const [whatsappConnected, setWhatsappConnected] = useState<boolean | null>(null);
 
@@ -374,96 +390,121 @@ export function WhatsAppOutreachEditor({
     updateStepWait(order, patch);
   };
 
-  const saveSequence = async () => {
+  const validateAndBuildPayload = () => {
     const trimmedName = planName.trim();
     if (!trimmedName) {
       setError("Sequence name is required.");
-      return;
+      return null;
     }
     const opening = touchpoints.find((tp) => tp.order === 1);
     if (!opening?.templateId || !opening.body.trim()) {
       setError("Select an opening message template.");
       setActiveIndex(1);
-      return;
+      return null;
     }
 
     if (!fallback1?.templateId || !fallback1.body.trim()) {
       setError("Select a template for no-reply follow-up 1.");
       setActiveIndex(1);
-      return;
+      return null;
     }
     if (!fallback2?.templateId || !fallback2.body.trim()) {
       setError("Select a template for no-reply follow-up 2.");
       setActiveIndex(1);
-      return;
+      return null;
     }
 
     const emptyExtra = touchpoints.find((tp) => tp.order > 3 && !tp.body.trim());
     if (emptyExtra) {
       setError(`Follow-up ${emptyExtra.order - 3} is empty.`);
       setActiveIndex(emptyExtra.order);
-      return;
+      return null;
     }
     const tooLong = touchpoints.find((tp) => tp.body.length > WHATSAPP_MESSAGE_MAX_LENGTH);
     if (tooLong) {
       setError(`Message ${tooLong.order} exceeds ${WHATSAPP_MESSAGE_MAX_LENGTH} characters.`);
       setActiveIndex(tooLong.order);
-      return;
+      return null;
     }
 
+    return {
+      name: trimmedName,
+      touchpoints: touchpoints.map((tp) => ({
+        order: tp.order,
+        label: tp.label,
+        body: tp.body.trim(),
+        waitHours: tp.waitHours,
+        ...(tp.templateId ? { templateId: tp.templateId } : {}),
+        ...(tp.isNoReplyFallback ? { isNoReplyFallback: true } : {}),
+      })),
+    };
+  };
+
+  const persistSequence = async () => {
+    const payload = validateAndBuildPayload();
+    if (!payload) return null;
+
+    const auth = getStoredAuth();
+    if (!auth?.token) {
+      setError("Sign in to save your WhatsApp sequence.");
+      return null;
+    }
+
+    const wasNew = currentPlanId === "new";
+    const saved = await saveWhatsAppOutreachPlan(auth.token, {
+      planId: currentPlanId,
+      name: payload.name,
+      touchpoints: payload.touchpoints,
+    });
+    setCurrentPlanId(saved.id);
+    return { saved, wasNew };
+  };
+
+  const saveSequence = async () => {
     setSaving(true);
     setError("");
     try {
-      const auth = getStoredAuth();
-      if (!auth?.token) {
-        setError("Sign in to save your WhatsApp sequence.");
-        return;
-      }
-
-      const payload = {
-        name: trimmedName,
-        channel: "whatsapp",
-        touchpoints: touchpoints.map((tp) => ({
-          order: tp.order,
-          label: tp.label,
-          body: tp.body.trim(),
-          waitHours: tp.waitHours,
-          ...(tp.templateId ? { templateId: tp.templateId } : {}),
-          ...(tp.isNoReplyFallback ? { isNoReplyFallback: true } : {}),
-        })),
-      };
-
-      const isNew = planId === "new";
-      const url = isNew
-        ? `${apiBase}/api/outreach/whatsapp/plans`
-        : `${apiBase}/api/outreach/whatsapp/plans/${planId}`;
-
-      const res = await fetch(url, {
-        method: isNew ? "POST" : "PUT",
-        headers: authHeaders(auth.token),
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok || data.success === false) {
-        if (res.status === 404 || res.status === 501) {
-          onSaved(
-            isNew ? "WhatsApp sequence ready (save API pending)." : "WhatsApp sequence updated."
-          );
-          return;
-        }
-        throw new Error(
-          typeof data.message === "string" ? data.message : "Failed to save WhatsApp sequence."
-        );
-      }
-
-      onSaved(isNew ? "WhatsApp sequence created." : "WhatsApp sequence updated.");
+      const result = await persistSequence();
+      if (!result) return;
+      onSaved(
+        result.wasNew ? "WhatsApp sequence created." : "WhatsApp sequence updated.",
+        result.saved
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save WhatsApp sequence.");
     } finally {
       setSaving(false);
     }
   };
+
+  const launchCampaign = async () => {
+    if (!onLaunchCampaign) return;
+    setLaunching(true);
+    setError("");
+    const overlayStartedAt = Date.now();
+    try {
+      const result = await persistSequence();
+      if (!result) {
+        setLaunching(false);
+        return;
+      }
+      await onLaunchCampaign(result.saved);
+
+      const elapsed = Date.now() - overlayStartedAt;
+      if (elapsed < LAUNCH_AGENT_MIN_DURATION_MS) {
+        await new Promise((resolve) =>
+          window.setTimeout(resolve, LAUNCH_AGENT_MIN_DURATION_MS - elapsed)
+        );
+      }
+      onLaunchComplete?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to launch campaign.");
+    } finally {
+      setLaunching(false);
+    }
+  };
+
+  const actionBusy = saving || launching;
 
   const planTitleEditor = (centered: boolean) => (
     <div className={centered ? "mx-auto min-w-0 max-w-md text-center" : "min-w-0"}>
@@ -498,8 +539,9 @@ export function WhatsAppOutreachEditor({
     <section
       className={`dashboard-wa-outreach flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden bg-[#f0f7f4]${
         embedded ? " dashboard-wa-outreach--embedded" : " dashboard-card dashboard-card--fill max-w-full"
-      }`}
+      }${launching ? " dashboard-wa-outreach--launching" : ""}`}
     >
+      <CampaignLaunchAgentOverlay open={launching && Boolean(onLaunchCampaign)} />
       {embedded ? (
         <div className="dashboard-wa-outreach-bar flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 sm:px-6">
           <button
@@ -511,14 +553,36 @@ export function WhatsAppOutreachEditor({
             Change sequence
           </button>
           <div className="hidden min-w-0 flex-1 px-4 sm:block">{planTitleEditor(true)}</div>
-          <button
-            type="button"
-            onClick={() => void saveSequence()}
-            disabled={saving}
-            className={`${dashboardBtnPrimaryClass} dashboard-wa-outreach-save px-4 py-1.5 text-sm disabled:opacity-55`}
-          >
-            {saving ? "Saving…" : "Save sequence"}
-          </button>
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void saveSequence()}
+              disabled={actionBusy}
+              className={`${dashboardBtnSecondaryClass} dashboard-wa-outreach-save px-4 py-1.5 text-sm disabled:opacity-55`}
+            >
+              {saving ? "Saving…" : "Save sequence"}
+            </button>
+            {onLaunchCampaign ? (
+              <button
+                type="button"
+                onClick={() => void launchCampaign()}
+                disabled={actionBusy}
+                className="dashboard-campaign-wa-launch-btn inline-flex items-center gap-1.5 px-4 py-1.5 text-sm disabled:opacity-55"
+              >
+                {launching ? (
+                  <>
+                    <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
+                    Launching…
+                  </>
+                ) : (
+                  <>
+                    <MaterialIcon name="rocket_launch" className="text-base" />
+                    Launch campaign
+                  </>
+                )}
+              </button>
+            ) : null}
+          </div>
         </div>
       ) : (
         <header className="shrink-0 border-b border-slate-200 bg-white px-4 py-4 sm:px-6">

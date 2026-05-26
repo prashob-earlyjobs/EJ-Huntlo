@@ -13,6 +13,13 @@ const {
   getTemplateHandler,
   createTemplateHandler,
 } = require("../controllers/outreachTemplateController");
+const {
+  listWhatsAppPlansHandler,
+  getWhatsAppPlanHandler,
+  createWhatsAppPlanHandler,
+  updateWhatsAppPlanHandler,
+  deleteWhatsAppPlanHandler,
+} = require("../controllers/whatsappOutreachController");
 
 const router = express.Router();
 
@@ -24,6 +31,11 @@ router.post("/plans", authenticate, createPlanHandler);
 router.get("/plans/:id", authenticate, getPlanHandler);
 router.put("/plans/:id", authenticate, updatePlanHandler);
 router.delete("/plans/:id", authenticate, deletePlanHandler);
+router.get("/whatsapp/plans", authenticate, listWhatsAppPlansHandler);
+router.post("/whatsapp/plans", authenticate, createWhatsAppPlanHandler);
+router.get("/whatsapp/plans/:id", authenticate, getWhatsAppPlanHandler);
+router.put("/whatsapp/plans/:id", authenticate, updateWhatsAppPlanHandler);
+router.delete("/whatsapp/plans/:id", authenticate, deleteWhatsAppPlanHandler);
 router.post("/send", authenticate, sendEmailHandler);
 
 module.exports = router;

@@ -47,18 +47,28 @@ function parseCampaign(raw: unknown): CampaignRecord | null {
     typeof o.outreachPlanId === "string" && o.outreachPlanId.trim()
       ? o.outreachPlanId.trim()
       : undefined;
-  return { id, name, createdAt, contacts, ...(outreachPlanId ? { outreachPlanId } : {}) };
+  const outreachChannel =
+    o.outreachChannel === "whatsapp" ? "whatsapp" : o.outreachChannel === "gmail" ? "gmail" : undefined;
+  return {
+    id,
+    name,
+    createdAt,
+    contacts,
+    ...(outreachPlanId ? { outreachPlanId } : {}),
+    ...(outreachChannel ? { outreachChannel } : {}),
+  };
 }
 
 export async function setCampaignOutreachPlan(
   token: string,
   campaignId: string,
-  outreachPlanId: string | null
+  outreachPlanId: string | null,
+  outreachChannel: "gmail" | "whatsapp" = "gmail"
 ): Promise<CampaignRecord> {
   const res = await fetch(`${apiBase()}/api/campaigns/${campaignId}/outreach-plan`, {
     method: "PATCH",
     headers: authHeaders(token),
-    body: JSON.stringify({ outreachPlanId }),
+    body: JSON.stringify({ outreachPlanId, outreachChannel }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.success) {
@@ -88,6 +98,27 @@ export async function syncCampaignRevealedContacts(
   const campaign = parseCampaign(data.campaign);
   if (!campaign) throw new Error("Invalid campaign response");
   return campaign;
+}
+
+export async function launchCampaignSequence(
+  token: string,
+  campaignId: string
+): Promise<{ enrolled: number; skipped: number; message?: string }> {
+  const res = await fetch(`${apiBase()}/api/campaigns/${campaignId}/launch-sequence`, {
+    method: "POST",
+    headers: authHeaders(token),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.success) {
+    throw new Error(
+      typeof data.message === "string" ? data.message : "Failed to launch campaign"
+    );
+  }
+  return {
+    enrolled: typeof data.enrolled === "number" ? data.enrolled : 0,
+    skipped: typeof data.skipped === "number" ? data.skipped : 0,
+    message: typeof data.message === "string" ? data.message : undefined,
+  };
 }
 
 export async function fetchCampaign(token: string, campaignId: string): Promise<CampaignRecord> {

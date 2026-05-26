@@ -20,6 +20,7 @@ const {
   resumeCampaignSequence,
   getSequenceStatus,
 } = require("../services/campaignOutreachSendService");
+const { getCampaignWhatsAppConversations } = require("../services/campaignWhatsAppCommsService");
 
 function invalidSession(res) {
   return res.status(401).json({ success: false, message: "Authentication required" });
@@ -215,7 +216,14 @@ const setCampaignOutreachPlanHandler = async (req, res) => {
       req.body?.outreachPlanId === null || req.body?.outreachPlanId === ""
         ? null
         : req.body?.outreachPlanId;
-    const campaign = await setCampaignOutreachPlan(uid, req.params.id, outreachPlanId);
+    const outreachChannel =
+      req.body?.outreachChannel === "whatsapp" ? "whatsapp" : "gmail";
+    const campaign = await setCampaignOutreachPlan(
+      uid,
+      req.params.id,
+      outreachPlanId,
+      outreachChannel
+    );
     return res.status(200).json({ success: true, campaign, message: "Campaign sequence updated" });
   } catch (error) {
     return handleError(res, error);
@@ -287,6 +295,17 @@ const getCampaignSequenceStatusHandler = async (req, res) => {
   }
 };
 
+const getCampaignWhatsAppConversationsHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
+    const data = await getCampaignWhatsAppConversations(uid, req.params.id);
+    return res.status(200).json({ success: true, ...data });
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
 const deleteCampaignHandler = async (req, res) => {
   try {
     const uid = req.auth?.userId;
@@ -312,5 +331,6 @@ module.exports = {
   pauseCampaignSequenceHandler,
   resumeCampaignSequenceHandler,
   getCampaignSequenceStatusHandler,
+  getCampaignWhatsAppConversationsHandler,
   deleteCampaignHandler,
 };
