@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 
-import { DashboardToast } from "@/components/dashboard/DashboardToast";
 import { OutreachSequencePickerSkeleton } from "@/components/dashboard/OutreachSequencePickerSkeleton";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import {
@@ -11,7 +10,8 @@ import {
   dashboardInputClass,
   dashboardLabelClass,
 } from "@/lib/dashboardStyles";
-import type { OutreachTemplateListItem } from "@/lib/outreachTemplates";
+import { GenerateOutreachAiModal } from "@/components/dashboard/GenerateOutreachAiModal";
+import type { OutreachTemplateListItem, OutreachTouchpointDraft } from "@/lib/outreachTemplates";
 
 export type ExistingOutreachPlanOption = {
   id: string;
@@ -22,9 +22,8 @@ export type ExistingOutreachPlanOption = {
 export type CreateOutreachChoice =
   | { type: "scratch" }
   | { type: "template"; templateId: string }
-  | { type: "clone"; planId: string };
-
-const AI_COMING_SOON_MESSAGE = "AI outreach generation is coming soon.";
+  | { type: "clone"; planId: string }
+  | { type: "ai"; touchpoints: OutreachTouchpointDraft[]; planName: string };
 
 type Variant = "modal" | "embedded";
 
@@ -120,10 +119,9 @@ export function OutreachSequencePicker({
 }: Props) {
   const [step, setStep] = useState<"choose" | "clone">("choose");
   const [clonePlanId, setClonePlanId] = useState("");
-  const [aiToast, setAiToast] = useState(false);
+  const [aiModalOpen, setAiModalOpen] = useState(false);
   const s = pickerStyles(variant);
 
-  const showAiComingSoon = () => setAiToast(true);
   const showLead = lead !== undefined && lead !== "";
 
   const globalTemplates = templates.filter((t) => t.isGlobal);
@@ -183,6 +181,14 @@ export function OutreachSequencePicker({
             Continue
           </button>
         </div>
+
+        <GenerateOutreachAiModal
+          open={aiModalOpen}
+          onClose={() => setAiModalOpen(false)}
+          onGenerated={({ touchpoints, planName }) =>
+            onChoose({ type: "ai", touchpoints, planName })
+          }
+        />
       </div>
     );
   }
@@ -197,7 +203,7 @@ export function OutreachSequencePicker({
           icon="auto_awesome"
           iconVariant="ai"
           label="Generate with AI"
-          onClick={showAiComingSoon}
+          onClick={() => setAiModalOpen(true)}
         />
         <OptionRow
           styles={s}
@@ -329,13 +335,13 @@ export function OutreachSequencePicker({
         )}
       </div>
 
-      {aiToast ? (
-        <DashboardToast
-          message={AI_COMING_SOON_MESSAGE}
-          variant="warning"
-          onDismiss={() => setAiToast(false)}
-        />
-      ) : null}
+      <GenerateOutreachAiModal
+        open={aiModalOpen}
+        onClose={() => setAiModalOpen(false)}
+        onGenerated={({ touchpoints, planName }) =>
+          onChoose({ type: "ai", touchpoints, planName })
+        }
+      />
     </div>
   );
 }

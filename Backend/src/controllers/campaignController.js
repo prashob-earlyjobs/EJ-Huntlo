@@ -20,6 +20,11 @@ const {
   resumeCampaignSequence,
   getSequenceStatus,
 } = require("../services/campaignOutreachSendService");
+const {
+  syncCampaignReplies,
+  listCampaignReplies,
+  listContactEmailThread,
+} = require("../services/campaignReplySyncService");
 
 function invalidSession(res) {
   return res.status(401).json({ success: false, message: "Authentication required" });
@@ -287,6 +292,58 @@ const getCampaignSequenceStatusHandler = async (req, res) => {
   }
 };
 
+const syncCampaignRepliesHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
+    await getCampaign(uid, req.params.id);
+    const result = await syncCampaignReplies(uid, req.params.id);
+    return res.status(200).json({
+      success: true,
+      ...result,
+      message:
+        result.newReplies > 0
+          ? `Stored ${result.newReplies} new reply message(s)`
+          : "Replies synced",
+    });
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
+const getContactEmailThreadHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
+    await getCampaign(uid, req.params.id);
+    const sync =
+      req.query?.sync === "1" ||
+      req.query?.sync === "true" ||
+      String(req.query?.sync || "").toLowerCase() === "yes";
+    const result = await listContactEmailThread(uid, req.params.id, req.params.candidateKey, {
+      sync,
+    });
+    return res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
+const listCampaignRepliesHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
+    await getCampaign(uid, req.params.id);
+    const candidateKey = req.query?.candidateKey
+      ? String(req.query.candidateKey).trim()
+      : "";
+    const replies = await listCampaignReplies(uid, req.params.id, { candidateKey });
+    return res.status(200).json({ success: true, replies });
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
 const deleteCampaignHandler = async (req, res) => {
   try {
     const uid = req.auth?.userId;
@@ -312,5 +369,8 @@ module.exports = {
   pauseCampaignSequenceHandler,
   resumeCampaignSequenceHandler,
   getCampaignSequenceStatusHandler,
+  syncCampaignRepliesHandler,
+  listCampaignRepliesHandler,
+  getContactEmailThreadHandler,
   deleteCampaignHandler,
 };

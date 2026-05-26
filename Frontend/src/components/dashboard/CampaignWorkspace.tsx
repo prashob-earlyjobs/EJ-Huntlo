@@ -1,12 +1,21 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 
 import {
   OutreachSequencePicker,
   type CreateOutreachChoice,
   type ExistingOutreachPlanOption,
 } from "@/components/dashboard/OutreachSequencePicker";
+import { CampaignEmailThreadPopover } from "@/components/dashboard/CampaignEmailThreadPopover";
 import { CampaignContactsSkeleton } from "@/components/dashboard/CampaignContactsSkeleton";
 import { OutreachSequencePickerSkeleton } from "@/components/dashboard/OutreachSequencePickerSkeleton";
 import { OutreachPlanEditor } from "@/components/dashboard/OutreachPlanEditor";
@@ -20,9 +29,15 @@ import {
 } from "@/lib/campaignRevealJob";
 import {
   fetchCampaign,
+  launchCampaignSequence,
+  pauseCampaignSequence,
+  resumeCampaignSequence,
   setCampaignOutreachPlan,
   syncCampaignRevealedContacts,
 } from "@/lib/campaignsApi";
+import { syncCampaignReplies } from "@/lib/campaignEmailThread";
+import { useCampaignThreadRealtime } from "@/lib/realtime/useCampaignThreadRealtime";
+import { dashboardBtnPrimaryClass, dashboardBtnSecondaryClass } from "@/lib/dashboardStyles";
 import {
   CAMPAIGN_WORKSPACE_TABS,
   type CampaignWorkspaceTab,
@@ -110,6 +125,19 @@ export function CampaignWorkspace({
 }: Props) {
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
   const [starred, setStarred] = useState(false);
+  const [launchBusy, setLaunchBusy] = useState(false);
+  const [launchNotice, setLaunchNotice] = useState("");
+  const [launchError, setLaunchError] = useState("");
+  const threadAnchorRef = useRef<HTMLButtonElement | null>(null);
+  const [threadPopoverContact, setThreadPopoverContact] = useState<{
+    candidateKey: string;
+    name: string;
+    email: string;
+    subtitle: string;
+  } | null>(null);
+  const [syncThreadsBusy, setSyncThreadsBusy] = useState(false);
+  const [syncThreadsNotice, setSyncThreadsNotice] = useState("");
+  const [threadReloadByKey, setThreadReloadByKey] = useState<Record<string, number>>({});
   const [editorPhase, setEditorPhase] = useState<"choose" | "editing">("choose");
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [editorNotice, setEditorNotice] = useState("");
@@ -468,6 +496,149 @@ export function CampaignWorkspace({
     [campaign.id]
   );
 
+  const outreachStatus = campaign.outreachStatus ?? "idle";
+  const hasSequence = Boolean(campaign.outreachPlanId?.trim());
+  const contactsWithEmail = campaign.contacts.filter((c) => c.email.trim().includes("@")).length;
+
+  const handleLaunchSequence = useCallback(async () => {
+    const auth = getStoredAuth();
+    if (!auth?.token || launchBusy) return;
+    setLaunchError("");
+    setLaunchNotice("");
+    setLaunchBusy(true);
+    try {
+      const result = await launchCampaignSequence(auth.token, campaign.id);
+      onCampaignUpdatedRef.current?.(result.campaign);
+      setLaunchNotice(
+        result.enrolled > 0
+          ? `Sequence launched for ${result.enrolled} contact${result.enrolled === 1 ? "" : "s"}.`
+          : "Launched, but no contacts had an email to enroll."
+      );
+      if (result.skipped > 0) {
+        setLaunchNotice(
+          (prev) =>
+            `${prev} ${result.skipped} skipped (no email).`.trim()
+        );
+      }
+    } catch (err) {
+      setLaunchError(
+        err instanceof Error ? err.message : "Could not launch campaign sequence."
+      );
+    } finally {
+      setLaunchBusy(false);
+    }
+  }, [campaign.id, launchBusy]);
+
+  const handlePauseSequence = useCallback(async () => {
+    const auth = getStoredAuth();
+    if (!auth?.token || launchBusy) return;
+    setLaunchError("");
+    setLaunchNotice("");
+    setLaunchBusy(true);
+    try {
+      const updated = await pauseCampaignSequence(auth.token, campaign.id);
+      onCampaignUpdatedRef.current?.(updated);
+      setLaunchNotice("Campaign sequence paused.");
+    } catch (err) {
+      setLaunchError(err instanceof Error ? err.message : "Could not pause sequence.");
+    } finally {
+      setLaunchBusy(false);
+    }
+  }, [campaign.id, launchBusy]);
+
+  const handleResumeSequence = useCallback(async () => {
+    const auth = getStoredAuth();
+    if (!auth?.token || launchBusy) return;
+    setLaunchError("");
+    setLaunchNotice("");
+    setLaunchBusy(true);
+    try {
+      const updated = await resumeCampaignSequence(auth.token, campaign.id);
+      onCampaignUpdatedRef.current?.(updated);
+      setLaunchNotice("Campaign sequence resumed.");
+    } catch (err) {
+      setLaunchError(err instanceof Error ? err.message : "Could not resume sequence.");
+    } finally {
+      setLaunchBusy(false);
+    }
+  }, [campaign.id, launchBusy]);
+
+  const handleSyncAllThreads = useCallback(async () => {
+    const auth = getStoredAuth();
+    if (!auth?.token || syncThreadsBusy) return;
+    setSyncThreadsNotice("");
+    setSyncThreadsBusy(true);
+    try {
+      const result = await syncCampaignReplies(auth.token, campaign.id);
+      setSyncThreadsNotice(
+        result.newReplies > 0
+          ? `Synced ${result.newReplies} new message${result.newReplies === 1 ? "" : "s"} from Gmail.`
+          : "Threads synced — open a contact to view history."
+      );
+      setThreadReloadByKey((prev) => {
+        const next = { ...prev };
+        for (const c of contacts) {
+          next[c.candidateKey] = (next[c.candidateKey] || 0) + 1;
+        }
+        return next;
+      });
+    } catch (err) {
+      setSyncThreadsNotice(
+        err instanceof Error ? err.message : "Could not sync threads from Gmail."
+      );
+    } finally {
+      setSyncThreadsBusy(false);
+    }
+  }, [campaign.id, syncThreadsBusy, contacts]);
+
+  const handleRealtimeThreadUpdate = useCallback(
+    (payload: { candidateKey: string; hasNewCandidateReply: boolean; newMessages: number }) => {
+      setThreadReloadByKey((prev) => ({
+        ...prev,
+        [payload.candidateKey]: (prev[payload.candidateKey] || 0) + 1,
+      }));
+      if (payload.hasNewCandidateReply) {
+        setSyncThreadsNotice("New reply received — thread updated live.");
+      } else if (payload.newMessages > 0) {
+        setSyncThreadsNotice("Email thread updated live.");
+      }
+    },
+    []
+  );
+
+  useCampaignThreadRealtime(campaign.id, handleRealtimeThreadUpdate, activeTab === "Emails");
+
+  const closeThreadPopover = useCallback(() => {
+    setThreadPopoverContact(null);
+    threadAnchorRef.current = null;
+  }, []);
+
+  const handleThreadButtonClick = useCallback(
+    (contact: CampaignContact, e: ReactMouseEvent<HTMLButtonElement>) => {
+      const btn = e.currentTarget;
+      if (threadPopoverContact?.candidateKey === contact.candidateKey) {
+        closeThreadPopover();
+        return;
+      }
+      threadAnchorRef.current = btn;
+      const subtitle = [contact.role, contact.company].filter(Boolean).join(" · ");
+      setThreadPopoverContact({
+        candidateKey: contact.candidateKey,
+        name: contact.name,
+        email: contact.email.trim(),
+        subtitle,
+      });
+      setSyncThreadsNotice("");
+    },
+    [threadPopoverContact?.candidateKey, closeThreadPopover]
+  );
+
+  useEffect(() => {
+    if (activeTab !== "Emails") {
+      closeThreadPopover();
+    }
+  }, [activeTab, closeThreadPopover]);
+
   const handleSequenceChoice = async (choice: CreateOutreachChoice) => {
     if (choice.type === "scratch") {
       openEditor({
@@ -506,6 +677,16 @@ export function CampaignWorkspace({
         planName: campaign.name,
         touchpoints: tpl.touchpoints.map((tp) => ({ ...tp })),
         lockSchedule: true,
+      });
+      return;
+    }
+
+    if (choice.type === "ai") {
+      openEditor({
+        planId: "new",
+        planName: choice.planName || campaign.name,
+        touchpoints: choice.touchpoints.map((tp) => ({ ...tp })),
+        lockSchedule: false,
       });
       return;
     }
@@ -556,6 +737,65 @@ export function CampaignWorkspace({
           <h1 className="dashboard-section-title min-w-0 flex-1 truncate text-lg">
             {campaign.name}
           </h1>
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {outreachStatus === "active" ? (
+              <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
+                Active
+              </span>
+            ) : outreachStatus === "paused" ? (
+              <span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-800">
+                Paused
+              </span>
+            ) : outreachStatus === "completed" ? (
+              <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">
+                Completed
+              </span>
+            ) : null}
+            {outreachStatus === "active" ? (
+              <button
+                type="button"
+                onClick={() => void handlePauseSequence()}
+                disabled={launchBusy}
+                className={`${dashboardBtnSecondaryClass} px-3 py-1.5 text-xs disabled:opacity-55`}
+              >
+                Pause
+              </button>
+            ) : outreachStatus === "paused" ? (
+              <button
+                type="button"
+                onClick={() => void handleResumeSequence()}
+                disabled={launchBusy}
+                className={`${dashboardBtnPrimaryClass} px-3 py-1.5 text-xs disabled:opacity-55`}
+              >
+                {launchBusy ? "Resuming…" : "Resume"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void handleLaunchSequence()}
+                disabled={launchBusy || !hasSequence || contactsWithEmail === 0}
+                title={
+                  launchBusy
+                    ? "Launching…"
+                    : !hasSequence
+                      ? "Save a sequence on the Editor tab first"
+                      : contactsWithEmail === 0
+                        ? "Add contacts with email addresses"
+                        : "Launch"
+                }
+                aria-label={
+                  launchBusy ? "Launching campaign sequence" : "Launch campaign sequence"
+                }
+                className={`${dashboardBtnPrimaryClass} inline-flex h-9 w-9 shrink-0 items-center justify-center p-0 disabled:opacity-55`}
+              >
+                {launchBusy ? (
+                  <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
+                ) : (
+                  <MaterialIcon name="play_arrow" className="text-xl" />
+                )}
+              </button>
+            )}
+          </div>
           <button
             type="button"
             onClick={() => setStarred((v) => !v)}
@@ -593,6 +833,15 @@ export function CampaignWorkspace({
             );
           })}
         </nav>
+        {launchError ? (
+          <p className="dashboard-alert-warning mt-2 text-sm" role="alert">
+            {launchError}
+          </p>
+        ) : launchNotice ? (
+          <p className="dashboard-alert-notice mt-2 text-sm" role="status">
+            {launchNotice}
+          </p>
+        ) : null}
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col bg-[#f8f9fc]">
@@ -646,11 +895,26 @@ export function CampaignWorkspace({
           )
         ) : activeTab === "Emails" ? (
           <div className="dashboard-campaign-emails-panel flex min-h-0 flex-1 flex-col">
-            <div className="dashboard-campaign-emails-toolbar shrink-0">
+            <div className="dashboard-campaign-emails-toolbar shrink-0 flex flex-wrap items-center justify-between gap-2">
               <p className="dashboard-campaign-emails-summary">
                 {contacts.length} contact{contacts.length === 1 ? "" : "s"} in this campaign
               </p>
+              {contacts.length > 0 ? (
+                <button
+                  type="button"
+                  className={`${dashboardBtnSecondaryClass} px-2.5 py-1 text-xs disabled:opacity-55`}
+                  disabled={syncThreadsBusy}
+                  onClick={() => void handleSyncAllThreads()}
+                >
+                  {syncThreadsBusy ? "Syncing…" : "Sync all from Gmail"}
+                </button>
+              ) : null}
             </div>
+            {syncThreadsNotice ? (
+              <p className="dashboard-alert-notice mx-3 mb-0 mt-2 shrink-0 text-sm" role="status">
+                {syncThreadsNotice}
+              </p>
+            ) : null}
             <div className="dashboard-campaign-emails-scroll flex min-h-0 flex-1 flex-col">
               {contactsLoading ? (
                 <CampaignContactsSkeleton rows={6} />
@@ -704,17 +968,48 @@ export function CampaignWorkspace({
                               </p>
                             )}
                           </div>
-                          {contact.addedAt ? (
-                            <span className="dashboard-campaign-emails-added">
-                              Added {formatAddedAt(contact.addedAt)}
-                            </span>
-                          ) : null}
+                          <div className="dashboard-campaign-emails-actions shrink-0">
+                            <button
+                              type="button"
+                              className={`dashboard-campaign-emails-thread-btn${
+                                threadPopoverContact?.candidateKey === contact.candidateKey
+                                  ? " dashboard-campaign-emails-thread-btn--active"
+                                  : ""
+                              }`}
+                              aria-expanded={
+                                threadPopoverContact?.candidateKey === contact.candidateKey
+                              }
+                              aria-haspopup="dialog"
+                              onClick={(e) => handleThreadButtonClick(contact, e)}
+                            >
+                              <MaterialIcon name="forum" className="text-base" />
+                              Thread
+                            </button>
+                            {contact.addedAt ? (
+                              <span className="dashboard-campaign-emails-added">
+                                Added {formatAddedAt(contact.addedAt)}
+                              </span>
+                            ) : null}
+                          </div>
                         </li>
                       );
                     })}
                 </ul>
               )}
             </div>
+            {threadPopoverContact ? (
+              <CampaignEmailThreadPopover
+                open
+                anchorRef={threadAnchorRef}
+                onClose={closeThreadPopover}
+                campaignId={campaign.id}
+                candidateKey={threadPopoverContact.candidateKey}
+                contactName={threadPopoverContact.name}
+                contactEmail={threadPopoverContact.email}
+                contactSubtitle={threadPopoverContact.subtitle}
+                reloadToken={threadReloadByKey[threadPopoverContact.candidateKey] || 0}
+              />
+            ) : null}
           </div>
         ) : activeTab === "Phones" ? (
           <div className="dashboard-campaign-emails-panel flex min-h-0 flex-1 flex-col">

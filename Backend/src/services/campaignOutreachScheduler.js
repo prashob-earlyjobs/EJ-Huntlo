@@ -1,4 +1,5 @@
 const { processDueEnrollments } = require("./campaignOutreachSendService");
+const { syncDueEnrollmentReplies } = require("./campaignReplySyncService");
 
 const DEFAULT_INTERVAL_MS = 60_000;
 const intervalMs = Math.max(
@@ -23,6 +24,12 @@ async function runTick() {
     if (processed > 0) {
       console.log(`[outreach-scheduler] processed ${processed} due enrollment(s)`);
     }
+    const replySync = await syncDueEnrollmentReplies();
+    if (replySync.newReplies > 0) {
+      console.log(
+        `[outreach-reply-sync] stored ${replySync.newReplies} new reply message(s) from ${replySync.checked} enrollment(s)`
+      );
+    }
   } catch (err) {
     console.error("[outreach-scheduler]", err?.message || err);
   } finally {
@@ -38,7 +45,7 @@ function startCampaignOutreachScheduler() {
   if (timer) return;
 
   console.log(
-    `[outreach-scheduler] started (interval ${intervalMs}ms, batch via OUTREACH_SEND_BATCH_SIZE)`
+    `[outreach-scheduler] started (immediate steps only, interval ${intervalMs}ms)`
   );
 
   void runTick();

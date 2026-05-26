@@ -13,9 +13,11 @@ const {
   getTemplateHandler,
   createTemplateHandler,
 } = require("../controllers/outreachTemplateController");
+const { generateSequenceFromJdHandler } = require("../controllers/outreachAiController");
 
 const router = express.Router();
 
+router.post("/ai/generate-sequence", authenticate, generateSequenceFromJdHandler);
 router.get("/templates", authenticate, listTemplatesHandler);
 router.post("/templates", authenticate, createTemplateHandler);
 router.get("/templates/:id", authenticate, getTemplateHandler);

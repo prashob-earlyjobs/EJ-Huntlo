@@ -9,7 +9,7 @@ const {
 const { isHuntloGupshupConfigured } = require("./gupshupConfig");
 const { normalizeGupshupSourceNumber } = require("./gupshupClient");
 
-const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.send";
+const { GMAIL_SCOPES } = require("./gmailClient");
 
 const PROVIDER_LABELS = {
   gmail: { integration: "Gmail", provider: "Google" },
@@ -62,7 +62,7 @@ async function saveGmailIntegration(userOid, email, tokens, senderName) {
     accessToken: tokens.access_token,
     refreshToken: typeof tokens.refresh_token === "string" ? tokens.refresh_token : "",
     tokenExpiry: tokenExpiry(tokens.expires_in),
-    scopes: [GMAIL_SCOPE],
+    scopes: [...GMAIL_SCOPES],
   };
 
   let doc = await UserIntegration.findOne({ userId: userOid, provider: "gmail" });

@@ -12,11 +12,15 @@ export type CampaignContact = {
   addedAt: string;
 };
 
+export type CampaignOutreachStatus = "idle" | "active" | "paused" | "completed";
+
 export type CampaignRecord = {
   id: string;
   name: string;
   createdAt: string;
   /** Linked outreach sequence for the campaign editor. */
   outreachPlanId?: string;
+  outreachStatus?: CampaignOutreachStatus;
+  outreachStartedAt?: string | null;
   contacts: CampaignContact[];
 };
