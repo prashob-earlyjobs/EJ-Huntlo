@@ -15,8 +15,16 @@ const {
   disconnectCalendlyHandler,
   disconnectIntegrationHandler,
 } = require("../controllers/integrationController");
+const {
+  verifyMetaWebhookHandler,
+  receiveMetaWebhookHandler,
+} = require("../controllers/metaWhatsAppWebhookController");
 
 const router = express.Router();
+
+// Meta webhook endpoints (public)
+router.get("/whatsapp/meta/webhook", verifyMetaWebhookHandler);
+router.post("/whatsapp/meta/webhook", receiveMetaWebhookHandler);
 
 router.get("/", authenticate, listIntegrationsHandler);
 router.get("/gmail/status", authenticate, getGmailStatusHandler);
