@@ -4993,6 +4993,7 @@ export default function UserDashboardPage() {
                 currentPlanId={userPlanId}
                 planResolved={userPlanReady}
                 onViewPlans={() => navigateToTab("Plans and pricing")}
+                onGoToIntegrations={() => navigateToTab("Integrations")}
                 campaigns={campaigns}
                 campaignsLoading={campaignsLoading}
                 onCreateCampaign={handleCreateCampaign}

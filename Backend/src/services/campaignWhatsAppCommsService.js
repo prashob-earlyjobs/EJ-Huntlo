@@ -99,7 +99,7 @@ async function logCampaignWhatsAppMessage({
         ? Number(sequenceStepOrder)
         : null,
     sequenceStepLabel: String(sequenceStepLabel || "").trim(),
-    provider: provider === "meta" || provider === "gupshup" ? provider : "",
+    provider: provider === "meta" ? provider : "",
     externalMessageId: String(externalMessageId || "").trim(),
     status: status || "sent",
     errorMessage: String(errorMessage || "").trim(),

@@ -12,13 +12,10 @@ import {
   dashboardLabelClass,
 } from "@/lib/dashboardStyles";
 
-export type GupshupConnectMode = "existing" | "huntlo";
+export type WhatsAppConnectMode = "huntlo" | "own";
 
 export type WhatsAppConnectFormValues = {
-  provider: "meta_api" | "gupshup";
-  gupshupMode: GupshupConnectMode;
-  gupshupUserId: string;
-  gupshupPassword: string;
+  mode: WhatsAppConnectMode;
   metaPhoneNumberId: string;
   metaAccessToken: string;
   metaWabaId: string;
@@ -26,10 +23,7 @@ export type WhatsAppConnectFormValues = {
 };
 
 const EMPTY_FORM: WhatsAppConnectFormValues = {
-  provider: "gupshup",
-  gupshupMode: "existing",
-  gupshupUserId: "",
-  gupshupPassword: "",
+  mode: "huntlo",
   metaPhoneNumberId: "",
   metaAccessToken: "",
   metaWabaId: "",
@@ -51,10 +45,28 @@ export function WhatsAppConnectModal({ open, busy, onClose, onSubmit }: Props) {
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
 
   const [form, setForm] = useState<WhatsAppConnectFormValues>(EMPTY_FORM);
+  const [huntloAvailable, setHuntloAvailable] = useState<boolean | null>(null);
   const [error, setError] = useState("");
   const [testing, setTesting] = useState(false);
   const [credsVerified, setCredsVerified] = useState(false);
   const [testSuccessMessage, setTestSuccessMessage] = useState("");
+
+  const loadStatus = useCallback(async () => {
+    const auth = getStoredAuth();
+    if (!auth?.token) {
+      setHuntloAvailable(false);
+      return;
+    }
+    try {
+      const res = await fetch(`${apiBase}/api/integrations/whatsapp/status`, {
+        headers: authHeaders(auth.token),
+      });
+      const data = await res.json();
+      setHuntloAvailable(Boolean(data.success && data.huntloAvailable));
+    } catch {
+      setHuntloAvailable(false);
+    }
+  }, [apiBase]);
 
   useEffect(() => {
     if (!open) return;
@@ -63,15 +75,20 @@ export function WhatsAppConnectModal({ open, busy, onClose, onSubmit }: Props) {
     setTesting(false);
     setCredsVerified(false);
     setTestSuccessMessage("");
-  }, [open]);
+    void loadStatus();
+  }, [open, loadStatus]);
 
   const patch = useCallback((fields: Partial<WhatsAppConnectFormValues>) => {
-    setForm((prev) => ({ ...prev, ...fields }));
+    setForm((prev) => {
+      const next = { ...prev, ...fields };
+      if (fields.mode !== undefined && fields.mode !== prev.mode) {
+        setCredsVerified(false);
+        setTestSuccessMessage("");
+        setError("");
+      }
+      return next;
+    });
     if (
-      fields.provider !== undefined ||
-      fields.gupshupMode !== undefined ||
-      fields.gupshupUserId !== undefined ||
-      fields.gupshupPassword !== undefined ||
       fields.metaPhoneNumberId !== undefined ||
       fields.metaAccessToken !== undefined ||
       fields.metaWabaId !== undefined
@@ -82,35 +99,25 @@ export function WhatsAppConnectModal({ open, busy, onClose, onSubmit }: Props) {
     setError("");
   }, []);
 
-  const isMeta = form.provider === "meta_api";
-  const isExisting = form.gupshupMode === "existing";
-  const canConnect =
+  const isHuntlo = form.mode === "huntlo";
+
+  const canTest =
+    !testing &&
+    !busy &&
+    (isHuntlo ? huntloAvailable === true : Boolean(form.metaPhoneNumberId.trim() && form.metaAccessToken.trim()));
+
+  const canConnectHuntlo = isHuntlo && form.confirmRegistered && huntloAvailable === true;
+  const canConnectOwn =
+    !isHuntlo &&
     form.confirmRegistered &&
     credsVerified &&
-    (isMeta
-      ? Boolean(form.metaPhoneNumberId.trim()) && Boolean(form.metaAccessToken.trim())
-      : form.gupshupMode === "huntlo" ||
-        (Boolean(form.gupshupUserId.trim()) && Boolean(form.gupshupPassword)));
-
-  const canTestGupshupExisting =
-    !isMeta &&
-    isExisting &&
-    Boolean(form.gupshupUserId.trim()) &&
-    Boolean(form.gupshupPassword) &&
-    !testing &&
-    !busy;
-
-  const canTestMeta =
-    isMeta &&
     Boolean(form.metaPhoneNumberId.trim()) &&
-    Boolean(form.metaAccessToken.trim()) &&
-    !testing &&
-    !busy;
+    Boolean(form.metaAccessToken.trim());
 
-  const canTest = isMeta ? canTestMeta : form.gupshupMode === "huntlo" || canTestGupshupExisting;
+  const canConnect = isHuntlo ? canConnectHuntlo : canConnectOwn;
 
   const handleTestCredentials = async () => {
-    if (!canTest && !(form.gupshupMode === "huntlo" && !isMeta)) return;
+    if (!canTest) return;
 
     setTesting(true);
     setError("");
@@ -122,24 +129,19 @@ export function WhatsAppConnectModal({ open, busy, onClose, onSubmit }: Props) {
         throw new Error("Please sign in again.");
       }
 
-      const body = isMeta
-        ? {
-            provider: "meta_api",
-            phoneNumberId: form.metaPhoneNumberId.trim(),
-            accessToken: form.metaAccessToken.trim(),
-            wabaId: form.metaWabaId.trim(),
-          }
-        : {
-            provider: "gupshup",
-            gupshupMode: form.gupshupMode,
-            gupshupUserId: form.gupshupUserId.trim(),
-            gupshupPassword: form.gupshupPassword,
-          };
-
       const res = await fetch(`${apiBase}/api/integrations/whatsapp/verify`, {
         method: "POST",
         headers: authHeaders(auth.token),
-        body: JSON.stringify(body),
+        body: JSON.stringify(
+          isHuntlo
+            ? { whatsappMode: "huntlo" }
+            : {
+                provider: "meta_api",
+                phoneNumberId: form.metaPhoneNumberId.trim(),
+                accessToken: form.metaAccessToken.trim(),
+                wabaId: form.metaWabaId.trim(),
+              }
+        ),
       });
       const data = await res.json();
 
@@ -153,7 +155,9 @@ export function WhatsAppConnectModal({ open, busy, onClose, onSubmit }: Props) {
       setTestSuccessMessage(
         typeof data.message === "string"
           ? data.message
-          : "Credentials verified. You can connect WhatsApp."
+          : isHuntlo
+            ? "Huntlo WhatsApp is ready. You can connect now."
+            : "Credentials verified. You can connect WhatsApp."
       );
     } catch (err) {
       setCredsVerified(false);
@@ -166,54 +170,42 @@ export function WhatsAppConnectModal({ open, busy, onClose, onSubmit }: Props) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (isMeta) {
-      if (!form.metaPhoneNumberId.trim()) {
-        setError("Phone Number ID is required.");
+    if (isHuntlo) {
+      if (huntloAvailable !== true) {
+        setError("Huntlo WhatsApp is not available on this environment.");
         return;
       }
-      if (!form.metaAccessToken.trim()) {
-        setError("Meta access token is required.");
+      if (!form.confirmRegistered) {
+        setError("Confirm that you want to send from the Huntlo WhatsApp number.");
         return;
       }
-    } else {
-      const userId = form.gupshupUserId.trim();
-      const password = form.gupshupPassword;
-
-      if (isExisting) {
-        if (!userId) {
-          setError("Gupshup user ID is required.");
-          return;
-        }
-        if (!password) {
-          setError("Gupshup password is required.");
-          return;
-        }
-      }
+      onSubmit({ ...form, mode: "huntlo" });
+      return;
     }
 
+    if (!form.metaPhoneNumberId.trim()) {
+      setError("Phone Number ID is required.");
+      return;
+    }
+    if (!form.metaAccessToken.trim()) {
+      setError("Meta access token is required.");
+      return;
+    }
     if (!credsVerified) {
       setError("Test your credentials before connecting WhatsApp.");
       return;
     }
-
     if (!form.confirmRegistered) {
-      setError(
-        isMeta
-          ? "Confirm that your Meta app has WhatsApp messaging permissions."
-          : isExisting
-            ? "Confirm that your Gupshup account is set up for WhatsApp Business messaging."
-            : "Please accept the terms to connect Huntlo WhatsApp."
-      );
+      setError("Confirm that your Meta app has WhatsApp messaging permissions.");
       return;
     }
 
     onSubmit({
       ...form,
-      gupshupUserId: !isMeta && isExisting ? form.gupshupUserId.trim() : "",
-      gupshupPassword: !isMeta && isExisting ? form.gupshupPassword : "",
-      metaPhoneNumberId: isMeta ? form.metaPhoneNumberId.trim() : "",
-      metaAccessToken: isMeta ? form.metaAccessToken.trim() : "",
-      metaWabaId: isMeta ? form.metaWabaId.trim() : "",
+      mode: "own",
+      metaPhoneNumberId: form.metaPhoneNumberId.trim(),
+      metaAccessToken: form.metaAccessToken.trim(),
+      metaWabaId: form.metaWabaId.trim(),
     });
   };
 
@@ -228,7 +220,7 @@ export function WhatsAppConnectModal({ open, busy, onClose, onSubmit }: Props) {
       }}
     >
       <div
-        className="dashboard-modal mx-auto flex max-h-[min(90vh,720px)] w-full max-w-lg flex-col overflow-hidden p-0"
+        className="dashboard-modal mx-auto flex max-h-[min(90vh,760px)] w-full max-w-lg flex-col overflow-hidden p-0"
         role="dialog"
         aria-modal="true"
         aria-labelledby="whatsapp-connect-title"
@@ -247,8 +239,7 @@ export function WhatsAppConnectModal({ open, busy, onClose, onSubmit }: Props) {
                 Connect WhatsApp Business
               </h3>
               <p className="dashboard-text-body mt-1 text-sm">
-                Connect via Meta WhatsApp Cloud API or Gupshup. Choose the provider you use for
-                Business messaging.
+                Use Huntlo&apos;s WhatsApp number or connect your own Meta Cloud API account.
               </p>
             </div>
             <button
@@ -267,302 +258,186 @@ export function WhatsAppConnectModal({ open, busy, onClose, onSubmit }: Props) {
           onSubmit={handleSubmit}
           className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 py-5"
         >
-          <fieldset className="space-y-3">
+          <fieldset className="space-y-2">
             <legend className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Provider
+              Connection type
             </legend>
-
-            <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-white px-3 py-3 has-[:checked]:border-[#0050cb]/40 has-[:checked]:bg-[#f8f9ff]">
-              <input
-                type="radio"
-                name="wa-provider"
-                className="mt-1"
-                checked={form.provider === "meta_api"}
-                onChange={() => patch({ provider: "meta_api" })}
-              />
-              <span className="min-w-0 flex-1 text-left">
-                <span className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm font-semibold text-[#141b2b]">Meta WhatsApp API</span>
-                  <span className="rounded-full bg-[#0050cb]/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#0050cb]">
-                    Available
-                  </span>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <label
+                className={`flex cursor-pointer flex-col rounded-xl border p-3 transition-colors ${
+                  isHuntlo
+                    ? "border-[#128c7e] bg-[#f0f7f4] ring-1 ring-[#128c7e]/30"
+                    : "border-slate-200 bg-white hover:border-slate-300"
+                }${huntloAvailable === false ? " cursor-not-allowed opacity-60" : ""}`}
+              >
+                <span className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="wa-mode"
+                    className="text-[#128c7e]"
+                    checked={isHuntlo}
+                    disabled={huntloAvailable === false}
+                    onChange={() => patch({ mode: "huntlo", confirmRegistered: false })}
+                  />
+                  <span className="text-sm font-semibold text-slate-900">Use Huntlo account</span>
                 </span>
-                <span className="mt-0.5 block text-xs text-slate-500">
-                  Direct Cloud API via Meta Business — Phone Number ID and access token.
+                <span className="mt-1 pl-6 text-xs leading-relaxed text-slate-600">
+                  Send from Huntlo&apos;s WhatsApp Business number. No Meta setup required.
                 </span>
-              </span>
-            </label>
-
-            <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-white px-3 py-3 has-[:checked]:border-[#0050cb]/40 has-[:checked]:bg-[#f8f9ff]">
-              <input
-                type="radio"
-                name="wa-provider"
-                className="mt-1"
-                checked={form.provider === "gupshup"}
-                onChange={() => patch({ provider: "gupshup" })}
-              />
-              <span className="min-w-0 flex-1">
-                <span className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm font-semibold text-[#141b2b]">Gupshup WhatsApp API</span>
-                  <span className="rounded-full bg-[#0050cb]/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#0050cb]">
-                    Available
-                  </span>
+              </label>
+              <label
+                className={`flex cursor-pointer flex-col rounded-xl border p-3 transition-colors ${
+                  !isHuntlo
+                    ? "border-[#128c7e] bg-[#f0f7f4] ring-1 ring-[#128c7e]/30"
+                    : "border-slate-200 bg-white hover:border-slate-300"
+                }`}
+              >
+                <span className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="wa-mode"
+                    className="text-[#128c7e]"
+                    checked={!isHuntlo}
+                    onChange={() => patch({ mode: "own", confirmRegistered: false })}
+                  />
+                  <span className="text-sm font-semibold text-slate-900">Your Meta account</span>
                 </span>
-                <span className="mt-0.5 block text-xs text-slate-500">
-                  Connect with your own Gupshup account or use Huntlo&apos;s managed WhatsApp.
+                <span className="mt-1 pl-6 text-xs leading-relaxed text-slate-600">
+                  Connect with your Phone Number ID and access token from Meta Business Manager.
                 </span>
-              </span>
-            </label>
+              </label>
+            </div>
+            {huntloAvailable === false ? (
+              <p className="text-xs text-amber-800" role="status">
+                Huntlo WhatsApp is not configured on this server. Choose your own Meta account
+                instead.
+              </p>
+            ) : null}
           </fieldset>
 
-          {isMeta ? (
-            <>
-              <div className="mt-6 space-y-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Meta Cloud API credentials
-                </p>
-                <label className={dashboardLabelClass}>
-                  Phone Number ID
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    className={`mt-1 w-full ${dashboardInputClass}`}
-                    value={form.metaPhoneNumberId}
-                    onChange={(e) => patch({ metaPhoneNumberId: e.target.value })}
-                    placeholder="e.g. 123456789012345"
-                    required
-                    autoComplete="off"
-                  />
-                  <FieldHelp>
-                    From Meta Business Manager → WhatsApp → API Setup → Phone number ID.
-                  </FieldHelp>
-                </label>
-                <label className={dashboardLabelClass}>
-                  Permanent access token
-                  <input
-                    type="password"
-                    className={`mt-1 w-full ${dashboardInputClass}`}
-                    value={form.metaAccessToken}
-                    onChange={(e) => patch({ metaAccessToken: e.target.value })}
-                    placeholder="System user or app token with whatsapp_business_messaging"
-                    required
-                    autoComplete="off"
-                  />
-                  <FieldHelp>
-                    Token needs permission to send messages for this phone number. Stored securely
-                    and never shown again.
-                  </FieldHelp>
-                </label>
-                <label className={dashboardLabelClass}>
-                  WhatsApp Business Account ID{" "}
-                  <span className="font-normal text-slate-500">(optional)</span>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    className={`mt-1 w-full ${dashboardInputClass}`}
-                    value={form.metaWabaId}
-                    onChange={(e) => patch({ metaWabaId: e.target.value })}
-                    placeholder="WABA ID"
-                    autoComplete="off"
-                  />
-                  <FieldHelp>Only needed if you want Huntlo to validate account access.</FieldHelp>
-                </label>
-                <div className="flex flex-wrap items-center gap-2 pt-1">
-                  <button
-                    type="button"
-                    className={`${dashboardBtnSecondaryClass} px-4 py-2 text-sm disabled:opacity-55`}
-                    disabled={!canTestMeta}
-                    onClick={() => void handleTestCredentials()}
-                  >
-                    {testing ? (
-                      <>
-                        <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-                        Testing…
-                      </>
-                    ) : credsVerified ? (
-                      <>
-                        <MaterialIcon name="check_circle" className="text-base text-emerald-600" />
-                        Test again
-                      </>
-                    ) : (
-                      <>
-                        <MaterialIcon name="verified_user" className="text-base" />
-                        Test credentials
-                      </>
-                    )}
-                  </button>
-                  {!credsVerified ? (
-                    <span className="text-xs text-slate-500">
-                      Test credentials to enable Connect WhatsApp.
-                    </span>
-                  ) : null}
-                </div>
+          {isHuntlo ? (
+            <div className="mt-5 space-y-3 rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+              <p className="text-sm text-slate-700">
+                Campaign messages will be sent from Huntlo&apos;s registered WhatsApp Business
+                number. You can start outreach after connecting — no API keys to manage.
+              </p>
+              <button
+                type="button"
+                className={`${dashboardBtnSecondaryClass} px-4 py-2 text-sm disabled:opacity-55`}
+                disabled={!canTest}
+                onClick={() => void handleTestCredentials()}
+              >
+                {testing ? (
+                  <>
+                    <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
+                    Checking…
+                  </>
+                ) : credsVerified ? (
+                  <>
+                    <MaterialIcon name="check_circle" className="text-base text-emerald-600" />
+                    Check again
+                  </>
+                ) : (
+                  <>
+                    <MaterialIcon name="verified_user" className="text-base" />
+                    Check availability
+                  </>
+                )}
+              </button>
+            </div>
+          ) : (
+            <div className="mt-5 space-y-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Meta Cloud API credentials
+              </p>
+              <label className={dashboardLabelClass}>
+                Phone Number ID
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  className={`mt-1 w-full ${dashboardInputClass}`}
+                  value={form.metaPhoneNumberId}
+                  onChange={(e) => patch({ metaPhoneNumberId: e.target.value })}
+                  placeholder="e.g. 123456789012345"
+                  required={!isHuntlo}
+                  autoComplete="off"
+                />
+                <FieldHelp>
+                  From Meta Business Manager → WhatsApp → API Setup → Phone number ID.
+                </FieldHelp>
+              </label>
+              <label className={dashboardLabelClass}>
+                Permanent access token
+                <input
+                  type="password"
+                  className={`mt-1 w-full ${dashboardInputClass}`}
+                  value={form.metaAccessToken}
+                  onChange={(e) => patch({ metaAccessToken: e.target.value })}
+                  placeholder="Token with whatsapp_business_messaging"
+                  required={!isHuntlo}
+                  autoComplete="off"
+                />
+                <FieldHelp>Stored securely and never shown again after saving.</FieldHelp>
+              </label>
+              <label className={dashboardLabelClass}>
+                WhatsApp Business Account ID{" "}
+                <span className="font-normal text-slate-500">(optional)</span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  className={`mt-1 w-full ${dashboardInputClass}`}
+                  value={form.metaWabaId}
+                  onChange={(e) => patch({ metaWabaId: e.target.value })}
+                  placeholder="WABA ID"
+                  autoComplete="off"
+                />
+              </label>
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  className={`${dashboardBtnSecondaryClass} px-4 py-2 text-sm disabled:opacity-55`}
+                  disabled={!canTest}
+                  onClick={() => void handleTestCredentials()}
+                >
+                  {testing ? (
+                    <>
+                      <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
+                      Testing…
+                    </>
+                  ) : credsVerified ? (
+                    <>
+                      <MaterialIcon name="check_circle" className="text-base text-emerald-600" />
+                      Test again
+                    </>
+                  ) : (
+                    <>
+                      <MaterialIcon name="verified_user" className="text-base" />
+                      Test credentials
+                    </>
+                  )}
+                </button>
+                {!credsVerified ? (
+                  <span className="text-xs text-slate-500">
+                    Test credentials to enable Connect WhatsApp.
+                  </span>
+                ) : null}
               </div>
+            </div>
+          )}
 
-              <label className="mt-5 flex cursor-pointer items-start gap-2 text-sm text-[#434654]">
-                <input
-                  type="checkbox"
-                  className="mt-0.5 rounded border-slate-300"
-                  checked={form.confirmRegistered}
-                  onChange={(e) => patch({ confirmRegistered: e.target.checked })}
-                />
-                <span>
-                  I confirm my Meta app and phone number are approved for WhatsApp Business
-                  messaging.
-                </span>
-              </label>
-            </>
-          ) : form.provider === "gupshup" ? (
-            <>
-              <fieldset className="mt-5 space-y-3">
-                <legend className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Gupshup connection
-                </legend>
-                <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-white px-3 py-3 has-[:checked]:border-[#0050cb]/40 has-[:checked]:bg-[#f8f9ff]">
-                  <input
-                    type="radio"
-                    name="gupshup-mode"
-                    className="mt-1"
-                    checked={form.gupshupMode === "existing"}
-                    onChange={() => patch({ gupshupMode: "existing" })}
-                  />
-                  <span>
-                    <span className="block text-sm font-semibold text-[#141b2b]">
-                      Existing Gupshup account
-                    </span>
-                    <span className="mt-0.5 block text-xs text-slate-500">
-                      Use your Gupshup Enterprise user ID and password.
-                    </span>
-                  </span>
-                </label>
-                <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-white px-3 py-3 has-[:checked]:border-[#0050cb]/40 has-[:checked]:bg-[#f8f9ff]">
-                  <input
-                    type="radio"
-                    name="gupshup-mode"
-                    className="mt-1"
-                    checked={form.gupshupMode === "huntlo"}
-                    onChange={() => patch({ gupshupMode: "huntlo" })}
-                  />
-                  <span>
-                    <span className="block text-sm font-semibold text-[#141b2b]">
-                      Huntlo WhatsApp
-                    </span>
-                    <span className="mt-0.5 block text-xs text-slate-500">
-                      Use Huntlo&apos;s Gupshup integration — no credentials required.
-                    </span>
-                  </span>
-                </label>
-              </fieldset>
-
-              {isExisting ? (
-                <div className="mt-6 space-y-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Gupshup credentials
-                  </p>
-                  <label className={dashboardLabelClass}>
-                    Gupshup user ID
-                    <input
-                      type="text"
-                      className={`mt-1 w-full ${dashboardInputClass}`}
-                      value={form.gupshupUserId}
-                      onChange={(e) => patch({ gupshupUserId: e.target.value })}
-                      placeholder="Your Gupshup Enterprise user ID"
-                      required
-                      autoComplete="username"
-                    />
-                    <FieldHelp>Same user ID you use to log in to Gupshup Enterprise.</FieldHelp>
-                  </label>
-                  <label className={dashboardLabelClass}>
-                    Gupshup password
-                    <input
-                      type="password"
-                      className={`mt-1 w-full ${dashboardInputClass}`}
-                      value={form.gupshupPassword}
-                      onChange={(e) => patch({ gupshupPassword: e.target.value })}
-                      placeholder="Your Gupshup Enterprise password"
-                      required
-                      autoComplete="current-password"
-                    />
-                    <FieldHelp>
-                      Stored securely on Huntlo. Never shared or shown again after saving.
-                    </FieldHelp>
-                  </label>
-                  <div className="flex flex-wrap items-center gap-2 pt-1">
-                    <button
-                      type="button"
-                      className={`${dashboardBtnSecondaryClass} px-4 py-2 text-sm disabled:opacity-55`}
-                      disabled={!canTestGupshupExisting}
-                      onClick={() => void handleTestCredentials()}
-                    >
-                      {testing ? (
-                        <>
-                          <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-                          Testing…
-                        </>
-                      ) : credsVerified ? (
-                        <>
-                          <MaterialIcon name="check_circle" className="text-base text-emerald-600" />
-                          Test again
-                        </>
-                      ) : (
-                        <>
-                          <MaterialIcon name="verified_user" className="text-base" />
-                          Test credentials
-                        </>
-                      )}
-                    </button>
-                    {isExisting && !credsVerified ? (
-                      <span className="text-xs text-slate-500">
-                        Test credentials to enable Connect WhatsApp.
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-              ) : null}
-
-              <label className="mt-5 flex cursor-pointer items-start gap-2 text-sm text-[#434654]">
-                <input
-                  type="checkbox"
-                  className="mt-0.5 rounded border-slate-300"
-                  checked={form.confirmRegistered}
-                  onChange={(e) => patch({ confirmRegistered: e.target.checked })}
-                />
-                <span>
-                  {isExisting
-                    ? "I confirm my Gupshup account is approved for WhatsApp Business messaging."
-                    : "I agree to use Huntlo's managed WhatsApp sender for recruiting outreach."}
-                </span>
-              </label>
-
-              {form.gupshupMode === "huntlo" ? (
-                <div className="mt-4 flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    className={`${dashboardBtnSecondaryClass} px-4 py-2 text-sm disabled:opacity-55`}
-                    disabled={testing || busy}
-                    onClick={() => void handleTestCredentials()}
-                  >
-                    {testing ? (
-                      <>
-                        <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-                        Checking…
-                      </>
-                    ) : credsVerified ? (
-                      <>
-                        <MaterialIcon name="check_circle" className="text-base text-emerald-600" />
-                        Available
-                      </>
-                    ) : (
-                      <>
-                        <MaterialIcon name="verified_user" className="text-base" />
-                        Check availability
-                      </>
-                    )}
-                  </button>
-                </div>
-              ) : null}
-            </>
-          ) : null}
+          <label className="mt-5 flex cursor-pointer items-start gap-2 text-sm text-[#434654]">
+            <input
+              type="checkbox"
+              className="mt-0.5 rounded border-slate-300"
+              checked={form.confirmRegistered}
+              onChange={(e) => patch({ confirmRegistered: e.target.checked })}
+            />
+            <span>
+              {isHuntlo
+                ? "I understand outreach will be sent from Huntlo's WhatsApp Business number."
+                : "I confirm my Meta app and phone number are approved for WhatsApp Business messaging."}
+            </span>
+          </label>
 
           {testSuccessMessage ? (
             <p className="dashboard-alert-success mt-4 text-sm" role="status">
@@ -590,11 +465,17 @@ export function WhatsAppConnectModal({ open, busy, onClose, onSubmit }: Props) {
               disabled={busy || testing || !canConnect}
               className={`${dashboardBtnPrimaryClass} disabled:opacity-60`}
               title={
-                !credsVerified
-                  ? "Test credentials first"
-                  : !form.confirmRegistered
-                    ? "Accept the confirmation to continue"
-                    : undefined
+                isHuntlo
+                  ? huntloAvailable !== true
+                    ? "Huntlo WhatsApp is not available"
+                    : !form.confirmRegistered
+                      ? "Accept the confirmation to continue"
+                      : undefined
+                  : !credsVerified
+                    ? "Test credentials first"
+                    : !form.confirmRegistered
+                      ? "Accept the confirmation to continue"
+                      : undefined
               }
             >
               {busy ? (

@@ -63,13 +63,10 @@ async function getWhatsAppSenderFirstName(userId) {
     userId: userOid(userId),
     provider: "whatsapp",
   })
-    .select("senderName email gupshupUserId")
+    .select("senderName email")
     .lean();
   if (doc?.senderName?.trim()) {
     return doc.senderName.trim().split(/\s+/)[0] || doc.senderName.trim();
-  }
-  if (doc?.gupshupUserId?.trim()) {
-    return doc.gupshupUserId.trim();
   }
   return "";
 }

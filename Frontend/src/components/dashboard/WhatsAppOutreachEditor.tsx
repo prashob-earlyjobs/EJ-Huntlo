@@ -7,6 +7,10 @@ import {
   LAUNCH_AGENT_MIN_DURATION_MS,
 } from "@/components/dashboard/CampaignLaunchAgentOverlay";
 import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
+import {
+  WhatsAppSetupWarningModal,
+  type WhatsAppSetupWarningContext,
+} from "@/components/dashboard/WhatsAppSetupWarningModal";
 import { OutreachPillSelect } from "@/components/dashboard/OutreachPillSelect";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { authHeaders, getStoredAuth } from "@/lib/auth";
@@ -291,21 +295,27 @@ export function WhatsAppOutreachEditor({
   const [currentPlanId, setCurrentPlanId] = useState(planId);
   const [error, setError] = useState("");
   const [whatsappConnected, setWhatsappConnected] = useState<boolean | null>(null);
+  const [setupWarningOpen, setSetupWarningOpen] = useState(false);
+  const [setupWarningContext, setSetupWarningContext] =
+    useState<WhatsAppSetupWarningContext>("save");
 
-  const loadWhatsAppStatus = useCallback(async () => {
+  const loadWhatsAppStatus = useCallback(async (): Promise<boolean> => {
     const auth = getStoredAuth();
     if (!auth?.token) {
       setWhatsappConnected(false);
-      return;
+      return false;
     }
     try {
       const res = await fetch(`${apiBase}/api/integrations/whatsapp/status`, {
         headers: authHeaders(auth.token),
       });
       const data = await res.json();
-      setWhatsappConnected(Boolean(data.success && data.connected));
+      const connected = Boolean(data.success && data.connected);
+      setWhatsappConnected(connected);
+      return connected;
     } catch {
       setWhatsappConnected(false);
+      return false;
     }
   }, [apiBase]);
 
@@ -460,7 +470,7 @@ export function WhatsAppOutreachEditor({
     return { saved, wasNew };
   };
 
-  const saveSequence = async () => {
+  const executeSaveSequence = async () => {
     setSaving(true);
     setError("");
     try {
@@ -477,8 +487,31 @@ export function WhatsAppOutreachEditor({
     }
   };
 
+  const promptSetupIfDisconnected = async (
+    context: WhatsAppSetupWarningContext
+  ): Promise<boolean> => {
+    const connected = await loadWhatsAppStatus();
+    if (connected) return true;
+    setSetupWarningContext(context);
+    setSetupWarningOpen(true);
+    return false;
+  };
+
+  const saveSequence = async () => {
+    const payload = validateAndBuildPayload();
+    if (!payload) return;
+    const ok = await promptSetupIfDisconnected("save");
+    if (!ok) return;
+    await executeSaveSequence();
+  };
+
   const launchCampaign = async () => {
     if (!onLaunchCampaign) return;
+    const payload = validateAndBuildPayload();
+    if (!payload) return;
+    const ok = await promptSetupIfDisconnected("launch");
+    if (!ok) return;
+
     setLaunching(true);
     setError("");
     const overlayStartedAt = Date.now();
@@ -541,6 +574,23 @@ export function WhatsAppOutreachEditor({
         embedded ? " dashboard-wa-outreach--embedded" : " dashboard-card dashboard-card--fill max-w-full"
       }${launching ? " dashboard-wa-outreach--launching" : ""}`}
     >
+      <WhatsAppSetupWarningModal
+        open={setupWarningOpen}
+        context={setupWarningContext}
+        onClose={() => setSetupWarningOpen(false)}
+        onSetupWhatsApp={() => {
+          setSetupWarningOpen(false);
+          onGoToIntegrations?.();
+        }}
+        onSaveAnyway={
+          setupWarningContext === "save"
+            ? () => {
+                setSetupWarningOpen(false);
+                void executeSaveSequence();
+              }
+            : undefined
+        }
+      />
       <CampaignLaunchAgentOverlay open={launching && Boolean(onLaunchCampaign)} />
       {embedded ? (
         <div className="dashboard-wa-outreach-bar flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 sm:px-6">

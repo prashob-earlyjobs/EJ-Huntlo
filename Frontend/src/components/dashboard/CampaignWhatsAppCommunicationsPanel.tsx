@@ -412,7 +412,7 @@ export function CampaignWhatsAppCommunicationsPanel({
               <footer className="dashboard-campaign-wa-comms-composer shrink-0">
                 <p className="dashboard-campaign-wa-comms-composer-note">
                   <MaterialIcon name="info" className="text-base shrink-0" />
-                  Inbound replies will appear here when Meta or Gupshup webhooks are connected.
+                  Inbound replies will appear here when Meta webhooks are connected.
                 </p>
                 <div className="dashboard-campaign-wa-comms-composer-row opacity-60">
                   <input

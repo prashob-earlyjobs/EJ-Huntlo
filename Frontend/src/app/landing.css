@@ -852,6 +852,93 @@
   }
 }
 
+/* Engage Across Every Channel — bento channel logos */
+.landing-channel-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.625rem;
+  margin-top: 1.5rem;
+}
+
+.landing-channel-strip__item {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.landing-channel-strip__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  flex-shrink: 0;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(195, 198, 214, 0.4);
+  background: #f8f9ff;
+  box-shadow: 0 1px 2px rgba(20, 27, 43, 0.05);
+}
+
+.landing-channel-strip__icon .dashboard-integration-brand-logo {
+  display: block;
+  width: 1.5rem !important;
+  height: 1.5rem !important;
+  max-width: 1.5rem;
+  max-height: 1.5rem;
+  object-fit: contain;
+  object-position: center;
+}
+
+.landing-channel-strip__icon .material-symbols-outlined {
+  font-size: 1.5rem;
+  line-height: 1;
+  color: #0050cb;
+}
+
+.landing-channel-strip__label {
+  max-width: 100%;
+  text-align: center;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.25;
+  color: #434654;
+}
+
+@media (min-width: 640px) {
+  .landing-channel-strip {
+    gap: 0.75rem;
+  }
+
+  .landing-channel-strip__icon {
+    width: 3rem;
+    height: 3rem;
+  }
+
+  .landing-channel-strip__icon .dashboard-integration-brand-logo {
+    width: 1.625rem !important;
+    height: 1.625rem !important;
+    max-width: 1.625rem;
+    max-height: 1.625rem;
+  }
+
+  .landing-channel-strip__icon .material-symbols-outlined {
+    font-size: 1.625rem;
+  }
+
+  .landing-channel-strip__label {
+    font-size: 0.75rem;
+  }
+}
+
+@media (max-width: 380px) {
+  .landing-channel-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem 0.5rem;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .landing-demo-perspective {
     animation: none;

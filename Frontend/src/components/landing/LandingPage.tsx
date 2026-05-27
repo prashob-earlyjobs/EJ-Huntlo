@@ -9,7 +9,15 @@ import { HeroSearchTyping } from "./HeroSearchTyping";
 import { LandingLogo } from "./LandingLogo";
 import { LandingNav } from "./LandingNav";
 import { LandingPricingSection } from "./LandingPricingSection";
+import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
 import { MaterialIcon } from "./MaterialIcon";
+
+const ENGAGE_CHANNEL_LOGOS = [
+  { label: "Email", provider: "gmail" as const },
+  { label: "WhatsApp", provider: "whatsapp" as const },
+  { label: "AI voice", icon: "graphic_eq" as const },
+  { label: "Workflows", icon: "account_tree" as const },
+];
 
 const ADVANTAGE_METRICS = [
   {
@@ -248,8 +256,8 @@ export function LandingPage({ pricingPlans = null }: LandingPageProps) {
           <h2 className="mb-10 text-center text-3xl font-bold tracking-tight text-[#141b2b] md:text-4xl">
             Built for High-Volume Hiring Teams
           </h2>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <div className="rounded-2xl border border-[#c3c6d6]/30 bg-[#f1f3ff] p-8 md:row-span-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="rounded-2xl border border-[#c3c6d6]/30 bg-[#f1f3ff] p-8">
               <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-[#0050cb]/10 text-[#0050cb]">
                 <MaterialIcon name="manage_search" />
               </div>
@@ -258,13 +266,17 @@ export function LandingPage({ pricingPlans = null }: LandingPageProps) {
                 Natural-language sourcing with AI filters, session results, and a unified candidate
                 pool.
               </p>
-              <div className="mt-6 rounded-xl border border-[#c3c6d6]/25 bg-white p-4">
-                <div className="mb-2 h-3 w-3/4 rounded bg-[#0050cb]/20" />
-                <div className="space-y-2">
-                  <div className="h-2 w-full rounded bg-[#0050cb]/10" />
-                  <div className="h-2 w-5/6 rounded bg-[#0050cb]/10" />
-                  <div className="h-2 w-4/6 rounded bg-[#0050cb]/10" />
-                </div>
+              <div className="mt-6 overflow-hidden rounded-xl border border-[#c3c6d6]/25 bg-white shadow-sm">
+                <video
+                  className="aspect-video w-full object-cover object-top"
+                  src="/vi%202.mp4"
+                  autoPlay
+                  muted
+                  loop
+                  playsInline
+                  preload="metadata"
+                  aria-label="Candidate search demo"
+                />
               </div>
             </div>
             <div className="rounded-2xl bg-[#0050cb] p-8 text-white">
@@ -275,6 +287,18 @@ export function LandingPage({ pricingPlans = null }: LandingPageProps) {
               <p className="mt-2 text-sm text-white/85">
                 Sequences that feel personal—email, WhatsApp, and LinkedIn in one flow.
               </p>
+              <div className="mt-6 overflow-hidden rounded-xl border border-white/20 bg-white/10 shadow-sm">
+                <video
+                  className="aspect-video w-full object-cover object-top"
+                  src="/video_4.mp4"
+                  autoPlay
+                  muted
+                  loop
+                  playsInline
+                  preload="metadata"
+                  aria-label="Automated outreach demo"
+                />
+              </div>
             </div>
             <div className="rounded-2xl border border-[#c3c6d6]/30 bg-white p-8">
               <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-[#d4e3ff] text-[#0050cb]">
@@ -284,22 +308,41 @@ export function LandingPage({ pricingPlans = null }: LandingPageProps) {
               <p className="mt-2 text-sm text-[#434654]">
                 Save lists, track unveils, and keep your pipeline organized.
               </p>
+              <div className="mt-6 overflow-hidden rounded-xl border border-[#c3c6d6]/25 bg-[#f1f3ff] shadow-sm">
+                <video
+                  className="aspect-video w-full object-cover object-top"
+                  src="/vi%203.mp4"
+                  autoPlay
+                  muted
+                  loop
+                  playsInline
+                  preload="metadata"
+                  aria-label="Candidate management demo"
+                />
+              </div>
             </div>
             <div className="rounded-2xl border border-[#c3c6d6]/30 bg-white p-8">
               <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-[#f1f3ff] text-[#0050cb]">
-                <MaterialIcon name="groups" />
+                <MaterialIcon name="hub" />
               </div>
-              <h3 className="text-xl font-bold text-[#141b2b]">Collaborative Hiring</h3>
-              <p className="mt-2 text-sm text-[#434654]">
-                Share pools and insights across your recruiting team.
+              <h3 className="text-xl font-bold text-[#141b2b]">Engage Across Every Channel</h3>
+              <p className="mt-3 text-base leading-relaxed text-[#434654] md:text-lg">
+                Reach talent through Email, WhatsApp, AI voice, and workflows from one system.
               </p>
-              <div className="mt-4 flex -space-x-2">
-                {["PS", "JC", "AP"].map((initials) => (
-                  <div
-                    key={initials}
-                    className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-white bg-[#0050cb]/15 text-xs font-bold text-[#0050cb]"
-                  >
-                    {initials}
+              <div className="landing-channel-strip" aria-label="Outreach channels">
+                {ENGAGE_CHANNEL_LOGOS.map((channel) => (
+                  <div key={channel.label} className="landing-channel-strip__item">
+                    <span className="landing-channel-strip__icon">
+                      {"provider" in channel ? (
+                        <IntegrationBrandLogo
+                          provider={channel.provider}
+                          title={channel.label}
+                        />
+                      ) : (
+                        <MaterialIcon name={channel.icon} />
+                      )}
+                    </span>
+                    <span className="landing-channel-strip__label">{channel.label}</span>
                   </div>
                 ))}
               </div>

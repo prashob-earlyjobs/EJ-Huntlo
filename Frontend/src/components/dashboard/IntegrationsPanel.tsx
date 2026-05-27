@@ -339,23 +339,19 @@ export function IntegrationsPanel({
         if (!auth?.token) {
           throw new Error("Please sign in again.");
         }
-        const isMeta = values.provider === "meta_api";
+        const isHuntlo = values.mode === "huntlo";
         const res = await fetch(`${apiBase}/api/integrations/whatsapp/connect`, {
           method: "POST",
           headers: authHeaders(auth.token),
           body: JSON.stringify(
-            isMeta
-              ? {
+            isHuntlo
+              ? { whatsappMode: "huntlo" }
+              : {
+                  whatsappMode: "own",
                   provider: "meta_api",
                   phoneNumberId: values.metaPhoneNumberId,
                   accessToken: values.metaAccessToken,
                   wabaId: values.metaWabaId,
-                }
-              : {
-                  provider: "gupshup",
-                  gupshupMode: values.gupshupMode,
-                  gupshupUserId: values.gupshupUserId,
-                  gupshupPassword: values.gupshupPassword,
                 }
           ),
         });
@@ -375,19 +371,14 @@ export function IntegrationsPanel({
           void loadIntegrations();
         }
         setWhatsappModalOpen(false);
-        if (isMeta) {
+        if (isHuntlo) {
+          setNotice("Huntlo WhatsApp connected. You can launch WhatsApp campaigns from your workspace.");
+        } else {
           const label =
             typeof row?.senderName === "string" && row.senderName
               ? row.senderName
               : values.metaPhoneNumberId;
           setNotice(`WhatsApp connected via Meta API (${label}).`);
-        } else {
-          const viaHuntlo = values.gupshupMode === "huntlo";
-          setNotice(
-            viaHuntlo
-              ? "Huntlo WhatsApp connected."
-              : `WhatsApp connected for Gupshup user ${values.gupshupUserId}.`
-          );
         }
       } catch (err) {
         setNotice(err instanceof Error ? err.message : "Failed to connect WhatsApp.");

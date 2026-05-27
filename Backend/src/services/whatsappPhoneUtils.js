@@ -1,4 +1,4 @@
-const { E164_RE } = require("./gupshupClient");
+const E164_RE = /^\+[1-9]\d{7,14}$/;
 
 /**
  * Normalize to E.164 (+country...) for validation and Meta API.
@@ -16,19 +16,14 @@ function normalizeToE164(phone) {
   return "";
 }
 
-/** Digits only (no +) for Gupshup send_to. */
-function normalizeToGupshupSendTo(phone) {
+/** Digits only (no +) for Meta Cloud API `to` field. */
+function normalizeToWhatsAppDigits(phone) {
   const e164 = normalizeToE164(phone);
   if (!e164) {
     const digits = String(phone || "").replace(/\D/g, "");
     return digits || "";
   }
   return e164.replace(/\D/g, "");
-}
-
-/** Digits only for Meta Cloud API `to` field. */
-function normalizeToMetaRecipient(phone) {
-  return normalizeToGupshupSendTo(phone);
 }
 
 function assertValidRecipientPhone(phone) {
@@ -42,8 +37,10 @@ function assertValidRecipientPhone(phone) {
 }
 
 module.exports = {
+  E164_RE,
   normalizeToE164,
-  normalizeToGupshupSendTo,
-  normalizeToMetaRecipient,
+  normalizeToWhatsAppDigits,
+  /** @deprecated alias — Meta `to` field uses digits only */
+  normalizeToMetaRecipient: normalizeToWhatsAppDigits,
   assertValidRecipientPhone,
 };

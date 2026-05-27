@@ -34,6 +34,7 @@ type Props = {
   /** False until /api/users/me (or dashboard overview) has set the real plan id. */
   planResolved?: boolean;
   onViewPlans: () => void;
+  onGoToIntegrations?: () => void;
   campaigns: CampaignRecord[];
   campaignsLoading?: boolean;
   onCreateCampaign: (name: string) => Promise<CampaignRecord | null>;
@@ -46,6 +47,7 @@ export function CampaignsPanel({
   currentPlanId,
   planResolved = false,
   onViewPlans,
+  onGoToIntegrations,
   campaigns,
   campaignsLoading = false,
   onCreateCampaign,
@@ -252,6 +254,7 @@ export function CampaignsPanel({
             onWorkspaceTabChange={selectWorkspaceTab}
             onBack={() => router.push(pathForCampaignsList())}
             onCampaignUpdated={onCampaignUpdated}
+            onGoToIntegrations={onGoToIntegrations}
           />
         </section>
         {createModal}

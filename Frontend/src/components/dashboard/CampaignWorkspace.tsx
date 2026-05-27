@@ -72,6 +72,7 @@ type Props = {
   onWorkspaceTabChange: (tab: CampaignWorkspaceTab) => void;
   onBack: () => void;
   onCampaignUpdated?: (campaign: CampaignRecord) => void;
+  onGoToIntegrations?: () => void;
 };
 
 function contactInitial(name: string) {
@@ -129,6 +130,7 @@ export function CampaignWorkspace({
   onWorkspaceTabChange,
   onBack,
   onCampaignUpdated,
+  onGoToIntegrations,
 }: Props) {
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
   const [starred, setStarred] = useState(false);
@@ -761,6 +763,7 @@ export function CampaignWorkspace({
               initialPlanName={editor.state.planName}
               initialTouchpoints={editor.state.touchpoints}
               onCancel={backToSequenceChoose}
+              onGoToIntegrations={onGoToIntegrations}
               onSaved={(message, saved) => void handleWhatsAppPlanSaved(message, saved)}
               onLaunchCampaign={(saved) => handleLaunchWhatsAppCampaign(saved)}
               onLaunchComplete={() => {
