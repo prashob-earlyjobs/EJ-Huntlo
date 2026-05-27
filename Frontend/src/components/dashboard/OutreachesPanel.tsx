@@ -206,6 +206,16 @@ export function OutreachesPanel({
       return;
     }
 
+    if (choice.type === "ai") {
+      openEditor({
+        planId: "new",
+        planName: choice.planName,
+        touchpoints: choice.touchpoints.map((tp) => ({ ...tp })),
+        lockSchedule: false,
+      });
+      return;
+    }
+
     if (choice.type === "clone") {
       const auth = getStoredAuth();
       if (!auth?.token) return;

@@ -13,17 +13,13 @@ import {
   dashboardInputClass,
 } from "@/lib/dashboardStyles";
 import {
+  insertTextIntoField,
+  OUTREACH_MERGE_FIELDS,
+} from "@/lib/outreachMergeFields";
+import {
   createEmptyTouchpoint,
   type OutreachTouchpointDraft,
 } from "@/lib/outreachTemplates";
-
-const MERGE_TAGS = [
-  "First Name",
-  "Current Company",
-  "Job Title",
-  "Education",
-  "Sender First Name",
-] as const;
 
 type Props = {
   planId?: string | "new";
@@ -302,6 +298,12 @@ export function OutreachPlanEditor({
   const [stepScheduleMeta, setStepScheduleMeta] = useState<
     Record<number, { time: string; tz: string }>
   >(() => buildStepScheduleMeta(initialTouchpoints));
+
+  const subjectInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
+  const bodyTextareaRefs = useRef<Record<number, HTMLTextAreaElement | null>>({});
+  const lastMergeFieldFocusRef = useRef<{ order: number; field: "subject" | "body" } | null>(
+    null
+  );
   const [gmailEmail, setGmailEmail] = useState("");
   const [gmailConnected, setGmailConnected] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -589,13 +591,30 @@ export function OutreachPlanEditor({
     }));
   };
 
-  const insertMergeTag = (order: number, field: "subject" | "body", tag: string) => {
+  const insertMergeTag = (order: number, field: "subject" | "body", token: string) => {
     const tp = touchpoints.find((t) => t.order === order);
     if (!tp) return;
-    const token = `{{${tag.replace(/\s+/g, "")}}}`;
+    const mergeToken = `{{${token}}}`;
     const current = field === "subject" ? tp.subject : tp.body;
-    updateTouchpoint(order, {
-      [field]: current ? `${current} ${token}` : token,
+    const element =
+      field === "subject" ? subjectInputRefs.current[order] : bodyTextareaRefs.current[order];
+    const insertAtCursor =
+      lastMergeFieldFocusRef.current?.order === order &&
+      lastMergeFieldFocusRef.current?.field === field &&
+      element != null;
+    const { value, selectionStart, selectionEnd } = insertTextIntoField(
+      current,
+      mergeToken,
+      element,
+      insertAtCursor
+    );
+    updateTouchpoint(order, { [field]: value });
+    requestAnimationFrame(() => {
+      const target =
+        field === "subject" ? subjectInputRefs.current[order] : bodyTextareaRefs.current[order];
+      if (!target) return;
+      target.focus();
+      target.setSelectionRange(selectionStart, selectionEnd);
     });
   };
 
@@ -605,6 +624,16 @@ export function OutreachPlanEditor({
     setError("");
     setSaveSucceeded(false);
     try {
+      const missingSubject = touchpoints.find((tp) => !tp.subject.trim());
+      if (missingSubject) {
+        throw new Error(`Step ${missingSubject.order} needs a subject line.`);
+      }
+      const missingBody = touchpoints.find((tp) => !tp.body.trim());
+      if (missingBody) {
+        throw new Error(
+          `Step ${missingBody.order} needs a message body (e.g. Hi {{FirstName}}, …).`
+        );
+      }
       const isNew = planId === "new";
       const url = isNew
         ? `${apiBase}/api/outreach/plans`
@@ -1096,11 +1125,20 @@ export function OutreachPlanEditor({
                         <span className="dashboard-outreach-builder-field-label">Subject</span>
                         <div className="dashboard-outreach-builder-subject-row">
                           <input
+                            ref={(node) => {
+                              subjectInputRefs.current[tp.order] = node;
+                            }}
                             type="text"
                             value={tp.subject}
                             onChange={(e) =>
                               updateTouchpoint(tp.order, { subject: e.target.value })
                             }
+                            onFocus={() => {
+                              lastMergeFieldFocusRef.current = {
+                                order: tp.order,
+                                field: "subject",
+                              };
+                            }}
                             className="dashboard-input dashboard-input-sm flex-1"
                             placeholder="{{FirstName}}, interested in a new opportunity?"
                           />
@@ -1120,14 +1158,14 @@ export function OutreachPlanEditor({
                         <button type="button" className="dashboard-outreach-builder-chip">
                           Snippets
                         </button>
-                        {MERGE_TAGS.map((tag) => (
+                        {OUTREACH_MERGE_FIELDS.map((field) => (
                           <button
-                            key={`${tp.order}-subject-${tag}`}
+                            key={`${tp.order}-subject-${field.token}`}
                             type="button"
                             className="dashboard-outreach-builder-chip"
-                            onClick={() => insertMergeTag(tp.order, "subject", tag)}
+                            onClick={() => insertMergeTag(tp.order, "subject", field.token)}
                           >
-                            {tag}
+                            {field.label}
                           </button>
                         ))}
                         <button type="button" className="dashboard-outreach-builder-chip">
@@ -1153,21 +1191,30 @@ export function OutreachPlanEditor({
                           ))}
                         </div>
                         <textarea
+                          ref={(node) => {
+                            bodyTextareaRefs.current[tp.order] = node;
+                          }}
                           value={tp.body}
                           onChange={(e) => updateTouchpoint(tp.order, { body: e.target.value })}
+                          onFocus={() => {
+                            lastMergeFieldFocusRef.current = {
+                              order: tp.order,
+                              field: "body",
+                            };
+                          }}
                           rows={10}
                           className="dashboard-outreach-builder-body-input"
                           placeholder="Hi {{FirstName}},"
                         />
                         <div className="dashboard-outreach-builder-tags-row dashboard-outreach-builder-tags-row--body">
-                          {MERGE_TAGS.map((tag) => (
+                          {OUTREACH_MERGE_FIELDS.map((field) => (
                             <button
-                              key={`${tp.order}-body-${tag}`}
+                              key={`${tp.order}-body-${field.token}`}
                               type="button"
                               className="dashboard-outreach-builder-chip"
-                              onClick={() => insertMergeTag(tp.order, "body", tag)}
+                              onClick={() => insertMergeTag(tp.order, "body", field.token)}
                             >
-                              {tag}
+                              {field.label}
                             </button>
                           ))}
                         </div>

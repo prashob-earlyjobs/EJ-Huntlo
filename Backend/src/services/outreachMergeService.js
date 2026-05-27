@@ -5,7 +5,9 @@ function firstNameFromFullName(name) {
 }
 
 /**
- * Replace {{FirstName}}, {{name}}, {{CurrentCompany}}, etc. in subject/body.
+ * Replace merge tokens in subject/body.
+ * Supported: FirstName, CurrentCompany, JobTitle, SenderFirstName (+ legacy name/company aliases).
+ * Data: enrollment contactName/company/role + Gmail integration senderName.
  */
 function applyMergeFields(text, { contact, senderFirstName = "" }) {
   const raw = String(text || "");
@@ -23,13 +25,11 @@ function applyMergeFields(text, { contact, senderFirstName = "" }) {
     company: company,
     JobTitle: jobTitle,
     jobtitle: jobTitle,
-    Education: "",
-    education: "",
     SenderFirstName: sender,
     senderfirstname: sender,
   };
 
-  return raw.replace(/\{\{\s*([a-zA-Z]+)\s*\}\}/g, (match, key) => {
+  return raw.replace(/\{\{\s*([a-zA-Z][a-zA-Z0-9]*)\s*\}\}/g, (match, key) => {
     if (Object.prototype.hasOwnProperty.call(replacements, key)) {
       return replacements[key];
     }

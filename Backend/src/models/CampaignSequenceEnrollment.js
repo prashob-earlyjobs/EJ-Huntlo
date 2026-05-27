@@ -29,7 +29,7 @@ const campaignSequenceEnrollmentSchema = new mongoose.Schema(
     currentStepOrder: { type: Number, default: 1, min: 1 },
     status: {
       type: String,
-      enum: ["active", "paused", "completed", "failed", "skipped"],
+      enum: ["active", "paused", "completed", "failed", "skipped", "deferred"],
       default: "active",
       index: true,
     },
@@ -38,6 +38,23 @@ const campaignSequenceEnrollmentSchema = new mongoose.Schema(
     sentCount: { type: Number, default: 0 },
     lastError: { type: String, default: "" },
     lastMessageId: { type: String, default: "" },
+    lastThreadId: { type: String, default: "", index: true },
+    hasReply: { type: Boolean, default: false },
+    replyCount: { type: Number, default: 0 },
+    lastReplyAt: { type: Date, default: null },
+    lastReplySyncedAt: { type: Date, default: null },
+    /** unknown until Gemini detects a clear signal. */
+    replyDisposition: {
+      type: String,
+      enum: ["unknown", "interested", "not_interested"],
+      default: "unknown",
+      index: true,
+    },
+    replyDispositionAt: { type: Date, default: null },
+    autoReplyCount: { type: Number, default: 0 },
+    lastAutoReplyAt: { type: Date, default: null },
+    /** Gmail message id of the last candidate message we auto-replied to. */
+    lastAutoRepliedToMessageId: { type: String, default: "" },
   },
   { timestamps: true }
 );

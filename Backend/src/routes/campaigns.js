@@ -15,6 +15,9 @@ const {
   resumeCampaignSequenceHandler,
   getCampaignSequenceStatusHandler,
   getCampaignWhatsAppConversationsHandler,
+  syncCampaignRepliesHandler,
+  listCampaignRepliesHandler,
+  getContactEmailThreadHandler,
   deleteCampaignHandler,
 } = require("../controllers/campaignController");
 
@@ -30,6 +33,13 @@ router.post("/:id/pause-sequence", authenticate, pauseCampaignSequenceHandler);
 router.post("/:id/resume-sequence", authenticate, resumeCampaignSequenceHandler);
 router.get("/:id/sequence-status", authenticate, getCampaignSequenceStatusHandler);
 router.get("/:id/whatsapp-conversations", authenticate, getCampaignWhatsAppConversationsHandler);
+router.post("/:id/sync-replies", authenticate, syncCampaignRepliesHandler);
+router.get("/:id/replies", authenticate, listCampaignRepliesHandler);
+router.get(
+  "/:id/contacts/:candidateKey/email-thread",
+  authenticate,
+  getContactEmailThreadHandler
+);
 router.get("/:id", authenticate, getCampaignHandler);
 router.post("/:id/contacts", authenticate, addContactsHandler);
 router.post("/:id/contacts/sync-revealed", authenticate, syncCampaignContactsHandler);

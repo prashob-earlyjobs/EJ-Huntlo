@@ -4,6 +4,7 @@ const OutreachPlan = require("../models/OutreachPlan");
 const WhatsAppOutreachPlan = require("../models/WhatsAppOutreachPlan");
 const { lookupUserRevealedContacts } = require("./contactRevealService");
 const { deleteEnrollmentsForCampaign } = require("./campaignOutreachSendService");
+const { deleteRepliesForCampaign } = require("./campaignReplySyncService");
 const { normalizeLinkedinProfileUrl } = require("../utils/contactReveal");
 
 function normalizeContact(raw) {
@@ -174,7 +175,8 @@ async function updateCampaignContactFields(userId, campaignId, candidateKey, ema
 }
 
 /**
- * Copy email/phone from the user's reveal cache onto campaign contacts (no Future Jobs).
+ * Fill missing email/phone on campaign contacts from the user's reveal cache.
+ * Never overwrites values already set (including manual DB/UI edits).
  */
 async function syncCampaignContactsFromUserCache(userId, campaignId) {
   const campaign = await getCampaign(userId, campaignId);
@@ -190,9 +192,15 @@ async function syncCampaignContactsFromUserCache(userId, campaignId) {
     const cached = lookup[key];
     if (!cached) continue;
 
-    const email = String(cached.email || contact.email || "").trim();
-    const phone = String(cached.phone || contact.phone || "").trim();
-    if (email === contact.email && phone === contact.phone) continue;
+    const existingEmail = String(contact.email || "").trim();
+    const existingPhone = String(contact.phone || "").trim();
+    const email =
+      existingEmail || String(cached.email || "").trim();
+    const phone =
+      existingPhone || String(cached.phone || "").trim();
+
+    if (!email && !phone) continue;
+    if (email === existingEmail && phone === existingPhone) continue;
 
     await updateCampaignContactFields(
       userId,
@@ -265,6 +273,7 @@ async function deleteCampaign(userId, campaignId) {
     throw err;
   }
   await deleteEnrollmentsForCampaign(campaignId);
+  await deleteRepliesForCampaign(campaignId);
 }
 
 module.exports = {

@@ -12,6 +12,8 @@ export type CampaignContact = {
   addedAt: string;
 };
 
+export type CampaignOutreachStatus = "idle" | "active" | "paused" | "completed";
+
 export type CampaignRecord = {
   id: string;
   name: string;
@@ -20,5 +22,7 @@ export type CampaignRecord = {
   outreachPlanId?: string;
   /** gmail = email sequence; whatsapp = WhatsApp sequence */
   outreachChannel?: "gmail" | "whatsapp";
+  outreachStatus?: CampaignOutreachStatus;
+  outreachStartedAt?: string | null;
   contacts: CampaignContact[];
 };

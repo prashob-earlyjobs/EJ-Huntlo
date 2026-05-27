@@ -13,6 +13,9 @@ const {
 const { assertValidRecipientPhone } = require("./whatsappPhoneUtils");
 const { logCampaignWhatsAppMessage } = require("./campaignWhatsAppCommsService");
 
+const { notifyCampaignThreadUpdated } = require("../realtime/notify");
+const { recordOutboundSentMessage } = require("./campaignReplySyncService");
+
 const SEND_BATCH_SIZE = Math.max(
   1,
   Math.min(50, Number(process.env.OUTREACH_SEND_BATCH_SIZE) || 20)
@@ -39,7 +42,15 @@ function sortTouchpoints(touchpoints) {
 }
 
 function getTouchpointByOrder(touchpoints, order) {
-  return sortTouchpoints(touchpoints).find((tp) => tp.order === order) || null;
+  const step = Number(order);
+  return (
+    sortTouchpoints(touchpoints).find((tp) => Number(tp.order) === step) || null
+  );
+}
+
+/** Matches editor "immediate" — waitDays 0 on this step (send now, no day delay). */
+function isImmediateTouchpoint(touchpoint) {
+  return Math.max(0, Number(touchpoint?.waitDays) || 0) === 0;
 }
 
 async function getSenderFirstName(userId) {
@@ -118,6 +129,15 @@ async function loadCampaignAndPlan(userId, campaignId) {
     throw err;
   }
 
+  const emptyBodyStep = touchpoints.find((tp) => !String(tp.body || "").trim());
+  if (emptyBodyStep) {
+    const err = new Error(
+      `Step ${emptyBodyStep.order} has an empty message body. Save your sequence in the Editor tab before launching.`
+    );
+    err.statusCode = 400;
+    throw err;
+  }
+
   return { campaign, plan, touchpoints, channel };
 }
 
@@ -179,6 +199,7 @@ async function getSequenceStatus(userId, campaignId) {
   const enrollments = {
     active: 0,
     paused: 0,
+    deferred: 0,
     completed: 0,
     failed: 0,
     skipped: 0,
@@ -251,6 +272,9 @@ async function launchCampaignSequence(userId, campaignId) {
       continue;
     }
 
+    const firstTouchpoint = touchpoints[0];
+    const immediateStart = isImmediateTouchpoint(firstTouchpoint);
+
     await CampaignSequenceEnrollment.findOneAndUpdate(
       {
         campaignId: campaign._id,
@@ -266,12 +290,27 @@ async function launchCampaignSequence(userId, campaignId) {
           contactRole: String(contact.role || "").trim(),
           contactCompany: String(contact.company || "").trim(),
           currentStepOrder: 1,
-          status: "active",
-          nextSendAt: now,
-          lastError: "",
+          status: immediateStart ? "active" : "deferred",
+          nextSendAt: immediateStart ? now : null,
+          lastError: immediateStart
+            ? ""
+            : "Delayed schedule — timer only sends immediate steps for now",
           sentCount: 0,
+          hasReply: false,
+          replyCount: 0,
+          replyDisposition: "unknown",
+          autoReplyCount: 0,
+          lastAutoRepliedToMessageId: "",
         },
-        $unset: { lastSentAt: 1, lastMessageId: 1 },
+        $unset: {
+          lastSentAt: 1,
+          lastMessageId: 1,
+          lastThreadId: 1,
+          lastReplyAt: 1,
+          lastReplySyncedAt: 1,
+          replyDispositionAt: 1,
+          lastAutoReplyAt: 1,
+        },
       },
       { upsert: true, new: true }
     );
@@ -334,17 +373,29 @@ async function pauseCampaignSequence(userId, campaignId) {
 }
 
 async function resumeCampaignSequence(userId, campaignId) {
-  const { campaign } = await loadCampaignAndPlan(userId, campaignId);
+  const { campaign, touchpoints } = await loadCampaignAndPlan(userId, campaignId);
   const now = new Date();
 
-  await CampaignSequenceEnrollment.updateMany(
-    {
-      campaignId: campaign._id,
-      userId: userOid(userId),
-      status: "paused",
-    },
-    { $set: { status: "active", nextSendAt: now } }
-  );
+  const paused = await CampaignSequenceEnrollment.find({
+    campaignId: campaign._id,
+    userId: userOid(userId),
+    status: "paused",
+  }).lean();
+
+  for (const row of paused) {
+    const tp = getTouchpointByOrder(touchpoints, row.currentStepOrder || 1);
+    if (tp && isImmediateTouchpoint(tp)) {
+      await CampaignSequenceEnrollment.updateOne(
+        { _id: row._id },
+        { $set: { status: "active", nextSendAt: now, lastError: "" } }
+      );
+    } else {
+      await CampaignSequenceEnrollment.updateOne(
+        { _id: row._id },
+        { $set: { status: "deferred", nextSendAt: null } }
+      );
+    }
+  }
 
   await Campaign.updateOne(
     { _id: campaign._id },
@@ -392,6 +443,20 @@ async function processGmailEnrollmentDoc(enrollment, campaign) {
     return;
   }
 
+  if (!isImmediateTouchpoint(touchpoint)) {
+    await CampaignSequenceEnrollment.updateOne(
+      { _id: enrollmentId },
+      {
+        $set: {
+          status: "deferred",
+          nextSendAt: null,
+          lastError: "Delayed schedule — timer only sends immediate steps for now",
+        },
+      }
+    );
+    return;
+  }
+
   const email = String(enrollment.contactEmail || "").trim();
   if (!email.includes("@")) {
     await CampaignSequenceEnrollment.updateOne(
@@ -407,8 +472,27 @@ async function processGmailEnrollmentDoc(enrollment, campaign) {
     company: enrollment.contactCompany,
     role: enrollment.contactRole,
   };
-  const subject = applyMergeFields(touchpoint.subject, { contact, senderFirstName });
-  const body = applyMergeFields(touchpoint.body, { contact, senderFirstName });
+  const subject = applyMergeFields(touchpoint.subject, { contact, senderFirstName }).trim();
+  const body = applyMergeFields(String(touchpoint.body || ""), {
+    contact,
+    senderFirstName,
+  }).trim();
+
+  if (!body) {
+    await CampaignSequenceEnrollment.updateOne(
+      { _id: enrollmentId },
+      {
+        $set: {
+          status: "failed",
+          lastError:
+            "Touchpoint body is empty. Edit the sequence, add message text to step " +
+            stepOrder +
+            ", save, and launch again.",
+        },
+      }
+    );
+    return;
+  }
 
   let sendResult;
   try {
@@ -430,10 +514,19 @@ async function processGmailEnrollmentDoc(enrollment, campaign) {
     return;
   }
 
+  await recordOutboundSentMessage({
+    enrollment,
+    sendResult,
+    subject,
+    body,
+    toEmail: email,
+  });
+
   const now = new Date();
   const sentCount = (enrollment.sentCount || 0) + 1;
   const nextOrder = stepOrder + 1;
   const nextTouchpoint = getTouchpointByOrder(touchpoints, nextOrder);
+  const candidateKey = String(enrollment.candidateKey || "").trim();
 
   if (!nextTouchpoint) {
     await CampaignSequenceEnrollment.updateOne(
@@ -444,198 +537,76 @@ async function processGmailEnrollmentDoc(enrollment, campaign) {
           sentCount,
           lastSentAt: now,
           lastMessageId: sendResult.messageId || "",
+          lastThreadId: sendResult.threadId || "",
           lastError: "",
         },
       }
     );
     await maybeCompleteCampaign(campaignId);
-    return;
-  }
-
-  const waitDays = Math.max(0, Number(nextTouchpoint.waitDays) || 0);
-  await CampaignSequenceEnrollment.updateOne(
-    { _id: enrollmentId },
-    {
-      $set: {
-        status: "active",
-        currentStepOrder: nextOrder,
-        nextSendAt: addDays(now, waitDays),
-        sentCount,
-        lastSentAt: now,
-        lastMessageId: sendResult.messageId || "",
-        lastError: "",
-      },
-    }
-  );
-}
-
-async function processWhatsAppEnrollmentDoc(enrollment, campaign) {
-  const enrollmentId = enrollment._id;
-  const userId = String(enrollment.userId);
-  const campaignId = String(enrollment.campaignId);
-  const stepOrder = enrollment.currentStepOrder || 1;
-
-  const plan = await WhatsAppOutreachPlan.findById(enrollment.outreachPlanId).lean();
-  if (!plan) {
-    await CampaignSequenceEnrollment.updateOne(
-      { _id: enrollmentId },
-      { $set: { status: "failed", lastError: "WhatsApp outreach plan missing" } }
-    );
-    return;
-  }
-
-  const touchpoints = sortTouchpoints(plan.touchpoints);
-  const touchpoint = getTouchpointByOrder(touchpoints, stepOrder);
-  if (!touchpoint) {
-    await CampaignSequenceEnrollment.updateOne(
-      { _id: enrollmentId },
-      { $set: { status: "completed", lastError: "" } }
-    );
-    await maybeCompleteCampaign(campaignId);
-    return;
-  }
-
-  const phoneRaw = String(enrollment.contactPhone || "").trim();
-  let phoneE164;
-  try {
-    phoneE164 = assertValidRecipientPhone(phoneRaw);
-  } catch (err) {
-    await CampaignSequenceEnrollment.updateOne(
-      { _id: enrollmentId },
-      {
-        $set: {
-          status: "skipped",
-          lastError: err instanceof Error ? err.message : "No valid phone",
-        },
-      }
-    );
-    return;
-  }
-
-  const senderFirstName = await getWhatsAppSenderFirstName(userId);
-  const contact = {
-    name: enrollment.contactName,
-    company: enrollment.contactCompany,
-    role: enrollment.contactRole,
-  };
-  const body = applyMergeFields(touchpoint.body, { contact, senderFirstName });
-  const templateId = String(touchpoint.templateId || "").trim();
-  const sequenceStepLabel =
-    String(touchpoint.label || "").trim() ||
-    (touchpoint.isNoReplyFallback
-      ? `No-reply follow-up ${stepOrder - 1}`
-      : stepOrder === 1
-        ? "Opening message"
-        : `Follow-up ${stepOrder - 1}`);
-
-  if (!templateId && !body.trim()) {
-    await CampaignSequenceEnrollment.updateOne(
-      { _id: enrollmentId },
-      { $set: { status: "failed", lastError: "Touchpoint has no message body" } }
-    );
-    return;
-  }
-
-  let sendResult;
-  try {
-    sendResult = await sendWhatsAppMessage(userId, {
-      to: phoneE164,
-      body,
-      templateId: templateId || undefined,
-    });
-  } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : "WhatsApp send failed";
-    await CampaignSequenceEnrollment.updateOne(
-      { _id: enrollmentId },
-      {
-        $set: {
-          status: "failed",
-          lastError: errorMessage,
-        },
-      }
-    );
-    try {
-      await logCampaignWhatsAppMessage({
-        userId,
-        campaignId,
-        enrollmentId,
-        candidateKey: enrollment.candidateKey,
-        contactPhone: phoneE164,
-        direction: "outbound",
-        body: body.trim() || sequenceStepLabel,
-        sequenceStepOrder: stepOrder,
-        sequenceStepLabel,
-        status: "failed",
-        errorMessage,
-      });
-    } catch (logErr) {
-      console.error("[outreach-send] WhatsApp message log:", logErr?.message || logErr);
-    }
-    return;
-  }
-
-  const now = new Date();
-  try {
-    await logCampaignWhatsAppMessage({
-      userId,
+    notifyCampaignThreadUpdated(userId, {
       campaignId,
-      enrollmentId,
-      candidateKey: enrollment.candidateKey,
-      contactPhone: phoneE164,
-      direction: "outbound",
-      body: body.trim() || sequenceStepLabel,
-      sequenceStepOrder: stepOrder,
-      sequenceStepLabel,
-      provider: sendResult.provider,
-      externalMessageId: sendResult.messageId || "",
-      status: "sent",
-      sentAt: now,
+      candidateKey,
+      newMessages: 1,
+      hasNewCandidateReply: false,
+      source: "outreach_sent",
     });
-  } catch (logErr) {
-    console.error("[outreach-send] WhatsApp message log:", logErr?.message || logErr);
+    return;
   }
-  const sentCount = (enrollment.sentCount || 0) + 1;
-  const nextOrder = stepOrder + 1;
-  const nextTouchpoint = getTouchpointByOrder(touchpoints, nextOrder);
 
-  if (!nextTouchpoint) {
+  if (isImmediateTouchpoint(nextTouchpoint)) {
     await CampaignSequenceEnrollment.updateOne(
       { _id: enrollmentId },
       {
         $set: {
-          status: "completed",
+          status: "active",
+          currentStepOrder: nextOrder,
+          nextSendAt: now,
           sentCount,
           lastSentAt: now,
           lastMessageId: sendResult.messageId || "",
+          lastThreadId: sendResult.threadId || "",
           lastError: "",
         },
       }
     );
-    await maybeCompleteCampaign(campaignId);
+    notifyCampaignThreadUpdated(userId, {
+      campaignId,
+      candidateKey,
+      newMessages: 1,
+      hasNewCandidateReply: false,
+      source: "outreach_sent",
+    });
     return;
   }
 
-  const waitHours = Math.max(0, Number(nextTouchpoint.waitHours) || 0);
   await CampaignSequenceEnrollment.updateOne(
     { _id: enrollmentId },
     {
       $set: {
-        status: "active",
+        status: "deferred",
         currentStepOrder: nextOrder,
-        nextSendAt: addHours(now, waitHours),
+        nextSendAt: null,
         sentCount,
         lastSentAt: now,
         lastMessageId: sendResult.messageId || "",
-        lastError: "",
+        lastThreadId: sendResult.threadId || "",
+        lastError: "Delayed schedule — timer only sends immediate steps for now",
       },
     }
   );
+  notifyCampaignThreadUpdated(userId, {
+    campaignId,
+    candidateKey,
+    newMessages: 1,
+    hasNewCandidateReply: false,
+    source: "outreach_sent",
+  });
 }
 
 async function maybeCompleteCampaign(campaignId) {
   const remaining = await CampaignSequenceEnrollment.countDocuments({
     campaignId: new mongoose.Types.ObjectId(campaignId),
-    status: { $in: ["active", "paused"] },
+    status: { $in: ["active", "paused", "deferred"] },
   });
   if (remaining === 0) {
     await Campaign.updateOne(
@@ -646,7 +617,8 @@ async function maybeCompleteCampaign(campaignId) {
 }
 
 /**
- * Process enrollments whose nextSendAt is due (called by scheduler tick).
+ * Process enrollments due for an immediate send (waitDays === 0 on current step).
+ * Delayed steps (waitDays > 0) stay deferred until a future scheduler is added.
  */
 async function processDueEnrollments() {
   const now = new Date();
@@ -664,9 +636,22 @@ async function processDueEnrollments() {
     .limit(SEND_BATCH_SIZE)
     .lean();
 
+  let processed = 0;
   for (const enrollment of due) {
     try {
+      const plan = await OutreachPlan.findById(enrollment.outreachPlanId)
+        .select("touchpoints")
+        .lean();
+      const touchpoints = sortTouchpoints(plan?.touchpoints);
+      const touchpoint = getTouchpointByOrder(
+        touchpoints,
+        enrollment.currentStepOrder || 1
+      );
+      if (!touchpoint || !isImmediateTouchpoint(touchpoint)) {
+        continue;
+      }
       await processEnrollmentDoc(enrollment);
+      processed += 1;
     } catch (err) {
       console.error(
         `[outreach-send] enrollment ${enrollment._id}:`,
@@ -675,7 +660,7 @@ async function processDueEnrollments() {
     }
   }
 
-  return due.length;
+  return processed;
 }
 
 async function deleteEnrollmentsForCampaign(campaignId) {

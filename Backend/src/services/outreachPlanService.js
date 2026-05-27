@@ -7,10 +7,10 @@ function normalizeTouchpoints(raw) {
     .map((tp, index) => {
       const order = Number(tp?.order);
       const subject = typeof tp?.subject === "string" ? tp.subject.trim() : "";
-      const body = typeof tp?.body === "string" ? tp.body : "";
+      const body = typeof tp?.body === "string" ? tp.body.trim() : "";
       const label = typeof tp?.label === "string" ? tp.label.trim() : "";
       const waitDays = Math.max(0, Number(tp?.waitDays) || 0);
-      if (!subject) return null;
+      if (!subject && !body) return null;
       return {
         order: Number.isFinite(order) && order > 0 ? order : index + 1,
         label,
@@ -77,7 +77,21 @@ async function createOutreachPlan(userId, { name, touchpoints }) {
   }
   const tps = normalizeTouchpoints(touchpoints);
   if (tps.length === 0) {
-    const err = new Error("Add at least one touchpoint with a subject");
+    const err = new Error("Add at least one touchpoint with a subject and message body");
+    err.statusCode = 400;
+    throw err;
+  }
+  const missingSubjectCreate = tps.find((tp) => !String(tp.subject || "").trim());
+  if (missingSubjectCreate) {
+    const err = new Error(`Step ${missingSubjectCreate.order} is missing a subject line.`);
+    err.statusCode = 400;
+    throw err;
+  }
+  const missingBodyCreate = tps.find((tp) => !String(tp.body || "").trim());
+  if (missingBodyCreate) {
+    const err = new Error(
+      `Step ${missingBodyCreate.order} is missing the message body. Add your email text before saving.`
+    );
     err.statusCode = 400;
     throw err;
   }
@@ -121,7 +135,21 @@ async function updateOutreachPlan(userId, planId, { name, touchpoints }) {
   if (touchpoints !== undefined) {
     const tps = normalizeTouchpoints(touchpoints);
     if (tps.length === 0) {
-      const err = new Error("Add at least one touchpoint with a subject");
+      const err = new Error("Add at least one touchpoint with a subject and message body");
+      err.statusCode = 400;
+      throw err;
+    }
+    const missingSubject = tps.find((tp) => !String(tp.subject || "").trim());
+    if (missingSubject) {
+      const err = new Error(`Step ${missingSubject.order} is missing a subject line.`);
+      err.statusCode = 400;
+      throw err;
+    }
+    const missingBody = tps.find((tp) => !String(tp.body || "").trim());
+    if (missingBody) {
+      const err = new Error(
+        `Step ${missingBody.order} is missing the message body. Add your email text before saving.`
+      );
       err.statusCode = 400;
       throw err;
     }
