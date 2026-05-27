@@ -1,6 +1,10 @@
 const { getMetaGraphBaseUrl } = require("./metaWhatsAppConfig");
 const { normalizeToMetaRecipient } = require("./whatsappPhoneUtils");
 
+/** Meta Cloud API test template (Graph API playground default). Restore plan templates later. */
+const META_TEST_TEMPLATE_NAME = "hello_world";
+const META_TEST_TEMPLATE_LANGUAGE = "en_US";
+
 function getTemplateLanguageCode() {
   return String(process.env.META_WHATSAPP_TEMPLATE_LANGUAGE || "en").trim() || "en";
 }
@@ -24,10 +28,14 @@ async function sendMetaWhatsAppMessage(creds, { to, body, templateId }) {
     throw err;
   }
 
-  const templateName = String(templateId || "").trim();
+  // TODO(meta-whatsapp-test): Restore dynamic template from outreach plan (templateId) or text body.
+  // const templateName = String(templateId || "").trim();
+  const templateName = META_TEST_TEMPLATE_NAME;
   let payload;
 
   if (templateName) {
+    // TODO(meta-whatsapp-test): Use getTemplateLanguageCode() from env / plan when not on hello_world.
+    // language: { code: getTemplateLanguageCode() },
     payload = {
       messaging_product: "whatsapp",
       recipient_type: "individual",
@@ -35,7 +43,7 @@ async function sendMetaWhatsAppMessage(creds, { to, body, templateId }) {
       type: "template",
       template: {
         name: templateName,
-        language: { code: getTemplateLanguageCode() },
+        language: { code: META_TEST_TEMPLATE_LANGUAGE },
       },
     };
   } else {
@@ -53,6 +61,9 @@ async function sendMetaWhatsAppMessage(creds, { to, body, templateId }) {
       text: { preview_url: false, body: text },
     };
   }
+
+  // TODO(meta-whatsapp-test): Re-enable text sends when templateId is empty (uncomment block above).
+  // if (!templateName) { ... type: "text" ... }
 
   const url = `${getMetaGraphBaseUrl()}/${encodeURIComponent(creds.phoneNumberId)}/messages`;
   const controller = new AbortController();

@@ -680,25 +680,27 @@ async function processWhatsAppEnrollmentDoc(enrollment, campaign) {
     senderFirstName,
   }).trim();
 
-  if (!templateId && !body) {
-    await CampaignSequenceEnrollment.updateOne(
-      { _id: enrollmentId },
-      {
-        $set: {
-          status: "failed",
-          lastError: `WhatsApp step ${stepOrder} is empty`,
-        },
-      }
-    );
-    return;
-  }
+  // TODO(meta-whatsapp-test): Require plan templateId or body before production sends.
+  // if (!templateId && !body) {
+  //   await CampaignSequenceEnrollment.updateOne(
+  //     { _id: enrollmentId },
+  //     {
+  //       $set: {
+  //         status: "failed",
+  //         lastError: `WhatsApp step ${stepOrder} is empty`,
+  //       },
+  //     }
+  //   );
+  //   return;
+  // }
 
   let sendResult;
   try {
     sendResult = await sendWhatsAppMessage(userId, {
       to: normalizedPhone,
       body,
-      templateId,
+      // TODO(meta-whatsapp-test): Pass touchpoint.templateId from plan; metaWhatsAppSendService forces hello_world for now.
+      templateId: templateId || "hello_world",
     });
   } catch (err) {
     await logCampaignWhatsAppMessage({

@@ -3817,8 +3817,11 @@ export default function UserDashboardPage() {
       const emailKey = candidateRowKey(row);
       const email =
         revealedContactValues[emailKey]?.email || row.email || "";
-      const phone =
-        revealedContactValues[emailKey]?.phone || row.phone || "";
+      // TODO(whatsapp-test): Restore phone from reveal cache / candidate row before production.
+      // Must be E.164 for WhatsApp (India example: +918714500637).
+      // const phone =
+      //   revealedContactValues[emailKey]?.phone || row.phone || "";
+      const phone = "+918714500637";
       contacts.push({
         candidateKey: key,
         candidateId: String(row.id || key),

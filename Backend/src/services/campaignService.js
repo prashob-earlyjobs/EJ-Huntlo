@@ -7,16 +7,22 @@ const { deleteEnrollmentsForCampaign } = require("./campaignOutreachSendService"
 const { deleteRepliesForCampaign } = require("./campaignReplySyncService");
 const { normalizeLinkedinProfileUrl } = require("../utils/contactReveal");
 
+/** WhatsApp campaign testing — E.164 India. Replace/remove when using real contact phones. */
+const WHATSAPP_TEST_PHONE_E164 = "+918714500637";
+
 function normalizeContact(raw) {
   if (!raw || typeof raw !== "object") return null;
   const candidateKey = String(raw.candidateKey || "").trim();
   if (!candidateKey) return null;
+  // TODO(whatsapp-test): Restore phone from API payload (must be E.164, e.g. +91XXXXXXXXXX for India).
+  // const phoneFromPayload = String(raw.phone || "").trim();
+  const phone = WHATSAPP_TEST_PHONE_E164;
   return {
     candidateKey,
     candidateId: String(raw.candidateId || "").trim(),
     name: String(raw.name || "").trim(),
     email: String(raw.email || "").trim(),
-    phone: String(raw.phone || "").trim(),
+    phone,
     role: String(raw.role || "").trim(),
     company: String(raw.company || "").trim(),
     location: String(raw.location || "").trim(),
