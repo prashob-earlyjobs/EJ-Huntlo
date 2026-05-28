@@ -31,6 +31,7 @@ type Variant = "modal" | "embedded";
 
 type Props = {
   variant?: Variant;
+  allowedChannels?: ("gmail" | "whatsapp")[];
   existingPlans: ExistingOutreachPlanOption[];
   plansLoading?: boolean;
   templates: OutreachTemplateListItem[];
@@ -126,6 +127,7 @@ function OptionRow({
 
 export function OutreachSequencePicker({
   variant = "modal",
+  allowedChannels = ["gmail", "whatsapp"],
   existingPlans,
   plansLoading = false,
   templates,
@@ -134,12 +136,15 @@ export function OutreachSequencePicker({
   lead = "Choose how to build your sequence",
   onChoose,
 }: Props) {
-  const [step, setStep] = useState<"choose" | "clone" | "scratchChannel">("choose");
+  const [step, setStep] = useState<"choose" | "clone" | "scratchChannel" | "aiChannel">("choose");
   const [clonePlanId, setClonePlanId] = useState("");
   const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [pickerToast, setPickerToast] = useState<string>("");
   const s = pickerStyles(variant);
 
   const showLead = lead !== undefined && lead !== "";
+  const allowsGmail = allowedChannels.includes("gmail");
+  const allowsWhatsApp = allowedChannels.includes("whatsapp");
 
   const globalTemplates = templates.filter((t) => t.isGlobal);
   const userTemplates = templates.filter((t) => !t.isGlobal);
@@ -156,18 +161,62 @@ export function OutreachSequencePicker({
       <div className={`${s.root} dashboard-outreach-scroll`}>
         <p className={s.lead}>Choose a channel for your outreach sequence.</p>
         <div className={s.options}>
-          <OptionRow
-            styles={s}
-            brandProvider="gmail"
-            label="Gmail"
-            onClick={() => onChoose({ type: "scratch", channel: "gmail" })}
-          />
-          <OptionRow
-            styles={s}
-            brandProvider="whatsapp"
-            label="WhatsApp"
-            onClick={() => onChoose({ type: "scratch", channel: "whatsapp" })}
-          />
+          {allowsGmail ? (
+            <OptionRow
+              styles={s}
+              brandProvider="gmail"
+              label="Gmail"
+              onClick={() => onChoose({ type: "scratch", channel: "gmail" })}
+            />
+          ) : null}
+          {allowsWhatsApp ? (
+            <OptionRow
+              styles={s}
+              brandProvider="whatsapp"
+              label="WhatsApp"
+              onClick={() => onChoose({ type: "scratch", channel: "whatsapp" })}
+            />
+          ) : null}
+        </div>
+        <div className={s.actions}>
+          <button
+            type="button"
+            onClick={() => setStep("choose")}
+            className={`${dashboardBtnSecondaryClass} px-4 py-2.5 text-sm`}
+          >
+            Back
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (step === "aiChannel") {
+    return (
+      <div className={`${s.root} dashboard-outreach-scroll`}>
+        <p className={s.lead}>Choose a channel for AI-generated outreach.</p>
+        <div className={s.options}>
+          {allowsGmail ? (
+            <OptionRow
+              styles={s}
+              brandProvider="gmail"
+              label="Gmail"
+              onClick={() => {
+                setAiModalOpen(true);
+                setStep("choose");
+              }}
+            />
+          ) : null}
+          {allowsWhatsApp ? (
+            <OptionRow
+              styles={s}
+              brandProvider="whatsapp"
+              label="WhatsApp"
+              onClick={() => {
+                setPickerToast("AI generation is currently available for Gmail only.");
+              }}
+            />
+          ) : null}
         </div>
         <div className={s.actions}>
           <button
@@ -251,7 +300,7 @@ export function OutreachSequencePicker({
           icon="auto_awesome"
           iconVariant="ai"
           label="Generate with AI"
-          onClick={() => setAiModalOpen(true)}
+          onClick={() => setStep("aiChannel")}
         />
         <OptionRow
           styles={s}
@@ -386,10 +435,21 @@ export function OutreachSequencePicker({
       <GenerateOutreachAiModal
         open={aiModalOpen}
         onClose={() => setAiModalOpen(false)}
+        onBack={() => {
+          setAiModalOpen(false);
+          setStep("aiChannel");
+        }}
         onGenerated={({ touchpoints, planName }) =>
           onChoose({ type: "ai", touchpoints, planName })
         }
       />
+      {pickerToast ? (
+        <DashboardToast
+          message={pickerToast}
+          variant="error"
+          onDismiss={() => setPickerToast("")}
+        />
+      ) : null}
     </div>
   );
 }

@@ -14,7 +14,7 @@ import {
   type WhatsAppThreadMessage,
 } from "@/lib/campaignWhatsAppApi";
 
-type FilterKey = "all" | "unread" | "replied" | "awaiting";
+type FilterKey = "all" | "interested" | "not_interested" | "awaiting";
 
 type Props = {
   campaignId: string;
@@ -133,9 +133,15 @@ export function CampaignWhatsAppCommunicationsPanel({
   const filteredThreads = useMemo(() => {
     const q = search.trim().toLowerCase();
     return threads.filter((t) => {
-      if (filter === "unread" && t.unreadCount === 0) return false;
-      if (filter === "replied" && t.threadStatus !== "replied") return false;
-      if (filter === "awaiting" && t.threadStatus !== "awaiting") return false;
+      const disposition = t.enrollment?.replyDisposition || "unknown";
+      if (filter === "interested" && disposition !== "interested") return false;
+      if (filter === "not_interested" && disposition !== "not_interested") return false;
+      if (
+        filter === "awaiting" &&
+        (disposition === "interested" || disposition === "not_interested")
+      ) {
+        return false;
+      }
       if (!q) return true;
       const name = t.contact.name.toLowerCase();
       const phone = t.contact.phone.toLowerCase();
@@ -149,9 +155,9 @@ export function CampaignWhatsAppCommunicationsPanel({
 
   const filterOptions: { key: FilterKey; label: string }[] = [
     { key: "all", label: "All" },
-    { key: "unread", label: "Unread" },
-    { key: "replied", label: "Replied" },
-    { key: "awaiting", label: "Awaiting" },
+    { key: "interested", label: "Interested" },
+    { key: "not_interested", label: "Not Interested" },
+    { key: "awaiting", label: "Awaiting Reply" },
   ];
 
   if (loading) {

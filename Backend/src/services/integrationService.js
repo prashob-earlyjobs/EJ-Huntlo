@@ -14,7 +14,7 @@ const {
 
 const { GMAIL_SCOPES } = require("./gmailClient");
 
-const { fetchCalendlyUser } = require("./calendlyClient");
+const { fetchCalendlyUser, fetchCalendlyEventTypes } = require("./calendlyClient");
 
 const PROVIDER_LABELS = {
   gmail: { integration: "Gmail", provider: "Google" },
@@ -459,6 +459,20 @@ async function getCalendlyCredentialsForUser(userId) {
   };
 }
 
+async function listCalendlyEventTypesForUser(userId) {
+  const creds = await getCalendlyCredentialsForUser(userId);
+  const user = await fetchCalendlyUser(creds.personalAccessToken);
+  const meetings = await fetchCalendlyEventTypes(creds.personalAccessToken, user.uri);
+  return {
+    meetings,
+    user: {
+      name: user.name || "",
+      email: user.email || "",
+      schedulingUrl: user.schedulingUrl || "",
+    },
+  };
+}
+
 /**
  * Meta Cloud API credentials for outbound WhatsApp (used by send service).
  */
@@ -530,6 +544,7 @@ module.exports = {
   getGmailStatus,
   getWhatsAppStatus,
   getCalendlyStatus,
+  listCalendlyEventTypesForUser,
   getMetaCredentialsForUser,
   getCalendlyCredentialsForUser,
   listUserIntegrations,

@@ -11,6 +11,18 @@ const touchpointSchema = new mongoose.Schema(
   { _id: true }
 );
 
+const calendlyAutomationSchema = new mongoose.Schema(
+  {
+    enabled: { type: Boolean, default: false },
+    meetingUri: { type: String, trim: true, default: "" },
+    meetingName: { type: String, trim: true, default: "" },
+    schedulingUrl: { type: String, trim: true, default: "" },
+    durationMinutes: { type: Number, default: 0, min: 0 },
+    kind: { type: String, trim: true, default: "" },
+  },
+  { _id: false }
+);
+
 const outreachPlanSchema = new mongoose.Schema(
   {
     userId: {
@@ -23,6 +35,10 @@ const outreachPlanSchema = new mongoose.Schema(
     touchpoints: {
       type: [touchpointSchema],
       default: [],
+    },
+    calendlyAutomation: {
+      type: calendlyAutomationSchema,
+      default: () => ({ enabled: false }),
     },
   },
   { timestamps: true }

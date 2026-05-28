@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useLayoutEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import {
@@ -28,7 +28,6 @@ import {
 const ENTERPRISE_PLAN_ID = "enterprise";
 const ENTERPRISE_LOCKED_MESSAGE =
   "Campaigns are available on the Enterprise plan. Upgrade to organize and run outreach campaigns.";
-
 type Props = {
   currentPlanId: string;
   /** False until /api/users/me (or dashboard overview) has set the real plan id. */
@@ -37,6 +36,9 @@ type Props = {
   onGoToIntegrations?: () => void;
   campaigns: CampaignRecord[];
   campaignsLoading?: boolean;
+  campaignsLoadingMore?: boolean;
+  campaignsHasMore?: boolean;
+  onLoadMoreCampaigns?: () => Promise<void> | void;
   onCreateCampaign: (name: string) => Promise<CampaignRecord | null>;
   onCampaignUpdated?: (campaign: CampaignRecord) => void;
   routeCampaignId?: string;
@@ -50,6 +52,9 @@ export function CampaignsPanel({
   onGoToIntegrations,
   campaigns,
   campaignsLoading = false,
+  campaignsLoadingMore = false,
+  campaignsHasMore = false,
+  onLoadMoreCampaigns,
   onCreateCampaign,
   onCampaignUpdated,
   routeCampaignId = "",
@@ -67,6 +72,8 @@ export function CampaignsPanel({
   const [workspaceTab, setWorkspaceTab] =
     useState<CampaignWorkspaceTab>(routeWorkspaceTab);
   const [listReady, setListReady] = useState(false);
+  const listScrollRef = useRef<HTMLDivElement | null>(null);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
   const activeCampaignId = routeCampaignId.trim() || null;
   const listCampaign =
@@ -157,6 +164,39 @@ export function CampaignsPanel({
 
   const showEnterpriseLocked =
     planResolved && !isEnterprise && !campaignsLoading && campaigns.length === 0;
+  const hasMoreCampaigns = Boolean(campaignsHasMore);
+
+  useEffect(() => {
+    if (!hasMoreCampaigns || !onLoadMoreCampaigns || campaignsLoadingMore) return;
+    const root = listScrollRef.current;
+    const target = loadMoreRef.current;
+    if (!root || !target) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            onLoadMoreCampaigns();
+            break;
+          }
+        }
+      },
+      {
+        root,
+        rootMargin: "0px 0px 240px 0px",
+        threshold: 0.01,
+      }
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [hasMoreCampaigns, onLoadMoreCampaigns, campaignsLoadingMore]);
+
+  useEffect(() => {
+    const root = listScrollRef.current;
+    if (!root || !hasMoreCampaigns || !onLoadMoreCampaigns || campaignsLoadingMore) return;
+    if (root.scrollHeight > root.clientHeight) return;
+    onLoadMoreCampaigns();
+  }, [hasMoreCampaigns, onLoadMoreCampaigns, campaignsLoadingMore, campaigns.length]);
 
   useEffect(() => {
     setWorkspaceTab(routeWorkspaceTab);
@@ -286,7 +326,10 @@ export function CampaignsPanel({
           </button>
         </div>
 
-        <div className="dashboard-card-body-scroll dashboard-outreach-panel-body mt-4 flex flex-1 flex-col">
+        <div
+          ref={listScrollRef}
+          className="dashboard-card-body-scroll dashboard-outreach-panel-body mt-4 flex flex-1 flex-col"
+        >
           {showListShimmer ? (
             <CampaignsListSkeleton count={5} />
           ) : showEnterpriseLocked ? (
@@ -336,6 +379,11 @@ export function CampaignsPanel({
                   </button>
                 </li>
               ))}
+              {hasMoreCampaigns ? (
+                <li ref={loadMoreRef} aria-hidden className="py-2">
+                  <div className="dashboard-shimmer h-10 w-full rounded-lg" />
+                </li>
+              ) : null}
             </ul>
           )}
         </div>

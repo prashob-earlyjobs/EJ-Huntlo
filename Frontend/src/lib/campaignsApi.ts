@@ -206,6 +206,65 @@ export async function fetchCampaign(token: string, campaignId: string): Promise<
   return campaign;
 }
 
+export async function fetchCampaignContactsPage(
+  token: string,
+  campaignId: string,
+  options?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    disposition?: "all" | "interested" | "not_interested" | "awaiting";
+  }
+): Promise<{
+  contacts: CampaignContact[];
+  dispositionByCandidateKey: Record<string, "unknown" | "interested" | "not_interested">;
+  pagination: { page: number; limit: number; total: number; totalPages: number; hasMore: boolean };
+}> {
+  const params = new URLSearchParams();
+  if (options?.page && options.page > 0) params.set("page", String(options.page));
+  if (options?.limit && options.limit > 0) params.set("limit", String(options.limit));
+  if (options?.search && options.search.trim()) params.set("search", options.search.trim());
+  if (options?.disposition && options.disposition !== "all") {
+    params.set("disposition", options.disposition);
+  }
+  const qs = params.toString();
+  const res = await fetch(`${apiBase()}/api/campaigns/${campaignId}/contacts${qs ? `?${qs}` : ""}`, {
+    headers: authHeaders(token),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.success) {
+    throw new Error(typeof data.message === "string" ? data.message : "Failed to load contacts");
+  }
+  const contacts = Array.isArray(data.contacts)
+    ? data.contacts.map(parseContact).filter((c: CampaignContact | null): c is CampaignContact => c !== null)
+    : [];
+  const page = typeof data.pagination?.page === "number" ? data.pagination.page : options?.page || 1;
+  const limit =
+    typeof data.pagination?.limit === "number" ? data.pagination.limit : options?.limit || 15;
+  const total = typeof data.pagination?.total === "number" ? data.pagination.total : contacts.length;
+  const totalPages =
+    typeof data.pagination?.totalPages === "number"
+      ? data.pagination.totalPages
+      : Math.max(1, Math.ceil(total / Math.max(1, limit)));
+  return {
+    contacts,
+    dispositionByCandidateKey:
+      data.dispositionByCandidateKey && typeof data.dispositionByCandidateKey === "object"
+        ? (data.dispositionByCandidateKey as Record<
+            string,
+            "unknown" | "interested" | "not_interested"
+          >)
+        : {},
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages,
+      hasMore: Boolean(data.pagination?.hasMore),
+    },
+  };
+}
+
 export async function fetchCampaigns(token: string): Promise<CampaignRecord[]> {
   const res = await fetch(`${apiBase()}/api/campaigns`, {
     headers: authHeaders(token),
@@ -218,6 +277,41 @@ export async function fetchCampaigns(token: string): Promise<CampaignRecord[]> {
   return data.campaigns
     .map(parseCampaign)
     .filter((c: CampaignRecord | null): c is CampaignRecord => c !== null);
+}
+
+export async function fetchCampaignsPage(
+  token: string,
+  options?: { page?: number; limit?: number }
+): Promise<{
+  campaigns: CampaignRecord[];
+  pagination: { page: number; limit: number; total: number; hasMore: boolean };
+}> {
+  const params = new URLSearchParams();
+  if (options?.page && options.page > 0) params.set("page", String(options.page));
+  if (options?.limit && options.limit > 0) params.set("limit", String(options.limit));
+  const qs = params.toString();
+  const res = await fetch(`${apiBase()}/api/campaigns${qs ? `?${qs}` : ""}`, {
+    headers: authHeaders(token),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.success) {
+    throw new Error(typeof data.message === "string" ? data.message : "Failed to load campaigns");
+  }
+  const campaigns = Array.isArray(data.campaigns)
+    ? data.campaigns
+        .map(parseCampaign)
+        .filter((c: CampaignRecord | null): c is CampaignRecord => c !== null)
+    : [];
+  return {
+    campaigns,
+    pagination: {
+      page: typeof data.pagination?.page === "number" ? data.pagination.page : options?.page || 1,
+      limit:
+        typeof data.pagination?.limit === "number" ? data.pagination.limit : options?.limit || 20,
+      total: typeof data.pagination?.total === "number" ? data.pagination.total : campaigns.length,
+      hasMore: Boolean(data.pagination?.hasMore),
+    },
+  };
 }
 
 export async function createCampaign(
@@ -280,4 +374,30 @@ export async function addContactsToCampaignApi(
       ? data.revealJob.id
       : null;
   return { campaign, addedCount, skippedCount, revealJobId };
+}
+
+export async function removeContactFromCampaignApi(
+  token: string,
+  campaignId: string,
+  candidateKey: string
+): Promise<{ campaign: CampaignRecord; removed: number }> {
+  const key = String(candidateKey || "").trim();
+  if (!key) throw new Error("candidateKey is required");
+  const res = await fetch(
+    `${apiBase()}/api/campaigns/${campaignId}/contacts/${encodeURIComponent(key)}`,
+    {
+      method: "DELETE",
+      headers: authHeaders(token),
+    }
+  );
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.success) {
+    throw new Error(typeof data.message === "string" ? data.message : "Failed to remove contact");
+  }
+  const campaign = parseCampaign(data.campaign);
+  if (!campaign) throw new Error("Invalid campaign response");
+  return {
+    campaign,
+    removed: typeof data.removed === "number" ? data.removed : 0,
+  };
 }

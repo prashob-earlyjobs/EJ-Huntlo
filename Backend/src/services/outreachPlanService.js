@@ -24,8 +24,32 @@ function normalizeTouchpoints(raw) {
     .map((tp, index) => ({ ...tp, order: index + 1 }));
 }
 
+function normalizeCalendlyAutomation(raw) {
+  const o = raw && typeof raw === "object" ? raw : {};
+  const enabled = Boolean(o?.enabled);
+  if (!enabled) {
+    return {
+      enabled: false,
+      meetingUri: "",
+      meetingName: "",
+      schedulingUrl: "",
+      durationMinutes: 0,
+      kind: "",
+    };
+  }
+  return {
+    enabled: true,
+    meetingUri: String(o?.meetingUri || "").trim(),
+    meetingName: String(o?.meetingName || "").trim(),
+    schedulingUrl: String(o?.schedulingUrl || "").trim(),
+    durationMinutes: Math.max(0, Number(o?.durationMinutes) || 0),
+    kind: String(o?.kind || "").trim(),
+  };
+}
+
 function formatPlan(doc) {
   const touchpoints = Array.isArray(doc.touchpoints) ? doc.touchpoints : [];
+  const calendlyAutomation = normalizeCalendlyAutomation(doc.calendlyAutomation);
   return {
     id: String(doc._id),
     name: doc.name || "",
@@ -38,6 +62,7 @@ function formatPlan(doc) {
       waitDays: tp.waitDays ?? 0,
     })),
     touchpointCount: touchpoints.length,
+    calendlyAutomation,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   };
@@ -68,7 +93,7 @@ async function getOutreachPlan(userId, planId) {
   return formatPlan(doc);
 }
 
-async function createOutreachPlan(userId, { name, touchpoints }) {
+async function createOutreachPlan(userId, { name, touchpoints, calendlyAutomation }) {
   const planName = String(name || "").trim();
   if (!planName) {
     const err = new Error("Plan name is required");
@@ -101,11 +126,12 @@ async function createOutreachPlan(userId, { name, touchpoints }) {
     userId: userOid,
     name: planName,
     touchpoints: tps,
+    calendlyAutomation: normalizeCalendlyAutomation(calendlyAutomation),
   });
   return formatPlan(doc.toObject());
 }
 
-async function updateOutreachPlan(userId, planId, { name, touchpoints }) {
+async function updateOutreachPlan(userId, planId, { name, touchpoints, calendlyAutomation }) {
   if (!mongoose.Types.ObjectId.isValid(planId)) {
     const err = new Error("Invalid outreach plan id");
     err.statusCode = 400;
@@ -154,6 +180,10 @@ async function updateOutreachPlan(userId, planId, { name, touchpoints }) {
       throw err;
     }
     doc.touchpoints = tps;
+  }
+
+  if (calendlyAutomation !== undefined) {
+    doc.calendlyAutomation = normalizeCalendlyAutomation(calendlyAutomation);
   }
 
   await doc.save();
