@@ -2750,12 +2750,16 @@ export default function UserDashboardPage() {
     }
     const auth = getStoredAuth();
     if (!auth?.token) return;
+    setSearchLoading(true);
 
-    void loadSessionProfilesFirstPage(routeSessionId, 20, auth.token, "Search history").catch(
-      (err) => {
+    void loadSessionProfilesFirstPage(routeSessionId, 20, auth.token, "Search history")
+      .catch((err) => {
         setSessionResultError(
           err instanceof Error ? err.message : "Could not load session results"
         );
+      })
+      .finally(() => {
+        setSearchLoading(false);
       }
     );
   }, [
@@ -4477,7 +4481,12 @@ export default function UserDashboardPage() {
                 {!searchLoading &&
                 !applyFiltersLoading &&
                 sessionResultDocs.length === 0 &&
-                !sessionResultError ? (
+                !sessionResultError &&
+                !(
+                  tabFromRoute === "Session Results" &&
+                  Boolean(routeSessionId) &&
+                  searchSummary?.sessionId !== routeSessionId
+                ) ? (
                   <div className="dashboard-empty-state">
                     <div className="dashboard-empty-state-icon">
                       <MaterialIcon name="person_off" className="text-[28px]" />

@@ -4385,6 +4385,33 @@
   background-clip: padding-box;
 }
 
+.dashboard-thin-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #c3cfdf transparent;
+}
+
+.dashboard-thin-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.dashboard-thin-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dashboard-thin-scrollbar::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #cbd5e1 0%, #b8c5d8 100%);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.dashboard-thin-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #b6c3d8 0%, #9fb1ca 100%);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
 .dashboard-campaign-emails-actions {
   display: flex;
   flex-direction: column;
