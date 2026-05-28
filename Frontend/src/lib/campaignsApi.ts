@@ -281,3 +281,22 @@ export async function addContactsToCampaignApi(
       : null;
   return { campaign, addedCount, skippedCount, revealJobId };
 }
+
+export async function removeContactFromCampaignApi(
+  token: string,
+  campaignId: string,
+  candidateKey: string
+): Promise<{ campaign: CampaignRecord; removed: boolean }> {
+  const encodedKey = encodeURIComponent(candidateKey);
+  const res = await fetch(`${apiBase()}/api/campaigns/${campaignId}/contacts/${encodedKey}`, {
+    method: "DELETE",
+    headers: authHeaders(token),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.success) {
+    throw new Error(typeof data.message === "string" ? data.message : "Failed to remove contact");
+  }
+  const campaign = parseCampaign(data.campaign);
+  if (!campaign) throw new Error("Invalid campaign response");
+  return { campaign, removed: Boolean(data.removed) };
+}

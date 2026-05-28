@@ -55,6 +55,10 @@ const campaignSequenceEnrollmentSchema = new mongoose.Schema(
     lastAutoReplyAt: { type: Date, default: null },
     /** Gmail message id of the last candidate message we auto-replied to. */
     lastAutoRepliedToMessageId: { type: String, default: "" },
+    /** Meta inbound message id last handled by WhatsApp AI qualification flow. */
+    lastWhatsAppAiHandledMessageId: { type: String, default: "" },
+    /** Next reply-based WhatsApp question order to send after a candidate reply. */
+    nextReplyFollowUpOrder: { type: Number, default: 0, min: 0 },
   },
   { timestamps: true }
 );

@@ -9096,6 +9096,8 @@ select.dashboard-outreach-start-chip--select {
 }
 
 .dashboard-wa-outreach-rail {
+  display: flex;
+  flex-direction: column;
   width: 15rem;
   flex-shrink: 0;
   min-height: 0;
@@ -9136,6 +9138,29 @@ select.dashboard-outreach-start-chip--select {
 
 .dashboard-wa-outreach-flow-item + .dashboard-wa-outreach-flow-item {
   margin-top: 0.25rem;
+}
+
+.dashboard-wa-outreach-flow-item--sub {
+  margin-left: 1.25rem;
+  position: relative;
+}
+
+.dashboard-wa-outreach-flow-item--sub::before {
+  content: "";
+  position: absolute;
+  left: -0.75rem;
+  top: 0.95rem;
+  height: 1px;
+  width: 0.5rem;
+  background: color-mix(in srgb, #128c7e 35%, var(--dash-outline));
+}
+
+.dashboard-wa-outreach-flow-item--reply::before {
+  display: none;
+}
+
+.dashboard-wa-outreach-flow-item--reply {
+  margin-left: 0;
 }
 
 .dashboard-wa-outreach-flow-node {
@@ -9200,6 +9225,10 @@ select.dashboard-outreach-start-chip--select {
   color: var(--dash-on-surface-variant);
 }
 
+.dashboard-wa-outreach-flow-wait--sub {
+  margin-left: 3.5rem;
+}
+
 .dashboard-wa-outreach-add-step {
   display: inline-flex;
   width: 100%;
@@ -9222,6 +9251,57 @@ select.dashboard-outreach-start-chip--select {
 .dashboard-wa-outreach-add-step:hover {
   background: color-mix(in srgb, #128c7e 8%, white);
   border-color: #128c7e;
+}
+
+.dashboard-wa-outreach-calendly-card {
+  margin-top: auto;
+  border: 1px solid color-mix(in srgb, var(--dash-outline) 42%, transparent);
+  border-radius: 0.625rem;
+  background: color-mix(in srgb, #0ea5e9 4%, white);
+  padding: 0.625rem;
+}
+
+.dashboard-wa-outreach-calendly-head {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  color: #0369a1;
+}
+
+.dashboard-wa-outreach-calendly-logo {
+  width: 1rem;
+  height: 1rem;
+  object-fit: contain;
+}
+
+.dashboard-wa-outreach-calendly-title {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.dashboard-wa-outreach-calendly-text {
+  margin: 0.375rem 0 0;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--dash-on-surface-variant);
+}
+
+.dashboard-wa-outreach-calendly-btn {
+  margin-top: 0.5rem;
+  width: 100%;
+  border: 1px solid color-mix(in srgb, #0ea5e9 45%, var(--dash-outline));
+  border-radius: 0.5rem;
+  background: #ffffff;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #0369a1;
+}
+
+.dashboard-wa-outreach-calendly-btn:hover {
+  background: color-mix(in srgb, #0ea5e9 8%, white);
 }
 
 .dashboard-wa-outreach-canvas {
@@ -9469,8 +9549,8 @@ select.dashboard-outreach-start-chip--select {
 
 .dashboard-wa-no-reply-section {
   margin-top: 1.75rem;
-  padding-top: 1.5rem;
-  border-top: 1px solid color-mix(in srgb, var(--dash-outline) 45%, transparent);
+  padding-top: 0;
+  border-top: none;
 }
 
 .dashboard-wa-no-reply-section-title {

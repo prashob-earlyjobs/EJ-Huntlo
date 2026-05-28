@@ -5,6 +5,7 @@ const {
   getGmailStatusHandler,
   getWhatsAppStatusHandler,
   getCalendlyStatusHandler,
+  getCalendlyMeetingLinksHandler,
   connectGmailWithAuthCode,
   verifyWhatsAppCredentialsHandler,
   connectWhatsAppHandler,
@@ -30,6 +31,7 @@ router.get("/", authenticate, listIntegrationsHandler);
 router.get("/gmail/status", authenticate, getGmailStatusHandler);
 router.get("/whatsapp/status", authenticate, getWhatsAppStatusHandler);
 router.get("/calendly/status", authenticate, getCalendlyStatusHandler);
+router.get("/calendly/links", authenticate, getCalendlyMeetingLinksHandler);
 router.post("/gmail/callback", authenticate, connectGmailWithAuthCode);
 router.post("/whatsapp/verify", authenticate, verifyWhatsAppCredentialsHandler);
 router.post("/whatsapp/connect", authenticate, connectWhatsAppHandler);

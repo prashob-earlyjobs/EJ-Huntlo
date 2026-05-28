@@ -42,6 +42,8 @@ const campaignSchema = new mongoose.Schema(
       default: "idle",
     },
     outreachStartedAt: { type: Date, default: null },
+    whatsAppInterestedCount: { type: Number, default: 0, min: 0 },
+    whatsAppNotInterestedCount: { type: Number, default: 0, min: 0 },
     contacts: {
       type: [campaignContactSchema],
       default: [],

@@ -27,6 +27,7 @@ function parseTouchpoint(raw: unknown): WhatsAppTouchpointDraft | null {
       ? { templateId: o.templateId.trim() }
       : {}),
     ...(o.isNoReplyFallback ? { isNoReplyFallback: true } : {}),
+    ...(o.isReplyFollowUp ? { isReplyFollowUp: true } : {}),
   };
 }
 

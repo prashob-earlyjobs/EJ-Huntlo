@@ -5,6 +5,7 @@ const {
   getCampaignHandler,
   createCampaignHandler,
   addContactsHandler,
+  removeContactHandler,
   getCampaignRevealJobHandler,
   getActiveCampaignRevealJobHandler,
   startCampaignRevealJobHandler,
@@ -15,6 +16,9 @@ const {
   resumeCampaignSequenceHandler,
   getCampaignSequenceStatusHandler,
   getCampaignWhatsAppConversationsHandler,
+  getCampaignWhatsAppThreadMessagesHandler,
+  sendCampaignWhatsAppSessionMessageHandler,
+  markCampaignWhatsAppThreadReadHandler,
   syncCampaignRepliesHandler,
   listCampaignRepliesHandler,
   getContactEmailThreadHandler,
@@ -33,6 +37,21 @@ router.post("/:id/pause-sequence", authenticate, pauseCampaignSequenceHandler);
 router.post("/:id/resume-sequence", authenticate, resumeCampaignSequenceHandler);
 router.get("/:id/sequence-status", authenticate, getCampaignSequenceStatusHandler);
 router.get("/:id/whatsapp-conversations", authenticate, getCampaignWhatsAppConversationsHandler);
+router.get(
+  "/:id/whatsapp-conversations/:candidateKey/messages",
+  authenticate,
+  getCampaignWhatsAppThreadMessagesHandler
+);
+router.post(
+  "/:id/whatsapp-conversations/:candidateKey/messages",
+  authenticate,
+  sendCampaignWhatsAppSessionMessageHandler
+);
+router.post(
+  "/:id/whatsapp-conversations/:candidateKey/read",
+  authenticate,
+  markCampaignWhatsAppThreadReadHandler
+);
 router.post("/:id/sync-replies", authenticate, syncCampaignRepliesHandler);
 router.get("/:id/replies", authenticate, listCampaignRepliesHandler);
 router.get(
@@ -42,6 +61,7 @@ router.get(
 );
 router.get("/:id", authenticate, getCampaignHandler);
 router.post("/:id/contacts", authenticate, addContactsHandler);
+router.delete("/:id/contacts/:candidateKey", authenticate, removeContactHandler);
 router.post("/:id/contacts/sync-revealed", authenticate, syncCampaignContactsHandler);
 router.patch("/:id/outreach-plan", authenticate, setCampaignOutreachPlanHandler);
 router.delete("/:id", authenticate, deleteCampaignHandler);

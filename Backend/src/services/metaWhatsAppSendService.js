@@ -17,54 +17,7 @@ function parseMetaSendError(payload, status) {
   return "Meta WhatsApp send failed.";
 }
 
-/**
- * Send WhatsApp message via Meta Cloud API.
- */
-async function sendMetaWhatsAppMessage(creds, { to, body, templateId }) {
-  const recipient = normalizeToMetaRecipient(to);
-  if (!recipient || recipient.length < 10) {
-    const err = new Error("Invalid recipient phone for Meta API.");
-    err.statusCode = 400;
-    throw err;
-  }
-
-  // TODO(meta-whatsapp-test): Restore dynamic template from outreach plan (templateId) or text body.
-  // const templateName = String(templateId || "").trim();
-  const templateName = META_TEST_TEMPLATE_NAME;
-  let payload;
-
-  if (templateName) {
-    // TODO(meta-whatsapp-test): Use getTemplateLanguageCode() from env / plan when not on hello_world.
-    // language: { code: getTemplateLanguageCode() },
-    payload = {
-      messaging_product: "whatsapp",
-      recipient_type: "individual",
-      to: recipient,
-      type: "template",
-      template: {
-        name: templateName,
-        language: { code: META_TEST_TEMPLATE_LANGUAGE },
-      },
-    };
-  } else {
-    const text = String(body || "").trim();
-    if (!text) {
-      const err = new Error("Message body is empty.");
-      err.statusCode = 400;
-      throw err;
-    }
-    payload = {
-      messaging_product: "whatsapp",
-      recipient_type: "individual",
-      to: recipient,
-      type: "text",
-      text: { preview_url: false, body: text },
-    };
-  }
-
-  // TODO(meta-whatsapp-test): Re-enable text sends when templateId is empty (uncomment block above).
-  // if (!templateName) { ... type: "text" ... }
-
+async function postMetaWhatsAppPayload(creds, payload) {
   const url = `${getMetaGraphBaseUrl()}/${encodeURIComponent(creds.phoneNumberId)}/messages`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 20_000);
@@ -118,6 +71,82 @@ async function sendMetaWhatsAppMessage(creds, { to, body, templateId }) {
   }
 }
 
+/**
+ * Free-form text inside Meta's 24-hour customer care window (after candidate replied).
+ */
+async function sendMetaWhatsAppSessionText(creds, { to, body }) {
+  const recipient = normalizeToMetaRecipient(to);
+  if (!recipient || recipient.length < 10) {
+    const err = new Error("Invalid recipient phone for Meta API.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const text = String(body || "").trim();
+  if (!text) {
+    const err = new Error("Message body is empty.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  return postMetaWhatsAppPayload(creds, {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to: recipient,
+    type: "text",
+    text: { preview_url: false, body: text },
+  });
+}
+
+/**
+ * Send WhatsApp message via Meta Cloud API (campaign templates / outreach).
+ */
+async function sendMetaWhatsAppMessage(creds, { to, body, templateId }) {
+  const recipient = normalizeToMetaRecipient(to);
+  if (!recipient || recipient.length < 10) {
+    const err = new Error("Invalid recipient phone for Meta API.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // TODO(meta-whatsapp-test): Restore dynamic template from outreach plan (templateId) or text body.
+  // const templateName = String(templateId || "").trim();
+  const templateName = META_TEST_TEMPLATE_NAME;
+  let payload;
+
+  if (templateName) {
+    // TODO(meta-whatsapp-test): Use getTemplateLanguageCode() from env / plan when not on hello_world.
+    // language: { code: getTemplateLanguageCode() },
+    payload = {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: recipient,
+      type: "template",
+      template: {
+        name: templateName,
+        language: { code: META_TEST_TEMPLATE_LANGUAGE },
+      },
+    };
+  } else {
+    const text = String(body || "").trim();
+    if (!text) {
+      const err = new Error("Message body is empty.");
+      err.statusCode = 400;
+      throw err;
+    }
+    payload = {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: recipient,
+      type: "text",
+      text: { preview_url: false, body: text },
+    };
+  }
+
+  return postMetaWhatsAppPayload(creds, payload);
+}
+
 module.exports = {
   sendMetaWhatsAppMessage,
+  sendMetaWhatsAppSessionText,
 };

@@ -13,6 +13,7 @@ function normalizeTouchpoints(raw) {
       const waitHours = Math.max(0, Number(tp?.waitHours) || 0);
       const templateId = typeof tp?.templateId === "string" ? tp.templateId.trim() : "";
       const isNoReplyFallback = Boolean(tp?.isNoReplyFallback);
+      const isReplyFollowUp = Boolean(tp?.isReplyFollowUp);
       const trimmedBody = body.trim();
       if (!trimmedBody) return null;
       if (trimmedBody.length > MESSAGE_MAX_LENGTH) {
@@ -29,6 +30,7 @@ function normalizeTouchpoints(raw) {
         waitHours,
         templateId,
         isNoReplyFallback,
+        isReplyFollowUp,
       };
     })
     .filter(Boolean)
@@ -65,6 +67,12 @@ function validateTouchpoints(touchpoints) {
     err.statusCode = 400;
     throw err;
   }
+  const replyFollowUps = touchpoints.filter((tp) => tp.isReplyFollowUp);
+  if (replyFollowUps.length < 4) {
+    const err = new Error("Add 4 reply-based questions after the opening message");
+    err.statusCode = 400;
+    throw err;
+  }
 }
 
 function formatPlan(doc) {
@@ -81,6 +89,7 @@ function formatPlan(doc) {
       waitHours: tp.waitHours ?? 0,
       templateId: tp.templateId || undefined,
       isNoReplyFallback: Boolean(tp.isNoReplyFallback),
+      isReplyFollowUp: Boolean(tp.isReplyFollowUp),
     })),
     touchpointCount: touchpoints.length,
     createdAt: doc.createdAt,

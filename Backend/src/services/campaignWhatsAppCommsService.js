@@ -2,6 +2,12 @@ const mongoose = require("mongoose");
 const Campaign = require("../models/Campaign");
 const CampaignSequenceEnrollment = require("../models/CampaignSequenceEnrollment");
 const CampaignWhatsAppMessage = require("../models/CampaignWhatsAppMessage");
+const CampaignWhatsAppThreadRead = require("../models/CampaignWhatsAppThreadRead");
+const { sendWhatsAppSessionMessage } = require("./whatsappSendService");
+const { notifyCampaignThreadUpdated } = require("../realtime/notify");
+
+/** Meta customer care session — free-form text allowed after candidate's last message. */
+const WHATSAPP_SESSION_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 function userOid(userId) {
   return new mongoose.Types.ObjectId(userId);
@@ -51,6 +57,120 @@ function buildLastPreview(lastMessage, hasPhone) {
     lastMessage.direction === "inbound" ? body : body ? `You: ${body}` : "Message sent";
   if (preview.length <= 72) return preview;
   return `${preview.slice(0, 72)}…`;
+}
+
+function lastCandidateInboundMs(messages, enrollment) {
+  let lastMs = 0;
+  for (const m of messages) {
+    if (m.direction !== "inbound") continue;
+    const t = new Date(m.sentAt).getTime();
+    if (Number.isFinite(t) && t > lastMs) lastMs = t;
+  }
+  if (enrollment?.lastReplyAt) {
+    const t = new Date(enrollment.lastReplyAt).getTime();
+    if (Number.isFinite(t) && t > lastMs) lastMs = t;
+  }
+  return lastMs;
+}
+
+function countUnreadInbound(messages, lastReadAt) {
+  const inbound = messages.filter((m) => m.direction === "inbound");
+  if (!lastReadAt) return inbound.length;
+
+  const readMs = new Date(lastReadAt).getTime();
+  if (!Number.isFinite(readMs)) return inbound.length;
+
+  return inbound.filter((m) => {
+    const sentMs = new Date(m.sentAt).getTime();
+    return Number.isFinite(sentMs) && sentMs > readMs;
+  }).length;
+}
+
+async function loadThreadReadMap(userId, campaignId) {
+  const rows = await CampaignWhatsAppThreadRead.find({
+    userId: userOid(userId),
+    campaignId: campaignOid(campaignId),
+  })
+    .select("candidateKey lastReadAt")
+    .lean();
+
+  const map = new Map();
+  for (const row of rows) {
+    map.set(String(row.candidateKey || "").trim(), row.lastReadAt);
+  }
+  return map;
+}
+
+async function markCampaignWhatsAppThreadRead(userId, campaignId, candidateKey) {
+  const campaign = await Campaign.findOne({
+    _id: campaignOid(campaignId),
+    userId: userOid(userId),
+  }).lean();
+
+  if (!campaign) {
+    const err = new Error("Campaign not found");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const key = String(candidateKey || "").trim();
+  if (!key) {
+    const err = new Error("candidateKey is required");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const contacts = Array.isArray(campaign.contacts) ? campaign.contacts : [];
+  const hasContact = contacts.some((c) => String(c.candidateKey || "").trim() === key);
+  if (!hasContact) {
+    const err = new Error("Contact not found in this campaign");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const lastReadAt = new Date();
+  await CampaignWhatsAppThreadRead.findOneAndUpdate(
+    {
+      userId: userOid(userId),
+      campaignId: campaign._id,
+      candidateKey: key,
+    },
+    { $set: { lastReadAt } },
+    { upsert: true, new: true }
+  );
+
+  const messages = await CampaignWhatsAppMessage.find({
+    userId: userOid(userId),
+    campaignId: campaign._id,
+    candidateKey: key,
+  })
+    .sort({ sentAt: 1 })
+    .lean();
+
+  const formatted = messages.map(formatMessageRow);
+  return {
+    candidateKey: key,
+    lastReadAt: lastReadAt.toISOString(),
+    unreadCount: countUnreadInbound(formatted, lastReadAt),
+  };
+}
+
+function computeSessionWindow(messages, enrollment) {
+  const lastInboundMs = lastCandidateInboundMs(messages, enrollment);
+  if (!lastInboundMs) {
+    return { canReply: false, expiresAt: null };
+  }
+  const expiresMs = lastInboundMs + WHATSAPP_SESSION_WINDOW_MS;
+  return {
+    canReply: Date.now() < expiresMs,
+    expiresAt: new Date(expiresMs).toISOString(),
+  };
+}
+
+function parsePositiveInt(value, fallback, max = 100) {
+  const n = Number.parseInt(String(value ?? ""), 10);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(n, max);
 }
 
 function formatMessageRow(doc) {
@@ -117,7 +237,10 @@ async function deleteWhatsAppMessagesForCampaign(campaignId) {
 /**
  * List WhatsApp conversation threads for a campaign (contacts + enrollments + message log).
  */
-async function getCampaignWhatsAppConversations(userId, campaignId) {
+async function getCampaignWhatsAppConversations(userId, campaignId, options = {}) {
+  const threadPage = parsePositiveInt(options.threadPage, 1, 10_000);
+  const threadPageSize = parsePositiveInt(options.threadPageSize, 25, 200);
+  const messagePageSize = parsePositiveInt(options.messagePageSize, 30, 200);
   const campaign = await Campaign.findOne({
     _id: campaignOid(campaignId),
     userId: userOid(userId),
@@ -132,11 +255,12 @@ async function getCampaignWhatsAppConversations(userId, campaignId) {
   const cid = campaign._id;
   const uid = userOid(userId);
 
-  const [enrollments, messageDocs] = await Promise.all([
+  const [enrollments, messageDocs, readByKey] = await Promise.all([
     CampaignSequenceEnrollment.find({ campaignId: cid, userId: uid }).lean(),
     CampaignWhatsAppMessage.find({ campaignId: cid, userId: uid })
       .sort({ sentAt: 1 })
       .lean(),
+    loadThreadReadMap(userId, campaignId),
   ]);
 
   const enrollmentByKey = new Map();
@@ -152,20 +276,27 @@ async function getCampaignWhatsAppConversations(userId, campaignId) {
   }
 
   const contacts = Array.isArray(campaign.contacts) ? campaign.contacts : [];
-  const threads = contacts.map((raw) => {
+  const allThreads = contacts.map((raw) => {
     const contact = formatContactFromCampaign(raw);
     const key = contact.candidateKey;
     const enrollment = enrollmentByKey.get(key);
-    const messages = messagesByKey.get(key) || [];
+    const fullMessages = messagesByKey.get(key) || [];
     const hasPhone = Boolean(contact.phone.trim());
-    const threadStatus = deriveThreadStatus({ hasPhone, enrollment, messages });
-    const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
-    const unreadCount = messages.filter((m) => m.direction === "inbound").length;
+    const threadStatus = deriveThreadStatus({ hasPhone, enrollment, messages: fullMessages });
+    const lastMessage = fullMessages.length > 0 ? fullMessages[fullMessages.length - 1] : null;
+    const lastReadAt = readByKey.get(key);
+    const unreadCount = countUnreadInbound(fullMessages, lastReadAt);
+    const messageCount = fullMessages.length;
+    const messages = fullMessages.slice(-messagePageSize);
 
     return {
       contactKey: key,
       contact,
       messages,
+      messageCount,
+      hasMoreMessages: messageCount > messages.length,
+      lastReadAt: lastReadAt ? new Date(lastReadAt).toISOString() : null,
+      sessionWindow: computeSessionWindow(fullMessages, enrollment),
       lastPreview: buildLastPreview(lastMessage, hasPhone),
       lastTimeLabel: lastMessage?.sentAt || contact.addedAt,
       unreadCount,
@@ -184,18 +315,209 @@ async function getCampaignWhatsAppConversations(userId, campaignId) {
     };
   });
 
-  threads.sort((a, b) => {
+  allThreads.sort((a, b) => {
     const ta = new Date(a.lastTimeLabel).getTime();
     const tb = new Date(b.lastTimeLabel).getTime();
     return tb - ta;
   });
 
+  const threadCount = allThreads.length;
+  const start = (threadPage - 1) * threadPageSize;
+  const end = start + threadPageSize;
+  const threads = allThreads.slice(start, end);
+
   return {
     campaignId: String(campaign._id),
     outreachStatus: campaign.outreachStatus || "idle",
     outreachChannel: campaign.outreachChannel || "whatsapp",
-    threadCount: threads.length,
+    threadCount,
+    threadPage,
+    threadPageSize,
+    hasMoreThreads: end < threadCount,
     threads,
+  };
+}
+
+async function getCampaignWhatsAppThreadMessages(
+  userId,
+  campaignId,
+  candidateKey,
+  options = {}
+) {
+  const page = parsePositiveInt(options.page, 1, 10_000);
+  const pageSize = parsePositiveInt(options.pageSize, 30, 200);
+  const key = String(candidateKey || "").trim();
+  if (!key) {
+    const err = new Error("candidateKey is required");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const campaign = await Campaign.findOne({
+    _id: campaignOid(campaignId),
+    userId: userOid(userId),
+  }).lean();
+  if (!campaign) {
+    const err = new Error("Campaign not found");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const contacts = Array.isArray(campaign.contacts) ? campaign.contacts : [];
+  const hasContact = contacts.some((c) => String(c.candidateKey || "").trim() === key);
+  if (!hasContact) {
+    const err = new Error("Contact not found in this campaign");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const filter = {
+    userId: userOid(userId),
+    campaignId: campaignOid(campaignId),
+    candidateKey: key,
+  };
+  const skip = (page - 1) * pageSize;
+  const [totalMessages, messageDocs] = await Promise.all([
+    CampaignWhatsAppMessage.countDocuments(filter),
+    CampaignWhatsAppMessage.find(filter).sort({ sentAt: -1 }).skip(skip).limit(pageSize).lean(),
+  ]);
+  const messages = messageDocs.map(formatMessageRow).reverse();
+
+  return {
+    candidateKey: key,
+    page,
+    pageSize,
+    totalMessages,
+    hasMore: page * pageSize < totalMessages,
+    messages,
+  };
+}
+
+async function sendCampaignWhatsAppSessionMessage(userId, campaignId, candidateKey, body) {
+  const text = String(body || "").trim();
+  if (!text) {
+    const err = new Error("Message cannot be empty.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const campaign = await Campaign.findOne({
+    _id: campaignOid(campaignId),
+    userId: userOid(userId),
+  }).lean();
+
+  if (!campaign) {
+    const err = new Error("Campaign not found");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const key = String(candidateKey || "").trim();
+  if (!key) {
+    const err = new Error("candidateKey is required");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const contacts = Array.isArray(campaign.contacts) ? campaign.contacts : [];
+  const rawContact = contacts.find((c) => String(c.candidateKey || "").trim() === key);
+  if (!rawContact) {
+    const err = new Error("Contact not found in this campaign");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const contact = formatContactFromCampaign(rawContact);
+  const phone = contact.phone.trim();
+  if (!phone) {
+    const err = new Error("Contact has no phone number");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const enrollment = await CampaignSequenceEnrollment.findOne({
+    campaignId: campaign._id,
+    userId: userOid(userId),
+    candidateKey: key,
+  }).lean();
+
+  const priorMessages = await CampaignWhatsAppMessage.find({
+    campaignId: campaign._id,
+    userId: userOid(userId),
+    candidateKey: key,
+  })
+    .sort({ sentAt: 1 })
+    .lean();
+
+  const formattedPrior = priorMessages.map(formatMessageRow);
+  const sessionWindow = computeSessionWindow(formattedPrior, enrollment);
+  if (!sessionWindow.canReply) {
+    const err = new Error(
+      "The 24-hour reply window has expired. Wait for the candidate to message again, or use an approved template from your outreach sequence."
+    );
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const sentAt = new Date();
+  let sendResult;
+  try {
+    sendResult = await sendWhatsAppSessionMessage(userId, { to: phone, body: text });
+  } catch (sendError) {
+    await logCampaignWhatsAppMessage({
+      userId,
+      campaignId,
+      enrollmentId: enrollment?._id,
+      candidateKey: key,
+      contactPhone: phone,
+      direction: "outbound",
+      body: text,
+      sequenceStepOrder: null,
+      sequenceStepLabel: "",
+      provider: "meta",
+      externalMessageId: "",
+      status: "failed",
+      errorMessage: sendError?.message || "Send failed",
+      sentAt,
+    });
+    throw sendError;
+  }
+
+  const doc = await logCampaignWhatsAppMessage({
+    userId,
+    campaignId,
+    enrollmentId: enrollment?._id,
+    candidateKey: key,
+    contactPhone: phone,
+    direction: "outbound",
+    body: text,
+    sequenceStepOrder: null,
+    sequenceStepLabel: "",
+    provider: sendResult.provider || "meta",
+    externalMessageId: sendResult.messageId || "",
+    status: "sent",
+    errorMessage: "",
+    sentAt,
+  });
+
+  notifyCampaignThreadUpdated(String(userId), {
+    campaignId: String(campaign._id),
+    candidateKey: key,
+    newMessages: 1,
+    hasNewCandidateReply: false,
+    source: "whatsapp_send",
+  });
+
+  const readState = await markCampaignWhatsAppThreadRead(userId, campaignId, key);
+
+  return {
+    message: formatMessageRow(doc),
+    sessionWindow: computeSessionWindow(
+      [...formattedPrior, formatMessageRow(doc)],
+      enrollment
+    ),
+    lastReadAt: readState.lastReadAt,
+    unreadCount: readState.unreadCount,
   };
 }
 
@@ -203,4 +525,9 @@ module.exports = {
   logCampaignWhatsAppMessage,
   deleteWhatsAppMessagesForCampaign,
   getCampaignWhatsAppConversations,
+  getCampaignWhatsAppThreadMessages,
+  sendCampaignWhatsAppSessionMessage,
+  markCampaignWhatsAppThreadRead,
+  computeSessionWindow,
+  WHATSAPP_SESSION_WINDOW_MS,
 };

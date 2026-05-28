@@ -1,26 +1,39 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type UIEvent } from "react";
 
 import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
 import { CampaignContactsSkeleton } from "@/components/dashboard/CampaignContactsSkeleton";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { getStoredAuth } from "@/lib/auth";
 import {
+  fetchCampaignWhatsAppThreadMessages,
   fetchCampaignWhatsAppConversations,
   formatWhatsAppMessageTime,
+  markCampaignWhatsAppThreadRead,
+  sendCampaignWhatsAppSessionMessage,
   type WhatsAppContactThread,
   type WhatsAppMessageStatus,
   type WhatsAppThreadMessage,
 } from "@/lib/campaignWhatsAppApi";
-
-type FilterKey = "all" | "unread" | "replied" | "awaiting";
 
 type Props = {
   campaignId: string;
   /** Bump to refetch (e.g. after campaign launch). */
   refreshKey?: number;
   revealInProgress?: boolean;
+  onAddFromSearchHistory?: () => void;
+  onUploadCsv?: () => void;
+  onRemoveCandidate?: (candidateKey: string) => Promise<void> | void;
+};
+
+const THREAD_PAGE_SIZE = 20;
+const MESSAGE_PAGE_SIZE = 30;
+
+type MessagePageState = {
+  page: number;
+  hasMore: boolean;
+  loading: boolean;
 };
 
 function contactInitial(name: string) {
@@ -79,6 +92,21 @@ function MessageFailureInfo({ errorMessage }: { errorMessage: string }) {
   );
 }
 
+function sessionWindowNote(thread: WhatsAppContactThread | null): string {
+  if (!thread?.contact.phone.trim()) {
+    return "Add a phone number to message this contact.";
+  }
+  const hasInbound = thread.messages.some((m) => m.direction === "inbound");
+  if (!hasInbound) {
+    return "You can reply with free text after the candidate sends a WhatsApp message (24-hour window).";
+  }
+  if (thread.sessionWindow.canReply && thread.sessionWindow.expiresAt) {
+    const expires = formatWhatsAppMessageTime(thread.sessionWindow.expiresAt);
+    return `Free-form replies allowed until ${expires} (24 hours after their last message).`;
+  }
+  return "The 24-hour reply window has expired. Use your outreach sequence templates to message again.";
+}
+
 function threadStatusLabel(status: WhatsAppContactThread["threadStatus"]) {
   switch (status) {
     case "replied":
@@ -94,65 +122,329 @@ function threadStatusLabel(status: WhatsAppContactThread["threadStatus"]) {
   }
 }
 
+function buildPageNumbers(currentPage: number, totalPages: number): number[] {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, idx) => idx + 1);
+  }
+  const pages = new Set<number>([1, totalPages, currentPage, currentPage - 1, currentPage + 1]);
+  return Array.from(pages).filter((p) => p >= 1 && p <= totalPages).sort((a, b) => a - b);
+}
+
 export function CampaignWhatsAppCommunicationsPanel({
   campaignId,
   refreshKey = 0,
   revealInProgress = false,
+  onAddFromSearchHistory,
+  onUploadCsv,
+  onRemoveCandidate,
 }: Props) {
-  const [filter, setFilter] = useState<FilterKey>("all");
   const [search, setSearch] = useState("");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [threads, setThreads] = useState<WhatsAppContactThread[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [conversationsVersion, setConversationsVersion] = useState(0);
   const [error, setError] = useState("");
   const [outreachStatus, setOutreachStatus] = useState("idle");
+  const [threadCount, setThreadCount] = useState(0);
+  const [threadPage, setThreadPage] = useState(1);
+  const [hasMoreThreads, setHasMoreThreads] = useState(false);
+  const [loadingMoreThreads, setLoadingMoreThreads] = useState(false);
+  const [messagePageByThread, setMessagePageByThread] = useState<Record<string, MessagePageState>>(
+    {}
+  );
+  const [draftText, setDraftText] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState("");
+  const [removingKey, setRemovingKey] = useState<string>("");
+  const threadListRef = useRef<HTMLUListElement | null>(null);
+  const messageListRef = useRef<HTMLDivElement | null>(null);
+  const loadingOlderRef = useRef(false);
+  const hasLoadedOnceRef = useRef(false);
 
-  const loadConversations = useCallback(async () => {
-    setLoading(true);
+  const scrollMessagesToBottom = useCallback(() => {
+    const run = (attempt = 0) => {
+      const el = messageListRef.current;
+      if (!el) return;
+      el.scrollTop = el.scrollHeight;
+      const atBottom = el.scrollHeight - el.clientHeight - el.scrollTop < 8;
+      if (!atBottom && attempt < 4) {
+        requestAnimationFrame(() => run(attempt + 1));
+      }
+    };
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => run(0));
+    });
+  }, []);
+
+  const loadConversations = useCallback(async (
+    page = 1,
+    append = false,
+    options?: { soft?: boolean }
+  ) => {
+    if (append) setLoadingMoreThreads(true);
+    else if (options?.soft) setRefreshing(true);
+    else setLoading(true);
     setError("");
     try {
       const auth = getStoredAuth();
       if (!auth?.token) {
         throw new Error("Please sign in again.");
       }
-      const data = await fetchCampaignWhatsAppConversations(auth.token, campaignId);
-      setThreads(data.threads);
+      const data = await fetchCampaignWhatsAppConversations(auth.token, campaignId, {
+        threadPage: page,
+        threadPageSize: THREAD_PAGE_SIZE,
+        messagePageSize: MESSAGE_PAGE_SIZE,
+      });
+      setThreads((prev) => {
+        if (!append) return data.threads;
+        const byKey = new Map(prev.map((t) => [t.contactKey, t]));
+        for (const thread of data.threads) {
+          byKey.set(thread.contactKey, thread);
+        }
+        return Array.from(byKey.values());
+      });
       setOutreachStatus(data.outreachStatus);
+      setThreadCount(data.threadCount);
+      setThreadPage(data.threadPage);
+      setHasMoreThreads(data.hasMoreThreads);
+      setMessagePageByThread((prev) => {
+        const next = { ...prev };
+        for (const thread of data.threads) {
+          if (append && next[thread.contactKey]) continue;
+          next[thread.contactKey] = {
+            page: 1,
+            hasMore: thread.hasMoreMessages,
+            loading: false,
+          };
+        }
+        return next;
+      });
+      setConversationsVersion((v) => v + 1);
+      hasLoadedOnceRef.current = true;
     } catch (err) {
-      setThreads([]);
+      if (!append && !options?.soft) setThreads([]);
       setError(err instanceof Error ? err.message : "Failed to load conversations.");
     } finally {
-      setLoading(false);
+      if (append) setLoadingMoreThreads(false);
+      else if (options?.soft) setRefreshing(false);
+      else setLoading(false);
     }
   }, [campaignId]);
 
   useEffect(() => {
-    void loadConversations();
+    hasLoadedOnceRef.current = false;
+  }, [campaignId]);
+
+  useEffect(() => {
+    void loadConversations(1, false, { soft: hasLoadedOnceRef.current });
   }, [loadConversations, refreshKey]);
 
   const filteredThreads = useMemo(() => {
     const q = search.trim().toLowerCase();
     return threads.filter((t) => {
-      if (filter === "unread" && t.unreadCount === 0) return false;
-      if (filter === "replied" && t.threadStatus !== "replied") return false;
-      if (filter === "awaiting" && t.threadStatus !== "awaiting") return false;
       if (!q) return true;
       const name = t.contact.name.toLowerCase();
       const phone = t.contact.phone.toLowerCase();
       const company = t.contact.company.toLowerCase();
       return name.includes(q) || phone.includes(q) || company.includes(q);
     });
-  }, [threads, filter, search]);
+  }, [threads, search]);
 
   const activeKey = selectedKey ?? filteredThreads[0]?.contactKey ?? null;
   const activeThread = filteredThreads.find((t) => t.contactKey === activeKey) ?? null;
+  const activeLastMessageId = activeThread?.messages.at(-1)?.id ?? null;
+  const totalPages = Math.max(1, Math.ceil(threadCount / THREAD_PAGE_SIZE));
+  const idlePageNumbers = buildPageNumbers(threadPage, totalPages);
 
-  const filterOptions: { key: FilterKey; label: string }[] = [
-    { key: "all", label: "All" },
-    { key: "unread", label: "Unread" },
-    { key: "replied", label: "Replied" },
-    { key: "awaiting", label: "Awaiting" },
-  ];
+  useEffect(() => {
+    setDraftText("");
+    setSendError("");
+  }, [activeKey]);
+
+  useEffect(() => {
+    if (loading || refreshing) return;
+    if (!activeKey || !activeThread?.messages.length) return;
+    if (loadingOlderRef.current) return;
+    scrollMessagesToBottom();
+  }, [
+    loading,
+    refreshing,
+    activeKey,
+    activeThread?.messages.length,
+    activeLastMessageId,
+    conversationsVersion,
+    scrollMessagesToBottom,
+  ]);
+
+  const markThreadRead = useCallback(
+    async (candidateKey: string) => {
+      setThreads((prev) =>
+        prev.map((t) =>
+          t.contactKey === candidateKey ? { ...t, unreadCount: 0 } : t
+        )
+      );
+
+      try {
+        const auth = getStoredAuth();
+        if (!auth?.token) return;
+        const result = await markCampaignWhatsAppThreadRead(
+          auth.token,
+          campaignId,
+          candidateKey
+        );
+        setThreads((prev) =>
+          prev.map((t) =>
+            t.contactKey === candidateKey
+              ? {
+                  ...t,
+                  unreadCount: result.unreadCount,
+                  lastReadAt: result.lastReadAt,
+                }
+              : t
+          )
+        );
+      } catch {
+        void loadConversations(1, false, { soft: true });
+      }
+    },
+    [campaignId, loadConversations]
+  );
+
+  useEffect(() => {
+    if (!activeKey || !activeThread || activeThread.unreadCount === 0) return;
+    void markThreadRead(activeKey);
+  }, [activeKey, activeThread, markThreadRead]);
+
+  const canCompose =
+    Boolean(activeThread?.contact.phone.trim()) &&
+    Boolean(activeThread?.sessionWindow.canReply);
+
+  const loadOlderMessages = useCallback(async () => {
+    if (!activeThread) return;
+    const pageState = messagePageByThread[activeThread.contactKey];
+    if (!pageState || !pageState.hasMore || pageState.loading) return;
+
+    loadingOlderRef.current = true;
+    setMessagePageByThread((prev) => ({
+      ...prev,
+      [activeThread.contactKey]: {
+        ...pageState,
+        loading: true,
+      },
+    }));
+    try {
+      const auth = getStoredAuth();
+      if (!auth?.token) throw new Error("Please sign in again.");
+      const nextPage = pageState.page + 1;
+      const result = await fetchCampaignWhatsAppThreadMessages(
+        auth.token,
+        campaignId,
+        activeThread.contactKey,
+        { page: nextPage, pageSize: MESSAGE_PAGE_SIZE }
+      );
+      const container = messageListRef.current;
+      const previousHeight = container?.scrollHeight ?? 0;
+      setThreads((prev) =>
+        prev.map((thread) => {
+          if (thread.contactKey !== activeThread.contactKey) return thread;
+          const seen = new Set(thread.messages.map((m) => m.id));
+          const older = result.messages.filter((m) => !seen.has(m.id));
+          return { ...thread, messages: [...older, ...thread.messages] };
+        })
+      );
+      requestAnimationFrame(() => {
+        const current = messageListRef.current;
+        if (!current) return;
+        const newHeight = current.scrollHeight;
+        const delta = newHeight - previousHeight;
+        if (delta > 0) current.scrollTop += delta;
+        loadingOlderRef.current = false;
+      });
+      setMessagePageByThread((prev) => ({
+        ...prev,
+        [activeThread.contactKey]: {
+          page: result.page,
+          hasMore: result.hasMore,
+          loading: false,
+        },
+      }));
+    } catch {
+      loadingOlderRef.current = false;
+      setMessagePageByThread((prev) => ({
+        ...prev,
+        [activeThread.contactKey]: {
+          ...pageState,
+          loading: false,
+        },
+      }));
+    }
+  }, [activeThread, campaignId, messagePageByThread]);
+
+  const handleThreadListScroll = useCallback(
+    (event: UIEvent<HTMLUListElement>) => {
+      if (!hasMoreThreads || loadingMoreThreads) return;
+      const target = event.currentTarget;
+      const nearBottom = target.scrollHeight - target.scrollTop - target.clientHeight < 120;
+      if (nearBottom) {
+        void loadConversations(threadPage + 1, true);
+      }
+    },
+    [hasMoreThreads, loadingMoreThreads, loadConversations, threadPage]
+  );
+
+  const handleMessageScroll = useCallback(
+    (event: UIEvent<HTMLDivElement>) => {
+      if (!activeThread) return;
+      const state = messagePageByThread[activeThread.contactKey];
+      if (!state || !state.hasMore || state.loading) return;
+      if (event.currentTarget.scrollTop < 100) {
+        void loadOlderMessages();
+      }
+    },
+    [activeThread, loadOlderMessages, messagePageByThread]
+  );
+
+  const handleSendMessage = useCallback(async () => {
+    const text = draftText.trim();
+    if (!text || !activeThread || !canCompose || sending) return;
+
+    setSending(true);
+    setSendError("");
+    try {
+      const auth = getStoredAuth();
+      if (!auth?.token) {
+        throw new Error("Please sign in again.");
+      }
+      const result = await sendCampaignWhatsAppSessionMessage(
+        auth.token,
+        campaignId,
+        activeThread.contactKey,
+        text
+      );
+      setDraftText("");
+      setThreads((prev) =>
+        prev.map((thread) => {
+          if (thread.contactKey !== activeThread.contactKey) return thread;
+          const messages = [...thread.messages, result.message];
+          const lastMessage = result.message;
+          return {
+            ...thread,
+            messages,
+            sessionWindow: result.sessionWindow,
+            lastPreview: lastMessage.body ? `You: ${lastMessage.body}` : "Message sent",
+            lastTimeLabel: lastMessage.sentAt,
+            unreadCount: result.unreadCount ?? 0,
+            lastReadAt: result.lastReadAt ?? thread.lastReadAt,
+          };
+        })
+      );
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : "Failed to send message.");
+    } finally {
+      setSending(false);
+    }
+  }, [activeThread, campaignId, canCompose, draftText, sending]);
 
   if (loading) {
     return (
@@ -188,12 +480,160 @@ export function CampaignWhatsAppCommunicationsPanel({
 
   if (threads.length === 0) {
     return (
-      <div className="dashboard-campaign-workspace-placeholder-wrap flex flex-1 flex-col items-center justify-center py-16">
-        <IntegrationBrandLogo provider="whatsapp" title="WhatsApp" className="mb-3 h-10 w-10" />
-        <p className="dashboard-campaign-workspace-placeholder max-w-md text-center">
-          No contacts yet. Add candidates from Session Results to view WhatsApp conversations
-          for this campaign.
-        </p>
+      <div className="flex flex-1 items-center justify-center px-4 py-10 sm:px-6">
+        <div className="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+          <div className="flex flex-col items-center text-center">
+            <span className="inline-flex h-14 w-14 items-center justify-center rounded-2xl border border-[#25d366]/20 bg-[#25d366]/10">
+              <IntegrationBrandLogo provider="whatsapp" title="WhatsApp" className="h-8 w-8" />
+            </span>
+            <h3 className="mt-4 text-xl font-semibold text-[#141b2b]">No contacts yet</h3>
+            <p className="mt-2 max-w-xl text-sm leading-6 text-[#5f6368]">
+              Add candidates to this campaign to view WhatsApp conversations and manage replies in
+              one place.
+            </p>
+          </div>
+          <div className="mt-7 flex flex-col gap-2 sm:flex-row sm:justify-center">
+            <button
+              type="button"
+              className="dashboard-btn-primary inline-flex min-h-10 items-center justify-center gap-1.5 px-4 text-sm"
+              onClick={onAddFromSearchHistory}
+            >
+              <MaterialIcon name="history" className="text-base" />
+              Add candidate from search history
+            </button>
+            <button
+              type="button"
+              className="dashboard-btn-secondary inline-flex min-h-10 items-center justify-center gap-1.5 px-4 text-sm"
+              onClick={onUploadCsv}
+            >
+              <MaterialIcon name="upload_file" className="text-base" />
+              Upload CSV
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (outreachStatus === "idle") {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3">
+          <div className="flex items-center gap-2">
+            <IntegrationBrandLogo provider="whatsapp" title="WhatsApp" className="h-6 w-6" />
+            <p className="text-sm font-medium text-slate-700">
+              Contacts ({threads.length}) - conversations unlock after campaign start
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="dashboard-btn-primary inline-flex min-h-9 items-center gap-1.5 px-3 text-xs"
+              onClick={onAddFromSearchHistory}
+            >
+              <MaterialIcon name="person_add" className="text-base" />
+              Add candidate
+            </button>
+            <button
+              type="button"
+              className="dashboard-btn-secondary inline-flex min-h-9 items-center gap-1.5 px-3 text-xs"
+              onClick={onUploadCsv}
+            >
+              <MaterialIcon name="upload_file" className="text-base" />
+              Upload CSV
+            </button>
+          </div>
+        </div>
+        <div className="min-h-0 flex-1 overflow-auto bg-white p-4">
+          <div className="overflow-hidden rounded-xl border border-slate-200">
+            <table className="min-w-full text-left text-sm">
+              <thead className="bg-slate-50">
+                <tr className="text-slate-600">
+                  <th className="px-3 py-2 font-medium">Name</th>
+                  <th className="px-3 py-2 font-medium">Phone</th>
+                  <th className="px-3 py-2 font-medium">Company</th>
+                  <th className="px-3 py-2 font-medium">Role</th>
+                  <th className="px-3 py-2 font-medium">Status</th>
+                  <th className="px-3 py-2 text-right font-medium">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {threads.map((thread) => (
+                  <tr key={thread.contactKey} className="border-t border-slate-100">
+                    <td className="px-3 py-2 text-slate-800">
+                      {thread.contact.name.trim() || "Unnamed contact"}
+                    </td>
+                    <td className="px-3 py-2 text-slate-700">
+                      {thread.contact.phone.trim() || (revealInProgress ? "Revealing..." : "-")}
+                    </td>
+                    <td className="px-3 py-2 text-slate-700">{thread.contact.company || "-"}</td>
+                    <td className="px-3 py-2 text-slate-700">{thread.contact.role || "-"}</td>
+                    <td className="px-3 py-2 text-slate-700">
+                      {thread.contact.phone.trim() ? "Ready for WhatsApp" : "Missing phone"}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
+                        disabled={!onRemoveCandidate || removingKey === thread.contactKey}
+                        onClick={async () => {
+                          if (!onRemoveCandidate || removingKey === thread.contactKey) return;
+                          setRemovingKey(thread.contactKey);
+                          try {
+                            await onRemoveCandidate(thread.contactKey);
+                          } finally {
+                            setRemovingKey("");
+                          }
+                        }}
+                      >
+                        <MaterialIcon name="delete" className="text-sm" />
+                        {removingKey === thread.contactKey ? "Removing..." : "Remove"}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-3 text-xs text-slate-500">
+            Start the campaign sequence from the editor/workspace to activate WhatsApp conversations.
+          </p>
+          {totalPages > 1 ? (
+            <div className="mt-4 flex flex-wrap items-center justify-end gap-1.5 border-t border-slate-100 pt-3">
+              <button
+                type="button"
+                className="rounded-md border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                disabled={threadPage <= 1 || refreshing}
+                onClick={() => void loadConversations(threadPage - 1, false, { soft: true })}
+              >
+                Prev
+              </button>
+              {idlePageNumbers.map((pageNum) => (
+                <button
+                  key={pageNum}
+                  type="button"
+                  className={`rounded-md px-2.5 py-1 text-xs font-medium ${
+                    pageNum === threadPage
+                      ? "bg-[#0050cb] text-white"
+                      : "border border-slate-200 text-slate-700 hover:bg-slate-50"
+                  }`}
+                  disabled={pageNum === threadPage || refreshing}
+                  onClick={() => void loadConversations(pageNum, false, { soft: true })}
+                >
+                  {pageNum}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="rounded-md border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                disabled={threadPage >= totalPages || refreshing}
+                onClick={() => void loadConversations(threadPage + 1, false, { soft: true })}
+              >
+                Next
+              </button>
+            </div>
+          ) : null}
+        </div>
       </div>
     );
   }
@@ -205,7 +645,7 @@ export function CampaignWhatsAppCommunicationsPanel({
           <div className="flex items-center gap-2">
             <IntegrationBrandLogo provider="whatsapp" title="WhatsApp" className="h-6 w-6" />
             <p className="dashboard-campaign-wa-comms-summary">
-              {threads.length} conversation{threads.length === 1 ? "" : "s"}
+              {threadCount} conversation{threadCount === 1 ? "" : "s"}
             </p>
           </div>
           {outreachStatus === "active" ? (
@@ -215,16 +655,20 @@ export function CampaignWhatsAppCommunicationsPanel({
           ) : null}
           <button
             type="button"
-            className="ml-auto inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100"
-            onClick={() => void loadConversations()}
+            className="ml-auto inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-60"
+            onClick={() => void loadConversations(1, false, { soft: true })}
+            disabled={refreshing}
             aria-label="Refresh conversations"
           >
-            <MaterialIcon name="refresh" className="text-base" />
-            Refresh
+            <MaterialIcon
+              name="refresh"
+              className={`text-base${refreshing ? " animate-spin" : ""}`}
+            />
+            {refreshing ? "Refreshing…" : "Refresh"}
           </button>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <label className="dashboard-campaign-wa-comms-search relative min-w-[12rem] flex-1">
+          <label className="dashboard-campaign-wa-comms-search relative min-w-48 flex-1">
             <MaterialIcon
               name="search"
               className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-base text-slate-400"
@@ -237,24 +681,6 @@ export function CampaignWhatsAppCommunicationsPanel({
               className="dashboard-campaign-wa-comms-search-input w-full"
             />
           </label>
-          <div
-            className="dashboard-campaign-wa-comms-filters"
-            role="tablist"
-            aria-label="Filter conversations"
-          >
-            {filterOptions.map((opt) => (
-              <button
-                key={opt.key}
-                type="button"
-                role="tab"
-                aria-selected={filter === opt.key}
-                className={`dashboard-campaign-wa-comms-filter${filter === opt.key ? " dashboard-campaign-wa-comms-filter--active" : ""}`}
-                onClick={() => setFilter(opt.key)}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
         </div>
       </div>
 
@@ -264,7 +690,11 @@ export function CampaignWhatsAppCommunicationsPanel({
             selectedKey ? " hidden md:flex" : ""
           }`}
         >
-          <ul className="dashboard-campaign-wa-comms-list-scroll min-h-0 flex-1 overflow-y-auto">
+          <ul
+            ref={threadListRef}
+            className="dashboard-campaign-wa-comms-list-scroll min-h-0 flex-1 overflow-y-auto"
+            onScroll={handleThreadListScroll}
+          >
             {filteredThreads.length === 0 ? (
               <li className="px-4 py-10 text-center text-sm text-slate-500">
                 No conversations match your filters.
@@ -322,6 +752,11 @@ export function CampaignWhatsAppCommunicationsPanel({
               })
             )}
           </ul>
+          {loadingMoreThreads ? (
+            <div className="border-t border-slate-200 px-3 py-2 text-center text-xs text-slate-500">
+              Loading more conversations...
+            </div>
+          ) : null}
         </aside>
 
         <div
@@ -367,7 +802,11 @@ export function CampaignWhatsAppCommunicationsPanel({
                 </span>
               </header>
 
-              <div className="dashboard-campaign-wa-comms-messages min-h-0 flex-1 overflow-y-auto">
+              <div
+                ref={messageListRef}
+                className="dashboard-campaign-wa-comms-messages min-h-0 flex-1 overflow-y-auto"
+                onScroll={handleMessageScroll}
+              >
                 {activeThread.messages.length === 0 ? (
                   <div className="flex h-full flex-col items-center justify-center gap-2 px-6 py-12 text-center">
                     <MaterialIcon name="chat_bubble_outline" className="text-4xl text-slate-500" />
@@ -379,6 +818,11 @@ export function CampaignWhatsAppCommunicationsPanel({
                   </div>
                 ) : (
                   <div className="dashboard-campaign-wa-comms-messages-inner">
+                    {messagePageByThread[activeThread.contactKey]?.loading ? (
+                      <div className="mb-3 text-center text-xs text-slate-500">
+                        Loading older messages...
+                      </div>
+                    ) : null}
                     {activeThread.messages.map((msg: WhatsAppThreadMessage) => (
                       <div
                         key={msg.id}
@@ -412,23 +856,44 @@ export function CampaignWhatsAppCommunicationsPanel({
               <footer className="dashboard-campaign-wa-comms-composer shrink-0">
                 <p className="dashboard-campaign-wa-comms-composer-note">
                   <MaterialIcon name="info" className="text-base shrink-0" />
-                  Inbound replies will appear here when Meta webhooks are connected.
+                  {sessionWindowNote(activeThread)}
                 </p>
-                <div className="dashboard-campaign-wa-comms-composer-row opacity-60">
+                {sendError ? (
+                  <p className="dashboard-campaign-wa-comms-composer-error text-sm text-red-600 px-1 pb-1">
+                    {sendError}
+                  </p>
+                ) : null}
+                <div
+                  className={`dashboard-campaign-wa-comms-composer-row${canCompose ? "" : " opacity-60"}`}
+                >
                   <input
                     type="text"
-                    disabled
-                    placeholder="Type a message…"
+                    value={draftText}
+                    onChange={(e) => setDraftText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        void handleSendMessage();
+                      }
+                    }}
+                    disabled={!canCompose || sending}
+                    placeholder={
+                      canCompose ? "Type a message…" : "Reply unavailable"
+                    }
                     className="dashboard-campaign-wa-comms-composer-input flex-1"
-                    aria-disabled
+                    aria-label="WhatsApp message"
                   />
                   <button
                     type="button"
-                    disabled
+                    disabled={!canCompose || sending || !draftText.trim()}
                     className="dashboard-campaign-wa-comms-send"
                     aria-label="Send message"
+                    onClick={() => void handleSendMessage()}
                   >
-                    <MaterialIcon name="send" className="text-lg" />
+                    <MaterialIcon
+                      name={sending ? "hourglass_empty" : "send"}
+                      className="text-lg"
+                    />
                   </button>
                 </div>
               </footer>

@@ -20,6 +20,11 @@ export type WhatsAppThreadMessage = {
 
 export type WhatsAppThreadStatus = "replied" | "awaiting" | "no_phone" | "failed";
 
+export type WhatsAppSessionWindow = {
+  canReply: boolean;
+  expiresAt: string | null;
+};
+
 export type WhatsAppContactThread = {
   contactKey: string;
   contact: CampaignContact;
@@ -27,8 +32,13 @@ export type WhatsAppContactThread = {
   /** ISO date string — format in UI */
   lastTimeLabel: string;
   unreadCount: number;
+  /** When the recruiter last opened this thread */
+  lastReadAt: string | null;
   threadStatus: WhatsAppThreadStatus;
+  sessionWindow: WhatsAppSessionWindow;
   messages: WhatsAppThreadMessage[];
+  messageCount: number;
+  hasMoreMessages: boolean;
   enrollment?: {
     status: string;
     currentStepOrder: number;
@@ -43,6 +53,9 @@ export type CampaignWhatsAppConversationsResponse = {
   outreachStatus: string;
   outreachChannel: string;
   threadCount: number;
+  threadPage: number;
+  threadPageSize: number;
+  hasMoreThreads: boolean;
   threads: WhatsAppContactThread[];
 };
 
@@ -109,6 +122,15 @@ function parseThread(raw: unknown): WhatsAppContactThread | null {
       ? threadStatus
       : "awaiting";
 
+  let sessionWindow: WhatsAppSessionWindow = { canReply: false, expiresAt: null };
+  if (o.sessionWindow && typeof o.sessionWindow === "object") {
+    const sw = o.sessionWindow as Record<string, unknown>;
+    sessionWindow = {
+      canReply: Boolean(sw.canReply),
+      expiresAt: typeof sw.expiresAt === "string" ? sw.expiresAt : null,
+    };
+  }
+
   let enrollment: WhatsAppContactThread["enrollment"] = null;
   if (o.enrollment && typeof o.enrollment === "object") {
     const e = o.enrollment as Record<string, unknown>;
@@ -129,8 +151,12 @@ function parseThread(raw: unknown): WhatsAppContactThread | null {
     lastTimeLabel:
       typeof o.lastTimeLabel === "string" ? o.lastTimeLabel : contact.addedAt,
     unreadCount: typeof o.unreadCount === "number" ? o.unreadCount : 0,
+    lastReadAt: typeof o.lastReadAt === "string" ? o.lastReadAt : null,
     threadStatus: status,
+    sessionWindow,
     enrollment,
+    messageCount: typeof o.messageCount === "number" ? o.messageCount : messages.length,
+    hasMoreMessages: Boolean(o.hasMoreMessages),
   };
 }
 
@@ -163,10 +189,16 @@ export function formatWhatsAppMessageTime(iso: string): string {
 
 export async function fetchCampaignWhatsAppConversations(
   token: string,
-  campaignId: string
+  campaignId: string,
+  params?: { threadPage?: number; threadPageSize?: number; messagePageSize?: number }
 ): Promise<CampaignWhatsAppConversationsResponse> {
+  const qs = new URLSearchParams();
+  if (params?.threadPage) qs.set("threadPage", String(params.threadPage));
+  if (params?.threadPageSize) qs.set("threadPageSize", String(params.threadPageSize));
+  if (params?.messagePageSize) qs.set("messagePageSize", String(params.messagePageSize));
+  const query = qs.toString();
   const res = await fetch(
-    `${apiBase()}/api/campaigns/${encodeURIComponent(campaignId)}/whatsapp-conversations`,
+    `${apiBase()}/api/campaigns/${encodeURIComponent(campaignId)}/whatsapp-conversations${query ? `?${query}` : ""}`,
     { headers: authHeaders(token) }
   );
   const data = await res.json().catch(() => ({}));
@@ -188,6 +220,134 @@ export async function fetchCampaignWhatsAppConversations(
     outreachChannel:
       typeof data.outreachChannel === "string" ? data.outreachChannel : "whatsapp",
     threadCount: typeof data.threadCount === "number" ? data.threadCount : threads.length,
+    threadPage: typeof data.threadPage === "number" ? data.threadPage : 1,
+    threadPageSize: typeof data.threadPageSize === "number" ? data.threadPageSize : threads.length,
+    hasMoreThreads: Boolean(data.hasMoreThreads),
     threads,
+  };
+}
+
+export type CampaignWhatsAppThreadMessagesResponse = {
+  candidateKey: string;
+  page: number;
+  pageSize: number;
+  totalMessages: number;
+  hasMore: boolean;
+  messages: WhatsAppThreadMessage[];
+};
+
+export async function fetchCampaignWhatsAppThreadMessages(
+  token: string,
+  campaignId: string,
+  candidateKey: string,
+  params?: { page?: number; pageSize?: number }
+): Promise<CampaignWhatsAppThreadMessagesResponse> {
+  const qs = new URLSearchParams();
+  if (params?.page) qs.set("page", String(params.page));
+  if (params?.pageSize) qs.set("pageSize", String(params.pageSize));
+  const query = qs.toString();
+  const res = await fetch(
+    `${apiBase()}/api/campaigns/${encodeURIComponent(campaignId)}/whatsapp-conversations/${encodeURIComponent(candidateKey)}/messages${query ? `?${query}` : ""}`,
+    { headers: authHeaders(token) }
+  );
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.success) {
+    throw new Error(
+      typeof data.message === "string"
+        ? data.message
+        : "Failed to load WhatsApp thread messages"
+    );
+  }
+  const messages = Array.isArray(data.messages)
+    ? data.messages.map(parseMessage).filter((m): m is WhatsAppThreadMessage => m !== null)
+    : [];
+  return {
+    candidateKey:
+      typeof data.candidateKey === "string" ? data.candidateKey : candidateKey,
+    page: typeof data.page === "number" ? data.page : params?.page || 1,
+    pageSize: typeof data.pageSize === "number" ? data.pageSize : params?.pageSize || 30,
+    totalMessages: typeof data.totalMessages === "number" ? data.totalMessages : messages.length,
+    hasMore: Boolean(data.hasMore),
+    messages,
+  };
+}
+
+export type SendWhatsAppSessionMessageResponse = {
+  message: WhatsAppThreadMessage;
+  sessionWindow: WhatsAppSessionWindow;
+  lastReadAt: string | null;
+  unreadCount: number;
+};
+
+export async function sendCampaignWhatsAppSessionMessage(
+  token: string,
+  campaignId: string,
+  candidateKey: string,
+  body: string
+): Promise<SendWhatsAppSessionMessageResponse> {
+  const res = await fetch(
+    `${apiBase()}/api/campaigns/${encodeURIComponent(campaignId)}/whatsapp-conversations/${encodeURIComponent(candidateKey)}/messages`,
+    {
+      method: "POST",
+      headers: {
+        ...authHeaders(token),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ body }),
+    }
+  );
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.success) {
+    throw new Error(
+      typeof data.message === "string" ? data.message : "Failed to send WhatsApp message"
+    );
+  }
+
+  const message = parseMessage(data.message);
+  if (!message) {
+    throw new Error("Invalid response from server");
+  }
+
+  let sessionWindow: WhatsAppSessionWindow = { canReply: false, expiresAt: null };
+  if (data.sessionWindow && typeof data.sessionWindow === "object") {
+    const sw = data.sessionWindow as Record<string, unknown>;
+    sessionWindow = {
+      canReply: Boolean(sw.canReply),
+      expiresAt: typeof sw.expiresAt === "string" ? sw.expiresAt : null,
+    };
+  }
+
+  return {
+    message,
+    sessionWindow,
+    lastReadAt: typeof data.lastReadAt === "string" ? data.lastReadAt : null,
+    unreadCount: typeof data.unreadCount === "number" ? data.unreadCount : 0,
+  };
+}
+
+export async function markCampaignWhatsAppThreadRead(
+  token: string,
+  campaignId: string,
+  candidateKey: string
+): Promise<{ candidateKey: string; lastReadAt: string; unreadCount: number }> {
+  const res = await fetch(
+    `${apiBase()}/api/campaigns/${encodeURIComponent(campaignId)}/whatsapp-conversations/${encodeURIComponent(candidateKey)}/read`,
+    {
+      method: "POST",
+      headers: authHeaders(token),
+    }
+  );
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.success) {
+    throw new Error(
+      typeof data.message === "string" ? data.message : "Failed to mark thread as read"
+    );
+  }
+  return {
+    candidateKey:
+      typeof data.candidateKey === "string" ? data.candidateKey : candidateKey,
+    lastReadAt:
+      typeof data.lastReadAt === "string" ? data.lastReadAt : new Date().toISOString(),
+    unreadCount: typeof data.unreadCount === "number" ? data.unreadCount : 0,
   };
 }

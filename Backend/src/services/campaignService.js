@@ -74,6 +74,8 @@ function formatCampaign(doc) {
     outreachStartedAt: doc.outreachStartedAt
       ? new Date(doc.outreachStartedAt).toISOString()
       : null,
+    whatsAppInterestedCount: Math.max(0, Number(doc.whatsAppInterestedCount) || 0),
+    whatsAppNotInterestedCount: Math.max(0, Number(doc.whatsAppNotInterestedCount) || 0),
     contactCount: contacts.length,
     contacts: contacts.map(formatContact),
     createdAt: doc.createdAt,
@@ -161,6 +163,38 @@ async function addContactsToCampaign(userId, campaignId, contacts) {
     addedCount,
     skippedCount,
     addedCandidateKeys,
+  };
+}
+
+async function removeContactFromCampaign(userId, campaignId, candidateKey) {
+  const oid = assertValidCampaignId(campaignId);
+  const key = String(candidateKey || "").trim();
+  if (!key) {
+    const err = new Error("Candidate key is required");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const doc = await Campaign.findOne({ _id: oid, userId: userOid(userId) });
+  if (!doc) {
+    const err = new Error("Campaign not found");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const beforeCount = Array.isArray(doc.contacts) ? doc.contacts.length : 0;
+  doc.contacts = (doc.contacts || []).filter(
+    (contact) => String(contact?.candidateKey || "").trim() !== key
+  );
+
+  const removed = doc.contacts.length < beforeCount;
+  if (removed) {
+    await doc.save();
+  }
+
+  return {
+    campaign: formatCampaign(doc.toObject()),
+    removed,
   };
 }
 
@@ -287,6 +321,7 @@ module.exports = {
   getCampaign,
   createCampaign,
   addContactsToCampaign,
+  removeContactFromCampaign,
   setCampaignOutreachPlan,
   syncCampaignContactsFromUserCache,
   deleteCampaign,

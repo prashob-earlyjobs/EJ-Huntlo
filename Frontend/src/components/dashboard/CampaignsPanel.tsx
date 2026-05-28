@@ -29,6 +29,44 @@ const ENTERPRISE_PLAN_ID = "enterprise";
 const ENTERPRISE_LOCKED_MESSAGE =
   "Campaigns are available on the Enterprise plan. Upgrade to organize and run outreach campaigns.";
 
+function formatCampaignStatus(status?: CampaignRecord["outreachStatus"]) {
+  if (status === "active") {
+    return {
+      label: "Active",
+      className: "bg-emerald-50 text-emerald-700",
+    };
+  }
+  if (status === "paused") {
+    return {
+      label: "Paused",
+      className: "bg-amber-50 text-amber-800",
+    };
+  }
+  if (status === "completed") {
+    return {
+      label: "Completed",
+      className: "bg-slate-100 text-slate-700",
+    };
+  }
+  return {
+    label: "Draft",
+    className: "bg-blue-50 text-blue-700",
+  };
+}
+
+function formatCampaignChannel(channel?: CampaignRecord["outreachChannel"]) {
+  if (channel === "whatsapp") {
+    return {
+      label: "WhatsApp",
+      className: "bg-green-50 text-green-700",
+    };
+  }
+  return {
+    label: "Email",
+    className: "bg-indigo-50 text-indigo-700",
+  };
+}
+
 type Props = {
   currentPlanId: string;
   /** False until /api/users/me (or dashboard overview) has set the real plan id. */
@@ -41,6 +79,7 @@ type Props = {
   onCampaignUpdated?: (campaign: CampaignRecord) => void;
   routeCampaignId?: string;
   routeWorkspaceTab?: CampaignWorkspaceTab;
+  onAddFromSearchHistory?: () => void;
 };
 
 export function CampaignsPanel({
@@ -54,6 +93,7 @@ export function CampaignsPanel({
   onCampaignUpdated,
   routeCampaignId = "",
   routeWorkspaceTab = "Editor",
+  onAddFromSearchHistory,
 }: Props) {
   const router = useRouter();
   const isEnterprise = currentPlanId === ENTERPRISE_PLAN_ID;
@@ -255,6 +295,7 @@ export function CampaignsPanel({
             onBack={() => router.push(pathForCampaignsList())}
             onCampaignUpdated={onCampaignUpdated}
             onGoToIntegrations={onGoToIntegrations}
+            onAddFromSearchHistory={onAddFromSearchHistory}
           />
         </section>
         {createModal}
@@ -310,7 +351,10 @@ export function CampaignsPanel({
             </div>
           ) : (
             <ul className="flex flex-col gap-2">
-              {campaigns.map((campaign) => (
+              {campaigns.map((campaign) => {
+                const statusMeta = formatCampaignStatus(campaign.outreachStatus);
+                const channelMeta = formatCampaignChannel(campaign.outreachChannel);
+                return (
                 <li key={campaign.id}>
                   <button
                     type="button"
@@ -332,10 +376,20 @@ export function CampaignsPanel({
                         {campaign.contacts.length === 1 ? "" : "s"}
                       </p>
                     </div>
+                    <span
+                      className={`inline-flex shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${statusMeta.className}`}
+                    >
+                      {statusMeta.label}
+                    </span>
+                    <span
+                      className={`inline-flex shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${channelMeta.className}`}
+                    >
+                      {channelMeta.label}
+                    </span>
                     <MaterialIcon name="chevron_right" className="shrink-0 text-slate-400" aria-hidden />
                   </button>
                 </li>
-              ))}
+              )})}
             </ul>
           )}
         </div>

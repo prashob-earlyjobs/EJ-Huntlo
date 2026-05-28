@@ -8,6 +8,7 @@ const {
   getGmailStatus,
   getWhatsAppStatus,
   getCalendlyStatus,
+  getCalendlyMeetingLinks,
   listUserIntegrations,
   disconnectGmail,
   disconnectWhatsApp,
@@ -156,6 +157,22 @@ const getCalendlyStatusHandler = async (req, res) => {
   }
 };
 
+const getCalendlyMeetingLinksHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) {
+      return invalidSession(res);
+    }
+    const links = await getCalendlyMeetingLinks(uid);
+    return res.status(200).json({ success: true, links });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Failed to load Calendly links",
+    });
+  }
+};
+
 /** POST /api/integrations/calendly/verify */
 const verifyCalendlyCredentialsHandler = async (req, res) => {
   try {
@@ -275,6 +292,7 @@ module.exports = {
   getGmailStatusHandler,
   getWhatsAppStatusHandler,
   getCalendlyStatusHandler,
+  getCalendlyMeetingLinksHandler,
   connectGmailWithAuthCode,
   verifyWhatsAppCredentialsHandler,
   connectWhatsAppHandler,

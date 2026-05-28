@@ -157,28 +157,6 @@ function isSidebarNavGroup(entry: UserSidebarNavEntry): entry is UserSidebarNavG
   return "children" in entry && Array.isArray(entry.children);
 }
 
-const outreachesSidebarItem: UserSidebarNavItem = {
-  label: "Outreaches",
-  subtitle: "Email plans & send",
-  icon: (
-    <svg viewBox="0 0 24 24" fill="none" className="h-3.5 w-3.5">
-      <path
-        d="M4 6H20V18H4V6Z"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M4 7L12 13L20 7"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  ),
-};
-
 const campaignsSidebarItem: UserSidebarNavItem = {
   label: "Campaigns",
   subtitle: "Group & run outreach",
@@ -205,7 +183,7 @@ const engagementsSidebarGroup: UserSidebarNavGroup = {
   label: "Engagements",
   subtitle: "Outreach & connections",
   icon: <MaterialIcon name="campaign" className="text-[1.125rem]" />,
-  children: [outreachesSidebarItem, campaignsSidebarItem, integrationsSidebarItem],
+  children: [campaignsSidebarItem, integrationsSidebarItem],
 };
 
 const userSidebarNavEntries: UserSidebarNavEntry[] = [
@@ -1909,7 +1887,6 @@ export default function UserDashboardPage() {
 
   useEffect(() => {
     if (
-      activeTab === "Outreaches" ||
       activeTab === "Campaigns" ||
       activeTab === "Integrations"
     ) {
@@ -4997,6 +4974,7 @@ export default function UserDashboardPage() {
                 planResolved={userPlanReady}
                 onViewPlans={() => navigateToTab("Plans and pricing")}
                 onGoToIntegrations={() => navigateToTab("Integrations")}
+                onAddFromSearchHistory={() => navigateToTab("Search history")}
                 campaigns={campaigns}
                 campaignsLoading={campaignsLoading}
                 onCreateCampaign={handleCreateCampaign}

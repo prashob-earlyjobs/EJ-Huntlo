@@ -1,7 +1,7 @@
 const UserIntegration = require("../models/UserIntegration");
 const mongoose = require("mongoose");
 const { getMetaCredentialsForUser, resolveWhatsappProvider } = require("./integrationService");
-const { sendMetaWhatsAppMessage } = require("./metaWhatsAppSendService");
+const { sendMetaWhatsAppMessage, sendMetaWhatsAppSessionText } = require("./metaWhatsAppSendService");
 
 /**
  * Ensure user has a connected Meta WhatsApp integration.
@@ -40,7 +40,15 @@ async function sendWhatsAppMessage(userId, { to, body, templateId }) {
   return sendMetaWhatsAppMessage(creds, { to, body, templateId });
 }
 
+/** Free-form reply within Meta's 24-hour session window (after candidate message). */
+async function sendWhatsAppSessionMessage(userId, { to, body }) {
+  await assertWhatsAppReadyForSend(userId);
+  const creds = await getMetaCredentialsForUser(userId);
+  return sendMetaWhatsAppSessionText(creds, { to, body });
+}
+
 module.exports = {
   assertWhatsAppReadyForSend,
   sendWhatsAppMessage,
+  sendWhatsAppSessionMessage,
 };

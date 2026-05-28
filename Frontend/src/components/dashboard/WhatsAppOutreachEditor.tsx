@@ -50,8 +50,19 @@ type Props = {
   onGoToIntegrations?: () => void;
   /** Campaign workspace: save then launch outreach for all contacts. */
   onLaunchCampaign?: (savedPlan: WhatsAppOutreachPlanRecord) => void | Promise<void>;
+  onPauseCampaign?: () => void | Promise<void>;
+  onResumeCampaign?: () => void | Promise<void>;
+  campaignOutreachStatus?: "idle" | "active" | "paused" | "completed";
+  hasCampaignContacts?: boolean;
   /** Called after launch API + overlay animation finish (e.g. switch workspace tab). */
   onLaunchComplete?: () => void;
+};
+
+type CalendlyMeetingLink = {
+  name: string;
+  schedulingUrl: string;
+  slug?: string;
+  durationMinutes?: number | null;
 };
 
 const WAIT_UNIT_OPTIONS = [
@@ -64,6 +75,22 @@ function openingPreviewLabel(tp: WhatsAppTouchpointDraft): string {
   const tpl = getWhatsAppOpeningTemplate(tp.templateId);
   if (tpl) return `${tpl.name} · 2 no-reply follow-ups`;
   return "Select a template";
+}
+
+function touchpointNodeType(tp: WhatsAppTouchpointDraft): string {
+  if (tp.order === 1) return "Opening";
+  if (tp.order === 2) return "Follow-up 1";
+  if (tp.order === 3) return "Follow-up 2";
+  if (tp.isReplyFollowUp) return `Reply question ${tp.order - 3}`;
+  return `Step ${tp.order - 3}`;
+}
+
+function touchpointPreviewLabel(tp: WhatsAppTouchpointDraft): string {
+  if (tp.order === 1) return openingPreviewLabel(tp);
+  if (tp.order === 2 || tp.order === 3) {
+    return tp.body.trim() || "Select a template";
+  }
+  return tp.body.trim() || "Empty message";
 }
 
 function WhatsAppTemplateSelector({
@@ -179,37 +206,16 @@ function NoReplyFallbackField({
 }
 
 function OpeningMessageSection({
-  fallback1,
-  fallback2,
-  waitMeta,
   selectedTemplateId,
   onSelectTemplate,
-  onUpdateFallback,
-  onUpdateFallbackWait,
 }: {
-  fallback1: WhatsAppTouchpointDraft;
-  fallback2: WhatsAppTouchpointDraft;
-  waitMeta: Record<number, { amount: number; unit: "hours" | "days" }>;
   selectedTemplateId?: string;
   onSelectTemplate: (template: WhatsAppMessageTemplate) => void;
-  onUpdateFallback: (order: 2 | 3, patch: Partial<WhatsAppTouchpointDraft>) => void;
-  onUpdateFallbackWait: (
-    order: 2 | 3,
-    patch: Partial<{ amount: number; unit: "hours" | "days" }>
-  ) => void;
 }) {
-  const selectFallbackTemplate = (order: 2 | 3, slot: 1 | 2, template: WhatsAppMessageTemplate) => {
-    onUpdateFallback(order, {
-      templateId: template.id,
-      body: template.body,
-    });
-  };
-
   return (
     <div className="dashboard-wa-opening-templates">
       <p className="dashboard-wa-opening-templates-lead">
-        Choose approved templates for the opening message and two automatic follow-ups if the
-        candidate does not reply.
+        Choose an approved opening template for the first outreach message.
       </p>
       <p className="dashboard-wa-opening-templates-subtitle">Opening message</p>
       <WhatsAppTemplateSelector
@@ -219,31 +225,6 @@ function OpeningMessageSection({
         ariaLabel="Opening message template"
         previewLabel="Opening message preview"
       />
-
-      <div className="dashboard-wa-no-reply-section">
-        <h4 className="dashboard-wa-no-reply-section-title">No-reply follow-ups</h4>
-        <p className="dashboard-wa-no-reply-section-lead">
-          These messages send automatically when the candidate has not responded.
-        </p>
-        <NoReplyFallbackField
-          slot={1}
-          touchpoint={fallback1}
-          waitMeta={
-            waitMeta[2] ?? inferWaitDisplay(fallback1.waitHours)
-          }
-          onSelectTemplate={(tpl) => selectFallbackTemplate(2, 1, tpl)}
-          onWaitChange={(patch) => onUpdateFallbackWait(2, patch)}
-        />
-        <NoReplyFallbackField
-          slot={2}
-          touchpoint={fallback2}
-          waitMeta={
-            waitMeta[3] ?? inferWaitDisplay(fallback2.waitHours)
-          }
-          onSelectTemplate={(tpl) => selectFallbackTemplate(3, 2, tpl)}
-          onWaitChange={(patch) => onUpdateFallbackWait(3, patch)}
-        />
-      </div>
     </div>
   );
 }
@@ -257,6 +238,10 @@ export function WhatsAppOutreachEditor({
   onSaved,
   onGoToIntegrations,
   onLaunchCampaign,
+  onPauseCampaign,
+  onResumeCampaign,
+  campaignOutreachStatus = "idle",
+  hasCampaignContacts = true,
   onLaunchComplete,
 }: Props) {
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
@@ -279,10 +264,7 @@ export function WhatsAppOutreachEditor({
     }
   );
 
-  const railTouchpoints = useMemo(
-    () => touchpoints.filter((tp) => !tp.isNoReplyFallback),
-    [touchpoints]
-  );
+  const railTouchpoints = useMemo(() => touchpoints, [touchpoints]);
 
   const { fallback1, fallback2 } = useMemo(
     () => getNoReplyFallbacks(touchpoints),
@@ -292,12 +274,19 @@ export function WhatsAppOutreachEditor({
   const openingTouchpoint = touchpoints.find((tp) => tp.order === 1);
   const [saving, setSaving] = useState(false);
   const [launching, setLaunching] = useState(false);
+  const [pausing, setPausing] = useState(false);
+  const [resuming, setResuming] = useState(false);
   const [currentPlanId, setCurrentPlanId] = useState(planId);
   const [error, setError] = useState("");
   const [whatsappConnected, setWhatsappConnected] = useState<boolean | null>(null);
   const [setupWarningOpen, setSetupWarningOpen] = useState(false);
   const [setupWarningContext, setSetupWarningContext] =
     useState<WhatsAppSetupWarningContext>("save");
+  const [calendlyPickerOpen, setCalendlyPickerOpen] = useState(false);
+  const [calendlyLoading, setCalendlyLoading] = useState(false);
+  const [calendlyError, setCalendlyError] = useState("");
+  const [calendlyMeetingLinks, setCalendlyMeetingLinks] = useState<CalendlyMeetingLink[]>([]);
+  const [selectedMeetingLink, setSelectedMeetingLink] = useState("");
 
   const loadWhatsAppStatus = useCallback(async (): Promise<boolean> => {
     const auth = getStoredAuth();
@@ -319,6 +308,69 @@ export function WhatsAppOutreachEditor({
     }
   }, [apiBase]);
 
+  const openCalendlyPicker = useCallback(async () => {
+    setCalendlyError("");
+    const auth = getStoredAuth();
+    if (!auth?.token) {
+      setCalendlyError("Please sign in again.");
+      return;
+    }
+    setCalendlyLoading(true);
+    try {
+      const res = await fetch(`${apiBase}/api/integrations/calendly/links`, {
+        headers: authHeaders(auth.token),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.success) {
+        const message =
+          typeof data?.message === "string" ? data.message : "Failed to load Calendly links.";
+        if (message.toLowerCase().includes("not connected")) onGoToIntegrations?.();
+        setCalendlyError(message);
+        return;
+      }
+      const links = Array.isArray(data?.links)
+        ? data.links
+            .map((raw): CalendlyMeetingLink | null => {
+              if (!raw || typeof raw !== "object") return null;
+              const schedulingUrl =
+                typeof (raw as { schedulingUrl?: unknown }).schedulingUrl === "string"
+                  ? (raw as { schedulingUrl: string }).schedulingUrl.trim()
+                  : "";
+              if (!schedulingUrl) return null;
+              return {
+                name:
+                  typeof (raw as { name?: unknown }).name === "string"
+                    ? (raw as { name: string }).name.trim() || "Calendly event"
+                    : "Calendly event",
+                schedulingUrl,
+                slug:
+                  typeof (raw as { slug?: unknown }).slug === "string"
+                    ? (raw as { slug: string }).slug.trim()
+                    : "",
+                durationMinutes:
+                  typeof (raw as { durationMinutes?: unknown }).durationMinutes === "number"
+                    ? (raw as { durationMinutes: number }).durationMinutes
+                    : null,
+              };
+            })
+            .filter((item): item is CalendlyMeetingLink => item !== null)
+        : [];
+
+      if (!links.length) {
+        setCalendlyError("No Calendly meeting links found. Create an event type in Calendly.");
+        return;
+      }
+
+      setCalendlyMeetingLinks(links);
+      setSelectedMeetingLink(links[0].schedulingUrl);
+      setCalendlyPickerOpen(true);
+    } catch {
+      setCalendlyError("Failed to check Calendly connection.");
+    } finally {
+      setCalendlyLoading(false);
+    }
+  }, [apiBase, onGoToIntegrations]);
+
   useEffect(() => {
     void loadWhatsAppStatus();
   }, [loadWhatsAppStatus]);
@@ -327,6 +379,10 @@ export function WhatsAppOutreachEditor({
     () => touchpoints.find((tp) => tp.order === activeIndex) ?? touchpoints[0],
     [touchpoints, activeIndex]
   );
+  const activeHasCalendlyLink = useMemo(() => {
+    const body = (activeTouchpoint?.body || "").toLowerCase();
+    return body.includes("calendly.com/");
+  }, [activeTouchpoint]);
 
   const updateTouchpoint = (order: number, patch: Partial<WhatsAppTouchpointDraft>) => {
     setTouchpoints((prev) =>
@@ -360,7 +416,7 @@ export function WhatsAppOutreachEditor({
   };
 
   const removeStep = (order: number) => {
-    if (order <= 3) return;
+    if (order <= 7) return;
     setTouchpoints((prev) =>
       ensureWhatsAppSequenceWithFallbacks(prev.filter((tp) => tp.order !== order))
     );
@@ -374,6 +430,21 @@ export function WhatsAppOutreachEditor({
     updateTouchpoint(activeTouchpoint.order, {
       body: body ? `${body} ${token}` : token,
     });
+  };
+
+  const insertCalendlyLink = () => {
+    const link = selectedMeetingLink.trim();
+    if (!activeTouchpoint || !link) return;
+    const body = activeTouchpoint.body.trim();
+    const hasLink = body.includes(link);
+    if (hasLink) {
+      setCalendlyPickerOpen(false);
+      return;
+    }
+    updateTouchpoint(activeTouchpoint.order, {
+      body: body ? `${body}\n\n${link}` : link,
+    });
+    setCalendlyPickerOpen(false);
   };
 
   const selectOpeningTemplate = (template: WhatsAppMessageTemplate) => {
@@ -446,6 +517,7 @@ export function WhatsAppOutreachEditor({
         waitHours: tp.waitHours,
         ...(tp.templateId ? { templateId: tp.templateId } : {}),
         ...(tp.isNoReplyFallback ? { isNoReplyFallback: true } : {}),
+        ...(tp.isReplyFollowUp ? { isReplyFollowUp: true } : {}),
       })),
     };
   };
@@ -537,7 +609,33 @@ export function WhatsAppOutreachEditor({
     }
   };
 
-  const actionBusy = saving || launching;
+  const pauseCampaign = async () => {
+    if (!onPauseCampaign) return;
+    setPausing(true);
+    setError("");
+    try {
+      await onPauseCampaign();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to pause campaign.");
+    } finally {
+      setPausing(false);
+    }
+  };
+
+  const resumeCampaign = async () => {
+    if (!onResumeCampaign) return;
+    setResuming(true);
+    setError("");
+    try {
+      await onResumeCampaign();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to resume campaign.");
+    } finally {
+      setResuming(false);
+    }
+  };
+
+  const actionBusy = saving || launching || pausing || resuming;
 
   const planTitleEditor = (centered: boolean) => (
     <div className={centered ? "mx-auto min-w-0 max-w-md text-center" : "min-w-0"}>
@@ -612,11 +710,50 @@ export function WhatsAppOutreachEditor({
             >
               {saving ? "Saving…" : "Save sequence"}
             </button>
-            {onLaunchCampaign ? (
+            {campaignOutreachStatus === "active" ? (
+              <button
+                type="button"
+                onClick={() => void pauseCampaign()}
+                disabled={actionBusy}
+                className={`${dashboardBtnSecondaryClass} inline-flex items-center gap-1.5 px-4 py-1.5 text-sm disabled:opacity-55`}
+              >
+                {pausing ? (
+                  <>
+                    <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
+                    Pausing…
+                  </>
+                ) : (
+                  <>
+                    <MaterialIcon name="pause_circle" className="text-base" />
+                    Pause campaign
+                  </>
+                )}
+              </button>
+            ) : campaignOutreachStatus === "paused" ? (
+              <button
+                type="button"
+                onClick={() => void resumeCampaign()}
+                disabled={actionBusy}
+                className="dashboard-campaign-wa-launch-btn inline-flex items-center gap-1.5 px-4 py-1.5 text-sm disabled:opacity-55"
+              >
+                {resuming ? (
+                  <>
+                    <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
+                    Resuming…
+                  </>
+                ) : (
+                  <>
+                    <MaterialIcon name="play_circle" className="text-base" />
+                    Resume campaign
+                  </>
+                )}
+              </button>
+            ) : onLaunchCampaign ? (
               <button
                 type="button"
                 onClick={() => void launchCampaign()}
-                disabled={actionBusy}
+                disabled={actionBusy || !hasCampaignContacts}
+                title={!hasCampaignContacts ? "Add contacts to this campaign first" : "Launch campaign"}
                 className="dashboard-campaign-wa-launch-btn inline-flex items-center gap-1.5 px-4 py-1.5 text-sm disabled:opacity-55"
               >
                 {launching ? (
@@ -710,8 +847,16 @@ export function WhatsAppOutreachEditor({
             {railTouchpoints.map((tp, index) => {
               const isActive = tp.order === activeIndex;
               const nextRail = railTouchpoints[index + 1];
+              const isSubStep = tp.order > 1;
               return (
-                <li key={tp.order} className="dashboard-wa-outreach-flow-item">
+                <li
+                  key={tp.order}
+                  className={`dashboard-wa-outreach-flow-item${
+                    isSubStep ? " dashboard-wa-outreach-flow-item--sub" : ""
+                  }${
+                    tp.isReplyFollowUp ? " dashboard-wa-outreach-flow-item--reply" : ""
+                  }`}
+                >
                   <button
                     type="button"
                     className={`dashboard-wa-outreach-flow-node${isActive ? " dashboard-wa-outreach-flow-node--active" : ""}`}
@@ -721,16 +866,20 @@ export function WhatsAppOutreachEditor({
                       <MaterialIcon name="chat" className="text-base" />
                     </span>
                     <span className="min-w-0 flex-1 text-left">
-                      <span className="dashboard-wa-outreach-flow-node-type">
-                        {tp.order === 1 ? "Opening" : `Step ${tp.order - 3}`}
-                      </span>
-                      <span className="dashboard-wa-outreach-flow-node-preview">
-                        {openingPreviewLabel(tp)}
-                      </span>
+                    <span className="dashboard-wa-outreach-flow-node-type">
+                      {touchpointNodeType(tp)}
+                    </span>
+                    <span className="dashboard-wa-outreach-flow-node-preview">
+                      {touchpointPreviewLabel(tp)}
+                    </span>
                     </span>
                   </button>
-                  {nextRail ? (
-                    <p className="dashboard-wa-outreach-flow-wait">
+                  {nextRail && !nextRail.isReplyFollowUp ? (
+                    <p
+                      className={`dashboard-wa-outreach-flow-wait${
+                        nextRail.order > 1 ? " dashboard-wa-outreach-flow-wait--sub" : ""
+                      }`}
+                    >
                       {formatWhatsAppWaitLabel(nextRail.waitHours)}
                     </p>
                   ) : null}
@@ -746,38 +895,115 @@ export function WhatsAppOutreachEditor({
             <MaterialIcon name="add" className="text-base" />
             Add message
           </button>
+          <div className="dashboard-wa-outreach-calendly-card">
+            <div className="dashboard-wa-outreach-calendly-head">
+              <img
+                src="/integrations/calendly_logo.png"
+                alt="Calendly"
+                className="dashboard-wa-outreach-calendly-logo"
+              />
+              <p className="dashboard-wa-outreach-calendly-title">Calendly</p>
+            </div>
+            <p className="dashboard-wa-outreach-calendly-text">
+              {activeHasCalendlyLink
+                ? "Interview link is added to this message. You can change it anytime."
+                : "Connect Calendly to send interview links in your outreach conversations."}
+            </p>
+            {onGoToIntegrations ? (
+              <button
+                type="button"
+                onClick={() => void openCalendlyPicker()}
+                className="dashboard-wa-outreach-calendly-btn"
+                disabled={calendlyLoading}
+              >
+                {calendlyLoading
+                  ? "Checking Calendly…"
+                  : activeHasCalendlyLink
+                    ? "Change interview link"
+                    : "Add interview link"}
+              </button>
+            ) : null}
+            {calendlyError ? (
+              <p className="mt-2 text-[11px] text-rose-600">{calendlyError}</p>
+            ) : null}
+          </div>
         </aside>
 
         <div className="dashboard-wa-outreach-canvas">
           {activeTouchpoint ? (
             <div className="dashboard-wa-outreach-step-panel">
-              <div className="dashboard-wa-outreach-step-head">
-                <h4 className="text-sm font-semibold text-[#141b2b]">
-                  {activeTouchpoint.label}
-                </h4>
-                {activeTouchpoint.order > 3 ? (
-                  <button
-                    type="button"
-                    onClick={() => removeStep(activeTouchpoint.order)}
-                    className="dashboard-wa-outreach-delete"
-                  >
-                    <MaterialIcon name="delete" className="text-base" />
-                    Remove
-                  </button>
-                ) : null}
-              </div>
+              {activeTouchpoint.order !== 2 && activeTouchpoint.order !== 3 ? (
+                <div className="dashboard-wa-outreach-step-head">
+                  <h4 className="text-sm font-semibold text-[#141b2b]">
+                    {activeTouchpoint.label}
+                  </h4>
+                  {activeTouchpoint.order > 7 ? (
+                    <button
+                      type="button"
+                      onClick={() => removeStep(activeTouchpoint.order)}
+                      className="dashboard-wa-outreach-delete"
+                    >
+                      <MaterialIcon name="delete" className="text-base" />
+                      Remove
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
 
               <div className="dashboard-wa-outreach-messages-scroll dashboard-outreach-scroll">
-              {activeTouchpoint.order === 1 && openingTouchpoint && fallback1 && fallback2 ? (
+              {activeTouchpoint.order === 1 && openingTouchpoint ? (
                 <OpeningMessageSection
-                  fallback1={fallback1}
-                  fallback2={fallback2}
-                  waitMeta={waitMeta}
                   selectedTemplateId={openingTouchpoint.templateId}
                   onSelectTemplate={selectOpeningTemplate}
-                  onUpdateFallback={(order, patch) => updateTouchpoint(order, patch)}
-                  onUpdateFallbackWait={updateFallbackWait}
                 />
+              ) : activeTouchpoint.order === 2 || activeTouchpoint.order === 3 ? (
+                <div className="dashboard-wa-no-reply-section">
+                  <h4 className="dashboard-wa-no-reply-section-title">No-reply follow-up</h4>
+                  <p className="dashboard-wa-no-reply-section-lead">
+                    This message sends automatically only when the candidate has not responded.
+                  </p>
+                  <NoReplyFallbackField
+                    slot={activeTouchpoint.order === 2 ? 1 : 2}
+                    touchpoint={activeTouchpoint}
+                    waitMeta={
+                      waitMeta[activeTouchpoint.order] ??
+                      inferWaitDisplay(activeTouchpoint.waitHours)
+                    }
+                    onSelectTemplate={(template) =>
+                      updateTouchpoint(activeTouchpoint.order, {
+                        templateId: template.id,
+                        body: template.body,
+                      })
+                    }
+                    onWaitChange={(patch) =>
+                      updateFallbackWait(activeTouchpoint.order as 2 | 3, patch)
+                    }
+                  />
+                </div>
+              ) : activeTouchpoint.isReplyFollowUp ? (
+                <div className="dashboard-wa-no-reply-section">
+                  <h4 className="dashboard-wa-no-reply-section-title">Reply-based question</h4>
+                  <p className="dashboard-wa-no-reply-section-lead">
+                    This message is sent only after the candidate replies to your previous WhatsApp message.
+                  </p>
+                  <label className="dashboard-label mt-4 block">
+                    Message
+                    <textarea
+                      value={activeTouchpoint.body}
+                      onChange={(e) =>
+                        updateTouchpoint(activeTouchpoint.order, { body: e.target.value })
+                      }
+                      rows={6}
+                      maxLength={WHATSAPP_MESSAGE_MAX_LENGTH}
+                      placeholder="Thanks for your response. Could you share..."
+                      className="dashboard-input dashboard-input-sm mt-2 w-full resize-y"
+                    />
+                  </label>
+                  <p className="mt-1 text-right text-[11px] text-slate-500">
+                    {activeTouchpoint.body.length.toLocaleString()} /{" "}
+                    {WHATSAPP_MESSAGE_MAX_LENGTH.toLocaleString()}
+                  </p>
+                </div>
               ) : (
                 <div className="dashboard-wa-outreach-step-form">
                   <div className="dashboard-wa-outreach-wait-bar">
@@ -849,6 +1075,71 @@ export function WhatsAppOutreachEditor({
           ) : null}
         </div>
       </div>
+      {calendlyPickerOpen ? (
+        <div
+          className="dashboard-modal-overlay py-6"
+          role="presentation"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setCalendlyPickerOpen(false);
+          }}
+        >
+          <div
+            className="dashboard-modal mx-auto w-full max-w-lg p-0"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="calendly-meeting-picker-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="border-b border-slate-200 px-6 py-4">
+              <h3 id="calendly-meeting-picker-title" className="dashboard-section-title text-lg">
+                Select interview meeting link
+              </h3>
+              <p className="mt-1 text-sm text-slate-600">
+                Choose the Calendly link to insert into the active message.
+              </p>
+            </div>
+            <div className="px-6 py-5">
+              <div className="space-y-2">
+                {calendlyMeetingLinks.map((link) => (
+                  <label
+                    key={link.schedulingUrl}
+                    className="flex items-start gap-2 rounded-md border border-slate-200 p-3"
+                  >
+                    <input
+                      type="radio"
+                      name="calendly-link"
+                      checked={selectedMeetingLink === link.schedulingUrl}
+                      onChange={() => setSelectedMeetingLink(link.schedulingUrl)}
+                      className="mt-1"
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium text-slate-900">{link.name}</span>
+                      <span className="block text-xs text-slate-500 break-all">{link.schedulingUrl}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-slate-200 px-6 py-4">
+              <button
+                type="button"
+                className={dashboardBtnSecondaryClass}
+                onClick={() => setCalendlyPickerOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={dashboardBtnPrimaryClass}
+                onClick={insertCalendlyLink}
+                disabled={!selectedMeetingLink.trim() || !activeTouchpoint}
+              >
+                Insert link
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

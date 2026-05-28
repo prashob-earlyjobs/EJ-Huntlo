@@ -243,6 +243,9 @@ async function launchCampaignSequence(userId, campaignId) {
   }
   const now = new Date();
   const contacts = Array.isArray(campaign.contacts) ? campaign.contacts : [];
+  const firstReplyFollowUpOrder = isWhatsApp
+    ? (touchpoints.find((tp) => tp && tp.isReplyFollowUp)?.order || 0)
+    : 0;
 
   let enrolled = 0;
   let skipped = 0;
@@ -312,6 +315,7 @@ async function launchCampaignSequence(userId, campaignId) {
           replyDisposition: "unknown",
           autoReplyCount: 0,
           lastAutoRepliedToMessageId: "",
+          nextReplyFollowUpOrder: firstReplyFollowUpOrder,
         },
         $unset: {
           lastSentAt: 1,
@@ -321,6 +325,7 @@ async function launchCampaignSequence(userId, campaignId) {
           lastReplySyncedAt: 1,
           replyDispositionAt: 1,
           lastAutoReplyAt: 1,
+          lastWhatsAppAiHandledMessageId: 1,
         },
       },
       { upsert: true, new: true }

@@ -22,7 +22,7 @@ export type ExistingOutreachPlanOption = {
 };
 
 export type CreateOutreachChoice =
-  | { type: "scratch"; channel: "gmail" | "whatsapp" }
+  | { type: "scratch"; channel: "gmail" | "whatsapp"; jobDescription?: string }
   | { type: "template"; templateId: string }
   | { type: "clone"; planId: string }
   | { type: "ai"; touchpoints: OutreachTouchpointDraft[]; planName: string };
@@ -137,6 +137,8 @@ export function OutreachSequencePicker({
   const [step, setStep] = useState<"choose" | "clone" | "scratchChannel">("choose");
   const [clonePlanId, setClonePlanId] = useState("");
   const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [jobDescription, setJobDescription] = useState("");
+  const [scratchChannel, setScratchChannel] = useState<"gmail" | "whatsapp" | "">("");
   const s = pickerStyles(variant);
 
   const showLead = lead !== undefined && lead !== "";
@@ -152,22 +154,56 @@ export function OutreachSequencePicker({
     globalTemplates.length > 0 || userTemplates.length > 0 || existingPlans.length > 0;
 
   if (step === "scratchChannel") {
+    const normalizedJobDescription = jobDescription.trim();
+    const canContinue = Boolean(normalizedJobDescription) && Boolean(scratchChannel);
     return (
       <div className={`${s.root} dashboard-outreach-scroll`}>
+        <label className={`${dashboardLabelClass} mb-3 block`}>
+          Job description <span className="text-red-600">*</span>
+          <textarea
+            value={jobDescription}
+            onChange={(e) => setJobDescription(e.target.value)}
+            rows={8}
+            placeholder="Paste the role context, requirements, and key candidate profile details..."
+            className={`${dashboardInputClass} mt-2 w-full resize-y`}
+          />
+        </label>
         <p className={s.lead}>Choose a channel for your outreach sequence.</p>
         <div className={s.options}>
-          <OptionRow
-            styles={s}
-            brandProvider="gmail"
-            label="Gmail"
-            onClick={() => onChoose({ type: "scratch", channel: "gmail" })}
-          />
-          <OptionRow
-            styles={s}
-            brandProvider="whatsapp"
-            label="WhatsApp"
-            onClick={() => onChoose({ type: "scratch", channel: "whatsapp" })}
-          />
+          <button
+            type="button"
+            className={`${s.optionBtn}${
+              scratchChannel === "gmail" ? " border-[#0050cb] bg-[#f3f7ff]" : ""
+            }`}
+            onClick={() => setScratchChannel("gmail")}
+          >
+            <span className={s.iconBox} aria-hidden>
+              <IntegrationBrandLogo provider="gmail" title="Gmail" className="dashboard-integration-brand-logo" />
+            </span>
+            <span className={s.label}>Gmail</span>
+            {scratchChannel === "gmail" ? (
+              <MaterialIcon name="check_circle" className="shrink-0 text-xl text-[#0050cb]" aria-hidden />
+            ) : (
+              <MaterialIcon name="radio_button_unchecked" className="shrink-0 text-xl text-slate-400" aria-hidden />
+            )}
+          </button>
+          <button
+            type="button"
+            className={`${s.optionBtn}${
+              scratchChannel === "whatsapp" ? " border-[#0050cb] bg-[#f3f7ff]" : ""
+            }`}
+            onClick={() => setScratchChannel("whatsapp")}
+          >
+            <span className={s.iconBox} aria-hidden>
+              <IntegrationBrandLogo provider="whatsapp" title="WhatsApp" className="dashboard-integration-brand-logo" />
+            </span>
+            <span className={s.label}>WhatsApp</span>
+            {scratchChannel === "whatsapp" ? (
+              <MaterialIcon name="check_circle" className="shrink-0 text-xl text-[#0050cb]" aria-hidden />
+            ) : (
+              <MaterialIcon name="radio_button_unchecked" className="shrink-0 text-xl text-slate-400" aria-hidden />
+            )}
+          </button>
         </div>
         <div className={s.actions}>
           <button
@@ -176,6 +212,20 @@ export function OutreachSequencePicker({
             className={`${dashboardBtnSecondaryClass} px-4 py-2.5 text-sm`}
           >
             Back
+          </button>
+          <button
+            type="button"
+            disabled={!canContinue}
+            onClick={() =>
+              onChoose({
+                type: "scratch",
+                channel: scratchChannel as "gmail" | "whatsapp",
+                jobDescription: normalizedJobDescription,
+              })
+            }
+            className={`${dashboardBtnPrimaryClass} px-5 py-2.5 text-sm disabled:opacity-55`}
+          >
+            Next
           </button>
         </div>
       </div>

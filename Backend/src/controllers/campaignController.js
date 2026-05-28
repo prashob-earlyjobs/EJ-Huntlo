@@ -4,6 +4,7 @@ const {
   getCampaign,
   createCampaign,
   addContactsToCampaign,
+  removeContactFromCampaign,
   deleteCampaign,
   syncCampaignContactsFromUserCache,
   setCampaignOutreachPlan,
@@ -20,7 +21,12 @@ const {
   resumeCampaignSequence,
   getSequenceStatus,
 } = require("../services/campaignOutreachSendService");
-const { getCampaignWhatsAppConversations } = require("../services/campaignWhatsAppCommsService");
+const {
+  getCampaignWhatsAppConversations,
+  getCampaignWhatsAppThreadMessages,
+  sendCampaignWhatsAppSessionMessage,
+  markCampaignWhatsAppThreadRead,
+} = require("../services/campaignWhatsAppCommsService");
 const {
   syncCampaignReplies,
   listCampaignReplies,
@@ -146,6 +152,22 @@ const addContactsHandler = async (req, res) => {
         result.addedCount > 0
           ? `Added ${result.addedCount} contact${result.addedCount === 1 ? "" : "s"}`
           : "No new contacts added",
+    });
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
+const removeContactHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
+    const result = await removeContactFromCampaign(uid, req.params.id, req.params.candidateKey);
+    return res.status(200).json({
+      success: true,
+      campaign: result.campaign,
+      removed: result.removed,
+      message: result.removed ? "Contact removed" : "Contact not found in campaign",
     });
   } catch (error) {
     return handleError(res, error);
@@ -304,8 +326,63 @@ const getCampaignWhatsAppConversationsHandler = async (req, res) => {
   try {
     const uid = req.auth?.userId;
     if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
-    const data = await getCampaignWhatsAppConversations(uid, req.params.id);
+    const data = await getCampaignWhatsAppConversations(uid, req.params.id, {
+      threadPage: req.query?.threadPage,
+      threadPageSize: req.query?.threadPageSize,
+      messagePageSize: req.query?.messagePageSize,
+    });
     return res.status(200).json({ success: true, ...data });
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
+const getCampaignWhatsAppThreadMessagesHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
+    const data = await getCampaignWhatsAppThreadMessages(
+      uid,
+      req.params.id,
+      req.params.candidateKey,
+      {
+        page: req.query?.page,
+        pageSize: req.query?.pageSize,
+      }
+    );
+    return res.status(200).json({ success: true, ...data });
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
+const sendCampaignWhatsAppSessionMessageHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
+    const body = typeof req.body?.body === "string" ? req.body.body : "";
+    const result = await sendCampaignWhatsAppSessionMessage(
+      uid,
+      req.params.id,
+      req.params.candidateKey,
+      body
+    );
+    return res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
+const markCampaignWhatsAppThreadReadHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
+    const result = await markCampaignWhatsAppThreadRead(
+      uid,
+      req.params.id,
+      req.params.candidateKey
+    );
+    return res.status(200).json({ success: true, ...result });
   } catch (error) {
     return handleError(res, error);
   }
@@ -379,6 +456,7 @@ module.exports = {
   getCampaignHandler,
   createCampaignHandler,
   addContactsHandler,
+  removeContactHandler,
   getCampaignRevealJobHandler,
   getActiveCampaignRevealJobHandler,
   startCampaignRevealJobHandler,
@@ -389,6 +467,9 @@ module.exports = {
   resumeCampaignSequenceHandler,
   getCampaignSequenceStatusHandler,
   getCampaignWhatsAppConversationsHandler,
+  getCampaignWhatsAppThreadMessagesHandler,
+  sendCampaignWhatsAppSessionMessageHandler,
+  markCampaignWhatsAppThreadReadHandler,
   syncCampaignRepliesHandler,
   listCampaignRepliesHandler,
   getContactEmailThreadHandler,

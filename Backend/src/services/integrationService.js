@@ -14,7 +14,7 @@ const {
 
 const { GMAIL_SCOPES } = require("./gmailClient");
 
-const { fetchCalendlyUser } = require("./calendlyClient");
+const { fetchCalendlyUser, fetchCalendlyEventTypes } = require("./calendlyClient");
 
 const PROVIDER_LABELS = {
   gmail: { integration: "Gmail", provider: "Google" },
@@ -431,6 +431,21 @@ async function getCalendlyStatus(userId) {
   };
 }
 
+async function getCalendlyMeetingLinks(userId) {
+  const creds = await getCalendlyCredentialsForUser(userId);
+  const eventTypes = await fetchCalendlyEventTypes(creds.personalAccessToken);
+  const unique = new Map();
+
+  for (const item of eventTypes) {
+    if (!item?.schedulingUrl) continue;
+    if (!unique.has(item.schedulingUrl)) {
+      unique.set(item.schedulingUrl, item);
+    }
+  }
+
+  return Array.from(unique.values());
+}
+
 async function disconnectCalendly(userId) {
   return disconnectIntegration(userId, "calendly");
 }
@@ -530,6 +545,7 @@ module.exports = {
   getGmailStatus,
   getWhatsAppStatus,
   getCalendlyStatus,
+  getCalendlyMeetingLinks,
   getMetaCredentialsForUser,
   getCalendlyCredentialsForUser,
   listUserIntegrations,
