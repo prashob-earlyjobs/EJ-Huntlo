@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useLayoutEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import {
@@ -28,7 +28,6 @@ import {
 const ENTERPRISE_PLAN_ID = "enterprise";
 const ENTERPRISE_LOCKED_MESSAGE =
   "Campaigns are available on the Enterprise plan. Upgrade to organize and run outreach campaigns.";
-
 function formatCampaignStatus(status?: CampaignRecord["outreachStatus"]) {
   if (status === "active") {
     return {
@@ -66,7 +65,6 @@ function formatCampaignChannel(channel?: CampaignRecord["outreachChannel"]) {
     className: "bg-indigo-50 text-indigo-700",
   };
 }
-
 type Props = {
   currentPlanId: string;
   /** False until /api/users/me (or dashboard overview) has set the real plan id. */
@@ -75,6 +73,9 @@ type Props = {
   onGoToIntegrations?: () => void;
   campaigns: CampaignRecord[];
   campaignsLoading?: boolean;
+  campaignsLoadingMore?: boolean;
+  campaignsHasMore?: boolean;
+  onLoadMoreCampaigns?: () => Promise<void> | void;
   onCreateCampaign: (name: string) => Promise<CampaignRecord | null>;
   onCampaignUpdated?: (campaign: CampaignRecord) => void;
   routeCampaignId?: string;
@@ -89,6 +90,9 @@ export function CampaignsPanel({
   onGoToIntegrations,
   campaigns,
   campaignsLoading = false,
+  campaignsLoadingMore = false,
+  campaignsHasMore = false,
+  onLoadMoreCampaigns,
   onCreateCampaign,
   onCampaignUpdated,
   routeCampaignId = "",
@@ -107,6 +111,8 @@ export function CampaignsPanel({
   const [workspaceTab, setWorkspaceTab] =
     useState<CampaignWorkspaceTab>(routeWorkspaceTab);
   const [listReady, setListReady] = useState(false);
+  const listScrollRef = useRef<HTMLDivElement | null>(null);
+  const loadMoreRef = useRef<HTMLLIElement | null>(null);
 
   const activeCampaignId = routeCampaignId.trim() || null;
   const listCampaign =
@@ -197,6 +203,39 @@ export function CampaignsPanel({
 
   const showEnterpriseLocked =
     planResolved && !isEnterprise && !campaignsLoading && campaigns.length === 0;
+  const hasMoreCampaigns = Boolean(campaignsHasMore);
+
+  useEffect(() => {
+    if (!hasMoreCampaigns || !onLoadMoreCampaigns || campaignsLoadingMore) return;
+    const root = listScrollRef.current;
+    const target = loadMoreRef.current;
+    if (!root || !target) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            onLoadMoreCampaigns();
+            break;
+          }
+        }
+      },
+      {
+        root,
+        rootMargin: "0px 0px 240px 0px",
+        threshold: 0.01,
+      }
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [hasMoreCampaigns, onLoadMoreCampaigns, campaignsLoadingMore]);
+
+  useEffect(() => {
+    const root = listScrollRef.current;
+    if (!root || !hasMoreCampaigns || !onLoadMoreCampaigns || campaignsLoadingMore) return;
+    if (root.scrollHeight > root.clientHeight) return;
+    onLoadMoreCampaigns();
+  }, [hasMoreCampaigns, onLoadMoreCampaigns, campaignsLoadingMore, campaigns.length]);
 
   useEffect(() => {
     setWorkspaceTab(routeWorkspaceTab);
@@ -327,7 +366,10 @@ export function CampaignsPanel({
           </button>
         </div>
 
-        <div className="dashboard-card-body-scroll dashboard-outreach-panel-body mt-4 flex flex-1 flex-col">
+        <div
+          ref={listScrollRef}
+          className="dashboard-card-body-scroll dashboard-outreach-panel-body mt-4 flex flex-1 flex-col"
+        >
           {showListShimmer ? (
             <CampaignsListSkeleton count={5} />
           ) : showEnterpriseLocked ? (
@@ -355,41 +397,45 @@ export function CampaignsPanel({
                 const statusMeta = formatCampaignStatus(campaign.outreachStatus);
                 const channelMeta = formatCampaignChannel(campaign.outreachChannel);
                 return (
-                <li key={campaign.id}>
-                  <button
-                    type="button"
-                    onClick={() => openCampaign(campaign.id, "Editor")}
-                    className="flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left transition hover:border-[#0050cb]/40 hover:bg-[#f8f9ff]"
-                  >
-                    <span
-                      className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-[#0050cb]/15 bg-[#0050cb]/10 text-[#0050cb]"
-                      aria-hidden
+                  <li key={campaign.id}>
+                    <button
+                      type="button"
+                      onClick={() => openCampaign(campaign.id, "Editor")}
+                      className="flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left transition hover:border-[#0050cb]/40 hover:bg-[#f8f9ff]"
                     >
-                      <MaterialIcon name="flag" className="text-xl" />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-[#141b2b]">
-                        {campaign.name}
-                      </p>
-                      <p className="truncate text-xs text-slate-500">
-                        {campaign.contacts.length} contact
-                        {campaign.contacts.length === 1 ? "" : "s"}
-                      </p>
-                    </div>
-                    <span
-                      className={`inline-flex shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${statusMeta.className}`}
-                    >
-                      {statusMeta.label}
-                    </span>
-                    <span
-                      className={`inline-flex shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${channelMeta.className}`}
-                    >
-                      {channelMeta.label}
-                    </span>
-                    <MaterialIcon name="chevron_right" className="shrink-0 text-slate-400" aria-hidden />
-                  </button>
+                      <span
+                        className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-[#0050cb]/15 bg-[#0050cb]/10 text-[#0050cb]"
+                        aria-hidden
+                      >
+                        <MaterialIcon name="flag" className="text-xl" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-[#141b2b]">{campaign.name}</p>
+                        <p className="truncate text-xs text-slate-500">
+                          {campaign.contacts.length} contact
+                          {campaign.contacts.length === 1 ? "" : "s"}
+                        </p>
+                      </div>
+                      <span
+                        className={`inline-flex shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${statusMeta.className}`}
+                      >
+                        {statusMeta.label}
+                      </span>
+                      <span
+                        className={`inline-flex shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${channelMeta.className}`}
+                      >
+                        {channelMeta.label}
+                      </span>
+                      <MaterialIcon name="chevron_right" className="shrink-0 text-slate-400" aria-hidden />
+                    </button>
+                  </li>
+                );
+              })}
+              {hasMoreCampaigns ? (
+                <li ref={loadMoreRef} aria-hidden className="py-2">
+                  <div className="dashboard-shimmer h-10 w-full rounded-lg" />
                 </li>
-              )})}
+              ) : null}
             </ul>
           )}
         </div>

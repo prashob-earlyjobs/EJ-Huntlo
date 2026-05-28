@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const {
   listCampaigns,
+  listCampaignContacts,
   getCampaign,
   createCampaign,
   addContactsToCampaign,
@@ -17,9 +18,11 @@ const {
 } = require("../services/campaignRevealJobService");
 const {
   launchCampaignSequence,
+  enrollAddedContactsIfCampaignActive,
   pauseCampaignSequence,
   resumeCampaignSequence,
   getSequenceStatus,
+  getEmailCampaignReport,
 } = require("../services/campaignOutreachSendService");
 const {
   getCampaignWhatsAppConversations,
@@ -49,8 +52,10 @@ const listCampaignsHandler = async (req, res) => {
   try {
     const uid = req.auth?.userId;
     if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
-    const campaigns = await listCampaigns(uid);
-    return res.status(200).json({ success: true, campaigns });
+    const page = req.query?.page ? Number(req.query.page) : undefined;
+    const limit = req.query?.limit ? Number(req.query.limit) : undefined;
+    const result = await listCampaigns(uid, { page, limit });
+    return res.status(200).json({ success: true, ...result });
   } catch (error) {
     return handleError(res, error);
   }
@@ -62,6 +67,26 @@ const getCampaignHandler = async (req, res) => {
     if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
     const campaign = await getCampaign(uid, req.params.id);
     return res.status(200).json({ success: true, campaign });
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
+const listCampaignContactsHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
+    const page = req.query?.page ? Number(req.query.page) : undefined;
+    const limit = req.query?.limit ? Number(req.query.limit) : undefined;
+    const search = req.query?.search ? String(req.query.search) : "";
+    const disposition = req.query?.disposition ? String(req.query.disposition) : "";
+    const result = await listCampaignContacts(uid, req.params.id, {
+      page,
+      limit,
+      search,
+      disposition,
+    });
+    return res.status(200).json({ success: true, ...result });
   } catch (error) {
     return handleError(res, error);
   }
@@ -119,6 +144,22 @@ const addContactsHandler = async (req, res) => {
     const contacts = Array.isArray(req.body?.contacts) ? req.body.contacts : [];
     const revealInBackground = req.body?.revealInBackground !== false;
     const result = await addContactsToCampaign(uid, req.params.id, contacts);
+    let sequenceEnroll = null;
+    let sequenceEnrollError = null;
+    if (result.addedCount > 0 && Array.isArray(result.addedCandidateKeys)) {
+      try {
+        sequenceEnroll = await enrollAddedContactsIfCampaignActive(
+          uid,
+          req.params.id,
+          result.addedCandidateKeys
+        );
+      } catch (enrollErr) {
+        sequenceEnrollError =
+          enrollErr instanceof Error
+            ? enrollErr.message
+            : "Could not auto-enroll added contacts into active sequence";
+      }
+    }
 
     let revealJob = null;
     let revealJobError = null;
@@ -146,6 +187,8 @@ const addContactsHandler = async (req, res) => {
       campaign: result.campaign,
       addedCount: result.addedCount,
       skippedCount: result.skippedCount,
+      sequenceEnroll,
+      sequenceEnrollError,
       revealJob,
       revealJobError,
       message:
@@ -158,7 +201,7 @@ const addContactsHandler = async (req, res) => {
   }
 };
 
-const removeContactHandler = async (req, res) => {
+const removeCampaignContactHandler = async (req, res) => {
   try {
     const uid = req.auth?.userId;
     if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
@@ -167,7 +210,7 @@ const removeContactHandler = async (req, res) => {
       success: true,
       campaign: result.campaign,
       removed: result.removed,
-      message: result.removed ? "Contact removed" : "Contact not found in campaign",
+      message: result.removed > 0 ? "Contact removed" : "Contact not found in campaign",
     });
   } catch (error) {
     return handleError(res, error);
@@ -322,6 +365,17 @@ const getCampaignSequenceStatusHandler = async (req, res) => {
   }
 };
 
+const getCampaignEmailReportHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
+    const report = await getEmailCampaignReport(uid, req.params.id);
+    return res.status(200).json({ success: true, report });
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
 const getCampaignWhatsAppConversationsHandler = async (req, res) => {
   try {
     const uid = req.auth?.userId;
@@ -454,9 +508,10 @@ const deleteCampaignHandler = async (req, res) => {
 module.exports = {
   listCampaignsHandler,
   getCampaignHandler,
+  listCampaignContactsHandler,
   createCampaignHandler,
   addContactsHandler,
-  removeContactHandler,
+  removeCampaignContactHandler,
   getCampaignRevealJobHandler,
   getActiveCampaignRevealJobHandler,
   startCampaignRevealJobHandler,
@@ -466,6 +521,7 @@ module.exports = {
   pauseCampaignSequenceHandler,
   resumeCampaignSequenceHandler,
   getCampaignSequenceStatusHandler,
+  getCampaignEmailReportHandler,
   getCampaignWhatsAppConversationsHandler,
   getCampaignWhatsAppThreadMessagesHandler,
   sendCampaignWhatsAppSessionMessageHandler,

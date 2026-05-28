@@ -5,8 +5,6 @@ import { createPortal } from "react-dom";
 
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import {
-  dashboardBtnPrimaryClass,
-  dashboardBtnSecondaryClass,
   dashboardInputClass,
   dashboardLabelClass,
 } from "@/lib/dashboardStyles";
@@ -83,7 +81,7 @@ export function CreateCampaignModal({ open, busy = false, onClose, onCreate }: P
           </div>
           <button
             type="button"
-            className="shrink-0 rounded-lg p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:opacity-50"
+            className="shrink-0 cursor-pointer rounded-lg p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:opacity-50"
             aria-label="Close"
             onClick={onClose}
             disabled={busy}
@@ -111,14 +109,14 @@ export function CreateCampaignModal({ open, busy = false, onClose, onCreate }: P
               type="button"
               onClick={onClose}
               disabled={busy}
-              className={`${dashboardBtnSecondaryClass} px-4 py-2.5 text-sm disabled:opacity-55`}
+              className="inline-flex h-9 cursor-pointer items-center rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-55"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={!canSubmit}
-              className={`${dashboardBtnPrimaryClass} px-5 py-2.5 text-sm disabled:opacity-55`}
+              className="inline-flex h-9 cursor-pointer items-center rounded-md border border-[#0050cb] bg-[#0050cb] px-5 text-sm font-medium text-white transition hover:bg-[#003d99] disabled:opacity-55"
             >
               {busy ? (
                 <>

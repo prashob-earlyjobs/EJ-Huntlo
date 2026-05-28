@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const Campaign = require("../models/Campaign");
+const CampaignSequenceEnrollment = require("../models/CampaignSequenceEnrollment");
 const OutreachPlan = require("../models/OutreachPlan");
 const WhatsAppOutreachPlan = require("../models/WhatsAppOutreachPlan");
 const { lookupUserRevealedContacts } = require("./contactRevealService");
@@ -96,11 +97,152 @@ function assertValidCampaignId(campaignId) {
   return new mongoose.Types.ObjectId(campaignId);
 }
 
-async function listCampaigns(userId) {
-  const docs = await Campaign.find({ userId: userOid(userId) })
-    .sort({ updatedAt: -1 })
-    .lean();
-  return docs.map(formatCampaign);
+async function listCampaigns(userId, options = {}) {
+  const pageRaw = Number(options.page);
+  const limitRaw = Number(options.limit);
+  const page = Number.isFinite(pageRaw) && pageRaw > 0 ? Math.floor(pageRaw) : 1;
+  const limit = Math.min(100, Math.max(1, Number.isFinite(limitRaw) ? Math.floor(limitRaw) : 15));
+  const skip = (page - 1) * limit;
+
+  const filter = { userId: userOid(userId) };
+  const [docs, total] = await Promise.all([
+    Campaign.find(filter).sort({ updatedAt: -1 }).skip(skip).limit(limit).lean(),
+    Campaign.countDocuments(filter),
+  ]);
+  const campaigns = docs.map(formatCampaign);
+  const hasMore = skip + campaigns.length < total;
+  return {
+    campaigns,
+    pagination: {
+      page,
+      limit,
+      total,
+      hasMore,
+    },
+  };
+}
+
+async function listCampaignContacts(userId, campaignId, options = {}) {
+  const oid = assertValidCampaignId(campaignId);
+  const ownerOid = userOid(userId);
+  const exists = await Campaign.exists({ _id: oid, userId: ownerOid });
+  if (!exists) {
+    const err = new Error("Campaign not found");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const pageRaw = Number(options.page);
+  const limitRaw = Number(options.limit);
+  const search = String(options.search || "").trim();
+  const disposition = String(options.disposition || "").trim();
+  const page = Number.isFinite(pageRaw) && pageRaw > 0 ? Math.floor(pageRaw) : 1;
+  const limit = Math.min(100, Math.max(1, Number.isFinite(limitRaw) ? Math.floor(limitRaw) : 15));
+  const skip = (page - 1) * limit;
+  const escapedSearch = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const searchRegex = escapedSearch ? new RegExp(escapedSearch, "i") : null;
+  const dispositionFilter =
+    disposition === "interested" || disposition === "not_interested" || disposition === "awaiting"
+      ? disposition
+      : "all";
+
+  const pipeline = [
+    { $match: { _id: oid, userId: ownerOid } },
+    { $unwind: "$contacts" },
+    {
+      $lookup: {
+        from: CampaignSequenceEnrollment.collection.name,
+        let: { campaignId: "$_id", key: "$contacts.candidateKey" },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ["$campaignId", "$$campaignId"] },
+                  { $eq: ["$candidateKey", "$$key"] },
+                ],
+              },
+            },
+          },
+          { $project: { _id: 0, replyDisposition: 1 } },
+          { $limit: 1 },
+        ],
+        as: "enrollmentRows",
+      },
+    },
+    {
+      $addFields: {
+        replyDisposition: {
+          $ifNull: [{ $first: "$enrollmentRows.replyDisposition" }, "unknown"],
+        },
+      },
+    },
+  ];
+
+  if (searchRegex) {
+    pipeline.push({
+      $match: {
+        $or: [
+          { "contacts.name": searchRegex },
+          { "contacts.email": searchRegex },
+          { "contacts.role": searchRegex },
+          { "contacts.company": searchRegex },
+          { "contacts.phone": searchRegex },
+        ],
+      },
+    });
+  }
+
+  if (dispositionFilter === "interested") {
+    pipeline.push({ $match: { replyDisposition: "interested" } });
+  } else if (dispositionFilter === "not_interested") {
+    pipeline.push({ $match: { replyDisposition: "not_interested" } });
+  } else if (dispositionFilter === "awaiting") {
+    pipeline.push({ $match: { replyDisposition: "unknown" } });
+  }
+
+  pipeline.push(
+    { $sort: { "contacts.addedAt": -1, "contacts.candidateKey": 1 } },
+    {
+      $facet: {
+        rows: [
+          { $skip: skip },
+          { $limit: limit },
+          { $project: { contact: "$contacts", replyDisposition: 1 } },
+        ],
+        total: [{ $count: "count" }],
+      },
+    },
+  );
+
+  const [result] = await Campaign.aggregate(pipeline);
+
+  const rawRows = Array.isArray(result?.rows) ? result.rows : [];
+  const total = Array.isArray(result?.total) && result.total[0]?.count ? Number(result.total[0].count) : 0;
+  const contacts = rawRows.map((row) => formatContact(row.contact || {}));
+  const dispositionByCandidateKey = {};
+  rawRows.forEach((row) => {
+    const key = String(row?.contact?.candidateKey || "").trim();
+    if (!key) return;
+    const value =
+      row?.replyDisposition === "interested" || row?.replyDisposition === "not_interested"
+        ? row.replyDisposition
+        : "unknown";
+    dispositionByCandidateKey[key] = value;
+  });
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+
+  return {
+    contacts,
+    dispositionByCandidateKey,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages,
+      hasMore: page < totalPages,
+    },
+  };
 }
 
 async function getCampaign(userId, campaignId) {
@@ -170,7 +312,7 @@ async function removeContactFromCampaign(userId, campaignId, candidateKey) {
   const oid = assertValidCampaignId(campaignId);
   const key = String(candidateKey || "").trim();
   if (!key) {
-    const err = new Error("Candidate key is required");
+    const err = new Error("candidateKey is required");
     err.statusCode = 400;
     throw err;
   }
@@ -182,13 +324,13 @@ async function removeContactFromCampaign(userId, campaignId, candidateKey) {
     throw err;
   }
 
-  const beforeCount = Array.isArray(doc.contacts) ? doc.contacts.length : 0;
+  const before = Array.isArray(doc.contacts) ? doc.contacts.length : 0;
   doc.contacts = (doc.contacts || []).filter(
-    (contact) => String(contact?.candidateKey || "").trim() !== key
+    (c) => String(c?.candidateKey || "").trim() !== key
   );
-
-  const removed = doc.contacts.length < beforeCount;
-  if (removed) {
+  const after = Array.isArray(doc.contacts) ? doc.contacts.length : 0;
+  const removed = Math.max(0, before - after);
+  if (removed > 0) {
     await doc.save();
   }
 
@@ -318,6 +460,7 @@ async function deleteCampaign(userId, campaignId) {
 
 module.exports = {
   listCampaigns,
+  listCampaignContacts,
   getCampaign,
   createCampaign,
   addContactsToCampaign,

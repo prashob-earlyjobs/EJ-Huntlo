@@ -9,6 +9,7 @@ const {
   getWhatsAppStatus,
   getCalendlyStatus,
   getCalendlyMeetingLinks,
+  listCalendlyEventTypesForUser,
   listUserIntegrations,
   disconnectGmail,
   disconnectWhatsApp,
@@ -219,6 +220,22 @@ const connectCalendlyHandler = async (req, res) => {
   }
 };
 
+const listCalendlyEventTypesHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) {
+      return invalidSession(res);
+    }
+    const result = await listCalendlyEventTypesForUser(uid);
+    return res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Failed to load Calendly meetings",
+    });
+  }
+};
+
 const disconnectCalendlyHandler = async (req, res) => {
   try {
     const uid = req.auth?.userId;
@@ -298,6 +315,7 @@ module.exports = {
   connectWhatsAppHandler,
   verifyCalendlyCredentialsHandler,
   connectCalendlyHandler,
+  listCalendlyEventTypesHandler,
   disconnectGmailHandler,
   disconnectWhatsAppHandler,
   disconnectCalendlyHandler,

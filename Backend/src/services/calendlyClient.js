@@ -53,16 +53,16 @@ async function fetchCalendlyUser(personalAccessToken) {
   };
 }
 
-async function fetchCalendlyEventTypes(personalAccessToken) {
+async function fetchCalendlyEventTypes(personalAccessToken, userUri) {
   const token = String(personalAccessToken || "").trim();
+  const user = String(userUri || "").trim();
   if (!token) {
     const err = new Error("Calendly personal access token is required.");
     err.statusCode = 400;
     throw err;
   }
-
-  const user = await fetchCalendlyUser(token);
-  if (!user.uri) {
+  const resolvedUser = user || (await fetchCalendlyUser(token)).uri;
+  if (!resolvedUser) {
     const err = new Error("Unable to load Calendly user profile.");
     err.statusCode = 502;
     throw err;
@@ -79,7 +79,7 @@ async function fetchCalendlyEventTypes(personalAccessToken) {
   while (page < MAX_EVENT_TYPE_PAGES) {
     page += 1;
     const qs = new URLSearchParams({
-      user: user.uri,
+      user: resolvedUser,
       active: "true",
       sort: "name:asc",
       count: String(DEFAULT_EVENT_TYPE_PAGE_SIZE),

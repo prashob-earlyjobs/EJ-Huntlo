@@ -55,6 +55,24 @@ function summarizePlanTouchpoints(touchpoints) {
     .join("\n\n");
 }
 
+function normalizeCalendlyAutomation(raw) {
+  const o = raw && typeof raw === "object" ? raw : {};
+  return {
+    enabled: Boolean(o.enabled),
+    meetingName: String(o.meetingName || "").trim(),
+    schedulingUrl: String(o.schedulingUrl || "").trim(),
+  };
+}
+
+function ensureCalendlyLinkInReply(replyBody, calendlyAutomation) {
+  const body = String(replyBody || "").trim();
+  const schedulingUrl = String(calendlyAutomation?.schedulingUrl || "").trim();
+  if (!body || !schedulingUrl) return body;
+  if (body.toLowerCase().includes(schedulingUrl.toLowerCase())) return body;
+
+  return `${body}\n\nYou can pick a time here: ${schedulingUrl}`;
+}
+
 async function loadAutoReplyContext(enrollment) {
   const userId = String(enrollment.userId);
   const campaign = await Campaign.findById(enrollment.campaignId)
@@ -62,12 +80,14 @@ async function loadAutoReplyContext(enrollment) {
     .lean();
 
   let planSummary = "";
+  let calendlyAutomation = { enabled: false, meetingName: "", schedulingUrl: "" };
   if (campaign?.outreachPlanId) {
     const plan = await OutreachPlan.findById(campaign.outreachPlanId)
-      .select("name touchpoints")
+      .select("name touchpoints calendlyAutomation")
       .lean();
     if (plan) {
       planSummary = `Plan: ${plan.name || ""}\n${summarizePlanTouchpoints(plan.touchpoints)}`;
+      calendlyAutomation = normalizeCalendlyAutomation(plan.calendlyAutomation);
     }
   }
 
@@ -102,6 +122,7 @@ async function loadAutoReplyContext(enrollment) {
     threadSubject,
     references,
     senderFirstName: await getSenderFirstName(userId),
+    calendlyAutomation,
   };
 }
 
@@ -186,6 +207,11 @@ async function maybeAutoReplyAfterCandidateMessage({
     return { sent: false, reason: "no_reply_body", disposition: ai.disposition };
   }
 
+  const replyBody =
+    ai.disposition === "interested" && context.calendlyAutomation?.enabled
+      ? ensureCalendlyLinkInReply(ai.replyBody, context.calendlyAutomation)
+      : ai.replyBody;
+
   const subject = buildReplySubject(context.threadSubject);
   const inReplyTo = String(candidateMessage?.rfcMessageId || "").trim();
   const references = [context.references, inReplyTo].filter(Boolean).join(" ").trim();
@@ -195,7 +221,7 @@ async function maybeAutoReplyAfterCandidateMessage({
     sendResult = await sendGmailMessage(context.userId, {
       to: contactEmail,
       subject,
-      body: ai.replyBody,
+      body: replyBody,
       threadId: tid,
       inReplyTo: inReplyTo || undefined,
       references: references || undefined,
@@ -213,7 +239,7 @@ async function maybeAutoReplyAfterCandidateMessage({
     enrollment,
     sendResult,
     subject,
-    body: ai.replyBody,
+    body: replyBody,
     toEmail: contactEmail,
   });
 

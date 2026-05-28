@@ -45,7 +45,7 @@ function startCampaignOutreachScheduler() {
   if (timer) return;
 
   console.log(
-    `[outreach-scheduler] started (immediate steps only, interval ${intervalMs}ms)`
+    `[outreach-scheduler] started (interval ${intervalMs}ms)`
   );
 
   void runTick();

@@ -89,7 +89,7 @@ import type { CampaignContact, CampaignRecord } from "@/lib/campaigns";
 import {
   addContactsToCampaignApi,
   createCampaign,
-  fetchCampaigns,
+  fetchCampaignsPage,
 } from "@/lib/campaignsApi";
 import {
   startCampaignReveal,
@@ -1213,6 +1213,9 @@ export default function UserDashboardPage() {
   const [sessionResultNotice, setSessionResultNotice] = useState("");
   const [campaigns, setCampaigns] = useState<CampaignRecord[]>([]);
   const [campaignsLoading, setCampaignsLoading] = useState(false);
+  const [campaignsLoadingMore, setCampaignsLoadingMore] = useState(false);
+  const [campaignsPage, setCampaignsPage] = useState(1);
+  const [campaignsHasMore, setCampaignsHasMore] = useState(false);
   const [addToCampaignBusy, setAddToCampaignBusy] = useState(false);
   const [savedSessionCandidateKeys, setSavedSessionCandidateKeys] = useState<string[]>([]);
   const [savedCandidatesList, setSavedCandidatesList] = useState<CandidateRow[]>([]);
@@ -1387,14 +1390,17 @@ export default function UserDashboardPage() {
           setAccountBlocked(true);
           return null;
         }
-        return data;
+        return { data, status: res.status, ok: res.ok };
       })
-      .then((data) => {
-        if (!data) return;
-        if (!data.success) {
-          throw new Error(
+      .then((result) => {
+        if (!result) return;
+        const { data, status, ok } = result;
+        if (!ok || !data.success) {
+          const err = new Error(
             typeof data.message === "string" ? data.message : "Failed to load dashboard"
           );
+          (err as Error & { statusCode?: number }).statusCode = status;
+          throw err;
         }
         const parsed = parseDashboardOverviewPayload(data);
         if (!parsed) {
@@ -1406,15 +1412,28 @@ export default function UserDashboardPage() {
         setUserPlanReady(true);
       })
       .catch((err) => {
+        const statusCode =
+          typeof (err as { statusCode?: unknown })?.statusCode === "number"
+            ? Number((err as { statusCode?: number }).statusCode)
+            : 0;
+        const msg = err instanceof Error ? err.message : "Could not load dashboard";
+        const authExpired = statusCode === 401;
+        if (authExpired) {
+          try {
+            window.localStorage.removeItem("authUser");
+          } catch {
+            /* ignore */
+          }
+          router.replace("/login");
+          return;
+        }
         setDashboardOverview(null);
-        setDashboardOverviewError(
-          err instanceof Error ? err.message : "Could not load dashboard"
-        );
+        setDashboardOverviewError(msg);
       })
       .finally(() => {
         setDashboardOverviewLoading(false);
       });
-  }, [activeTab]);
+  }, [activeTab, router]);
 
   useEffect(() => {
     const auth = getStoredAuth();
@@ -1439,34 +1458,53 @@ export default function UserDashboardPage() {
       });
   }, []);
 
-  const loadCampaignsList = useCallback(async () => {
+  const CAMPAIGNS_PAGE_SIZE = 15;
+
+  const loadCampaignsList = useCallback(async (opts?: { append?: boolean; page?: number }) => {
     const auth = getStoredAuth();
     if (!auth?.token || userPlanId !== "enterprise") {
       setCampaigns([]);
       setCampaignsLoading(false);
+      setCampaignsLoadingMore(false);
+      setCampaignsPage(1);
+      setCampaignsHasMore(false);
       return;
     }
-    setCampaignsLoading(true);
+    const append = Boolean(opts?.append);
+    const page = Math.max(1, Number(opts?.page) || 1);
+    if (append) setCampaignsLoadingMore(true);
+    else setCampaignsLoading(true);
     try {
-      const list = await fetchCampaigns(auth.token);
-      setCampaigns(list);
+      const result = await fetchCampaignsPage(auth.token, {
+        page,
+        limit: CAMPAIGNS_PAGE_SIZE,
+      });
+      setCampaigns((prev) => (append ? [...prev, ...result.campaigns] : result.campaigns));
+      setCampaignsPage(page);
+      setCampaignsHasMore(result.pagination.hasMore);
     } catch {
       /* keep previous list */
     } finally {
-      setCampaignsLoading(false);
+      if (append) setCampaignsLoadingMore(false);
+      else setCampaignsLoading(false);
     }
   }, [userPlanId]);
 
+  const loadMoreCampaigns = useCallback(async () => {
+    if (campaignsLoading || campaignsLoadingMore || !campaignsHasMore) return;
+    await loadCampaignsList({ append: true, page: campaignsPage + 1 });
+  }, [campaignsHasMore, campaignsLoading, campaignsLoadingMore, campaignsPage, loadCampaignsList]);
+
   useEffect(() => {
     if (userPlanId !== "enterprise") return;
-    void loadCampaignsList();
+    void loadCampaignsList({ page: 1 });
   }, [userPlanId, loadCampaignsList]);
 
   useEffect(() => {
     if (userPlanId !== "enterprise") return;
     if (activeTab !== "Campaigns" && !addToCampaignOpen && !routeCampaignId) return;
     setCampaignsLoading(true);
-    void loadCampaignsList();
+    void loadCampaignsList({ page: 1 });
   }, [activeTab, addToCampaignOpen, userPlanId, loadCampaignsList, routeCampaignId]);
 
   useEffect(() => {
@@ -2711,12 +2749,16 @@ export default function UserDashboardPage() {
     }
     const auth = getStoredAuth();
     if (!auth?.token) return;
+    setSearchLoading(true);
 
-    void loadSessionProfilesFirstPage(routeSessionId, 20, auth.token, "Search history").catch(
-      (err) => {
+    void loadSessionProfilesFirstPage(routeSessionId, 20, auth.token, "Search history")
+      .catch((err) => {
         setSessionResultError(
           err instanceof Error ? err.message : "Could not load session results"
         );
+      })
+      .finally(() => {
+        setSearchLoading(false);
       }
     );
   }, [
@@ -4438,7 +4480,12 @@ export default function UserDashboardPage() {
                 {!searchLoading &&
                 !applyFiltersLoading &&
                 sessionResultDocs.length === 0 &&
-                !sessionResultError ? (
+                !sessionResultError &&
+                !(
+                  tabFromRoute === "Session Results" &&
+                  Boolean(routeSessionId) &&
+                  searchSummary?.sessionId !== routeSessionId
+                ) ? (
                   <div className="dashboard-empty-state">
                     <div className="dashboard-empty-state-icon">
                       <MaterialIcon name="person_off" className="text-[28px]" />
@@ -4977,6 +5024,9 @@ export default function UserDashboardPage() {
                 onAddFromSearchHistory={() => navigateToTab("Search history")}
                 campaigns={campaigns}
                 campaignsLoading={campaignsLoading}
+                campaignsLoadingMore={campaignsLoadingMore}
+                campaignsHasMore={campaignsHasMore}
+                onLoadMoreCampaigns={loadMoreCampaigns}
                 onCreateCampaign={handleCreateCampaign}
                 onCampaignUpdated={handleCampaignUpdated}
                 routeCampaignId={routeCampaignId}

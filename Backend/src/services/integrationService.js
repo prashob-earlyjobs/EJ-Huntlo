@@ -474,6 +474,20 @@ async function getCalendlyCredentialsForUser(userId) {
   };
 }
 
+async function listCalendlyEventTypesForUser(userId) {
+  const creds = await getCalendlyCredentialsForUser(userId);
+  const user = await fetchCalendlyUser(creds.personalAccessToken);
+  const meetings = await fetchCalendlyEventTypes(creds.personalAccessToken, user.uri);
+  return {
+    meetings,
+    user: {
+      name: user.name || "",
+      email: user.email || "",
+      schedulingUrl: user.schedulingUrl || "",
+    },
+  };
+}
+
 /**
  * Meta Cloud API credentials for outbound WhatsApp (used by send service).
  */
@@ -546,6 +560,7 @@ module.exports = {
   getWhatsAppStatus,
   getCalendlyStatus,
   getCalendlyMeetingLinks,
+  listCalendlyEventTypesForUser,
   getMetaCredentialsForUser,
   getCalendlyCredentialsForUser,
   listUserIntegrations,
