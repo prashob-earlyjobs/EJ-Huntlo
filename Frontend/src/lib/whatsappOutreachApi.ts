@@ -94,7 +94,7 @@ export async function listWhatsAppOutreachPlans(
     );
   }
   if (!Array.isArray(data.plans)) return [];
-  return data.plans
+  return (data.plans as unknown[])
     .map((raw: unknown) => {
       if (!raw || typeof raw !== "object") return null;
       const o = raw as Record<string, unknown>;

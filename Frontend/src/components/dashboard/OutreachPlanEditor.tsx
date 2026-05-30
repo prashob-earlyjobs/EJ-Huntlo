@@ -410,7 +410,7 @@ export function OutreachPlanEditor({
     }
   }, [apiBase, auth?.token]);
 
-  const loadCalendlyMeetings = useCallback(async () => {
+  const loadCalendlyMeetings = useCallback(async (): Promise<CalendlyMeetingOption[]> => {
     if (!auth?.token) return [];
     try {
       const res = await fetch(`${apiBase}/api/integrations/calendly/links`, {
@@ -477,7 +477,7 @@ export function OutreachPlanEditor({
       const priorUri = selectedCalendlyMeeting?.uri?.trim() || "";
       const priorUrl = selectedCalendlyMeeting?.schedulingUrl?.trim() || "";
       const matched = meetings.find(
-        (m) =>
+        (m: CalendlyMeetingOption) =>
           (priorUri && m.uri === priorUri) ||
           (priorUrl && m.schedulingUrl === priorUrl) ||
           (priorUri && m.schedulingUrl === priorUri)

@@ -383,7 +383,7 @@ export function WhatsAppOutreachEditor({
         return;
       }
       const links = Array.isArray(data?.links)
-        ? data.links
+        ? (data.links as unknown[])
             .map((raw): CalendlyMeetingLink | null => {
               if (!raw || typeof raw !== "object") return null;
               const schedulingUrl =

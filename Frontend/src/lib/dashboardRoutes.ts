@@ -102,7 +102,7 @@ export function tabFromPathSegments(segments: string[] | undefined): DashboardRo
     let campaignReportMetric: ReportMetricKey | undefined;
     let campaignWhatsAppContactKey: string | undefined;
     if (workspaceTab === "Report" && fourthSegment) {
-      campaignReportMetric = reportMetricFromSlug(fourthSegment);
+      campaignReportMetric = reportMetricFromSlug(fourthSegment) ?? undefined;
     }
     if (workspaceTab === "WhatsApp" && fourthSegment) {
       try {

@@ -69,7 +69,7 @@ export async function fetchSavedOutreachPlans(
     );
   }
   const plans = Array.isArray(data.plans)
-    ? data.plans
+    ? (data.plans as unknown[])
         .map((raw: unknown): SavedOutreachPlanItem | null => {
           if (!raw || typeof raw !== "object") return null;
           const o = raw as Record<string, unknown>;

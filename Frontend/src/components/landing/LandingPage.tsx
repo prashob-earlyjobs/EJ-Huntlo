@@ -12,11 +12,14 @@ import { LandingPricingSection } from "./LandingPricingSection";
 import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
 import { MaterialIcon } from "./MaterialIcon";
 
-const ENGAGE_CHANNEL_LOGOS = [
-  { label: "Email", provider: "gmail" as const },
-  { label: "WhatsApp", provider: "whatsapp" as const },
-  { label: "AI voice", icon: "graphic_eq" as const },
-  { label: "Workflows", icon: "account_tree" as const },
+const ENGAGE_CHANNEL_LOGOS: Array<
+  | { label: string; provider: "gmail" | "whatsapp" }
+  | { label: string; icon: string }
+> = [
+  { label: "Email", provider: "gmail" },
+  { label: "WhatsApp", provider: "whatsapp" },
+  { label: "AI voice", icon: "graphic_eq" },
+  { label: "Workflows", icon: "account_tree" },
 ];
 
 const ADVANTAGE_METRICS = [

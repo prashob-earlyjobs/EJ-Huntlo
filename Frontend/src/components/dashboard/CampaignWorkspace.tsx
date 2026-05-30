@@ -1053,7 +1053,10 @@ export function CampaignWorkspace({
 
     if (whatsappJobDescriptionEditing) {
       const fromCampaign = campaign.jobDescription?.trim() || "";
-      if (fromCampaign && !String(editor?.state.jobDescription || "").trim()) {
+      if (
+        fromCampaign &&
+        !(editor?.channel === "whatsapp" ? String(editor.state.jobDescription || "").trim() : "")
+      ) {
         setEditor((prev) =>
           prev?.channel === "whatsapp"
             ? { ...prev, state: { ...prev.state, jobDescription: fromCampaign } }
@@ -1103,7 +1106,7 @@ export function CampaignWorkspace({
     campaign.jobDescription,
     campaign.outreachPlanId,
     campaign.outreachChannel,
-    editor?.state.jobDescription,
+    editor?.channel === "whatsapp" ? editor.state.jobDescription : undefined,
     whatsappJobDescriptionEditing,
   ]);
 

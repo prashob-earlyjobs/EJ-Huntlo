@@ -88,7 +88,7 @@ export function CampaignLaunchAgentOverlay({ open, channel = "whatsapp" }: Props
     setActiveStep(0);
     setAllComplete(false);
 
-    const timers: ReturnType<typeof window.setTimeout>[] = [];
+    const timers: number[] = [];
 
     for (let i = 1; i < steps.length; i += 1) {
       timers.push(

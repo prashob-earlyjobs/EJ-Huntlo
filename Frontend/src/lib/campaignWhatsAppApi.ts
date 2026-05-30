@@ -66,11 +66,15 @@ function parseContact(raw: unknown): CampaignContact | null {
   if (!candidateKey) return null;
   return {
     candidateKey,
+    candidateId: typeof o.candidateId === "string" ? o.candidateId : "",
     name: typeof o.name === "string" ? o.name : "",
     email: typeof o.email === "string" ? o.email : "",
     phone: typeof o.phone === "string" ? o.phone : "",
     role: typeof o.role === "string" ? o.role : "",
     company: typeof o.company === "string" ? o.company : "",
+    location: typeof o.location === "string" ? o.location : "",
+    linkedinUrl: typeof o.linkedinUrl === "string" ? o.linkedinUrl : "",
+    sourcingSessionId: typeof o.sourcingSessionId === "string" ? o.sourcingSessionId : "",
     addedAt: typeof o.addedAt === "string" ? o.addedAt : new Date().toISOString(),
   };
 }
@@ -211,7 +215,9 @@ export async function fetchCampaignWhatsAppConversations(
   }
 
   const threads = Array.isArray(data.threads)
-    ? data.threads.map(parseThread).filter((t): t is WhatsAppContactThread => t !== null)
+    ? (data.threads as unknown[])
+        .map(parseThread)
+        .filter((t): t is WhatsAppContactThread => t !== null)
     : [];
 
   return {
@@ -259,7 +265,9 @@ export async function fetchCampaignWhatsAppThreadMessages(
     );
   }
   const messages = Array.isArray(data.messages)
-    ? data.messages.map(parseMessage).filter((m): m is WhatsAppThreadMessage => m !== null)
+    ? (data.messages as unknown[])
+        .map(parseMessage)
+        .filter((m): m is WhatsAppThreadMessage => m !== null)
     : [];
   return {
     candidateKey:

@@ -87,7 +87,7 @@ export async function generateOutreachSequenceFromJd(
   if (channel === "whatsapp") {
     const touchpoints = Array.isArray(data.touchpoints)
       ? ensureWhatsAppSequenceWithFallbacks(
-          data.touchpoints
+          (data.touchpoints as unknown[])
             .map(parseWhatsAppTouchpoint)
             .filter((t): t is WhatsAppTouchpointDraft => t !== null)
         )
@@ -106,7 +106,7 @@ export async function generateOutreachSequenceFromJd(
   }
 
   const touchpoints = Array.isArray(data.touchpoints)
-    ? data.touchpoints
+    ? (data.touchpoints as unknown[])
         .map(parseGmailTouchpoint)
         .filter((t): t is OutreachTouchpointDraft => t !== null)
     : [];

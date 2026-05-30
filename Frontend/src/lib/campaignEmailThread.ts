@@ -67,7 +67,9 @@ export async function fetchContactEmailThread(
     );
   }
   const messages = Array.isArray(data.messages)
-    ? data.messages.map(parseMessage).filter((m): m is CampaignEmailThreadMessage => m !== null)
+    ? (data.messages as unknown[])
+        .map(parseMessage)
+        .filter((m): m is CampaignEmailThreadMessage => m !== null)
     : [];
   return {
     hasEnrollment: Boolean(data.hasEnrollment),

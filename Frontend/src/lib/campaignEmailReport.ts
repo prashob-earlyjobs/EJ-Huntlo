@@ -133,8 +133,14 @@ function parseMetricCandidate(raw: unknown): ReportMetricCandidate | null {
 }
 
 function parseBreakdown(raw: unknown): ReportMetricBreakdown {
-  const empty = (): ReportMetricBreakdown =>
-    Object.fromEntries(REPORT_METRIC_KEYS.map((k) => [k, []])) as ReportMetricBreakdown;
+  const empty = (): ReportMetricBreakdown => ({
+    sent: [],
+    replied: [],
+    interested: [],
+    not_interested: [],
+    not_delivered: [],
+    awaiting_reply: [],
+  });
 
   if (!raw || typeof raw !== "object") return empty();
   const o = raw as Record<string, unknown>;
