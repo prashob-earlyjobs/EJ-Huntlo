@@ -257,6 +257,7 @@ export function IntegrationsPanel({
     flow: "auth-code",
     scope: [
       "https://www.googleapis.com/auth/gmail.send",
+      "https://www.googleapis.com/auth/gmail.readonly",
       "https://www.googleapis.com/auth/userinfo.email",
       "openid",
     ].join(" "),
@@ -339,14 +340,21 @@ export function IntegrationsPanel({
         if (!auth?.token) {
           throw new Error("Please sign in again.");
         }
+        const isHuntlo = values.mode === "huntlo";
         const res = await fetch(`${apiBase}/api/integrations/whatsapp/connect`, {
           method: "POST",
           headers: authHeaders(auth.token),
-          body: JSON.stringify({
-            gupshupMode: values.gupshupMode,
-            gupshupUserId: values.gupshupUserId,
-            gupshupPassword: values.gupshupPassword,
-          }),
+          body: JSON.stringify(
+            isHuntlo
+              ? { whatsappMode: "huntlo" }
+              : {
+                  whatsappMode: "own",
+                  provider: "meta_api",
+                  phoneNumberId: values.metaPhoneNumberId,
+                  accessToken: values.metaAccessToken,
+                  wabaId: values.metaWabaId,
+                }
+          ),
         });
         const data = await res.json();
         if (!res.ok || !data.success) {
@@ -364,12 +372,15 @@ export function IntegrationsPanel({
           void loadIntegrations();
         }
         setWhatsappModalOpen(false);
-        const viaHuntlo = values.gupshupMode === "huntlo";
-        setNotice(
-          viaHuntlo
-            ? "Huntlo WhatsApp connected."
-            : `WhatsApp connected for Gupshup user ${values.gupshupUserId}.`
-        );
+        if (isHuntlo) {
+          setNotice("Huntlo WhatsApp connected. You can launch WhatsApp campaigns from your workspace.");
+        } else {
+          const label =
+            typeof row?.senderName === "string" && row.senderName
+              ? row.senderName
+              : values.metaPhoneNumberId;
+          setNotice(`WhatsApp connected via Meta API (${label}).`);
+        }
       } catch (err) {
         setNotice(err instanceof Error ? err.message : "Failed to connect WhatsApp.");
       } finally {

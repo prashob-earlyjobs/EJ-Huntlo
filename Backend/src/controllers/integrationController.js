@@ -1,13 +1,15 @@
 const mongoose = require("mongoose");
 const {
   connectGmail,
-  connectWhatsAppGupshup,
-  verifyWhatsAppGupshupCredentials,
+  connectWhatsApp,
+  verifyWhatsAppIntegrationCredentials,
   connectCalendly,
   verifyCalendlyCredentials,
   getGmailStatus,
   getWhatsAppStatus,
   getCalendlyStatus,
+  getCalendlyMeetingLinks,
+  listCalendlyEventTypesForUser,
   listUserIntegrations,
   disconnectGmail,
   disconnectWhatsApp,
@@ -102,7 +104,7 @@ const verifyWhatsAppCredentialsHandler = async (req, res) => {
       return invalidSession(res);
     }
 
-    const result = await verifyWhatsAppGupshupCredentials(req.body || {});
+    const result = await verifyWhatsAppIntegrationCredentials(req.body || {});
     return res.status(200).json({
       success: true,
       verified: result.verified,
@@ -126,7 +128,7 @@ const connectWhatsAppHandler = async (req, res) => {
       return invalidSession(res);
     }
 
-    const integration = await connectWhatsAppGupshup(uid, req.body || {});
+    const integration = await connectWhatsApp(uid, req.body || {});
     return res.status(200).json({
       success: true,
       integration,
@@ -152,6 +154,22 @@ const getCalendlyStatusHandler = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: error.message || "Failed to load Calendly status",
+    });
+  }
+};
+
+const getCalendlyMeetingLinksHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) {
+      return invalidSession(res);
+    }
+    const links = await getCalendlyMeetingLinks(uid);
+    return res.status(200).json({ success: true, links });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Failed to load Calendly links",
     });
   }
 };
@@ -198,6 +216,22 @@ const connectCalendlyHandler = async (req, res) => {
     return res.status(error.statusCode || 500).json({
       success: false,
       message: error.message || "Failed to connect Calendly",
+    });
+  }
+};
+
+const listCalendlyEventTypesHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) {
+      return invalidSession(res);
+    }
+    const result = await listCalendlyEventTypesForUser(uid);
+    return res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Failed to load Calendly meetings",
     });
   }
 };
@@ -275,11 +309,13 @@ module.exports = {
   getGmailStatusHandler,
   getWhatsAppStatusHandler,
   getCalendlyStatusHandler,
+  getCalendlyMeetingLinksHandler,
   connectGmailWithAuthCode,
   verifyWhatsAppCredentialsHandler,
   connectWhatsAppHandler,
   verifyCalendlyCredentialsHandler,
   connectCalendlyHandler,
+  listCalendlyEventTypesHandler,
   disconnectGmailHandler,
   disconnectWhatsAppHandler,
   disconnectCalendlyHandler,

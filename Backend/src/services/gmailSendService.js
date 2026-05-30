@@ -1,71 +1,90 @@
-const mongoose = require("mongoose");
-const UserIntegration = require("../models/UserIntegration");
-const { refreshAccessToken } = require("./googleGmailOAuth");
+const MailComposer = require("nodemailer/lib/mail-composer");
+const { getGmailIntegration, getValidAccessToken } = require("./gmailClient");
 
 const GMAIL_SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send";
 
-function tokenExpiryFromExpiresIn(expiresIn) {
-  const sec = Number(expiresIn);
-  return Number.isFinite(sec) && sec > 0 ? new Date(Date.now() + sec * 1000) : null;
+function escapeHtml(text) {
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
-function encodeMimeMessage({ to, subject, body, fromEmail }) {
-  const lines = [
-    `To: ${to}`,
-    fromEmail ? `From: ${fromEmail}` : null,
-    `Subject: ${subject}`,
-    "MIME-Version: 1.0",
-    "Content-Type: text/html; charset=UTF-8",
-    "",
-    body.includes("<") ? body : `<p>${body.replace(/\n/g, "<br/>")}</p>`,
-  ].filter(Boolean);
-  const raw = lines.join("\r\n");
-  return Buffer.from(raw, "utf-8")
+function looksLikeHtml(body) {
+  return /<[a-z][\s\S]*>/i.test(String(body || ""));
+}
+
+function bodyToPlainText(body) {
+  const raw = String(body || "").trim();
+  if (!raw) return "";
+  if (looksLikeHtml(raw)) {
+    return raw
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/p>/gi, "\n")
+      .replace(/<[^>]+>/g, "")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+  return raw;
+}
+
+function bodyToHtml(body) {
+  const raw = String(body || "").trim();
+  if (!raw) return "";
+  if (looksLikeHtml(raw)) return raw;
+  return `<div>${escapeHtml(raw).replace(/\r\n/g, "\n").replace(/\n/g, "<br/>")}</div>`;
+}
+
+function toBase64Url(buffer) {
+  return Buffer.from(buffer)
     .toString("base64")
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/, "");
 }
 
-async function getGmailIntegration(userId) {
-  const userOid = new mongoose.Types.ObjectId(userId);
-  const doc = await UserIntegration.findOne({ userId: userOid, provider: "gmail" });
-  if (!doc?.accessToken) {
-    const err = new Error("Gmail is not connected. Connect Gmail under Integrations first.");
-    err.statusCode = 400;
-    throw err;
+/**
+ * Build RFC 2822 MIME via nodemailer (Gmail API requires valid MIME).
+ */
+async function buildRawMimeMessage({
+  to,
+  subject,
+  body,
+  fromEmail,
+  inReplyTo,
+  references,
+}) {
+  const text = bodyToPlainText(body);
+  const html = bodyToHtml(body);
+
+  const headers = {};
+  if (inReplyTo) {
+    headers["In-Reply-To"] = inReplyTo;
+    headers.References = references || inReplyTo;
   }
-  return doc;
+
+  const mail = new MailComposer({
+    from: fromEmail,
+    to,
+    subject,
+    text: text || undefined,
+    html: html || text || " ",
+    headers: Object.keys(headers).length ? headers : undefined,
+  });
+
+  const mimeBuffer = await mail.compile().build();
+  return toBase64Url(mimeBuffer);
 }
 
-async function getValidAccessToken(doc) {
-  const stillValid =
-    doc.tokenExpiry && new Date(doc.tokenExpiry).getTime() > Date.now() + 60_000;
-  if (stillValid) return doc.accessToken;
-
-  if (!doc.refreshToken) {
-    const err = new Error("Gmail session expired. Reconnect Gmail under Integrations.");
-    err.statusCode = 401;
-    throw err;
-  }
-
-  const tokens = await refreshAccessToken(doc.refreshToken);
-  if (!tokens.access_token) {
-    const err = new Error("Could not refresh Gmail access. Reconnect Gmail under Integrations.");
-    err.statusCode = 401;
-    throw err;
-  }
-
-  doc.accessToken = tokens.access_token;
-  if (typeof tokens.refresh_token === "string" && tokens.refresh_token) {
-    doc.refreshToken = tokens.refresh_token;
-  }
-  doc.tokenExpiry = tokenExpiryFromExpiresIn(tokens.expires_in);
-  await doc.save();
-  return doc.accessToken;
+function buildReplySubject(subject) {
+  const s = String(subject || "").trim();
+  if (!s) return "Re: Your message";
+  if (/^re:\s*/i.test(s)) return s;
+  return `Re: ${s}`;
 }
 
-async function sendGmailMessage(userId, { to, subject, body }) {
+async function sendGmailMessage(userId, { to, subject, body, threadId, inReplyTo, references }) {
   const recipient = String(to || "").trim();
   const mailSubject = String(subject || "").trim();
   const mailBody = String(body || "").trim();
@@ -88,12 +107,19 @@ async function sendGmailMessage(userId, { to, subject, body }) {
 
   const integration = await getGmailIntegration(userId);
   const accessToken = await getValidAccessToken(integration);
-  const raw = encodeMimeMessage({
+
+  const raw = await buildRawMimeMessage({
     to: recipient,
     subject: mailSubject,
     body: mailBody,
     fromEmail: integration.email || undefined,
+    inReplyTo: inReplyTo ? String(inReplyTo).trim() : undefined,
+    references: references ? String(references).trim() : undefined,
   });
+
+  const sendPayload = { raw };
+  const tid = String(threadId || "").trim();
+  if (tid) sendPayload.threadId = tid;
 
   const res = await fetch(GMAIL_SEND_URL, {
     method: "POST",
@@ -101,7 +127,7 @@ async function sendGmailMessage(userId, { to, subject, body }) {
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ raw }),
+    body: JSON.stringify(sendPayload),
   });
 
   const data = await res.json().catch(() => ({}));
@@ -123,4 +149,10 @@ async function sendGmailMessage(userId, { to, subject, body }) {
   };
 }
 
-module.exports = { sendGmailMessage };
+module.exports = {
+  sendGmailMessage,
+  buildReplySubject,
+  buildRawMimeMessage,
+  bodyToHtml,
+  bodyToPlainText,
+};

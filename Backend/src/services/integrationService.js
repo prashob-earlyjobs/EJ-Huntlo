@@ -6,16 +6,19 @@ const {
   fetchGoogleEmail,
   getGoogleOAuthConfig,
 } = require("./googleGmailOAuth");
-const { isHuntloGupshupConfigured } = require("./gupshupConfig");
-const { normalizeGupshupSourceNumber } = require("./gupshupClient");
+const { verifyMetaWhatsAppCredentials } = require("./metaWhatsAppClient");
+const {
+  getHuntloWhatsAppCredentials,
+  isHuntloWhatsAppConfigured,
+} = require("./metaWhatsAppConfig");
 
-const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.send";
+const { GMAIL_SCOPES } = require("./gmailClient");
 
-const { fetchCalendlyUser } = require("./calendlyClient");
+const { fetchCalendlyUser, fetchCalendlyEventTypes } = require("./calendlyClient");
 
 const PROVIDER_LABELS = {
   gmail: { integration: "Gmail", provider: "Google" },
-  whatsapp: { integration: "WhatsApp Business", provider: "Gupshup" },
+  whatsapp: { integration: "WhatsApp Business", provider: "Meta" },
   calendly: { integration: "Calendly", provider: "Calendly" },
 };
 
@@ -35,18 +38,21 @@ function formatIntegrationRow(doc) {
   }
 
   if (doc.provider === "whatsapp") {
-    const viaHuntlo = doc.gupshupMode === "huntlo";
+    const waProvider = resolveWhatsappProvider(doc);
+    const viaMeta = waProvider === "meta";
+    const isHuntlo = doc.whatsappMode === "huntlo" && viaMeta;
     return {
       id: String(doc._id),
       provider: "whatsapp",
       integration: "WhatsApp Business",
-      providerLabel: viaHuntlo ? "Huntlo" : "Gupshup",
-      senderName: doc.senderName || (viaHuntlo ? "Huntlo managed" : doc.gupshupUserId || ""),
-      email: doc.email || (viaHuntlo ? "Managed sender" : ""),
+      providerLabel: isHuntlo ? "Huntlo" : viaMeta ? "Meta API" : "WhatsApp",
+      senderName: doc.senderName || doc.metaPhoneNumberId || "WhatsApp",
+      email: doc.email || "",
       status: "connected",
-      gupshupMode: doc.gupshupMode || "",
-      gupshupUserId: viaHuntlo ? "" : doc.gupshupUserId || "",
-      gupshupAppName: viaHuntlo ? "" : doc.gupshupAppName || "",
+      whatsappProvider: waProvider,
+      whatsappMode: doc.whatsappMode || (viaMeta ? "own" : ""),
+      metaPhoneNumberId: viaMeta ? doc.metaPhoneNumberId || "" : "",
+      metaWabaId: viaMeta ? doc.metaWabaId || "" : "",
       connectedAt: doc.updatedAt || doc.createdAt,
     };
   }
@@ -79,7 +85,7 @@ async function saveGmailIntegration(userOid, email, tokens, senderName) {
     accessToken: tokens.access_token,
     refreshToken: typeof tokens.refresh_token === "string" ? tokens.refresh_token : "",
     tokenExpiry: tokenExpiry(tokens.expires_in),
-    scopes: [GMAIL_SCOPE],
+    scopes: [...GMAIL_SCOPES],
   };
 
   let doc = await UserIntegration.findOne({ userId: userOid, provider: "gmail" });
@@ -171,6 +177,27 @@ async function disconnectGmail(userId) {
   return disconnectIntegration(userId, "gmail");
 }
 
+function resolveWhatsappProvider(doc) {
+  if (!doc) return "";
+  if (doc.whatsappMode === "huntlo") {
+    return isHuntloWhatsAppConfigured() ? "meta" : "";
+  }
+  if (doc.whatsappProvider === "meta" && doc.metaPhoneNumberId && doc.accessToken) {
+    return "meta";
+  }
+  if (doc.metaPhoneNumberId && doc.accessToken) return "meta";
+  return "";
+}
+
+function clearMetaFields() {
+  return {
+    metaPhoneNumberId: "",
+    metaWabaId: "",
+    accessToken: "",
+    tokenExpiry: null,
+  };
+}
+
 async function saveWhatsAppIntegration(userOid, patch) {
   let doc = await UserIntegration.findOne({ userId: userOid, provider: "whatsapp" });
   if (doc) {
@@ -187,106 +214,100 @@ async function saveWhatsAppIntegration(userOid, patch) {
 }
 
 /**
- * Test Gupshup credentials before connect (no DB write).
- * TODO: replace stub with live Gupshup API credential check.
+ * Test Huntlo platform WhatsApp availability (no DB write).
  */
-async function verifyWhatsAppGupshupCredentials(body) {
-  const mode = body?.gupshupMode === "huntlo" ? "huntlo" : "existing";
-
-  if (mode === "huntlo") {
-    if (!isHuntloGupshupConfigured()) {
-      const err = new Error(
-        "Huntlo WhatsApp is not configured on the server. Contact support or use your own Gupshup account."
-      );
-      err.statusCode = 503;
-      throw err;
-    }
-    return {
-      verified: true,
-      mode: "huntlo",
-      message: "Huntlo WhatsApp is available.",
-    };
-  }
-
-  const gupshupUserId = String(body?.gupshupUserId || "").trim();
-  const gupshupPassword = String(body?.gupshupPassword || "");
-
-  if (!gupshupUserId) {
-    const err = new Error("Gupshup user ID is required.");
-    err.statusCode = 400;
-    throw err;
-  }
-  if (!gupshupPassword) {
-    const err = new Error("Gupshup password is required.");
-    err.statusCode = 400;
+async function verifyHuntloWhatsAppCredentials() {
+  const creds = getHuntloWhatsAppCredentials();
+  if (!creds) {
+    const err = new Error(
+      "Huntlo WhatsApp is not configured on this server. Contact support or connect your own Meta account."
+    );
+    err.statusCode = 503;
     throw err;
   }
 
-  // Stub: accept well-formed credentials until Gupshup verify API is wired.
+  const verified = await verifyMetaWhatsAppCredentials({
+    phoneNumberId: creds.phoneNumberId,
+    accessToken: creds.accessToken,
+    wabaId: creds.wabaId,
+  });
+
   return {
-    verified: true,
-    mode: "existing",
-    message: "Credentials look valid. You can connect WhatsApp.",
+    ...verified,
+    mode: "huntlo",
+    message: verified.message.replace(/^Connected/, "Huntlo WhatsApp is ready"),
   };
 }
 
 /**
- * Connect WhatsApp via Gupshup (user-owned or Huntlo-managed credentials).
+ * Test Meta WhatsApp credentials before connect (no DB write).
  */
-async function connectWhatsAppGupshup(userId, body) {
-  const mode = body?.gupshupMode === "huntlo" ? "huntlo" : "existing";
-  const userOid = new mongoose.Types.ObjectId(userId);
-
+async function verifyWhatsAppIntegrationCredentials(body) {
+  const mode = String(body?.whatsappMode || body?.mode || "").toLowerCase();
   if (mode === "huntlo") {
-    if (!isHuntloGupshupConfigured()) {
-      const err = new Error(
-        "Huntlo WhatsApp is not configured on the server. Contact support or use your own Gupshup account."
-      );
-      err.statusCode = 503;
-      throw err;
-    }
-
-    const doc = await saveWhatsAppIntegration(userOid, {
-      gupshupMode: "huntlo",
-      gupshupUserId: "",
-      gupshupAppName: "",
-      senderName: "Huntlo managed",
-      email: "Managed sender",
-      accessToken: "",
-      refreshToken: "",
-      tokenExpiry: null,
-      scopes: ["whatsapp"],
-    });
-
-    return formatIntegrationRow(doc.toObject ? doc.toObject() : doc);
+    return verifyHuntloWhatsAppCredentials();
   }
+  return verifyMetaWhatsAppCredentials(body);
+}
 
-  const gupshupUserId = String(body?.gupshupUserId || "").trim();
-  const gupshupPassword = String(body?.gupshupPassword || "");
-  const gupshupAppName = String(body?.gupshupAppName || "").trim();
-  const phoneNumber = String(body?.phoneNumber || "").trim().replace(/\s/g, "");
-
-  if (!gupshupUserId) {
-    const err = new Error("Gupshup user ID is required.");
-    err.statusCode = 400;
-    throw err;
-  }
-  if (!gupshupPassword) {
-    const err = new Error("Gupshup password is required.");
-    err.statusCode = 400;
-    throw err;
-  }
+/**
+ * Connect WhatsApp via Meta Cloud API (Phone Number ID + access token).
+ */
+async function connectWhatsAppMeta(userId, body) {
+  const verified = await verifyMetaWhatsAppCredentials(body);
+  const phone = verified.phoneNumber;
+  const userOid = new mongoose.Types.ObjectId(userId);
+  const accessToken = String(body?.accessToken || body?.metaAccessToken || "").trim();
+  const wabaId = String(body?.wabaId || body?.metaWabaId || "").trim().replace(/\s/g, "");
 
   const doc = await saveWhatsAppIntegration(userOid, {
-    gupshupMode: "existing",
-    gupshupUserId,
-    gupshupAppName,
-    senderName: gupshupUserId,
-    email: phoneNumber,
-    accessToken: "",
-    refreshToken: gupshupPassword,
+    whatsappProvider: "meta",
+    whatsappMode: "own",
+    metaPhoneNumberId: phone.id,
+    metaWabaId: wabaId,
+    accessToken,
+    refreshToken: "",
+    senderName: phone.verifiedName || phone.displayPhoneNumber || "Meta WhatsApp",
+    email: phone.displayPhoneNumber || "",
     tokenExpiry: null,
-    scopes: ["whatsapp"],
+    scopes: ["whatsapp", "whatsapp_business_messaging"],
+  });
+
+  return formatIntegrationRow(doc.toObject ? doc.toObject() : doc);
+}
+
+/**
+ * Connect WhatsApp using Huntlo's platform Meta account (credentials from server env).
+ */
+async function connectWhatsAppHuntlo(userId) {
+  const creds = getHuntloWhatsAppCredentials();
+  if (!creds) {
+    const err = new Error(
+      "Huntlo WhatsApp is not available. Contact support or connect your own Meta account."
+    );
+    err.statusCode = 503;
+    throw err;
+  }
+
+  const verified = await verifyMetaWhatsAppCredentials({
+    phoneNumberId: creds.phoneNumberId,
+    accessToken: creds.accessToken,
+    wabaId: creds.wabaId,
+  });
+  const phone = verified.phoneNumber;
+  const userOid = new mongoose.Types.ObjectId(userId);
+
+  const doc = await saveWhatsAppIntegration(userOid, {
+    whatsappProvider: "meta",
+    whatsappMode: "huntlo",
+    metaPhoneNumberId: phone.id,
+    metaWabaId: creds.wabaId || "",
+    accessToken: "",
+    refreshToken: "",
+    senderName: phone.verifiedName || "Huntlo WhatsApp",
+    email: phone.displayPhoneNumber || "",
+    tokenExpiry: null,
+    scopes: ["whatsapp", "whatsapp_business_messaging"],
   });
 
   return formatIntegrationRow(doc.toObject ? doc.toObject() : doc);
@@ -299,28 +320,46 @@ async function getWhatsAppStatus(userId) {
     provider: "whatsapp",
   }).lean();
 
+  const huntloAvailable = isHuntloWhatsAppConfigured();
+
   if (!doc) {
     return {
       connected: false,
-      configured: isHuntloGupshupConfigured(),
-      huntloAvailable: isHuntloGupshupConfigured(),
+      configured: true,
+      huntloAvailable,
+      whatsappMode: "",
     };
   }
 
-  const viaHuntlo = doc.gupshupMode === "huntlo";
+  const waProvider = resolveWhatsappProvider(doc);
+  const viaMeta = waProvider === "meta";
+  const isHuntlo = doc.whatsappMode === "huntlo";
 
   return {
-    connected: true,
+    connected: viaMeta,
     configured: true,
-    huntloAvailable: isHuntloGupshupConfigured(),
-    mode: doc.gupshupMode || "existing",
+    huntloAvailable,
+    whatsappProvider: waProvider,
+    whatsappMode: isHuntlo ? "huntlo" : viaMeta ? "own" : "",
+    mode: isHuntlo ? "huntlo" : viaMeta ? "own" : "",
     senderName: doc.senderName || "",
-    phoneNumber: viaHuntlo ? "" : doc.email || "",
-    gupshupUserId: viaHuntlo ? "" : doc.gupshupUserId || "",
-    gupshupAppName: viaHuntlo ? "" : doc.gupshupAppName || "",
-    providerLabel: viaHuntlo ? "Huntlo" : "Gupshup",
+    phoneNumber: viaMeta ? doc.email || "" : "",
+    metaPhoneNumberId: viaMeta ? doc.metaPhoneNumberId || "" : "",
+    metaWabaId: viaMeta ? doc.metaWabaId || "" : "",
+    providerLabel: isHuntlo ? "Huntlo" : viaMeta ? "Meta API" : "Reconnect required",
     connectedAt: doc.updatedAt || doc.createdAt,
   };
+}
+
+/**
+ * Connect WhatsApp — Huntlo account or user's own Meta API.
+ */
+async function connectWhatsApp(userId, body) {
+  const mode = String(body?.whatsappMode || body?.mode || "").toLowerCase();
+  if (mode === "huntlo") {
+    return connectWhatsAppHuntlo(userId);
+  }
+  return connectWhatsAppMeta(userId, body);
 }
 
 async function disconnectWhatsApp(userId) {
@@ -366,9 +405,6 @@ async function connectCalendly(userId, body) {
     refreshToken: personalAccessToken,
     tokenExpiry: null,
     scopes: ["calendly"],
-    gupshupMode: "",
-    gupshupUserId: "",
-    gupshupAppName: "",
   });
 
   return formatIntegrationRow(doc.toObject ? doc.toObject() : doc);
@@ -393,6 +429,21 @@ async function getCalendlyStatus(userId) {
     schedulingUrl: doc.accessToken || "",
     connectedAt: doc.updatedAt || doc.createdAt,
   };
+}
+
+async function getCalendlyMeetingLinks(userId) {
+  const creds = await getCalendlyCredentialsForUser(userId);
+  const eventTypes = await fetchCalendlyEventTypes(creds.personalAccessToken);
+  const unique = new Map();
+
+  for (const item of eventTypes) {
+    if (!item?.schedulingUrl) continue;
+    if (!unique.has(item.schedulingUrl)) {
+      unique.set(item.schedulingUrl, item);
+    }
+  }
+
+  return Array.from(unique.values());
 }
 
 async function disconnectCalendly(userId) {
@@ -423,11 +474,24 @@ async function getCalendlyCredentialsForUser(userId) {
   };
 }
 
+async function listCalendlyEventTypesForUser(userId) {
+  const creds = await getCalendlyCredentialsForUser(userId);
+  const user = await fetchCalendlyUser(creds.personalAccessToken);
+  const meetings = await fetchCalendlyEventTypes(creds.personalAccessToken, user.uri);
+  return {
+    meetings,
+    user: {
+      name: user.name || "",
+      email: user.email || "",
+      schedulingUrl: user.schedulingUrl || "",
+    },
+  };
+}
+
 /**
- * Resolve Gupshup credentials for outbound WhatsApp (used by future send service).
+ * Meta Cloud API credentials for outbound WhatsApp (used by send service).
  */
-async function getGupshupCredentialsForUser(userId) {
-  const { getHuntloGupshupConfig } = require("./gupshupConfig");
+async function getMetaCredentialsForUser(userId) {
   const userOid = new mongoose.Types.ObjectId(userId);
   const doc = await UserIntegration.findOne({
     userId: userOid,
@@ -440,57 +504,69 @@ async function getGupshupCredentialsForUser(userId) {
     throw err;
   }
 
-  if (doc.gupshupMode === "huntlo") {
-    const platform = getHuntloGupshupConfig();
-    if (!platform) {
-      const err = new Error("Huntlo WhatsApp is not configured on the server.");
+  const waProvider = resolveWhatsappProvider(doc);
+  if (waProvider !== "meta") {
+    const err = new Error(
+      "WhatsApp is not connected. Reconnect under Integrations."
+    );
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (doc.whatsappMode === "huntlo") {
+    const huntlo = getHuntloWhatsAppCredentials();
+    if (!huntlo) {
+      const err = new Error(
+        "Huntlo WhatsApp is temporarily unavailable. Reconnect under Integrations or use your own Meta account."
+      );
       err.statusCode = 503;
       throw err;
     }
-    const source =
-      platform.sourceNumber ||
-      normalizeGupshupSourceNumber(doc.email) ||
-      "";
     return {
-      mode: "huntlo",
-      userId: platform.userId,
-      password: platform.password,
-      appName: platform.appName,
-      sourceNumber: source,
-      displayName: doc.senderName || "Huntlo",
+      provider: "meta",
+      phoneNumberId: huntlo.phoneNumberId,
+      accessToken: huntlo.accessToken,
+      wabaId: huntlo.wabaId || "",
+      displayName: doc.senderName || "Huntlo WhatsApp",
+      displayPhoneNumber: doc.email || "",
     };
   }
 
-  if (!doc.gupshupUserId || !doc.refreshToken) {
-    const err = new Error("WhatsApp Gupshup credentials are incomplete. Reconnect under Integrations.");
+  if (!doc.metaPhoneNumberId || !doc.accessToken) {
+    const err = new Error("Meta WhatsApp credentials are incomplete. Reconnect under Integrations.");
     err.statusCode = 400;
     throw err;
   }
 
   return {
-    mode: "existing",
-    userId: doc.gupshupUserId,
-    password: doc.refreshToken,
-    appName: doc.gupshupAppName || "",
-    sourceNumber: normalizeGupshupSourceNumber(doc.email),
-    displayName: doc.senderName || doc.gupshupUserId,
+    provider: "meta",
+    phoneNumberId: doc.metaPhoneNumberId,
+    accessToken: doc.accessToken,
+    wabaId: doc.metaWabaId || "",
+    displayName: doc.senderName || doc.metaPhoneNumberId,
+    displayPhoneNumber: doc.email || "",
   };
 }
 
 module.exports = {
   connectGmail,
-  connectWhatsAppGupshup,
-  verifyWhatsAppGupshupCredentials,
+  connectWhatsApp,
+  connectWhatsAppMeta,
+  connectWhatsAppHuntlo,
+  verifyWhatsAppIntegrationCredentials,
   connectCalendly,
   verifyCalendlyCredentials,
   getGmailStatus,
   getWhatsAppStatus,
   getCalendlyStatus,
-  getGupshupCredentialsForUser,
+  getCalendlyMeetingLinks,
+  listCalendlyEventTypesForUser,
+  getMetaCredentialsForUser,
   getCalendlyCredentialsForUser,
   listUserIntegrations,
   disconnectGmail,
   disconnectWhatsApp,
   disconnectCalendly,
   disconnectIntegration,
+  resolveWhatsappProvider,
 };

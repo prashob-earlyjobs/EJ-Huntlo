@@ -7,6 +7,7 @@ import {
   type CreateOutreachChoice,
   type ExistingOutreachPlanOption,
 } from "@/components/dashboard/CreateOutreachModal";
+import { DashboardToast } from "@/components/dashboard/DashboardToast";
 import { EmailOutreachPanel } from "@/components/dashboard/EmailOutreachPanel";
 import { OutreachPlanEditor } from "@/components/dashboard/OutreachPlanEditor";
 import { WhatsAppOutreachEditor } from "@/components/dashboard/WhatsAppOutreachEditor";
@@ -20,6 +21,11 @@ import {
   createInitialWhatsAppSequence,
   type WhatsAppTouchpointDraft,
 } from "@/lib/whatsappOutreach";
+import { fetchWhatsAppOutreachPlan } from "@/lib/whatsappOutreachApi";
+import {
+  fetchSavedOutreachPlans,
+  SAVED_OUTREACH_PLANS_PAGE_SIZE,
+} from "@/lib/savedOutreachPlansApi";
 
 const ENTERPRISE_PLAN_ID = "enterprise";
 
@@ -34,6 +40,7 @@ type WhatsAppEditorState = {
   planId: string | "new";
   planName: string;
   touchpoints: WhatsAppTouchpointDraft[];
+  jobDescription?: string;
 };
 
 type ActiveEditor =
@@ -59,42 +66,43 @@ export function OutreachesPanel({
   const [createOutreachOpen, setCreateOutreachOpen] = useState(false);
   const [modalPlans, setModalPlans] = useState<ExistingOutreachPlanOption[]>([]);
   const [modalPlansLoading, setModalPlansLoading] = useState(false);
+  const [savedPlansPage, setSavedPlansPage] = useState(1);
+  const [savedPlansTotalPages, setSavedPlansTotalPages] = useState(1);
+  const [savedPlansTotal, setSavedPlansTotal] = useState(0);
   const [modalTemplates, setModalTemplates] = useState<OutreachTemplateListItem[]>([]);
   const [modalTemplatesLoading, setModalTemplatesLoading] = useState(false);
   const [notice, setNotice] = useState("");
+  const [saveToast, setSaveToast] = useState<string | null>(null);
   const [editor, setEditor] = useState<ActiveEditor | null>(null);
 
-  const loadModalPlans = useCallback(async () => {
+  const loadModalPlans = useCallback(async (page = 1) => {
     const auth = getStoredAuth();
     if (!auth?.token || !isEnterprise) {
       setModalPlans([]);
+      setSavedPlansPage(1);
+      setSavedPlansTotalPages(1);
+      setSavedPlansTotal(0);
       return;
     }
     setModalPlansLoading(true);
     try {
-      const res = await fetch(`${apiBase}/api/outreach/plans`, {
-        headers: authHeaders(auth.token),
+      const result = await fetchSavedOutreachPlans(auth.token, {
+        page,
+        limit: SAVED_OUTREACH_PLANS_PAGE_SIZE,
       });
-      const data = await res.json();
-      if (data.success && Array.isArray(data.plans)) {
-        setModalPlans(
-          data.plans.map(
-            (p: { id: string; name: string; touchpointCount: number }) => ({
-              id: p.id,
-              name: p.name,
-              touchpointCount: p.touchpointCount,
-            })
-          )
-        );
-      } else {
-        setModalPlans([]);
-      }
+      setModalPlans(result.plans);
+      setSavedPlansPage(result.pagination.page);
+      setSavedPlansTotalPages(result.pagination.totalPages);
+      setSavedPlansTotal(result.pagination.total);
     } catch {
       setModalPlans([]);
+      setSavedPlansPage(1);
+      setSavedPlansTotalPages(1);
+      setSavedPlansTotal(0);
     } finally {
       setModalPlansLoading(false);
     }
-  }, [apiBase, isEnterprise]);
+  }, [isEnterprise]);
 
   const loadModalTemplates = useCallback(async () => {
     const auth = getStoredAuth();
@@ -125,11 +133,16 @@ export function OutreachesPanel({
       if (planResolved) onViewPlans();
       return;
     }
+    setSavedPlansPage(1);
     setModalPlansLoading(true);
     setModalTemplatesLoading(true);
-    void loadModalPlans();
+    void loadModalPlans(1);
     void loadModalTemplates();
     setCreateOutreachOpen(true);
+  };
+
+  const handleSavedPlansPageChange = (page: number) => {
+    void loadModalPlans(page);
   };
 
   const openGmailEditor = (state: GmailEditorState) => {
@@ -204,10 +217,41 @@ export function OutreachesPanel({
       return;
     }
 
+    if (choice.type === "ai") {
+      if (choice.channel === "whatsapp") {
+        openWhatsAppEditor({
+          planId: "new",
+          planName: choice.planName,
+          touchpoints: choice.touchpoints.map((tp) => ({ ...tp })),
+          jobDescription: choice.jobDescription,
+        });
+        return;
+      }
+      openGmailEditor({
+        planId: "new",
+        planName: choice.planName,
+        touchpoints: choice.touchpoints.map((tp) => ({ ...tp })),
+        lockSchedule: false,
+      });
+      return;
+    }
+
     if (choice.type === "clone") {
       const auth = getStoredAuth();
       if (!auth?.token) return;
       try {
+        if (choice.channel === "whatsapp") {
+          const plan = await fetchWhatsAppOutreachPlan(auth.token, choice.planId);
+          openWhatsAppEditor({
+            planId: "new",
+            planName: `Copy of ${plan.name}`,
+            touchpoints:
+              plan.touchpoints.length > 0
+                ? plan.touchpoints.map((tp) => ({ ...tp }))
+                : createInitialWhatsAppSequence(),
+          });
+          return;
+        }
         const res = await fetch(`${apiBase}/api/outreach/plans/${choice.planId}`, {
           headers: authHeaders(auth.token),
         });
@@ -245,7 +289,7 @@ export function OutreachesPanel({
         onCancel={() => setEditor(null)}
         onSaved={(message) => {
           setEditor(null);
-          setNotice(message);
+          setSaveToast(message || "Sequence saved.");
         }}
       />
     );
@@ -257,11 +301,12 @@ export function OutreachesPanel({
         planId={editor.state.planId}
         initialPlanName={editor.state.planName}
         initialTouchpoints={editor.state.touchpoints}
+        initialJobDescription={editor.state.jobDescription || ""}
         onCancel={() => setEditor(null)}
         onGoToIntegrations={onGoToIntegrations}
         onSaved={(message) => {
           setEditor(null);
-          setNotice(message);
+          setSaveToast(message || "WhatsApp sequence saved.");
         }}
       />
     );
@@ -281,12 +326,23 @@ export function OutreachesPanel({
         open={createOutreachOpen}
         existingPlans={modalPlans}
         plansLoading={modalPlansLoading}
+        plansPage={savedPlansPage}
+        plansTotalPages={savedPlansTotalPages}
+        plansTotal={savedPlansTotal}
+        onPlansPageChange={handleSavedPlansPageChange}
         templates={modalTemplates}
         templatesLoading={modalTemplatesLoading}
         optionsReady={!modalPlansLoading && !modalTemplatesLoading}
         onClose={() => setCreateOutreachOpen(false)}
         onChoose={(choice) => void handleCreateOutreachChoice(choice)}
       />
+      {saveToast ? (
+        <DashboardToast
+          message={saveToast}
+          variant="success"
+          onDismiss={() => setSaveToast(null)}
+        />
+      ) : null}
     </>
   );
 }

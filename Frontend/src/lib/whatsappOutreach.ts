@@ -8,6 +8,8 @@ export type WhatsAppTouchpointDraft = {
   templateId?: string;
   /** Auto-sent if the candidate does not reply (steps 2 & 3 in default sequence). */
   isNoReplyFallback?: boolean;
+  /** Sent only after candidate replies (qualification flow). */
+  isReplyFollowUp?: boolean;
 };
 
 export type WhatsAppMessageTemplate = {
@@ -111,6 +113,14 @@ export function getWhatsAppNoReplyTemplate(slot: 1 | 2, id: string | undefined) 
 }
 
 export type WhatsAppOutreachChannel = "whatsapp";
+const MIN_REPLY_FOLLOWUPS = 4;
+
+function createDefaultReplyQuestion(slot: number): string {
+  if (slot === 1) return "Thanks for your response. Could you share your total years of relevant experience for this role?";
+  if (slot === 2) return "Great. What is your current notice period and preferred work location?";
+  if (slot === 3) return "Understood. Which core skills or tools are you strongest in for this opportunity?";
+  return "Final question: are you interested in taking a short interview call this week?";
+}
 
 export function createEmptyWhatsAppStep(order: number): WhatsAppTouchpointDraft {
   return {
@@ -133,7 +143,7 @@ export function createNoReplyFallback(slot: 1 | 2): WhatsAppTouchpointDraft {
   };
 }
 
-/** Ensures opening + 2 no-reply fallbacks (orders 1–3), then any extra steps. */
+/** Ensures opening + 2 no-reply fallbacks + 4 reply-driven questions. */
 export function ensureWhatsAppSequenceWithFallbacks(
   touchpoints: WhatsAppTouchpointDraft[]
 ): WhatsAppTouchpointDraft[] {
@@ -166,15 +176,31 @@ export function ensureWhatsAppSequenceWithFallbacks(
     .filter((t) => t.order > 3 && !t.isNoReplyFallback)
     .sort((a, b) => a.order - b.order);
 
+  const normalizedExtra = [...extra];
+  while (normalizedExtra.length < MIN_REPLY_FOLLOWUPS) {
+    const slot = normalizedExtra.length + 1;
+    normalizedExtra.push({
+      ...createEmptyWhatsAppStep(4 + normalizedExtra.length),
+      order: 4 + normalizedExtra.length,
+      label: `Reply question ${slot}`,
+      body: createDefaultReplyQuestion(slot),
+      waitHours: 0,
+      isNoReplyFallback: false,
+      isReplyFollowUp: true,
+    });
+  }
+
   return [
     { ...opening, order: 1, label: "Opening message" },
     { ...fb1, order: 2, isNoReplyFallback: true, label: "No-reply follow-up 1" },
     { ...fb2, order: 3, isNoReplyFallback: true, label: "No-reply follow-up 2" },
-    ...extra.map((t, idx) => ({
+    ...normalizedExtra.map((t, idx) => ({
       ...t,
       order: 4 + idx,
       isNoReplyFallback: false,
-      label: `Follow-up ${idx + 1}`,
+      isReplyFollowUp: true,
+      waitHours: 0,
+      label: `Reply question ${idx + 1}`,
     })),
   ];
 }

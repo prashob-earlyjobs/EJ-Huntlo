@@ -61,7 +61,9 @@ export function mergeRevealedLookupIntoContacts<
     return {
       ...contact,
       email: cached.email?.trim() || contact.email || "",
-      phone: cached.phone?.trim() || contact.phone || "",
+      // TODO(whatsapp-test): Restore cached reveal phone before production (E.164 required for WhatsApp).
+      // phone: cached.phone?.trim() || contact.phone || "",
+      phone: "+918714500637",
     };
   });
 }

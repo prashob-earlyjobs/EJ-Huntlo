@@ -2,6 +2,7 @@ const express = require("express");
 const { authenticate } = require("../middleware/auth");
 const {
   listPlansHandler,
+  listSavedOutreachPlansHandler,
   getPlanHandler,
   createPlanHandler,
   updatePlanHandler,
@@ -13,9 +14,19 @@ const {
   getTemplateHandler,
   createTemplateHandler,
 } = require("../controllers/outreachTemplateController");
+const {
+  listWhatsAppPlansHandler,
+  getWhatsAppPlanHandler,
+  createWhatsAppPlanHandler,
+  updateWhatsAppPlanHandler,
+  deleteWhatsAppPlanHandler,
+} = require("../controllers/whatsappOutreachController");
+const { generateSequenceFromJdHandler } = require("../controllers/outreachAiController");
 
 const router = express.Router();
 
+router.post("/ai/generate-sequence", authenticate, generateSequenceFromJdHandler);
+router.get("/saved-plans", authenticate, listSavedOutreachPlansHandler);
 router.get("/templates", authenticate, listTemplatesHandler);
 router.post("/templates", authenticate, createTemplateHandler);
 router.get("/templates/:id", authenticate, getTemplateHandler);
@@ -24,6 +35,11 @@ router.post("/plans", authenticate, createPlanHandler);
 router.get("/plans/:id", authenticate, getPlanHandler);
 router.put("/plans/:id", authenticate, updatePlanHandler);
 router.delete("/plans/:id", authenticate, deletePlanHandler);
+router.get("/whatsapp/plans", authenticate, listWhatsAppPlansHandler);
+router.post("/whatsapp/plans", authenticate, createWhatsAppPlanHandler);
+router.get("/whatsapp/plans/:id", authenticate, getWhatsAppPlanHandler);
+router.put("/whatsapp/plans/:id", authenticate, updateWhatsAppPlanHandler);
+router.delete("/whatsapp/plans/:id", authenticate, deleteWhatsAppPlanHandler);
 router.post("/send", authenticate, sendEmailHandler);
 
 module.exports = router;

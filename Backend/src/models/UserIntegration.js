@@ -16,20 +16,28 @@ const userIntegrationSchema = new mongoose.Schema(
     },
     email: { type: String, trim: true, default: "" },
     senderName: { type: String, trim: true, default: "" },
-    /** Gmail OAuth access token only. */
+    /** Gmail OAuth access token; Meta WhatsApp permanent access token when whatsappProvider is meta. */
     accessToken: { type: String, default: "" },
-    /** Gmail OAuth refresh token, or Gupshup password when provider is whatsapp. */
+    /** Gmail OAuth refresh token (unused for WhatsApp — Meta token is in accessToken). */
     refreshToken: { type: String, default: "" },
     tokenExpiry: { type: Date, default: null },
     scopes: { type: [String], default: [] },
-    /** Gupshup WhatsApp: existing (user credentials) | huntlo (platform-managed). */
-    gupshupMode: {
+    /** WhatsApp send provider (Meta Cloud API only). */
+    whatsappProvider: {
       type: String,
-      enum: ["", "existing", "huntlo"],
+      enum: ["", "meta"],
       default: "",
     },
-    gupshupUserId: { type: String, trim: true, default: "" },
-    gupshupAppName: { type: String, trim: true, default: "" },
+    /** own = user's Meta credentials; huntlo = platform-managed number (no token stored). */
+    whatsappMode: {
+      type: String,
+      enum: ["", "own", "huntlo"],
+      default: "",
+    },
+    /** Meta WhatsApp Cloud API — Phone Number ID from Business Manager. */
+    metaPhoneNumberId: { type: String, trim: true, default: "" },
+    /** Optional WhatsApp Business Account ID (WABA). */
+    metaWabaId: { type: String, trim: true, default: "" },
   },
   { timestamps: true }
 );

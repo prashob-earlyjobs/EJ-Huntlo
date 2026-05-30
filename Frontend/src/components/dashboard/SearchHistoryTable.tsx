@@ -130,7 +130,7 @@ function SessionStatusBadge({
 
 function HistoryTableSkeleton() {
   return (
-    <div className="mt-6 overflow-x-auto">
+    <div className="dashboard-thin-scrollbar mt-6 overflow-x-auto">
     <div className="dashboard-table-wrap">
       <table className="dashboard-table">
         <thead>
@@ -228,7 +228,7 @@ export function SearchHistoryTable({
   }
 
   return (
-    <div className="mt-6 overflow-x-auto">
+    <div className="dashboard-thin-scrollbar mt-6 overflow-x-auto">
       <div className="dashboard-table-wrap">
       <table className="dashboard-table" role="grid">
         <thead>

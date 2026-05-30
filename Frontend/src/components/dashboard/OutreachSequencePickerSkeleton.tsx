@@ -16,7 +16,26 @@ function TemplateRowSkeleton() {
   );
 }
 
-export function OutreachSequencePickerSkeleton({ rows = 4 }: { rows?: number }) {
+export function OutreachSequencePickerSkeleton({
+  rows = 4,
+  variant = "modal",
+}: {
+  rows?: number;
+  variant?: "modal" | "embedded" | "campaign";
+}) {
+  if (variant === "campaign") {
+    return (
+      <div className="dashboard-campaign-sequence-picker-skeleton" aria-busy="true" aria-label="Loading templates and outreaches">
+        <div className="dashboard-shimmer mb-3 h-4 w-40 rounded" />
+        <div className="dashboard-create-outreach-templates">
+          {Array.from({ length: rows }).map((_, idx) => (
+            <TemplateRowSkeleton key={`campaign-template-skeleton-${idx}`} />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className="dashboard-create-outreach-templates"

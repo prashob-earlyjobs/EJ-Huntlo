@@ -7,6 +7,7 @@ const {
   updateOutreachPlan,
   deleteOutreachPlan,
 } = require("../services/outreachPlanService");
+const { listSavedOutreachPlans } = require("../services/savedOutreachPlanService");
 
 function invalidSession(res) {
   return res.status(401).json({ success: false, message: "Authentication required" });
@@ -31,6 +32,21 @@ const listPlansHandler = async (req, res) => {
   }
 };
 
+const listSavedOutreachPlansHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
+    const result = await listSavedOutreachPlans(uid, {
+      page: req.query?.page,
+      limit: req.query?.limit,
+      channel: req.query?.channel,
+    });
+    return res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
 const getPlanHandler = async (req, res) => {
   try {
     const uid = req.auth?.userId;
@@ -49,6 +65,7 @@ const createPlanHandler = async (req, res) => {
     const plan = await createOutreachPlan(uid, {
       name: req.body?.name,
       touchpoints: req.body?.touchpoints,
+      calendlyAutomation: req.body?.calendlyAutomation,
     });
     return res.status(201).json({ success: true, plan, message: "Outreach plan created" });
   } catch (error) {
@@ -63,6 +80,7 @@ const updatePlanHandler = async (req, res) => {
     const plan = await updateOutreachPlan(uid, req.params.id, {
       name: req.body?.name,
       touchpoints: req.body?.touchpoints,
+      calendlyAutomation: req.body?.calendlyAutomation,
     });
     return res.status(200).json({ success: true, plan, message: "Outreach plan updated" });
   } catch (error) {
@@ -104,6 +122,7 @@ const sendEmailHandler = async (req, res) => {
 
 module.exports = {
   listPlansHandler,
+  listSavedOutreachPlansHandler,
   getPlanHandler,
   createPlanHandler,
   updatePlanHandler,

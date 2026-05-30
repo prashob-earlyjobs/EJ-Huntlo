@@ -89,7 +89,7 @@ import type { CampaignContact, CampaignRecord } from "@/lib/campaigns";
 import {
   addContactsToCampaignApi,
   createCampaign,
-  fetchCampaigns,
+  fetchCampaignsPage,
 } from "@/lib/campaignsApi";
 import {
   startCampaignReveal,
@@ -157,28 +157,6 @@ function isSidebarNavGroup(entry: UserSidebarNavEntry): entry is UserSidebarNavG
   return "children" in entry && Array.isArray(entry.children);
 }
 
-const outreachesSidebarItem: UserSidebarNavItem = {
-  label: "Outreaches",
-  subtitle: "Email plans & send",
-  icon: (
-    <svg viewBox="0 0 24 24" fill="none" className="h-3.5 w-3.5">
-      <path
-        d="M4 6H20V18H4V6Z"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M4 7L12 13L20 7"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  ),
-};
-
 const campaignsSidebarItem: UserSidebarNavItem = {
   label: "Campaigns",
   subtitle: "Group & run outreach",
@@ -205,7 +183,7 @@ const engagementsSidebarGroup: UserSidebarNavGroup = {
   label: "Engagements",
   subtitle: "Outreach & connections",
   icon: <MaterialIcon name="campaign" className="text-[1.125rem]" />,
-  children: [outreachesSidebarItem, campaignsSidebarItem, integrationsSidebarItem],
+  children: [campaignsSidebarItem, integrationsSidebarItem],
 };
 
 const userSidebarNavEntries: UserSidebarNavEntry[] = [
@@ -1170,6 +1148,8 @@ export default function UserDashboardPage() {
     sessionId: routeSessionId = "",
     campaignId: routeCampaignId = "",
     campaignWorkspaceTab = "Editor",
+    campaignReportMetric = null,
+    campaignWhatsAppContactKey = "",
   } = useMemo(() => tabFromPathSegments(segments), [segments]);
 
   const userActionAlert = useUserActionAlert();
@@ -1235,6 +1215,14 @@ export default function UserDashboardPage() {
   const [sessionResultNotice, setSessionResultNotice] = useState("");
   const [campaigns, setCampaigns] = useState<CampaignRecord[]>([]);
   const [campaignsLoading, setCampaignsLoading] = useState(false);
+  const [campaignsPage, setCampaignsPage] = useState(1);
+  const [campaignsTotal, setCampaignsTotal] = useState(0);
+  const [campaignsTotalPages, setCampaignsTotalPages] = useState(1);
+  const [campaignsSummary, setCampaignsSummary] = useState({
+    total: 0,
+    active: 0,
+    contacts: 0,
+  });
   const [addToCampaignBusy, setAddToCampaignBusy] = useState(false);
   const [savedSessionCandidateKeys, setSavedSessionCandidateKeys] = useState<string[]>([]);
   const [savedCandidatesList, setSavedCandidatesList] = useState<CandidateRow[]>([]);
@@ -1409,14 +1397,17 @@ export default function UserDashboardPage() {
           setAccountBlocked(true);
           return null;
         }
-        return data;
+        return { data, status: res.status, ok: res.ok };
       })
-      .then((data) => {
-        if (!data) return;
-        if (!data.success) {
-          throw new Error(
+      .then((result) => {
+        if (!result) return;
+        const { data, status, ok } = result;
+        if (!ok || !data.success) {
+          const err = new Error(
             typeof data.message === "string" ? data.message : "Failed to load dashboard"
           );
+          (err as Error & { statusCode?: number }).statusCode = status;
+          throw err;
         }
         const parsed = parseDashboardOverviewPayload(data);
         if (!parsed) {
@@ -1428,15 +1419,28 @@ export default function UserDashboardPage() {
         setUserPlanReady(true);
       })
       .catch((err) => {
+        const statusCode =
+          typeof (err as { statusCode?: unknown })?.statusCode === "number"
+            ? Number((err as { statusCode?: number }).statusCode)
+            : 0;
+        const msg = err instanceof Error ? err.message : "Could not load dashboard";
+        const authExpired = statusCode === 401;
+        if (authExpired) {
+          try {
+            window.localStorage.removeItem("authUser");
+          } catch {
+            /* ignore */
+          }
+          router.replace("/login");
+          return;
+        }
         setDashboardOverview(null);
-        setDashboardOverviewError(
-          err instanceof Error ? err.message : "Could not load dashboard"
-        );
+        setDashboardOverviewError(msg);
       })
       .finally(() => {
         setDashboardOverviewLoading(false);
       });
-  }, [activeTab]);
+  }, [activeTab, router]);
 
   useEffect(() => {
     const auth = getStoredAuth();
@@ -1461,17 +1465,26 @@ export default function UserDashboardPage() {
       });
   }, []);
 
-  const loadCampaignsList = useCallback(async () => {
+  const loadCampaignsList = useCallback(async (opts?: { page?: number }) => {
     const auth = getStoredAuth();
     if (!auth?.token || userPlanId !== "enterprise") {
       setCampaigns([]);
       setCampaignsLoading(false);
+      setCampaignsPage(1);
+      setCampaignsTotal(0);
+      setCampaignsTotalPages(1);
+      setCampaignsSummary({ total: 0, active: 0, contacts: 0 });
       return;
     }
+    const page = Math.max(1, Number(opts?.page) || 1);
     setCampaignsLoading(true);
     try {
-      const list = await fetchCampaigns(auth.token);
-      setCampaigns(list);
+      const result = await fetchCampaignsPage(auth.token, { page });
+      setCampaigns(result.campaigns);
+      setCampaignsPage(result.pagination.page);
+      setCampaignsTotal(result.pagination.total);
+      setCampaignsTotalPages(result.pagination.totalPages);
+      setCampaignsSummary(result.summary);
     } catch {
       /* keep previous list */
     } finally {
@@ -1479,16 +1492,26 @@ export default function UserDashboardPage() {
     }
   }, [userPlanId]);
 
+  const handleCampaignsPageChange = useCallback(
+    (page: number) => {
+      if (campaignsLoading) return;
+      const next = Math.max(1, Math.min(campaignsTotalPages, page));
+      if (next === campaignsPage) return;
+      void loadCampaignsList({ page: next });
+    },
+    [campaignsLoading, campaignsPage, campaignsTotalPages, loadCampaignsList]
+  );
+
   useEffect(() => {
     if (userPlanId !== "enterprise") return;
-    void loadCampaignsList();
+    void loadCampaignsList({ page: 1 });
   }, [userPlanId, loadCampaignsList]);
 
   useEffect(() => {
     if (userPlanId !== "enterprise") return;
     if (activeTab !== "Campaigns" && !addToCampaignOpen && !routeCampaignId) return;
     setCampaignsLoading(true);
-    void loadCampaignsList();
+    void loadCampaignsList({ page: 1 });
   }, [activeTab, addToCampaignOpen, userPlanId, loadCampaignsList, routeCampaignId]);
 
   useEffect(() => {
@@ -1909,7 +1932,6 @@ export default function UserDashboardPage() {
 
   useEffect(() => {
     if (
-      activeTab === "Outreaches" ||
       activeTab === "Campaigns" ||
       activeTab === "Integrations"
     ) {
@@ -2734,12 +2756,16 @@ export default function UserDashboardPage() {
     }
     const auth = getStoredAuth();
     if (!auth?.token) return;
+    setSearchLoading(true);
 
-    void loadSessionProfilesFirstPage(routeSessionId, 20, auth.token, "Search history").catch(
-      (err) => {
+    void loadSessionProfilesFirstPage(routeSessionId, 20, auth.token, "Search history")
+      .catch((err) => {
         setSessionResultError(
           err instanceof Error ? err.message : "Could not load session results"
         );
+      })
+      .finally(() => {
+        setSearchLoading(false);
       }
     );
   }, [
@@ -3817,8 +3843,11 @@ export default function UserDashboardPage() {
       const emailKey = candidateRowKey(row);
       const email =
         revealedContactValues[emailKey]?.email || row.email || "";
-      const phone =
-        revealedContactValues[emailKey]?.phone || row.phone || "";
+      // TODO(whatsapp-test): Restore phone from reveal cache / candidate row before production.
+      // Must be E.164 for WhatsApp (India example: +918714500637).
+      // const phone =
+      //   revealedContactValues[emailKey]?.phone || row.phone || "";
+      const phone = "+918714500637";
       contacts.push({
         candidateKey: key,
         candidateId: String(row.id || key),
@@ -3848,13 +3877,13 @@ export default function UserDashboardPage() {
       if (!auth?.token) return null;
       try {
         const { campaign: record } = await createCampaign(auth.token, name);
-        setCampaigns((prev) => [record, ...prev]);
+        await loadCampaignsList({ page: 1 });
         return record;
       } catch {
         return null;
       }
     },
-    []
+    [loadCampaignsList]
   );
 
   const handleCampaignUpdated = useCallback((updated: CampaignRecord) => {
@@ -4458,7 +4487,12 @@ export default function UserDashboardPage() {
                 {!searchLoading &&
                 !applyFiltersLoading &&
                 sessionResultDocs.length === 0 &&
-                !sessionResultError ? (
+                !sessionResultError &&
+                !(
+                  tabFromRoute === "Session Results" &&
+                  Boolean(routeSessionId) &&
+                  searchSummary?.sessionId !== routeSessionId
+                ) ? (
                   <div className="dashboard-empty-state">
                     <div className="dashboard-empty-state-icon">
                       <MaterialIcon name="person_off" className="text-[28px]" />
@@ -4993,12 +5027,21 @@ export default function UserDashboardPage() {
                 currentPlanId={userPlanId}
                 planResolved={userPlanReady}
                 onViewPlans={() => navigateToTab("Plans and pricing")}
+                onGoToIntegrations={() => navigateToTab("Integrations")}
+                onAddFromSearchHistory={() => navigateToTab("Search history")}
                 campaigns={campaigns}
                 campaignsLoading={campaignsLoading}
+                campaignsPage={campaignsPage}
+                campaignsTotal={campaignsTotal}
+                campaignsTotalPages={campaignsTotalPages}
+                campaignsSummary={campaignsSummary}
+                onCampaignsPageChange={handleCampaignsPageChange}
                 onCreateCampaign={handleCreateCampaign}
                 onCampaignUpdated={handleCampaignUpdated}
                 routeCampaignId={routeCampaignId}
                 routeWorkspaceTab={campaignWorkspaceTab}
+                routeReportMetric={campaignReportMetric ?? null}
+                routeWhatsAppContactKey={campaignWhatsAppContactKey || null}
               />
             ) : activeTab === "Integrations" ? (
               <IntegrationsPanel

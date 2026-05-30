@@ -2,9 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import {
+  CampaignLaunchAgentOverlay,
+  LAUNCH_AGENT_MIN_DURATION_MS,
+} from "@/components/dashboard/CampaignLaunchAgentOverlay";
 import { ConfirmModal } from "@/components/dashboard/ConfirmModal";
+import { DashboardToast } from "@/components/dashboard/DashboardToast";
+import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
 import { OutreachFieldSelect } from "@/components/dashboard/OutreachFieldSelect";
 import { OutreachPillSelect } from "@/components/dashboard/OutreachPillSelect";
+import { OutreachTestEmailModal } from "@/components/dashboard/OutreachTestEmailModal";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { authHeaders, getStoredAuth } from "@/lib/auth";
 import {
@@ -13,30 +20,88 @@ import {
   dashboardInputClass,
 } from "@/lib/dashboardStyles";
 import {
+  insertTextIntoField,
+  OUTREACH_MERGE_FIELDS,
+} from "@/lib/outreachMergeFields";
+import {
   createEmptyTouchpoint,
   type OutreachTouchpointDraft,
 } from "@/lib/outreachTemplates";
+import {
+  defaultSoonestAtLocal,
+  inferAfterDays,
+  inferStartMode,
+  mergeSendTimeIntoSoonestAt,
+  soonestAtFromWaitDays,
+  touchpointScheduleLabel,
+  waitDaysForStartMode,
+  type StartScheduleMode,
+} from "@/lib/outreachStartSchedule";
+import { OutreachStartScheduleBar } from "@/components/dashboard/OutreachStartScheduleBar";
 
-const MERGE_TAGS = [
-  "First Name",
-  "Current Company",
-  "Job Title",
-  "Education",
-  "Sender First Name",
-] as const;
+type CalendlyMeetingOption = {
+  uri: string;
+  name: string;
+  schedulingUrl: string;
+  durationMinutes: number;
+  kind: string;
+};
+
+type CalendlyAutomationDraft = {
+  enabled?: boolean;
+  meetingUri?: string;
+  meetingName?: string;
+  schedulingUrl?: string;
+  durationMinutes?: number;
+  kind?: string;
+};
+
+function calendlyMeetingFromAutomation(
+  automation?: CalendlyAutomationDraft
+): CalendlyMeetingOption | null {
+  if (!automation?.enabled || !automation.meetingUri?.trim() || !automation.meetingName?.trim()) {
+    return null;
+  }
+  return {
+    uri: automation.meetingUri.trim(),
+    name: automation.meetingName.trim(),
+    schedulingUrl: automation.schedulingUrl?.trim() || "",
+    durationMinutes: Number(automation.durationMinutes || 0),
+    kind: automation.kind?.trim() || "",
+  };
+}
 
 type Props = {
   planId?: string | "new";
   initialPlanName: string;
   initialTouchpoints: OutreachTouchpointDraft[];
+  initialCalendlyAutomation?: CalendlyAutomationDraft;
   /** Hide standalone header when nested under campaign workspace. */
   embedded?: boolean;
   /** Lock Start / Wait schedule pills when sequence came from template or saved plan. */
   lockSchedule?: boolean;
+  /** Read-only editor (active or completed campaign). */
+  editorLocked?: boolean;
+  /** Campaign workspace controls (embedded mode). */
+  campaignOutreachStatus?: "idle" | "active" | "paused" | "completed";
+  hasCampaignContacts?: boolean;
+  hasSequence?: boolean;
+  launchBusy?: boolean;
+  onLaunchCampaign?: () => void | Promise<void>;
+  onPauseCampaign?: () => void | Promise<void>;
+  onResumeCampaign?: () => void | Promise<void>;
   onCancel: () => void;
+  onGoToIntegrations?: () => void;
+  /** When set (campaign editor), persist interview link on the campaign immediately. */
+  saveCalendlyToCampaign?: (automation: CalendlyAutomationDraft) => void | Promise<void>;
   onSaved: (
     message: string,
-    plan?: { id: string; name: string; touchpoints: OutreachTouchpointDraft[] }
+    plan?: {
+      id: string;
+      name: string;
+      touchpoints: OutreachTouchpointDraft[];
+      calendlyAutomation?: CalendlyAutomationDraft;
+    }
   ) => void;
 };
 
@@ -46,23 +111,28 @@ function SaveSequenceButton({
   onClick,
   compact = false,
   label = "Save sequence",
+  disabled = false,
+  className = "",
 }: {
   saving: boolean;
   saveSucceeded: boolean;
   onClick: () => void;
   compact?: boolean;
   label?: string;
+  disabled?: boolean;
+  className?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      disabled={saving || saveSucceeded}
+      disabled={disabled || saving || saveSucceeded}
       className={[
         "dashboard-btn-primary dashboard-outreach-save-btn disabled:opacity-55",
         compact ? "px-3 py-1.5 text-xs" : "dashboard-outreach-builder-save",
         saving ? "dashboard-outreach-save-btn--saving" : "",
         saveSucceeded ? "dashboard-outreach-save-btn--success" : "",
+        className,
       ]
         .filter(Boolean)
         .join(" ")}
@@ -97,34 +167,6 @@ function ScheduleStaticChip({ label }: { label: string }) {
       {label}
     </span>
   );
-}
-
-function formatScheduleDate(date: Date): string {
-  return date.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-function touchpointScheduleLabel(
-  touchpoints: OutreachTouchpointDraft[],
-  index: number
-): string {
-  const tp = touchpoints[index];
-  if (!tp) return "";
-  if (index === 0 && tp.waitDays === 0) {
-    return formatScheduleDate(new Date());
-  }
-  let totalDays = 0;
-  for (let i = 0; i <= index; i++) {
-    totalDays += touchpoints[i]?.waitDays ?? 0;
-  }
-  const d = new Date();
-  d.setDate(d.getDate() + totalDays);
-  d.setHours(9, 0, 0, 0);
-  return formatScheduleDate(d);
 }
 
 function touchpointTypeLabel(order: number): string {
@@ -184,47 +226,6 @@ function buildStepScheduleMeta(
   return meta;
 }
 
-type StartScheduleMode = "immediate" | "next_business_day" | "soonest_at" | "after";
-
-function defaultSoonestAtLocal(): string {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  d.setHours(9, 0, 0, 0);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function daysUntilDatetime(value: string): number {
-  const target = new Date(value);
-  if (Number.isNaN(target.getTime())) return 0;
-  const diff = target.getTime() - Date.now();
-  return Math.max(0, Math.ceil(diff / 86_400_000));
-}
-
-function waitDaysForStartMode(
-  mode: StartScheduleMode,
-  afterDays: number,
-  soonestAt: string
-): number {
-  if (mode === "immediate") return 0;
-  if (mode === "next_business_day") return 1;
-  if (mode === "soonest_at") return daysUntilDatetime(soonestAt);
-  return Math.max(1, afterDays);
-}
-
-function inferStartMode(waitDays: number): StartScheduleMode {
-  if (waitDays === 0) return "immediate";
-  if (waitDays === 1) return "next_business_day";
-  return "after";
-}
-
-const START_MODE_OPTIONS: { value: StartScheduleMode; label: string }[] = [
-  { value: "immediate", label: "immediately" },
-  { value: "next_business_day", label: "next business day" },
-  { value: "soonest_at", label: "soonest at" },
-  { value: "after", label: "after" },
-];
-
 const SEND_TIME_OPTIONS = (() => {
   const opts: string[] = [];
   for (let h = 6; h <= 20; h++) {
@@ -257,24 +258,27 @@ const TIMEZONE_SELECT_OPTIONS = TIMEZONE_OPTIONS.map((tz) => ({
   label: tz,
 }));
 
-function mergeSendTimeIntoSoonestAt(isoLocal: string, hhmm: string): string {
-  const [hh, mm] = hhmm.split(":");
-  const base = new Date(isoLocal);
-  if (Number.isNaN(base.getTime())) return defaultSoonestAtLocal();
-  base.setHours(Number(hh), Number(mm), 0, 0);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${base.getFullYear()}-${pad(base.getMonth() + 1)}-${pad(base.getDate())}T${pad(base.getHours())}:${pad(base.getMinutes())}`;
-}
-
 export function OutreachPlanEditor({
   planId = "new",
   initialPlanName,
   initialTouchpoints,
+  initialCalendlyAutomation,
   embedded = false,
   lockSchedule = false,
+  editorLocked = false,
+  campaignOutreachStatus = "idle",
+  hasCampaignContacts = true,
+  hasSequence = true,
+  launchBusy = false,
+  onLaunchCampaign,
+  onPauseCampaign,
+  onResumeCampaign,
   onCancel,
+  onGoToIntegrations,
+  saveCalendlyToCampaign,
   onSaved,
 }: Props) {
+  const scheduleLocked = lockSchedule || editorLocked;
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
   const auth = getStoredAuth();
 
@@ -290,10 +294,10 @@ export function OutreachPlanEditor({
   const [startMode, setStartMode] = useState<StartScheduleMode>(() =>
     inferStartMode(initialWait)
   );
-  const [afterDays, setAfterDays] = useState(() =>
-    initialWait >= 2 ? initialWait : 2
+  const [afterDays, setAfterDays] = useState(() => inferAfterDays(initialWait));
+  const [soonestAt, setSoonestAt] = useState(() =>
+    initialWait > 1 ? soonestAtFromWaitDays(initialWait, "09:00") : defaultSoonestAtLocal()
   );
-  const [soonestAt, setSoonestAt] = useState(defaultSoonestAtLocal);
   const [startSendTime, setStartSendTime] = useState("09:00");
   const [startTimezone, setStartTimezone] = useState<string>("IT");
   const [waitMeta, setWaitMeta] = useState<Record<number, { amount: number; unit: WaitUnit }>>(
@@ -302,8 +306,24 @@ export function OutreachPlanEditor({
   const [stepScheduleMeta, setStepScheduleMeta] = useState<
     Record<number, { time: string; tz: string }>
   >(() => buildStepScheduleMeta(initialTouchpoints));
+
+  const subjectInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
+  const bodyTextareaRefs = useRef<Record<number, HTMLTextAreaElement | null>>({});
+  const lastMergeFieldFocusRef = useRef<{ order: number; field: "subject" | "body" } | null>(
+    null
+  );
   const [gmailEmail, setGmailEmail] = useState("");
   const [gmailConnected, setGmailConnected] = useState(false);
+  const [calendlyConnected, setCalendlyConnected] = useState(false);
+  const [calendlyPickerOpen, setCalendlyPickerOpen] = useState(false);
+  const [calendlyLoading, setCalendlyLoading] = useState(false);
+  const [calendlyError, setCalendlyError] = useState("");
+  const [calendlyMeetings, setCalendlyMeetings] = useState<CalendlyMeetingOption[]>([]);
+  const [calendlyPickerUri, setCalendlyPickerUri] = useState("");
+  const [calendlySaving, setCalendlySaving] = useState(false);
+  const [selectedCalendlyMeeting, setSelectedCalendlyMeeting] = useState<CalendlyMeetingOption | null>(
+    () => calendlyMeetingFromAutomation(initialCalendlyAutomation)
+  );
   const [saving, setSaving] = useState(false);
   const [saveSucceeded, setSaveSucceeded] = useState(false);
   const [error, setError] = useState("");
@@ -311,6 +331,13 @@ export function OutreachPlanEditor({
     order: number;
     label: string;
   } | null>(null);
+  const [launching, setLaunching] = useState(false);
+  const [testPreviewStep, setTestPreviewStep] = useState<{
+    order: number;
+    subject: string;
+    body: string;
+  } | null>(null);
+  const [testEmailToast, setTestEmailToast] = useState<string | null>(null);
 
   const canvasScrollRef = useRef<HTMLDivElement>(null);
   const stepSectionRefs = useRef<(HTMLElement | null)[]>([]);
@@ -349,6 +376,12 @@ export function OutreachPlanEditor({
     return { name, date };
   }, [auth?.email, auth?.fullName]);
 
+  const senderFirstName = useMemo(() => {
+    const full = auth?.fullName?.trim() || createdMeta.name;
+    const part = full.split(/\s+/).filter(Boolean)[0];
+    return part || "You";
+  }, [auth?.fullName, createdMeta.name]);
+
   const loadGmailStatus = useCallback(async () => {
     if (!auth?.token) return;
     try {
@@ -364,9 +397,134 @@ export function OutreachPlanEditor({
     }
   }, [apiBase, auth?.token]);
 
+  const loadCalendlyStatus = useCallback(async () => {
+    if (!auth?.token) return;
+    try {
+      const res = await fetch(`${apiBase}/api/integrations/calendly/status`, {
+        headers: authHeaders(auth.token),
+      });
+      const data = await res.json();
+      setCalendlyConnected(Boolean(data.success && data.connected));
+    } catch {
+      setCalendlyConnected(false);
+    }
+  }, [apiBase, auth?.token]);
+
+  const loadCalendlyMeetings = useCallback(async (): Promise<CalendlyMeetingOption[]> => {
+    if (!auth?.token) return [];
+    try {
+      const res = await fetch(`${apiBase}/api/integrations/calendly/links`, {
+        headers: authHeaders(auth.token),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.success) {
+        throw new Error(
+          typeof data?.message === "string"
+            ? data.message
+            : "Could not load Calendly meetings."
+        );
+      }
+      const rows = Array.isArray(data.links) ? data.links : [];
+      return rows
+        .map((row: unknown) => {
+          const o = row as Record<string, unknown>;
+          const schedulingUrl = String(o.schedulingUrl || "").trim();
+          const name = String(o.name || "").trim() || "Calendly event";
+          const uri = String(o.uri || schedulingUrl).trim();
+          return {
+            uri,
+            name,
+            schedulingUrl,
+            durationMinutes: Number(o.durationMinutes ?? 0) || 0,
+            kind: String(o.kind || "").trim(),
+          } satisfies CalendlyMeetingOption;
+        })
+        .filter((row: CalendlyMeetingOption) => row.schedulingUrl && row.name);
+    } catch (err) {
+      throw err instanceof Error ? err : new Error("Could not load Calendly meetings.");
+    }
+  }, [apiBase, auth?.token]);
+
   useEffect(() => {
     void loadGmailStatus();
-  }, [loadGmailStatus]);
+    void loadCalendlyStatus();
+  }, [loadGmailStatus, loadCalendlyStatus]);
+
+  const initialCalendlyKey = [
+    initialCalendlyAutomation?.enabled,
+    initialCalendlyAutomation?.meetingUri,
+    initialCalendlyAutomation?.meetingName,
+  ].join("|");
+
+  useEffect(() => {
+    setSelectedCalendlyMeeting(calendlyMeetingFromAutomation(initialCalendlyAutomation));
+  }, [planId, initialCalendlyKey, initialCalendlyAutomation]);
+
+  const openCalendlyPicker = useCallback(async () => {
+    if (!auth?.token) {
+      setCalendlyError("Please sign in again.");
+      return;
+    }
+    setCalendlyError("");
+    setCalendlyLoading(true);
+    try {
+      const meetings = await loadCalendlyMeetings();
+      if (meetings.length === 0) {
+        setCalendlyError("No Calendly meeting links found. Create an event type in Calendly.");
+        return;
+      }
+      setCalendlyMeetings(meetings);
+      const priorUri = selectedCalendlyMeeting?.uri?.trim() || "";
+      const priorUrl = selectedCalendlyMeeting?.schedulingUrl?.trim() || "";
+      const matched = meetings.find(
+        (m: CalendlyMeetingOption) =>
+          (priorUri && m.uri === priorUri) ||
+          (priorUrl && m.schedulingUrl === priorUrl) ||
+          (priorUri && m.schedulingUrl === priorUri)
+      );
+      setCalendlyPickerUri(matched?.uri || meetings[0]?.uri || "");
+      setCalendlyPickerOpen(true);
+    } catch (err) {
+      setCalendlyMeetings([]);
+      const message =
+        err instanceof Error ? err.message : "Could not load Calendly meetings.";
+      if (message.toLowerCase().includes("not connected")) {
+        onGoToIntegrations?.();
+      }
+      setCalendlyError(message);
+    } finally {
+      setCalendlyLoading(false);
+    }
+  }, [auth?.token, loadCalendlyMeetings, onGoToIntegrations, selectedCalendlyMeeting]);
+
+  const applyCalendlyMeeting = async () => {
+    const meeting = calendlyMeetings.find((m) => m.uri === calendlyPickerUri);
+    if (!meeting) return;
+    const automation: CalendlyAutomationDraft = {
+      enabled: true,
+      meetingUri: meeting.uri,
+      meetingName: meeting.name,
+      schedulingUrl: meeting.schedulingUrl,
+      durationMinutes: meeting.durationMinutes,
+      kind: meeting.kind,
+    };
+    setSelectedCalendlyMeeting(meeting);
+    setCalendlyPickerOpen(false);
+    if (!saveCalendlyToCampaign) return;
+    setCalendlySaving(true);
+    setCalendlyError("");
+    try {
+      await saveCalendlyToCampaign(automation);
+    } catch (err) {
+      setCalendlyError(
+        err instanceof Error ? err.message : "Could not save interview link for this campaign."
+      );
+    } finally {
+      setCalendlySaving(false);
+    }
+  };
+
+  const calendlyEnabled = Boolean(selectedCalendlyMeeting);
 
   const waitLinkOrderKey = useMemo(
     () =>
@@ -495,6 +653,7 @@ export function OutreachPlanEditor({
   };
 
   const addTouchpoint = () => {
+    if (editorLocked) return;
     const nextOrder = touchpoints.length + 1;
     setTouchpoints((prev) => [...prev, createEmptyTouchpoint(nextOrder)]);
     requestAnimationFrame(() => scrollToStep(touchpoints.length + 1));
@@ -511,6 +670,7 @@ export function OutreachPlanEditor({
   };
 
   const removeTouchpoint = (order: number) => {
+    if (editorLocked) return;
     if (touchpoints.length <= 1) return;
     const removeIndex = touchpoints.findIndex((tp) => tp.order === order);
     if (removeIndex < 0) return;
@@ -528,12 +688,18 @@ export function OutreachPlanEditor({
   };
 
   const applyStartSchedule = useCallback(
-    (mode: StartScheduleMode, nextAfterDays = afterDays, nextSoonestAt = soonestAt) => {
+    (
+      mode: StartScheduleMode,
+      nextAfterDays = afterDays,
+      nextSoonestAt = soonestAt
+    ) => {
       const waitDays = waitDaysForStartMode(mode, nextAfterDays, nextSoonestAt);
       setTouchpoints((prev) => {
         const first = prev[0];
         if (!first) return prev;
-        return prev.map((tp) => (tp.order === first.order ? { ...tp, waitDays } : tp));
+        return prev.map((tp) =>
+          tp.order === first.order ? { ...tp, waitDays } : tp
+        );
       });
     },
     [afterDays, soonestAt]
@@ -550,19 +716,33 @@ export function OutreachPlanEditor({
     applyStartSchedule(mode);
   };
 
+  const handleAfterDaysChange = (days: number) => {
+    setAfterDays(days);
+    applyStartSchedule("after", days);
+  };
+
+  const handleSoonestAtChange = (value: string) => {
+    setSoonestAt(value);
+    applyStartSchedule("soonest_at", afterDays, value);
+  };
+
   const handleStartSendTimeChange = (time: string) => {
     setStartSendTime(time);
-    if (startMode === "soonest_at") {
-      const merged = mergeSendTimeIntoSoonestAt(soonestAt, time);
-      setSoonestAt(merged);
-      applyStartSchedule("soonest_at", afterDays, merged);
+    if (startMode === "next_business_day" || startMode === "after") {
+      applyStartSchedule(startMode);
     }
   };
 
-  const showSendAt = startMode !== "immediate";
-
-  const startModeLabel =
-    START_MODE_OPTIONS.find((o) => o.value === startMode)?.label ?? startMode;
+  const startSchedule = useMemo(
+    () => ({
+      mode: startMode,
+      afterDays,
+      soonestAt,
+      sendTime: startSendTime,
+      timezone: startTimezone,
+    }),
+    [startMode, afterDays, soonestAt, startSendTime, startTimezone]
+  );
 
   const updateStepWait = (
     order: number,
@@ -589,22 +769,51 @@ export function OutreachPlanEditor({
     }));
   };
 
-  const insertMergeTag = (order: number, field: "subject" | "body", tag: string) => {
+  const insertMergeTag = (order: number, field: "subject" | "body", token: string) => {
+    if (editorLocked) return;
     const tp = touchpoints.find((t) => t.order === order);
     if (!tp) return;
-    const token = `{{${tag.replace(/\s+/g, "")}}}`;
+    const mergeToken = `{{${token}}}`;
     const current = field === "subject" ? tp.subject : tp.body;
-    updateTouchpoint(order, {
-      [field]: current ? `${current} ${token}` : token,
+    const element =
+      field === "subject" ? subjectInputRefs.current[order] : bodyTextareaRefs.current[order];
+    const insertAtCursor =
+      lastMergeFieldFocusRef.current?.order === order &&
+      lastMergeFieldFocusRef.current?.field === field &&
+      element != null;
+    const { value, selectionStart, selectionEnd } = insertTextIntoField(
+      current,
+      mergeToken,
+      element,
+      insertAtCursor
+    );
+    updateTouchpoint(order, { [field]: value });
+    requestAnimationFrame(() => {
+      const target =
+        field === "subject" ? subjectInputRefs.current[order] : bodyTextareaRefs.current[order];
+      if (!target) return;
+      target.focus();
+      target.setSelectionRange(selectionStart, selectionEnd);
     });
   };
 
   const savePlan = async () => {
+    if (editorLocked) return;
     if (!auth?.token) return;
     setSaving(true);
     setError("");
     setSaveSucceeded(false);
     try {
+      const missingSubject = touchpoints.find((tp) => !tp.subject.trim());
+      if (missingSubject) {
+        throw new Error(`Step ${missingSubject.order} needs a subject line.`);
+      }
+      const missingBody = touchpoints.find((tp) => !tp.body.trim());
+      if (missingBody) {
+        throw new Error(
+          `Step ${missingBody.order} needs a message body (e.g. Hi {{FirstName}}, …).`
+        );
+      }
       const isNew = planId === "new";
       const url = isNew
         ? `${apiBase}/api/outreach/plans`
@@ -612,7 +821,20 @@ export function OutreachPlanEditor({
       const res = await fetch(url, {
         method: isNew ? "POST" : "PUT",
         headers: authHeaders(auth.token),
-        body: JSON.stringify({ name: planName.trim() || "Untitled outreach", touchpoints }),
+        body: JSON.stringify({
+          name: planName.trim() || "Untitled outreach",
+          touchpoints,
+          calendlyAutomation: selectedCalendlyMeeting
+            ? {
+                enabled: true,
+                meetingUri: selectedCalendlyMeeting.uri,
+                meetingName: selectedCalendlyMeeting.name,
+                schedulingUrl: selectedCalendlyMeeting.schedulingUrl,
+                durationMinutes: selectedCalendlyMeeting.durationMinutes,
+                kind: selectedCalendlyMeeting.kind,
+              }
+            : { enabled: false },
+        }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
@@ -623,8 +845,28 @@ export function OutreachPlanEditor({
             id: string;
             name: string;
             touchpoints: OutreachTouchpointDraft[];
+            calendlyAutomation?: {
+              enabled?: boolean;
+              meetingUri?: string;
+              meetingName?: string;
+              schedulingUrl?: string;
+              durationMinutes?: number;
+              kind?: string;
+            };
           }
         | undefined;
+      const savedCalendly = saved?.calendlyAutomation;
+      if (savedCalendly?.enabled && savedCalendly.meetingUri && savedCalendly.meetingName) {
+        setSelectedCalendlyMeeting({
+          uri: savedCalendly.meetingUri,
+          name: savedCalendly.meetingName,
+          schedulingUrl: savedCalendly.schedulingUrl || "",
+          durationMinutes: Number(savedCalendly.durationMinutes || 0),
+          kind: savedCalendly.kind || "",
+        });
+      } else if (saved && savedCalendly && !savedCalendly.enabled) {
+        setSelectedCalendlyMeeting(null);
+      }
       const successMessage = isNew ? "Sequence saved." : "Sequence updated.";
       onSaved(
         successMessage,
@@ -641,6 +883,7 @@ export function OutreachPlanEditor({
                     waitDays: tp.waitDays ?? 0,
                   }))
                 : touchpoints,
+              calendlyAutomation: savedCalendly,
             }
           : undefined
       );
@@ -662,7 +905,13 @@ export function OutreachPlanEditor({
 
   const planTitleEditor = (centered: boolean) => (
     <div className={centered ? "mx-auto min-w-0 max-w-md text-center" : "min-w-0"}>
-      {editingTitle ? (
+      {editorLocked ? (
+        <span
+          className={`dashboard-section-title truncate text-base ${centered ? "block text-center" : ""}`}
+        >
+          {planName}
+        </span>
+      ) : editingTitle ? (
         <input
           type="text"
           value={planName}
@@ -692,72 +941,175 @@ export function OutreachPlanEditor({
     </div>
   );
 
+  const launchCampaign = useCallback(async () => {
+    if (!onLaunchCampaign || launching) return;
+    setLaunching(true);
+    const overlayStartedAt = Date.now();
+    try {
+      await onLaunchCampaign();
+      const elapsed = Date.now() - overlayStartedAt;
+      if (elapsed < LAUNCH_AGENT_MIN_DURATION_MS) {
+        await new Promise((resolve) =>
+          window.setTimeout(resolve, LAUNCH_AGENT_MIN_DURATION_MS - elapsed)
+        );
+      }
+    } finally {
+      setLaunching(false);
+    }
+  }, [launching, onLaunchCampaign]);
+
   if (touchpoints.length === 0) return null;
+
+  const launchActionBusy = launching || launchBusy;
 
   return (
     <section
-      className={`dashboard-outreach-builder flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden bg-[#f8f9fc]${
-        embedded ? " dashboard-outreach-builder--embedded" : " dashboard-card dashboard-card--fill max-w-full"
-      }`}
+      className={`dashboard-outreach-builder flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden${
+        embedded ? " dashboard-outreach-builder--embedded" : " dashboard-card dashboard-card--fill max-w-full bg-[#f8f9fc]"
+      }${launching ? " dashboard-outreach-builder--launching" : ""}`}
     >
+      <CampaignLaunchAgentOverlay open={launching && Boolean(onLaunchCampaign)} channel="gmail" />
       {embedded ? (
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 sm:px-6">
-          <button
-            type="button"
-            onClick={onCancel}
-            className={`${dashboardBtnSecondaryClass} inline-flex items-center gap-1.5 px-3 py-1.5 text-sm`}
-          >
-            <MaterialIcon name="arrow_back" className="text-base" />
-            Change sequence
-          </button>
-          <div className="hidden min-w-0 flex-1 px-4 sm:block">{planTitleEditor(true)}</div>
-          <SaveSequenceButton
-            compact
-            saving={saving}
-            saveSucceeded={saveSucceeded}
-            onClick={() => void savePlan()}
-          />
-        </div>
+        <>
+          <div className="dashboard-outreach-gmail-bar shrink-0">
+            <div className="flex min-w-0 flex-1 items-center gap-2.5">
+              <span className="dashboard-campaign-sequence-toolbar-icon shrink-0" aria-hidden>
+                <IntegrationBrandLogo provider="gmail" title="Gmail" className="h-[22px] w-[22px]" />
+              </span>
+              <div className="min-w-0">
+                <h2 className="dashboard-campaign-report-title">Email sequence</h2>
+                <p className="dashboard-campaign-report-subtitle">
+                  Edit steps, schedule, and message content
+                </p>
+              </div>
+            </div>
+            <div className="dashboard-outreach-gmail-plan-meta hidden min-w-0 max-w-[min(100%,18rem)] sm:block">
+              {planTitleEditor(false)}
+            </div>
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <SaveSequenceButton
+                compact
+                saving={saving}
+                saveSucceeded={saveSucceeded}
+                disabled={editorLocked}
+                onClick={() => void savePlan()}
+                className="h-[38px] w-[137px] justify-center px-4 py-1.5 text-sm"
+              />
+              {campaignOutreachStatus === "active" ? (
+                <button
+                  type="button"
+                  onClick={() => void onPauseCampaign?.()}
+                  disabled={launchBusy}
+                  className={`${dashboardBtnSecondaryClass} px-3 py-1.5 text-xs disabled:opacity-55`}
+                >
+                  Pause
+                </button>
+              ) : campaignOutreachStatus === "paused" ? (
+                <button
+                  type="button"
+                  onClick={() => void onResumeCampaign?.()}
+                  disabled={launchBusy}
+                  className={`${dashboardBtnPrimaryClass} dashboard-outreach-save-btn inline-flex h-[38px] items-center justify-center gap-1.5 whitespace-nowrap px-4 py-1.5 text-sm disabled:opacity-55`}
+                >
+                  {launchBusy ? (
+                    <>
+                      <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
+                      Resuming…
+                    </>
+                  ) : (
+                    <>
+                      <MaterialIcon name="play_circle" className="text-base" />
+                      Resume campaign
+                    </>
+                  )}
+                </button>
+              ) : campaignOutreachStatus === "completed" ? (
+                <button
+                  type="button"
+                  disabled
+                  title="Campaign completed"
+                  aria-label="Campaign completed"
+                  className={`${dashboardBtnSecondaryClass} inline-flex cursor-not-allowed items-center gap-1.5 px-3 py-1.5 text-xs opacity-60`}
+                >
+                  <MaterialIcon
+                    name="check_circle"
+                    className="text-base text-slate-500"
+                    aria-hidden
+                  />
+                  Completed
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void launchCampaign()}
+                  disabled={launchActionBusy || !hasSequence || !hasCampaignContacts}
+                  title={
+                    launching
+                      ? "Launching…"
+                      : !hasSequence
+                        ? "Save a sequence first"
+                        : !hasCampaignContacts
+                          ? "Add contacts to this campaign first"
+                          : "Launch campaign"
+                  }
+                  className={`${dashboardBtnPrimaryClass} dashboard-outreach-save-btn inline-flex h-[38px] items-center justify-center gap-1.5 whitespace-nowrap px-4 py-1.5 text-sm disabled:opacity-55`}
+                >
+                  {launching ? (
+                    <>
+                      <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
+                      Launching…
+                    </>
+                  ) : (
+                    <>
+                      <MaterialIcon name="rocket_launch" className="text-base" />
+                      Launch campaign
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="dashboard-outreach-gmail-plan-meta dashboard-outreach-gmail-plan-meta--mobile shrink-0 sm:hidden">
+            {planTitleEditor(false)}
+          </div>
+        </>
       ) : (
-        <header className="shrink-0 border-b border-slate-200 bg-white px-4 py-4 sm:px-6">
-          <div className="flex flex-wrap items-start justify-between gap-3">
+        <header className="dashboard-outreach-builder-top shrink-0">
+          <div className="dashboard-outreach-builder-top-row">
             <div className="min-w-0">
-              <h3 className="dashboard-section-title text-lg">Create outreach</h3>
+              <h3 className="dashboard-outreach-builder-title">Create outreach</h3>
               <p className="dashboard-text-body mt-1 text-sm">
                 Build your email sequence step by step.
               </p>
             </div>
-            <div className="flex shrink-0 gap-2">
+            <div className="dashboard-outreach-builder-top-actions">
               <button
                 type="button"
                 onClick={onCancel}
-                className={`${dashboardBtnSecondaryClass} px-4 py-2 text-sm`}
+                className={`${dashboardBtnSecondaryClass} dashboard-outreach-builder-cancel`}
               >
                 Cancel
               </button>
               <SaveSequenceButton
                 saving={saving}
                 saveSucceeded={saveSucceeded}
+                disabled={editorLocked}
                 onClick={() => void savePlan()}
                 label="Save"
               />
             </div>
           </div>
-          <div className="mt-4 border-t border-slate-100 pt-4">{planTitleEditor(false)}</div>
+          <div className="dashboard-outreach-builder-plan-meta">{planTitleEditor(false)}</div>
         </header>
       )}
 
-      {embedded ? (
-        <div className="border-b border-slate-200 bg-white px-4 py-3 sm:hidden">{planTitleEditor(false)}</div>
-      ) : null}
-
       {error ? (
-        <p className="dashboard-alert-error mx-4 mt-3 shrink-0 text-sm sm:mx-6">{error}</p>
+        <p className="dashboard-outreach-builder-error dashboard-alert-error shrink-0">{error}</p>
       ) : null}
 
       <div className="dashboard-outreach-builder-body">
         <aside
-          className="dashboard-outreach-builder-rail dashboard-outreach-scroll"
+          className="dashboard-outreach-builder-rail dashboard-outreach-scroll flex flex-col"
           aria-label="Outreach sequence"
         >
           <p className="dashboard-outreach-builder-rail-title">Sequence steps</p>
@@ -792,7 +1144,7 @@ export function OutreachPlanEditor({
                         {touchpointTypeLabel(tp.order)}
                       </span>
                       <span className="dashboard-outreach-flow-node-time">
-                        {touchpointScheduleLabel(touchpoints, index)}
+                        {touchpointScheduleLabel(touchpoints, index, startSchedule)}
                       </span>
                       {tp.order > 1 ? (
                         <span className="dashboard-outreach-flow-node-sub">Same thread</span>
@@ -818,17 +1170,68 @@ export function OutreachPlanEditor({
           <button
             type="button"
             onClick={addTouchpoint}
-            className="dashboard-outreach-builder-add-step"
+            disabled={editorLocked}
+            className="dashboard-outreach-builder-add-step disabled:opacity-55"
           >
             <MaterialIcon name="add" className="text-base" />
             Add step
           </button>
+          <div className="dashboard-wa-outreach-calendly-card">
+            <div className="dashboard-wa-outreach-calendly-head">
+              <img
+                src="/integrations/calendly_logo.png"
+                alt="Calendly"
+                className="dashboard-wa-outreach-calendly-logo"
+              />
+              <p className="dashboard-wa-outreach-calendly-title">Calendly</p>
+            </div>
+            <p className="dashboard-wa-outreach-calendly-text">
+              {calendlyEnabled && selectedCalendlyMeeting
+                ? "Saved for this campaign · used in AI replies."
+                : "Connect Calendly to share interview links."}
+            </p>
+            {onGoToIntegrations ? (
+              <button
+                type="button"
+                onClick={() => void openCalendlyPicker()}
+                className="dashboard-wa-outreach-calendly-btn"
+                disabled={calendlyLoading || calendlySaving || editorLocked}
+                title={
+                  editorLocked
+                    ? campaignOutreachStatus === "completed"
+                      ? "Campaign completed"
+                      : "Pause the campaign to edit the sequence"
+                    : undefined
+                }
+              >
+                {calendlyLoading
+                  ? "Checking Calendly…"
+                  : calendlySaving
+                    ? "Saving…"
+                    : calendlyEnabled
+                      ? "Change interview link"
+                      : "Add interview link"}
+              </button>
+            ) : null}
+            {calendlyError ? (
+              <p className="mt-2 text-[11px] text-rose-600">{calendlyError}</p>
+            ) : null}
+          </div>
         </aside>
 
         <div
           ref={canvasScrollRef}
           className="dashboard-outreach-builder-canvas dashboard-outreach-scroll"
         >
+          {editorLocked ? (
+            <div className="dashboard-wa-outreach-locked-banner dashboard-outreach-builder-locked-banner shrink-0">
+              <MaterialIcon name="lock" className="shrink-0 text-base text-amber-700" aria-hidden />
+              <p className="text-sm text-amber-950">
+                Campaign settings are read-only while the campaign is running or after it is
+                completed.
+              </p>
+            </div>
+          ) : null}
           <div className="dashboard-outreach-builder-stack">
             <div className="dashboard-outreach-main-flow-item dashboard-outreach-main-flow-item--start">
               <section
@@ -841,83 +1244,21 @@ export function OutreachPlanEditor({
                   activeIndex === 0 ? " dashboard-outreach-builder-step-block--active" : ""
                 }`}
               >
-                <div
-                  className={`dashboard-outreach-start-pill-bar${
-                    lockSchedule ? " dashboard-outreach-start-pill-bar--locked" : ""
-                  }`}
-                  onMouseDown={(e) => e.stopPropagation()}
-                >
-                  <span className="dashboard-outreach-start-prefix">Start</span>
-                  {lockSchedule ? (
-                    <>
-                      <ScheduleStaticChip label={startModeLabel} />
-                      {startMode === "after" ? (
-                        <>
-                          <ScheduleStaticChip label={String(afterDays)} />
-                          <ScheduleStaticChip label="business day" />
-                        </>
-                      ) : null}
-                      {showSendAt ? (
-                        <>
-                          <span className="dashboard-outreach-start-muted">Send @</span>
-                          <ScheduleStaticChip
-                            label={
-                              SEND_TIME_SELECT_OPTIONS.find((o) => o.value === startSendTime)
-                                ?.label ?? startSendTime
-                            }
-                          />
-                          <ScheduleStaticChip label={startTimezone} />
-                        </>
-                      ) : null}
-                    </>
-                  ) : (
-                    <>
-                      <OutreachPillSelect
-                        value={startMode}
-                        options={START_MODE_OPTIONS}
-                        onChange={handleStartModeChange}
-                        ariaLabel="When to begin outreach"
-                      />
-                      {startMode === "after" ? (
-                        <>
-                          <input
-                            type="number"
-                            min={1}
-                            value={afterDays}
-                            onChange={(e) => {
-                              const days = Math.max(1, Number(e.target.value) || 1);
-                              setAfterDays(days);
-                              applyStartSchedule("after", days);
-                            }}
-                            className="dashboard-outreach-start-chip dashboard-outreach-start-chip--input"
-                            aria-label="Days after"
-                          />
-                          <span className="dashboard-outreach-start-chip dashboard-outreach-start-chip--static">
-                            business day
-                          </span>
-                        </>
-                      ) : null}
-                      {showSendAt ? (
-                        <>
-                          <span className="dashboard-outreach-start-muted">Send @</span>
-                          <OutreachPillSelect
-                            value={startSendTime}
-                            options={SEND_TIME_SELECT_OPTIONS}
-                            onChange={handleStartSendTimeChange}
-                            ariaLabel="Send time"
-                          />
-                          <OutreachPillSelect
-                            value={startTimezone}
-                            options={TIMEZONE_SELECT_OPTIONS}
-                            onChange={setStartTimezone}
-                            ariaLabel="Timezone"
-                            compact
-                          />
-                        </>
-                      ) : null}
-                    </>
-                  )}
-                </div>
+                <OutreachStartScheduleBar
+                  mode={startMode}
+                  afterDays={afterDays}
+                  soonestAt={soonestAt}
+                  sendTime={startSendTime}
+                  timezone={startTimezone}
+                  locked={scheduleLocked}
+                  sendTimeOptions={SEND_TIME_SELECT_OPTIONS}
+                  timezoneOptions={TIMEZONE_SELECT_OPTIONS}
+                  onModeChange={handleStartModeChange}
+                  onAfterDaysChange={handleAfterDaysChange}
+                  onSoonestAtChange={handleSoonestAtChange}
+                  onSendTimeChange={handleStartSendTimeChange}
+                  onTimezoneChange={setStartTimezone}
+                />
               </section>
               <span
                 className={`dashboard-outreach-vline dashboard-outreach-vline--tall dashboard-outreach-vline--arrow${
@@ -947,16 +1288,16 @@ export function OutreachPlanEditor({
                       />
                       <div
                         className={`dashboard-outreach-wait-link-shell${
-                          lockSchedule ? " dashboard-outreach-wait-link-shell--locked" : ""
+                          scheduleLocked ? " dashboard-outreach-wait-link-shell--locked" : ""
                         }`}
                       >
                         <div
                           className={`dashboard-outreach-start-pill-bar${
-                            lockSchedule ? " dashboard-outreach-start-pill-bar--locked" : ""
+                            scheduleLocked ? " dashboard-outreach-start-pill-bar--locked" : ""
                           }`}
                         >
                           <span className="dashboard-outreach-start-prefix">Wait</span>
-                          {lockSchedule ? (
+                          {scheduleLocked ? (
                             <>
                               <ScheduleStaticChip
                                 label={String(
@@ -1047,19 +1388,28 @@ export function OutreachPlanEditor({
                       isActive ? " dashboard-outreach-builder-step-block--active" : ""
                     }`}
                   >
-                    <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-                      <span className="inline-flex items-center gap-2 rounded-lg border border-[#0050cb]/15 bg-[#0050cb]/10 px-2.5 py-1 text-sm font-semibold text-[#0050cb]">
+                    <div className="dashboard-outreach-builder-step-head">
+                      <span className="dashboard-outreach-builder-step-badge">
                         <MaterialIcon
                           name={tp.order === 1 ? "mail" : "reply"}
                           className="text-[18px]"
                           aria-hidden
                         />
                         {touchpointTypeLabel(tp.order)}
-                        <span className="font-normal text-[#0050cb]/70">· Step {tp.order}</span>
+                        <span className="dashboard-outreach-builder-step-badge-meta">
+                          Step {tp.order}
+                        </span>
                       </span>
-                      <div className="flex items-center gap-2">
+                      <div className="dashboard-outreach-builder-step-head-right">
                         <button
                           type="button"
+                          onClick={() =>
+                            setTestPreviewStep({
+                              order: tp.order,
+                              subject: tp.subject,
+                              body: tp.body,
+                            })
+                          }
                           className={`${dashboardBtnSecondaryClass} px-3 py-1.5 text-xs`}
                         >
                           Preview and test
@@ -1068,7 +1418,8 @@ export function OutreachPlanEditor({
                           <button
                             type="button"
                             onClick={() => requestRemoveTouchpoint(tp.order)}
-                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+                            disabled={editorLocked}
+                            className="dashboard-outreach-builder-delete rounded-lg border border-slate-200 p-2 transition hover:border-red-200 hover:bg-red-50 disabled:opacity-55"
                             aria-label="Delete step"
                           >
                             <MaterialIcon name="delete" className="text-lg" />
@@ -1096,16 +1447,26 @@ export function OutreachPlanEditor({
                         <span className="dashboard-outreach-builder-field-label">Subject</span>
                         <div className="dashboard-outreach-builder-subject-row">
                           <input
+                            ref={(node) => {
+                              subjectInputRefs.current[tp.order] = node;
+                            }}
                             type="text"
                             value={tp.subject}
+                            readOnly={editorLocked}
                             onChange={(e) =>
                               updateTouchpoint(tp.order, { subject: e.target.value })
                             }
-                            className="dashboard-input dashboard-input-sm flex-1"
+                            onFocus={() => {
+                              lastMergeFieldFocusRef.current = {
+                                order: tp.order,
+                                field: "subject",
+                              };
+                            }}
+                            className={`dashboard-input dashboard-input-sm flex-1${
+                              editorLocked ? " dashboard-input--readonly" : ""
+                            }`}
                             placeholder="{{FirstName}}, interested in a new opportunity?"
                           />
-                          <span className="dashboard-outreach-builder-cc">Cc</span>
-                          <span className="dashboard-outreach-builder-cc">Bcc</span>
                         </div>
                       </label>
 
@@ -1120,14 +1481,14 @@ export function OutreachPlanEditor({
                         <button type="button" className="dashboard-outreach-builder-chip">
                           Snippets
                         </button>
-                        {MERGE_TAGS.map((tag) => (
+                        {OUTREACH_MERGE_FIELDS.map((field) => (
                           <button
-                            key={`${tp.order}-subject-${tag}`}
+                            key={`${tp.order}-subject-${field.token}`}
                             type="button"
                             className="dashboard-outreach-builder-chip"
-                            onClick={() => insertMergeTag(tp.order, "subject", tag)}
+                            onClick={() => insertMergeTag(tp.order, "subject", field.token)}
                           >
-                            {tag}
+                            {field.label}
                           </button>
                         ))}
                         <button type="button" className="dashboard-outreach-builder-chip">
@@ -1136,38 +1497,34 @@ export function OutreachPlanEditor({
                       </div>
 
                       <div className="dashboard-outreach-builder-editor-wrap">
-                        <div className="dashboard-outreach-builder-toolbar" aria-hidden>
-                          {[
-                            "format_bold",
-                            "format_italic",
-                            "format_underlined",
-                            "format_list_bulleted",
-                            "format_list_numbered",
-                            "link",
-                            "image",
-                            "title",
-                          ].map((icon) => (
-                            <span key={icon} className="dashboard-outreach-builder-toolbar-btn">
-                              <MaterialIcon name={icon} className="text-base" />
-                            </span>
-                          ))}
-                        </div>
                         <textarea
+                          ref={(node) => {
+                            bodyTextareaRefs.current[tp.order] = node;
+                          }}
                           value={tp.body}
+                          readOnly={editorLocked}
                           onChange={(e) => updateTouchpoint(tp.order, { body: e.target.value })}
+                          onFocus={() => {
+                            lastMergeFieldFocusRef.current = {
+                              order: tp.order,
+                              field: "body",
+                            };
+                          }}
                           rows={10}
-                          className="dashboard-outreach-builder-body-input"
+                          className={`dashboard-outreach-builder-body-input${
+                            editorLocked ? " dashboard-input--readonly" : ""
+                          }`}
                           placeholder="Hi {{FirstName}},"
                         />
                         <div className="dashboard-outreach-builder-tags-row dashboard-outreach-builder-tags-row--body">
-                          {MERGE_TAGS.map((tag) => (
+                          {OUTREACH_MERGE_FIELDS.map((field) => (
                             <button
-                              key={`${tp.order}-body-${tag}`}
+                              key={`${tp.order}-body-${field.token}`}
                               type="button"
                               className="dashboard-outreach-builder-chip"
-                              onClick={() => insertMergeTag(tp.order, "body", tag)}
+                              onClick={() => insertMergeTag(tp.order, "body", field.token)}
                             >
-                              {tag}
+                              {field.label}
                             </button>
                           ))}
                         </div>
@@ -1207,6 +1564,107 @@ export function OutreachPlanEditor({
           removeTouchpoint(order);
         }}
       />
+      {testPreviewStep && auth?.token ? (
+        <OutreachTestEmailModal
+          open
+          stepLabel={`${touchpointTypeLabel(testPreviewStep.order)} · Step ${testPreviewStep.order}`}
+          fromEmail={gmailConnected ? gmailEmail : ""}
+          subject={testPreviewStep.subject}
+          body={testPreviewStep.body}
+          senderFirstName={senderFirstName}
+          authToken={auth.token}
+          gmailConnected={gmailConnected}
+          onGoToIntegrations={onGoToIntegrations}
+          onClose={() => setTestPreviewStep(null)}
+          onSent={setTestEmailToast}
+        />
+      ) : null}
+      {testEmailToast ? (
+        <DashboardToast
+          message={testEmailToast}
+          variant="success"
+          onDismiss={() => setTestEmailToast(null)}
+        />
+      ) : null}
+      {calendlyPickerOpen ? (
+        <div
+          className="dashboard-modal-overlay py-6"
+          role="presentation"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setCalendlyPickerOpen(false);
+          }}
+        >
+          <div
+            className="dashboard-modal mx-auto w-full max-w-lg p-0"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="email-calendly-meeting-picker-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="border-b border-slate-200 px-6 py-4">
+              <h3
+                id="email-calendly-meeting-picker-title"
+                className="dashboard-section-title text-lg"
+              >
+                Select interview meeting link
+              </h3>
+              <p className="mt-1 text-sm text-slate-600">
+                Choose the Calendly meeting to use for automatic replies when candidates show
+                interest.
+              </p>
+            </div>
+            <div className="px-6 py-5">
+              {calendlyLoading ? (
+                <p className="text-sm text-slate-600">Loading meetings…</p>
+              ) : (
+                <div className="space-y-2">
+                  {calendlyMeetings.map((meeting) => (
+                    <label
+                      key={meeting.uri}
+                      className="flex items-start gap-2 rounded-md border border-slate-200 p-3"
+                    >
+                      <input
+                        type="radio"
+                        name="email-calendly-meeting"
+                        checked={calendlyPickerUri === meeting.uri}
+                        onChange={() => setCalendlyPickerUri(meeting.uri)}
+                        className="mt-1"
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium text-slate-900">
+                          {meeting.name}
+                        </span>
+                        {meeting.schedulingUrl ? (
+                          <span className="block break-all text-xs text-slate-500">
+                            {meeting.schedulingUrl}
+                          </span>
+                        ) : null}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 border-t border-slate-200 px-6 py-4">
+              <button
+                type="button"
+                className={dashboardBtnSecondaryClass}
+                onClick={() => setCalendlyPickerOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={dashboardBtnPrimaryClass}
+                onClick={() => void applyCalendlyMeeting()}
+                disabled={!calendlyPickerUri.trim() || calendlyLoading || calendlySaving}
+              >
+                Use this link
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

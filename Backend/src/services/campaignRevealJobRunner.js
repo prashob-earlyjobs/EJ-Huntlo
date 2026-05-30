@@ -73,16 +73,23 @@ async function runCampaignRevealJob(jobId) {
           linkedin_profile_url: contact.linkedinUrl,
         });
 
-        const email = revealed.email?.trim() || contact.email || "";
-        const phone = revealed.phone?.trim() || contact.phone || "";
+        // Keep manual overrides — only fill empty email/phone from reveal API.
+        const existingEmail = String(contact.email || "").trim();
+        const existingPhone = String(contact.phone || "").trim();
+        const email =
+          existingEmail || revealed.email?.trim() || "";
+        const phone =
+          existingPhone || revealed.phone?.trim() || "";
 
-        await updateCampaignContactFields(
-          userId,
-          campaignId,
-          contact.candidateKey,
-          email,
-          phone
-        );
+        if (email !== existingEmail || phone !== existingPhone) {
+          await updateCampaignContactFields(
+            userId,
+            campaignId,
+            contact.candidateKey,
+            email,
+            phone
+          );
+        }
 
         if (email) job.revealedEmailCount += 1;
         if (phone) job.revealedPhoneCount += 1;
