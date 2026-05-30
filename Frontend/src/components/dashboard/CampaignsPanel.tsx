@@ -428,19 +428,19 @@ export function CampaignsPanel({
                 type="button"
                 disabled={campaignsLoading || campaignsPage <= 1}
                 onClick={() => onCampaignsPageChange?.(campaignsPage - 1)}
-                className={`${dashboardBtnSecondaryClass} disabled:cursor-not-allowed disabled:opacity-50`}
+                className={`${dashboardBtnSecondaryClass} shrink-0 disabled:cursor-not-allowed disabled:opacity-50`}
               >
-                <MaterialIcon name="chevron_left" className="text-base" />
+                <MaterialIcon name="chevron_left" className="text-sm" />
                 Previous
               </button>
               <button
                 type="button"
                 disabled={campaignsLoading || campaignsPage >= campaignsTotalPages}
                 onClick={() => onCampaignsPageChange?.(campaignsPage + 1)}
-                className={`${dashboardBtnSecondaryClass} disabled:cursor-not-allowed disabled:opacity-50`}
+                className={`${dashboardBtnSecondaryClass} shrink-0 disabled:cursor-not-allowed disabled:opacity-50`}
               >
                 Next
-                <MaterialIcon name="chevron_right" className="text-base" />
+                <MaterialIcon name="chevron_right" className="text-sm" />
               </button>
             </div>
           </div>

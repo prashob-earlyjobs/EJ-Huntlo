@@ -796,25 +796,27 @@ export function WhatsAppOutreachEditor({
         channel="whatsapp"
       />
       {embedded ? (
-        <div className="dashboard-wa-outreach-bar flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 sm:px-6">
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={editorLocked}
-            title={
-              editorLocked
-                ? campaignOutreachStatus === "completed"
-                  ? "Campaign completed"
-                  : "Pause the campaign to change the sequence"
-                : "Change sequence"
-            }
-            className={`${dashboardBtnSecondaryClass} inline-flex items-center gap-1.5 px-3 py-1.5 text-sm disabled:opacity-55`}
-          >
-            <MaterialIcon name="arrow_back" className="text-base" />
-            Change sequence
-          </button>
-          <div className="hidden min-w-0 flex-1 px-4 sm:block">{planTitleEditor(true)}</div>
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
+        <>
+          <div className="dashboard-wa-outreach-bar dashboard-outreach-gmail-bar shrink-0">
+            <div className="flex min-w-0 flex-1 items-center gap-2.5">
+              <span className="dashboard-campaign-sequence-toolbar-icon shrink-0" aria-hidden>
+                <IntegrationBrandLogo
+                  provider="whatsapp"
+                  title="WhatsApp"
+                  className="h-[22px] w-[22px]"
+                />
+              </span>
+              <div className="min-w-0">
+                <h2 className="dashboard-campaign-report-title">WhatsApp sequence</h2>
+                <p className="dashboard-campaign-report-subtitle">
+                  Edit steps, schedule, and message content
+                </p>
+              </div>
+            </div>
+            <div className="dashboard-outreach-gmail-plan-meta hidden min-w-0 max-w-[min(100%,18rem)] sm:block">
+              {planTitleEditor(false)}
+            </div>
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => void saveSequence()}
@@ -900,8 +902,12 @@ export function WhatsAppOutreachEditor({
                 )}
               </button>
             ) : null}
+            </div>
           </div>
-        </div>
+          <div className="dashboard-outreach-gmail-plan-meta dashboard-outreach-gmail-plan-meta--mobile shrink-0 sm:hidden">
+            {planTitleEditor(false)}
+          </div>
+        </>
       ) : (
         <header className="shrink-0 border-b border-slate-200 bg-white px-4 py-4 sm:px-6">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -942,12 +948,6 @@ export function WhatsAppOutreachEditor({
           <div className="mt-4 border-t border-slate-100 pt-4">{planTitleEditor(false)}</div>
         </header>
       )}
-
-      {embedded ? (
-        <div className="border-b border-slate-200 bg-white px-4 py-3 sm:hidden">
-          {planTitleEditor(false)}
-        </div>
-      ) : null}
 
       {whatsappConnected === false ? (
         <div className="dashboard-wa-outreach-connect-banner mx-4 mt-3 shrink-0 sm:mx-6">
@@ -1062,10 +1062,10 @@ export function WhatsAppOutreachEditor({
             </div>
             <p className="dashboard-wa-outreach-calendly-text">
               {campaignInterviewLink
-                ? "Interview link is saved for this campaign and used in AI replies when candidates are interested."
+                ? "Saved for this campaign · used in AI replies."
                 : activeHasCalendlyLink
-                  ? "Interview link is in this message. Save the sequence to keep it on the plan."
-                  : "Connect Calendly to send interview links in your outreach conversations."}
+                  ? "Link in message — save sequence to keep it."
+                  : "Connect Calendly to share interview links."}
             </p>
             {onGoToIntegrations ? (
               <button

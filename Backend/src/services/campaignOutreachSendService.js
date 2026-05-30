@@ -12,6 +12,11 @@ const {
 } = require("./whatsappSendService");
 const { assertValidRecipientPhone } = require("./whatsappPhoneUtils");
 const { logCampaignWhatsAppMessage } = require("./campaignWhatsAppCommsService");
+const {
+  findCampaignInScope,
+  findCampaignDocumentInScope,
+  campaignOwnerUserId,
+} = require("../utils/campaignScope");
 
 const { notifyCampaignThreadUpdated } = require("../realtime/notify");
 const { recordOutboundSentMessage } = require("./campaignReplySyncService");
@@ -105,17 +110,9 @@ async function getWhatsAppSenderFirstName(userId) {
   return "";
 }
 
-async function loadCampaignAndPlan(userId, campaignId) {
-  const campaign = await Campaign.findOne({
-    _id: new mongoose.Types.ObjectId(campaignId),
-    userId: userOid(userId),
-  }).lean();
-
-  if (!campaign) {
-    const err = new Error("Campaign not found");
-    err.statusCode = 404;
-    throw err;
-  }
+async function loadCampaignAndPlan(actorUserId, campaignId) {
+  const campaign = await findCampaignInScope(actorUserId, campaignId);
+  const ownerUserId = campaignOwnerUserId(campaign);
 
   const planId = campaign.outreachPlanId ? String(campaign.outreachPlanId) : "";
   if (!planId) {
@@ -126,7 +123,7 @@ async function loadCampaignAndPlan(userId, campaignId) {
 
   const channel = campaign.outreachChannel === "whatsapp" ? "whatsapp" : "gmail";
   const planOid = new mongoose.Types.ObjectId(planId);
-  const ownerOid = userOid(userId);
+  const ownerOid = userOid(ownerUserId);
 
   let plan;
   if (channel === "whatsapp") {
@@ -161,7 +158,7 @@ async function loadCampaignAndPlan(userId, campaignId) {
     throw err;
   }
 
-  return { campaign, plan, touchpoints, channel };
+  return { campaign, plan, touchpoints, channel, ownerUserId };
 }
 
 function formatEnrollment(doc) {
@@ -184,17 +181,9 @@ function formatEnrollment(doc) {
   };
 }
 
-async function getSequenceStatus(userId, campaignId) {
-  const campaign = await Campaign.findOne({
-    _id: new mongoose.Types.ObjectId(campaignId),
-    userId: userOid(userId),
-  }).lean();
-
-  if (!campaign) {
-    const err = new Error("Campaign not found");
-    err.statusCode = 404;
-    throw err;
-  }
+async function getSequenceStatus(actorUserId, campaignId) {
+  const campaign = await findCampaignInScope(actorUserId, campaignId);
+  const ownerUserId = campaignOwnerUserId(campaign);
 
   let touchpointCount = 0;
   if (campaign.outreachPlanId) {
@@ -213,7 +202,7 @@ async function getSequenceStatus(userId, campaignId) {
     {
       $match: {
         campaignId: new mongoose.Types.ObjectId(campaignId),
-        userId: userOid(userId),
+        userId: userOid(ownerUserId),
       },
     },
     { $group: { _id: "$status", count: { $sum: 1 } } },
@@ -247,11 +236,14 @@ async function getSequenceStatus(userId, campaignId) {
 /**
  * Enroll all campaign contacts with an email and start the sequence clock.
  */
-async function launchCampaignSequence(userId, campaignId) {
-  const { campaign, plan, touchpoints, channel } = await loadCampaignAndPlan(userId, campaignId);
+async function launchCampaignSequence(actorUserId, campaignId) {
+  const { campaign, plan, touchpoints, channel, ownerUserId } = await loadCampaignAndPlan(
+    actorUserId,
+    campaignId
+  );
   const isWhatsApp = channel === "whatsapp";
   if (isWhatsApp) {
-    await assertWhatsAppReadyForSend(userId);
+    await assertWhatsAppReadyForSend(ownerUserId);
   }
   const now = new Date();
   const contacts = Array.isArray(campaign.contacts) ? campaign.contacts : [];
@@ -267,7 +259,7 @@ async function launchCampaignSequence(userId, campaignId) {
       campaign,
       plan,
       touchpoints,
-      userId,
+      userId: ownerUserId,
       contact,
       isWhatsApp,
       now,
@@ -392,24 +384,24 @@ async function upsertEnrollmentForContact({
  * If campaign is already active, enroll newly added contacts into the running sequence.
  * Existing enrollments are upserted/reset for these candidate keys only.
  */
-async function enrollAddedContactsIfCampaignActive(userId, campaignId, candidateKeys = []) {
+async function enrollAddedContactsIfCampaignActive(actorUserId, campaignId, candidateKeys = []) {
   const keys = Array.isArray(candidateKeys)
     ? candidateKeys.map((k) => String(k || "").trim()).filter(Boolean)
     : [];
   if (keys.length === 0) return { enrolled: 0, skipped: 0, active: false };
 
-  const campaign = await Campaign.findOne({
-    _id: new mongoose.Types.ObjectId(campaignId),
-    userId: userOid(userId),
-  }).lean();
-  if (!campaign || campaign.outreachStatus !== "active") {
+  const campaign = await findCampaignInScope(actorUserId, campaignId);
+  if (campaign.outreachStatus !== "active") {
     return { enrolled: 0, skipped: 0, active: false };
   }
   if (!campaign.outreachPlanId) {
     return { enrolled: 0, skipped: 0, active: true };
   }
 
-  const { plan, touchpoints, channel } = await loadCampaignAndPlan(userId, campaignId);
+  const { plan, touchpoints, channel, ownerUserId } = await loadCampaignAndPlan(
+    actorUserId,
+    campaignId
+  );
   const isWhatsApp = channel === "whatsapp";
   const keySet = new Set(keys);
   const contacts = (Array.isArray(campaign.contacts) ? campaign.contacts : []).filter((c) =>
@@ -424,7 +416,7 @@ async function enrollAddedContactsIfCampaignActive(userId, campaignId, candidate
       campaign: { _id: campaign._id },
       plan,
       touchpoints,
-      userId,
+      userId: ownerUserId,
       contact,
       isWhatsApp,
       now,
@@ -444,21 +436,14 @@ async function enrollAddedContactsIfCampaignActive(userId, campaignId, candidate
   return { enrolled, skipped, active: true };
 }
 
-async function pauseCampaignSequence(userId, campaignId) {
-  const campaign = await Campaign.findOne({
-    _id: new mongoose.Types.ObjectId(campaignId),
-    userId: userOid(userId),
-  });
-  if (!campaign) {
-    const err = new Error("Campaign not found");
-    err.statusCode = 404;
-    throw err;
-  }
+async function pauseCampaignSequence(actorUserId, campaignId) {
+  const campaign = await findCampaignDocumentInScope(actorUserId, campaignId);
+  const ownerUserId = campaignOwnerUserId(campaign);
 
   await CampaignSequenceEnrollment.updateMany(
     {
       campaignId: campaign._id,
-      userId: userOid(userId),
+      userId: userOid(ownerUserId),
       status: "active",
     },
     { $set: { status: "paused" } }
@@ -470,13 +455,13 @@ async function pauseCampaignSequence(userId, campaignId) {
   return { outreachStatus: "paused" };
 }
 
-async function resumeCampaignSequence(userId, campaignId) {
-  const { campaign, touchpoints } = await loadCampaignAndPlan(userId, campaignId);
+async function resumeCampaignSequence(actorUserId, campaignId) {
+  const { campaign, touchpoints, ownerUserId } = await loadCampaignAndPlan(actorUserId, campaignId);
   const now = new Date();
 
   const paused = await CampaignSequenceEnrollment.find({
     campaignId: campaign._id,
-    userId: userOid(userId),
+    userId: userOid(ownerUserId),
     status: "paused",
   }).lean();
 
@@ -1059,19 +1044,11 @@ function buildRecentActivityFromEnrollments(enrollments, channel) {
   return recentActivity;
 }
 
-async function loadCampaignReportEnrollments(userId, campaignId) {
-  const campaign = await Campaign.findOne({
-    _id: new mongoose.Types.ObjectId(campaignId),
-    userId: userOid(userId),
-  })
-    .select("contacts outreachChannel outreachStatus outreachStartedAt name")
-    .lean();
-
-  if (!campaign) {
-    const err = new Error("Campaign not found");
-    err.statusCode = 404;
-    throw err;
-  }
+async function loadCampaignReportEnrollments(actorUserId, campaignId) {
+  const campaign = await findCampaignInScope(actorUserId, campaignId, {
+    select: "contacts outreachChannel outreachStatus outreachStartedAt name userId",
+  });
+  const ownerUserId = campaignOwnerUserId(campaign);
 
   const channel = campaign.outreachChannel === "whatsapp" ? "whatsapp" : "email";
   const totalContacts = Array.isArray(campaign.contacts) ? campaign.contacts.length : 0;
@@ -1086,7 +1063,7 @@ async function loadCampaignReportEnrollments(userId, campaignId) {
 
   const enrollments = await CampaignSequenceEnrollment.find({
     campaignId: campaign._id,
-    userId: userOid(userId),
+    userId: userOid(ownerUserId),
   })
     .select(
       "candidateKey contactName contactEmail contactPhone contactRole contactCompany status sentCount hasReply replyDisposition lastSentAt lastReplyAt lastError updatedAt"

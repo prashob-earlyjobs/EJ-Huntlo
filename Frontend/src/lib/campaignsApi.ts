@@ -69,6 +69,20 @@ function parseCampaign(raw: unknown): CampaignRecord | null {
       : o.outreachStartedAt
         ? new Date(String(o.outreachStartedAt)).toISOString()
         : null;
+  const contactsSent =
+    typeof o.contactsSent === "number" && Number.isFinite(o.contactsSent)
+      ? Math.max(0, Math.floor(o.contactsSent))
+      : undefined;
+  const interestedCount =
+    typeof o.interestedCount === "number" && Number.isFinite(o.interestedCount)
+      ? Math.max(0, Math.floor(o.interestedCount))
+      : undefined;
+  const lastActivityAt =
+    typeof o.lastActivityAt === "string"
+      ? o.lastActivityAt
+      : o.lastActivityAt
+        ? new Date(String(o.lastActivityAt)).toISOString()
+        : null;
   const jobDescription =
     typeof o.jobDescription === "string" ? o.jobDescription.trim() : "";
 
@@ -99,6 +113,9 @@ function parseCampaign(raw: unknown): CampaignRecord | null {
     ...(outreachChannel ? { outreachChannel } : {}),
     ...(outreachStatus ? { outreachStatus } : {}),
     ...(outreachStartedAt !== undefined ? { outreachStartedAt } : {}),
+    ...(contactsSent !== undefined ? { contactsSent } : {}),
+    ...(interestedCount !== undefined ? { interestedCount } : {}),
+    ...(lastActivityAt !== undefined ? { lastActivityAt } : {}),
   };
 }
 

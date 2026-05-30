@@ -73,6 +73,10 @@ import {
   type WhatsAppTouchpointDraft,
 } from "@/lib/whatsappOutreach";
 import {
+  fetchSavedOutreachPlans,
+  SAVED_OUTREACH_PLANS_PAGE_SIZE,
+} from "@/lib/savedOutreachPlansApi";
+import {
   fetchWhatsAppOutreachPlan,
   saveWhatsAppOutreachPlan,
   type WhatsAppOutreachPlanRecord,
@@ -375,6 +379,9 @@ export function CampaignWorkspace({
 
   const [modalPlans, setModalPlans] = useState<ExistingOutreachPlanOption[]>([]);
   const [modalPlansLoading, setModalPlansLoading] = useState(false);
+  const [savedPlansPage, setSavedPlansPage] = useState(1);
+  const [savedPlansTotalPages, setSavedPlansTotalPages] = useState(1);
+  const [savedPlansTotal, setSavedPlansTotal] = useState(0);
   const [modalTemplates, setModalTemplates] = useState<OutreachTemplateListItem[]>([]);
   const [modalTemplatesLoading, setModalTemplatesLoading] = useState(false);
   const [sequenceOptionsReady, setSequenceOptionsReady] = useState(false);
@@ -580,38 +587,45 @@ export function CampaignWorkspace({
     return () => window.clearInterval(interval);
   }, [activeTab, contacts, contactsLoading, revealInProgress, reloadContacts]);
 
-  const loadSequenceOptions = useCallback(async () => {
+  const loadSequenceOptions = useCallback(async (page = 1) => {
     const auth = getStoredAuth();
     if (!auth?.token) {
       setModalPlans([]);
+      setSavedPlansPage(1);
+      setSavedPlansTotalPages(1);
+      setSavedPlansTotal(0);
       setModalTemplates([]);
       setModalPlansLoading(false);
       setModalTemplatesLoading(false);
       setSequenceOptionsReady(true);
       return;
     }
+    const hasLinkedPlan = Boolean(campaign.outreachPlanId?.trim());
+    const lockedChannel =
+      editor?.channel ||
+      (hasLinkedPlan
+        ? campaign.outreachChannel === "whatsapp"
+          ? "whatsapp"
+          : campaign.outreachChannel === "gmail"
+            ? "gmail"
+            : undefined
+        : undefined);
     setModalPlansLoading(true);
     setModalTemplatesLoading(true);
     try {
-      const [plansRes, templatesRes] = await Promise.all([
-        fetch(`${apiBase}/api/outreach/plans`, { headers: authHeaders(auth.token) }),
+      const [savedResult, templatesRes] = await Promise.all([
+        fetchSavedOutreachPlans(auth.token, {
+          page,
+          limit: SAVED_OUTREACH_PLANS_PAGE_SIZE,
+          ...(lockedChannel ? { channel: lockedChannel } : {}),
+        }),
         fetch(`${apiBase}/api/outreach/templates`, { headers: authHeaders(auth.token) }),
       ]);
-      const plansData = await plansRes.json();
+      setModalPlans(savedResult.plans);
+      setSavedPlansPage(savedResult.pagination.page);
+      setSavedPlansTotalPages(savedResult.pagination.totalPages);
+      setSavedPlansTotal(savedResult.pagination.total);
       const templatesData = await templatesRes.json();
-      if (plansData.success && Array.isArray(plansData.plans)) {
-        setModalPlans(
-          plansData.plans.map(
-            (p: { id: string; name: string; touchpointCount: number }) => ({
-              id: p.id,
-              name: p.name,
-              touchpointCount: p.touchpointCount,
-            })
-          )
-        );
-      } else {
-        setModalPlans([]);
-      }
       if (templatesData.success && Array.isArray(templatesData.templates)) {
         setModalTemplates(templatesData.templates as OutreachTemplateListItem[]);
       } else {
@@ -619,13 +633,23 @@ export function CampaignWorkspace({
       }
     } catch {
       setModalPlans([]);
+      setSavedPlansPage(1);
+      setSavedPlansTotalPages(1);
+      setSavedPlansTotal(0);
       setModalTemplates([]);
     } finally {
       setModalPlansLoading(false);
       setModalTemplatesLoading(false);
       setSequenceOptionsReady(true);
     }
-  }, [apiBase]);
+  }, [apiBase, campaign.outreachChannel, campaign.outreachPlanId, editor?.channel]);
+
+  const handleSavedPlansPageChange = useCallback(
+    (page: number) => {
+      void loadSequenceOptions(page);
+    },
+    [loadSequenceOptions]
+  );
 
   useEffect(() => {
     setEditorPhase("choose");
@@ -633,6 +657,7 @@ export function CampaignWorkspace({
     setEditorNotice("");
     setBypassLinkedPlan(false);
     setLinkedPlanLoading(false);
+    setSavedPlansPage(1);
   }, [campaign.id]);
 
   useLayoutEffect(() => {
@@ -1631,6 +1656,26 @@ export function CampaignWorkspace({
     }
 
     if (choice.type === "ai") {
+      if (choice.channel === "whatsapp") {
+        const jd = choice.jobDescription.trim();
+        if (jd) {
+          setStandaloneJobDescription(jd);
+          try {
+            await persistCampaignJobDescription(jd);
+          } catch (err) {
+            setEditorNotice(
+              err instanceof Error ? err.message : "Could not save job description."
+            );
+          }
+        }
+        openWhatsAppEditor({
+          planId: "new",
+          planName: choice.planName || campaign.name,
+          touchpoints: choice.touchpoints.map((tp) => ({ ...tp })),
+          jobDescription: jd,
+        });
+        return;
+      }
       openGmailEditor({
         planId: "new",
         planName: choice.planName || campaign.name,
@@ -1645,6 +1690,28 @@ export function CampaignWorkspace({
       const auth = getStoredAuth();
       if (!auth?.token) return;
       try {
+        if (choice.channel === "whatsapp") {
+          const plan = await fetchWhatsAppOutreachPlan(auth.token, choice.planId);
+          const jd =
+            plan.jobDescription?.trim() ||
+            campaign.jobDescription?.trim() ||
+            standaloneJobDescription.trim();
+          if (jd) setStandaloneJobDescription(jd);
+          openWhatsAppEditor({
+            planId: "new",
+            planName: campaign.name,
+            touchpoints:
+              plan.touchpoints.length > 0
+                ? plan.touchpoints.map((tp) => ({ ...tp }))
+                : createInitialWhatsAppSequence(),
+            jobDescription: jd,
+            calendlySchedulingUrl: campaignCalendlySchedulingUrl(
+              campaign,
+              plan.calendlyAutomation?.schedulingUrl
+            ),
+          });
+          return;
+        }
         const res = await fetch(`${apiBase}/api/outreach/plans/${choice.planId}`, {
           headers: authHeaders(auth.token),
         });
@@ -1858,6 +1925,10 @@ export function CampaignWorkspace({
                     allowedChannels={allowedPickerChannels}
                     existingPlans={modalPlans}
                     plansLoading={modalPlansLoading}
+                    plansPage={savedPlansPage}
+                    plansTotalPages={savedPlansTotalPages}
+                    plansTotal={savedPlansTotal}
+                    onPlansPageChange={handleSavedPlansPageChange}
                     templates={modalTemplates}
                     templatesLoading={modalTemplatesLoading}
                     optionsReady={sequenceOptionsReady}

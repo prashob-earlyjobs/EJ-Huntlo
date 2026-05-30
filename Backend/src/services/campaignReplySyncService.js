@@ -11,6 +11,10 @@ const {
 } = require("./gmailReadService");
 const { notifyCampaignThreadUpdated } = require("../realtime/notify");
 const { maybeAutoReplyAfterCandidateMessage } = require("./campaignAutoReplyService");
+const {
+  findCampaignInScope,
+  campaignOwnerUserId,
+} = require("../utils/campaignScope");
 
 const SYNC_BATCH_SIZE = Math.max(
   1,
@@ -362,7 +366,7 @@ async function syncDueEnrollmentReplies() {
   return { checked, newReplies };
 }
 
-async function listContactEmailThread(userId, campaignId, candidateKey, { sync = false } = {}) {
+async function listContactEmailThread(actorUserId, campaignId, candidateKey, { sync = false } = {}) {
   if (!mongoose.Types.ObjectId.isValid(campaignId)) {
     const err = new Error("Invalid campaign id");
     err.statusCode = 400;
@@ -375,8 +379,11 @@ async function listContactEmailThread(userId, campaignId, candidateKey, { sync =
     throw err;
   }
 
+  const campaign = await findCampaignInScope(actorUserId, campaignId, { select: "userId" });
+  const ownerUserId = campaignOwnerUserId(campaign);
+
   const enrollment = await CampaignSequenceEnrollment.findOne({
-    userId: userOid(userId),
+    userId: userOid(ownerUserId),
     campaignId: new mongoose.Types.ObjectId(campaignId),
     candidateKey: key,
   }).lean();
@@ -394,7 +401,7 @@ async function listContactEmailThread(userId, campaignId, candidateKey, { sync =
 
   let synced = false;
   if (sync && (enrollment.sentCount || 0) > 0) {
-    const integration = await getGmailIntegration(userId);
+    const integration = await getGmailIntegration(ownerUserId);
     await syncEnrollmentReplies(enrollment, integration.email || "");
     synced = true;
     const refreshed = await CampaignSequenceEnrollment.findById(enrollment._id).lean();
@@ -402,7 +409,7 @@ async function listContactEmailThread(userId, campaignId, candidateKey, { sync =
   }
 
   const docs = await CampaignOutreachReply.find({
-    userId: userOid(userId),
+    userId: userOid(ownerUserId),
     enrollmentId: enrollment._id,
   })
     .sort({ receivedAt: 1 })
@@ -421,15 +428,18 @@ async function listContactEmailThread(userId, campaignId, candidateKey, { sync =
   };
 }
 
-async function listCampaignReplies(userId, campaignId, { candidateKey } = {}) {
+async function listCampaignReplies(actorUserId, campaignId, { candidateKey } = {}) {
   if (!mongoose.Types.ObjectId.isValid(campaignId)) {
     const err = new Error("Invalid campaign id");
     err.statusCode = 400;
     throw err;
   }
 
+  const campaign = await findCampaignInScope(actorUserId, campaignId, { select: "userId" });
+  const ownerUserId = campaignOwnerUserId(campaign);
+
   const filter = {
-    userId: userOid(userId),
+    userId: userOid(ownerUserId),
     campaignId: new mongoose.Types.ObjectId(campaignId),
     isFromCandidate: true,
   };
@@ -462,16 +472,19 @@ async function listEnrollmentReplies(userId, enrollmentId) {
   return docs.map(formatReply);
 }
 
-async function syncCampaignReplies(userId, campaignId) {
+async function syncCampaignReplies(actorUserId, campaignId) {
   if (!mongoose.Types.ObjectId.isValid(campaignId)) {
     const err = new Error("Invalid campaign id");
     err.statusCode = 400;
     throw err;
   }
 
-  const integration = await getGmailIntegration(userId);
+  const campaign = await findCampaignInScope(actorUserId, campaignId, { select: "userId" });
+  const ownerUserId = campaignOwnerUserId(campaign);
+
+  const integration = await getGmailIntegration(ownerUserId);
   const enrollments = await CampaignSequenceEnrollment.find({
-    userId: userOid(userId),
+    userId: userOid(ownerUserId),
     campaignId: new mongoose.Types.ObjectId(campaignId),
     sentCount: { $gt: 0 },
   }).lean();
@@ -482,7 +495,7 @@ async function syncCampaignReplies(userId, campaignId) {
     newReplies += result.newReplies;
   }
 
-  const replies = await listCampaignReplies(userId, campaignId);
+  const replies = await listCampaignReplies(actorUserId, campaignId);
   return { synced: enrollments.length, newReplies, replies };
 }
 

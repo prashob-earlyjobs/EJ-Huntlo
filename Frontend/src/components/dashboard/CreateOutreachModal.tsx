@@ -17,6 +17,10 @@ type Props = {
   open: boolean;
   existingPlans: ExistingOutreachPlanOption[];
   plansLoading?: boolean;
+  plansPage?: number;
+  plansTotalPages?: number;
+  plansTotal?: number;
+  onPlansPageChange?: (page: number) => void;
   templates: OutreachTemplateListItem[];
   templatesLoading?: boolean;
   optionsReady?: boolean;
@@ -29,6 +33,10 @@ export function CreateOutreachModal({
   open,
   existingPlans,
   plansLoading = false,
+  plansPage = 1,
+  plansTotalPages = 1,
+  plansTotal = 0,
+  onPlansPageChange,
   templates,
   templatesLoading = false,
   optionsReady,
@@ -95,6 +103,10 @@ export function CreateOutreachModal({
             variant="modal"
             existingPlans={existingPlans}
             plansLoading={plansLoading}
+            plansPage={plansPage}
+            plansTotalPages={plansTotalPages}
+            plansTotal={plansTotal}
+            onPlansPageChange={onPlansPageChange}
             templates={templates}
             templatesLoading={templatesLoading}
             optionsReady={optionsReady}

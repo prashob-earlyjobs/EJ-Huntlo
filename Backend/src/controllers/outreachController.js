@@ -7,6 +7,7 @@ const {
   updateOutreachPlan,
   deleteOutreachPlan,
 } = require("../services/outreachPlanService");
+const { listSavedOutreachPlans } = require("../services/savedOutreachPlanService");
 
 function invalidSession(res) {
   return res.status(401).json({ success: false, message: "Authentication required" });
@@ -26,6 +27,21 @@ const listPlansHandler = async (req, res) => {
     if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
     const plans = await listOutreachPlans(uid);
     return res.status(200).json({ success: true, plans });
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
+const listSavedOutreachPlansHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
+    const result = await listSavedOutreachPlans(uid, {
+      page: req.query?.page,
+      limit: req.query?.limit,
+      channel: req.query?.channel,
+    });
+    return res.status(200).json({ success: true, ...result });
   } catch (error) {
     return handleError(res, error);
   }
@@ -106,6 +122,7 @@ const sendEmailHandler = async (req, res) => {
 
 module.exports = {
   listPlansHandler,
+  listSavedOutreachPlansHandler,
   getPlanHandler,
   createPlanHandler,
   updatePlanHandler,

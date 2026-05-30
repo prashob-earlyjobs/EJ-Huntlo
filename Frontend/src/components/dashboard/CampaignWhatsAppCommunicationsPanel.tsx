@@ -646,35 +646,47 @@ export function CampaignWhatsAppCommunicationsPanel({
   return (
     <div className="dashboard-campaign-wa-comms flex min-h-0 flex-1 flex-col">
       <div className="dashboard-campaign-wa-comms-toolbar shrink-0">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2">
-            <IntegrationBrandLogo provider="whatsapp" title="WhatsApp" className="h-6 w-6" />
-            <p className="dashboard-campaign-wa-comms-summary">
-              {threadCount} conversation{threadCount === 1 ? "" : "s"}
-            </p>
+        <div className="dashboard-outreach-gmail-bar shrink-0 border-b-0">
+          <div className="flex min-w-0 flex-1 items-center gap-2.5">
+            <span className="dashboard-campaign-sequence-toolbar-icon shrink-0" aria-hidden>
+              <IntegrationBrandLogo
+                provider="whatsapp"
+                title="WhatsApp"
+                className="h-[22px] w-[22px]"
+              />
+            </span>
+            <div className="min-w-0">
+              <h2 className="dashboard-campaign-report-title">WhatsApp conversations</h2>
+              <p className="dashboard-campaign-report-subtitle">
+                {threadCount} conversation{threadCount === 1 ? "" : "s"} · View and reply to
+                candidate messages
+              </p>
+            </div>
           </div>
-          {outreachStatus === "active" ? (
-            <span className="dashboard-campaign-wa-comms-preview-pill dashboard-campaign-wa-comms-live-pill">
-              Sequence active
-            </span>
-          ) : outreachStatus === "completed" ? (
-            <span className="dashboard-campaign-wa-comms-preview-pill bg-slate-100 text-slate-600">
-              Campaign completed
-            </span>
-          ) : null}
-          <button
-            type="button"
-            className="ml-auto inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-60"
-            onClick={() => void loadConversations(1, false, { soft: true })}
-            disabled={refreshing}
-            aria-label="Refresh conversations"
-          >
-            <MaterialIcon
-              name="refresh"
-              className={`text-base${refreshing ? " animate-spin" : ""}`}
-            />
-            {refreshing ? "Refreshing…" : "Refresh"}
-          </button>
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {outreachStatus === "active" ? (
+              <span className="dashboard-campaign-wa-comms-preview-pill dashboard-campaign-wa-comms-live-pill">
+                Sequence active
+              </span>
+            ) : outreachStatus === "completed" ? (
+              <span className="dashboard-campaign-wa-comms-preview-pill bg-slate-100 text-slate-600">
+                Campaign completed
+              </span>
+            ) : null}
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-60"
+              onClick={() => void loadConversations(1, false, { soft: true })}
+              disabled={refreshing}
+              aria-label="Refresh conversations"
+            >
+              <MaterialIcon
+                name="refresh"
+                className={`text-base${refreshing ? " animate-spin" : ""}`}
+              />
+              {refreshing ? "Refreshing…" : "Refresh"}
+            </button>
+          </div>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <label className="dashboard-campaign-wa-comms-search relative min-w-48 flex-1">

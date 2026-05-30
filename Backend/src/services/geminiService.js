@@ -50,6 +50,28 @@ const OUTREACH_AUTO_REPLY_RESPONSE_SCHEMA = {
   required: ["disposition", "shouldSendReply", "replyBody"],
 };
 
+/** JSON schema for WhatsApp outreach sequence from JD. */
+const WHATSAPP_OUTREACH_SEQUENCE_RESPONSE_SCHEMA = {
+  type: SchemaType.OBJECT,
+  properties: {
+    planName: { type: SchemaType.STRING },
+    openingMessage: { type: SchemaType.STRING },
+    noReplyFollowUp1: { type: SchemaType.STRING },
+    noReplyFollowUp2: { type: SchemaType.STRING },
+    replyQuestions: {
+      type: SchemaType.ARRAY,
+      items: { type: SchemaType.STRING },
+    },
+  },
+  required: [
+    "planName",
+    "openingMessage",
+    "noReplyFollowUp1",
+    "noReplyFollowUp2",
+    "replyQuestions",
+  ],
+};
+
 function usesGcpVertex() {
   return getAiConfig().useVertex;
 }
@@ -210,4 +232,5 @@ module.exports = {
   getAiConfig,
   OUTREACH_SEQUENCE_RESPONSE_SCHEMA,
   OUTREACH_AUTO_REPLY_RESPONSE_SCHEMA,
+  WHATSAPP_OUTREACH_SEQUENCE_RESPONSE_SCHEMA,
 };

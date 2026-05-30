@@ -1,6 +1,10 @@
 const mongoose = require("mongoose");
 const CampaignRevealJob = require("../models/CampaignRevealJob");
 const { runCampaignRevealJob } = require("./campaignRevealJobRunner");
+const {
+  findCampaignInScope,
+  campaignOwnerUserId,
+} = require("../utils/campaignScope");
 
 const runningJobIds = new Set();
 
@@ -37,19 +41,25 @@ function scheduleRevealJob(jobId) {
   });
 }
 
-async function createAndStartCampaignRevealJob(userId, campaignId, candidateKeys = []) {
-  if (!mongoose.Types.ObjectId.isValid(userId) || !mongoose.Types.ObjectId.isValid(campaignId)) {
+async function createAndStartCampaignRevealJob(actorUserId, campaignId, candidateKeys = []) {
+  if (
+    !mongoose.Types.ObjectId.isValid(actorUserId) ||
+    !mongoose.Types.ObjectId.isValid(campaignId)
+  ) {
     const err = new Error("Invalid user or campaign id");
     err.statusCode = 400;
     throw err;
   }
+
+  const campaign = await findCampaignInScope(actorUserId, campaignId, { select: "userId" });
+  const ownerUserId = campaignOwnerUserId(campaign);
 
   const keys = Array.isArray(candidateKeys)
     ? [...new Set(candidateKeys.map((k) => String(k).trim()).filter(Boolean))]
     : [];
 
   const job = await CampaignRevealJob.create({
-    userId: new mongoose.Types.ObjectId(userId),
+    userId: new mongoose.Types.ObjectId(ownerUserId),
     campaignId: new mongoose.Types.ObjectId(campaignId),
     status: "pending",
     candidateKeys: keys,
@@ -63,16 +73,19 @@ async function createAndStartCampaignRevealJob(userId, campaignId, candidateKeys
   return formatJob(job);
 }
 
-async function getActiveRevealJobForCampaign(userId, campaignId) {
+async function getActiveRevealJobForCampaign(actorUserId, campaignId) {
   if (
-    !mongoose.Types.ObjectId.isValid(userId) ||
+    !mongoose.Types.ObjectId.isValid(actorUserId) ||
     !mongoose.Types.ObjectId.isValid(campaignId)
   ) {
     return null;
   }
 
+  const campaign = await findCampaignInScope(actorUserId, campaignId, { select: "userId" });
+  const ownerUserId = campaignOwnerUserId(campaign);
+
   const job = await CampaignRevealJob.findOne({
-    userId: new mongoose.Types.ObjectId(userId),
+    userId: new mongoose.Types.ObjectId(ownerUserId),
     campaignId: new mongoose.Types.ObjectId(campaignId),
     status: { $in: ["pending", "running"] },
   })
@@ -82,27 +95,25 @@ async function getActiveRevealJobForCampaign(userId, campaignId) {
   return formatJob(job);
 }
 
-async function startCampaignRevealJob(userId, campaignId, candidateKeys = null) {
-  return createAndStartCampaignRevealJob(userId, campaignId, candidateKeys || []);
+async function startCampaignRevealJob(actorUserId, campaignId, candidateKeys = null) {
+  return createAndStartCampaignRevealJob(actorUserId, campaignId, candidateKeys || []);
 }
 
-async function getCampaignRevealJob(userId, jobId) {
+async function getCampaignRevealJob(actorUserId, jobId) {
   if (!mongoose.Types.ObjectId.isValid(jobId)) {
     const err = new Error("Invalid job id");
     err.statusCode = 400;
     throw err;
   }
 
-  const job = await CampaignRevealJob.findOne({
-    _id: new mongoose.Types.ObjectId(jobId),
-    userId: new mongoose.Types.ObjectId(userId),
-  }).lean();
-
+  const job = await CampaignRevealJob.findById(jobId).lean();
   if (!job) {
     const err = new Error("Reveal job not found");
     err.statusCode = 404;
     throw err;
   }
+
+  await findCampaignInScope(actorUserId, job.campaignId, { select: "_id" });
 
   return formatJob(job);
 }

@@ -7,9 +7,11 @@ import {
   LAUNCH_AGENT_MIN_DURATION_MS,
 } from "@/components/dashboard/CampaignLaunchAgentOverlay";
 import { ConfirmModal } from "@/components/dashboard/ConfirmModal";
+import { DashboardToast } from "@/components/dashboard/DashboardToast";
 import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
 import { OutreachFieldSelect } from "@/components/dashboard/OutreachFieldSelect";
 import { OutreachPillSelect } from "@/components/dashboard/OutreachPillSelect";
+import { OutreachTestEmailModal } from "@/components/dashboard/OutreachTestEmailModal";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { authHeaders, getStoredAuth } from "@/lib/auth";
 import {
@@ -330,6 +332,12 @@ export function OutreachPlanEditor({
     label: string;
   } | null>(null);
   const [launching, setLaunching] = useState(false);
+  const [testPreviewStep, setTestPreviewStep] = useState<{
+    order: number;
+    subject: string;
+    body: string;
+  } | null>(null);
+  const [testEmailToast, setTestEmailToast] = useState<string | null>(null);
 
   const canvasScrollRef = useRef<HTMLDivElement>(null);
   const stepSectionRefs = useRef<(HTMLElement | null)[]>([]);
@@ -367,6 +375,12 @@ export function OutreachPlanEditor({
     });
     return { name, date };
   }, [auth?.email, auth?.fullName]);
+
+  const senderFirstName = useMemo(() => {
+    const full = auth?.fullName?.trim() || createdMeta.name;
+    const part = full.split(/\s+/).filter(Boolean)[0];
+    return part || "You";
+  }, [auth?.fullName, createdMeta.name]);
 
   const loadGmailStatus = useCallback(async () => {
     if (!auth?.token) return;
@@ -958,17 +972,21 @@ export function OutreachPlanEditor({
       {embedded ? (
         <>
           <div className="dashboard-outreach-gmail-bar shrink-0">
-            <button
-              type="button"
-              onClick={onCancel}
-              disabled={editorLocked}
-              title={editorLocked ? "Campaign settings are read-only" : "Change sequence"}
-              className={`${dashboardBtnSecondaryClass} inline-flex items-center gap-1.5 px-3 py-1.5 text-sm disabled:opacity-55`}
-            >
-              <MaterialIcon name="arrow_back" className="text-base" />
-              Change sequence
-            </button>
-            <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2">
+            <div className="flex min-w-0 flex-1 items-center gap-2.5">
+              <span className="dashboard-campaign-sequence-toolbar-icon shrink-0" aria-hidden>
+                <IntegrationBrandLogo provider="gmail" title="Gmail" className="h-[22px] w-[22px]" />
+              </span>
+              <div className="min-w-0">
+                <h2 className="dashboard-campaign-report-title">Email sequence</h2>
+                <p className="dashboard-campaign-report-subtitle">
+                  Edit steps, schedule, and message content
+                </p>
+              </div>
+            </div>
+            <div className="dashboard-outreach-gmail-plan-meta hidden min-w-0 max-w-[min(100%,18rem)] sm:block">
+              {planTitleEditor(false)}
+            </div>
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
               <SaveSequenceButton
                 compact
                 saving={saving}
@@ -1049,24 +1067,6 @@ export function OutreachPlanEditor({
                   )}
                 </button>
               )}
-            </div>
-          </div>
-          <div className="dashboard-campaign-report-toolbar shrink-0">
-            <div className="dashboard-campaign-report-toolbar-row">
-              <div className="flex min-w-0 flex-1 items-center gap-2.5">
-                <span className="dashboard-campaign-sequence-toolbar-icon" aria-hidden>
-                  <IntegrationBrandLogo provider="gmail" title="Gmail" className="h-[22px] w-[22px]" />
-                </span>
-                <div className="min-w-0">
-                  <h2 className="dashboard-campaign-report-title">Email sequence</h2>
-                  <p className="dashboard-campaign-report-subtitle">
-                    Edit steps, schedule, and message content
-                  </p>
-                </div>
-              </div>
-              <div className="dashboard-outreach-gmail-plan-meta hidden min-w-0 max-w-[min(100%,18rem)] sm:block">
-                {planTitleEditor(false)}
-              </div>
             </div>
           </div>
           <div className="dashboard-outreach-gmail-plan-meta dashboard-outreach-gmail-plan-meta--mobile shrink-0 sm:hidden">
@@ -1187,8 +1187,8 @@ export function OutreachPlanEditor({
             </div>
             <p className="dashboard-wa-outreach-calendly-text">
               {calendlyEnabled && selectedCalendlyMeeting
-                ? `“${selectedCalendlyMeeting.name}” will be shared automatically when a candidate shows interest.`
-                : "Connect Calendly to automatically share interview links when candidates are interested."}
+                ? "Saved for this campaign · used in AI replies."
+                : "Connect Calendly to share interview links."}
             </p>
             {onGoToIntegrations ? (
               <button
@@ -1403,6 +1403,13 @@ export function OutreachPlanEditor({
                       <div className="dashboard-outreach-builder-step-head-right">
                         <button
                           type="button"
+                          onClick={() =>
+                            setTestPreviewStep({
+                              order: tp.order,
+                              subject: tp.subject,
+                              body: tp.body,
+                            })
+                          }
                           className={`${dashboardBtnSecondaryClass} px-3 py-1.5 text-xs`}
                         >
                           Preview and test
@@ -1460,8 +1467,6 @@ export function OutreachPlanEditor({
                             }`}
                             placeholder="{{FirstName}}, interested in a new opportunity?"
                           />
-                          <span className="dashboard-outreach-builder-cc">Cc</span>
-                          <span className="dashboard-outreach-builder-cc">Bcc</span>
                         </div>
                       </label>
 
@@ -1492,22 +1497,6 @@ export function OutreachPlanEditor({
                       </div>
 
                       <div className="dashboard-outreach-builder-editor-wrap">
-                        <div className="dashboard-outreach-builder-toolbar" aria-hidden>
-                          {[
-                            "format_bold",
-                            "format_italic",
-                            "format_underlined",
-                            "format_list_bulleted",
-                            "format_list_numbered",
-                            "link",
-                            "image",
-                            "title",
-                          ].map((icon) => (
-                            <span key={icon} className="dashboard-outreach-builder-toolbar-btn">
-                              <MaterialIcon name={icon} className="text-base" />
-                            </span>
-                          ))}
-                        </div>
                         <textarea
                           ref={(node) => {
                             bodyTextareaRefs.current[tp.order] = node;
@@ -1575,6 +1564,28 @@ export function OutreachPlanEditor({
           removeTouchpoint(order);
         }}
       />
+      {testPreviewStep && auth?.token ? (
+        <OutreachTestEmailModal
+          open
+          stepLabel={`${touchpointTypeLabel(testPreviewStep.order)} · Step ${testPreviewStep.order}`}
+          fromEmail={gmailConnected ? gmailEmail : ""}
+          subject={testPreviewStep.subject}
+          body={testPreviewStep.body}
+          senderFirstName={senderFirstName}
+          authToken={auth.token}
+          gmailConnected={gmailConnected}
+          onGoToIntegrations={onGoToIntegrations}
+          onClose={() => setTestPreviewStep(null)}
+          onSent={setTestEmailToast}
+        />
+      ) : null}
+      {testEmailToast ? (
+        <DashboardToast
+          message={testEmailToast}
+          variant="success"
+          onDismiss={() => setTestEmailToast(null)}
+        />
+      ) : null}
       {calendlyPickerOpen ? (
         <div
           className="dashboard-modal-overlay py-6"

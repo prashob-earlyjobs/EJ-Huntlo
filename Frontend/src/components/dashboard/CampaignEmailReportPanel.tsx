@@ -788,9 +788,9 @@ function CampaignReportPanel({
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-16 text-center">
           <MaterialIcon name="error_outline" className="text-4xl text-[#80868b]" aria-hidden />
           <p className="dashboard-alert-error max-w-sm text-sm">{error}</p>
-          <button type="button" className={dashboardBtnSecondaryClass} onClick={() => void load()}>
-            Retry
-          </button>
+        <button type="button" className={dashboardBtnSecondaryClass} onClick={() => void load()}>
+          Retry
+        </button>
         </div>
       </div>
     );
@@ -920,11 +920,11 @@ function CampaignReportPanel({
             <MetricsTable rows={report.matrix} onSelectMetric={openMetric} />
           </section>
 
-          {report.enrolled === 0 ? (
+        {report.enrolled === 0 ? (
             <p className="dashboard-alert-notice dashboard-campaign-report-notice text-sm" role="status">
-              Launch the campaign sequence to enroll contacts and populate these metrics.
-            </p>
-          ) : null}
+            Launch the campaign sequence to enroll contacts and populate these metrics.
+          </p>
+        ) : null}
         </div>
       </div>
     </div>

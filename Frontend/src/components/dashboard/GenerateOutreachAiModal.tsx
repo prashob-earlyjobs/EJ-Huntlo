@@ -5,29 +5,37 @@ import { createPortal } from "react-dom";
 
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { getStoredAuth } from "@/lib/auth";
-import { generateOutreachSequenceFromJd } from "@/lib/outreachAiApi";
+import {
+  generateOutreachSequenceFromJd,
+  type GenerateOutreachChannel,
+  type GenerateOutreachFromJdResult,
+} from "@/lib/outreachAiApi";
 import {
   dashboardInputClass,
   dashboardLabelClass,
 } from "@/lib/dashboardStyles";
-import type { OutreachTouchpointDraft } from "@/lib/outreachTemplates";
 
 type Props = {
   open: boolean;
+  channel?: GenerateOutreachChannel;
   onClose: () => void;
   onBack?: () => void;
-  onGenerated: (result: {
-    touchpoints: OutreachTouchpointDraft[];
-    planName: string;
-  }) => void;
+  onGenerated: (result: GenerateOutreachFromJdResult) => void;
 };
 
-export function GenerateOutreachAiModal({ open, onClose, onBack, onGenerated }: Props) {
+export function GenerateOutreachAiModal({
+  open,
+  channel = "gmail",
+  onClose,
+  onBack,
+  onGenerated,
+}: Props) {
   const [mounted, setMounted] = useState(false);
   const [jobDescription, setJobDescription] = useState("");
   const [planName, setPlanName] = useState("");
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState("");
+  const isWhatsApp = channel === "whatsapp";
 
   useEffect(() => setMounted(true), []);
 
@@ -69,11 +77,9 @@ export function GenerateOutreachAiModal({ open, onClose, onBack, onGenerated }: 
     try {
       const result = await generateOutreachSequenceFromJd(auth.token, jd, {
         planName: planName.trim() || undefined,
+        channel,
       });
-      onGenerated({
-        touchpoints: result.touchpoints,
-        planName: result.planName,
-      });
+      onGenerated(result);
       setJobDescription("");
       setPlanName("");
       onClose();
@@ -128,8 +134,9 @@ export function GenerateOutreachAiModal({ open, onClose, onBack, onGenerated }: 
               </h3>
             </div>
             <p className="dashboard-text-body mt-2 text-sm text-slate-600">
-              Paste the job description. We&apos;ll create a 4-step outreach sequence tailored to
-              the role—interest, experience, salary, and a final follow-up.
+              {isWhatsApp
+                ? "Paste the job description. We'll create a WhatsApp sequence with an opening message, no-reply follow-ups, and reply-based screening questions."
+                : "Paste the job description. We'll create a 4-step email sequence tailored to the role—interest, experience, salary, and a final follow-up."}
             </p>
           </div>
         </div>
@@ -157,7 +164,11 @@ export function GenerateOutreachAiModal({ open, onClose, onBack, onGenerated }: 
                 value={planName}
                 onChange={(e) => setPlanName(e.target.value)}
                 className={`${dashboardInputClass} mt-2 w-full`}
-                placeholder="e.g. Senior React Developer outreach"
+                placeholder={
+                  isWhatsApp
+                    ? "e.g. Senior React Developer WhatsApp outreach"
+                    : "e.g. Senior React Developer outreach"
+                }
                 disabled={generating}
               />
             </label>

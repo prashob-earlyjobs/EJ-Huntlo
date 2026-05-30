@@ -5,6 +5,10 @@ const CampaignWhatsAppMessage = require("../models/CampaignWhatsAppMessage");
 const CampaignWhatsAppThreadRead = require("../models/CampaignWhatsAppThreadRead");
 const { sendWhatsAppSessionMessage } = require("./whatsappSendService");
 const { notifyCampaignThreadUpdated } = require("../realtime/notify");
+const {
+  findCampaignInScope,
+  campaignOwnerUserId,
+} = require("../utils/campaignScope");
 
 /** Meta customer care session — free-form text allowed after candidate's last message. */
 const WHATSAPP_SESSION_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -101,17 +105,9 @@ async function loadThreadReadMap(userId, campaignId) {
   return map;
 }
 
-async function markCampaignWhatsAppThreadRead(userId, campaignId, candidateKey) {
-  const campaign = await Campaign.findOne({
-    _id: campaignOid(campaignId),
-    userId: userOid(userId),
-  }).lean();
-
-  if (!campaign) {
-    const err = new Error("Campaign not found");
-    err.statusCode = 404;
-    throw err;
-  }
+async function markCampaignWhatsAppThreadRead(actorUserId, campaignId, candidateKey) {
+  const campaign = await findCampaignInScope(actorUserId, campaignId);
+  const ownerUserId = campaignOwnerUserId(campaign);
 
   const key = String(candidateKey || "").trim();
   if (!key) {
@@ -131,7 +127,7 @@ async function markCampaignWhatsAppThreadRead(userId, campaignId, candidateKey) 
   const lastReadAt = new Date();
   await CampaignWhatsAppThreadRead.findOneAndUpdate(
     {
-      userId: userOid(userId),
+      userId: userOid(actorUserId),
       campaignId: campaign._id,
       candidateKey: key,
     },
@@ -140,7 +136,7 @@ async function markCampaignWhatsAppThreadRead(userId, campaignId, candidateKey) 
   );
 
   const messages = await CampaignWhatsAppMessage.find({
-    userId: userOid(userId),
+    userId: userOid(ownerUserId),
     campaignId: campaign._id,
     candidateKey: key,
   })
@@ -237,30 +233,22 @@ async function deleteWhatsAppMessagesForCampaign(campaignId) {
 /**
  * List WhatsApp conversation threads for a campaign (contacts + enrollments + message log).
  */
-async function getCampaignWhatsAppConversations(userId, campaignId, options = {}) {
+async function getCampaignWhatsAppConversations(actorUserId, campaignId, options = {}) {
   const threadPage = parsePositiveInt(options.threadPage, 1, 10_000);
   const threadPageSize = parsePositiveInt(options.threadPageSize, 25, 200);
   const messagePageSize = parsePositiveInt(options.messagePageSize, 30, 200);
-  const campaign = await Campaign.findOne({
-    _id: campaignOid(campaignId),
-    userId: userOid(userId),
-  }).lean();
-
-  if (!campaign) {
-    const err = new Error("Campaign not found");
-    err.statusCode = 404;
-    throw err;
-  }
+  const campaign = await findCampaignInScope(actorUserId, campaignId);
 
   const cid = campaign._id;
-  const uid = userOid(userId);
+  const ownerUserId = campaignOwnerUserId(campaign);
+  const ownerOid = userOid(ownerUserId);
 
   const [enrollments, messageDocs, readByKey] = await Promise.all([
-    CampaignSequenceEnrollment.find({ campaignId: cid, userId: uid }).lean(),
-    CampaignWhatsAppMessage.find({ campaignId: cid, userId: uid })
+    CampaignSequenceEnrollment.find({ campaignId: cid, userId: ownerOid }).lean(),
+    CampaignWhatsAppMessage.find({ campaignId: cid, userId: ownerOid })
       .sort({ sentAt: 1 })
       .lean(),
-    loadThreadReadMap(userId, campaignId),
+    loadThreadReadMap(actorUserId, campaignId),
   ]);
 
   const enrollmentByKey = new Map();
@@ -339,7 +327,7 @@ async function getCampaignWhatsAppConversations(userId, campaignId, options = {}
 }
 
 async function getCampaignWhatsAppThreadMessages(
-  userId,
+  actorUserId,
   campaignId,
   candidateKey,
   options = {}
@@ -353,15 +341,8 @@ async function getCampaignWhatsAppThreadMessages(
     throw err;
   }
 
-  const campaign = await Campaign.findOne({
-    _id: campaignOid(campaignId),
-    userId: userOid(userId),
-  }).lean();
-  if (!campaign) {
-    const err = new Error("Campaign not found");
-    err.statusCode = 404;
-    throw err;
-  }
+  const campaign = await findCampaignInScope(actorUserId, campaignId);
+  const ownerUserId = campaignOwnerUserId(campaign);
 
   const contacts = Array.isArray(campaign.contacts) ? campaign.contacts : [];
   const hasContact = contacts.some((c) => String(c.candidateKey || "").trim() === key);
@@ -372,7 +353,7 @@ async function getCampaignWhatsAppThreadMessages(
   }
 
   const filter = {
-    userId: userOid(userId),
+    userId: userOid(ownerUserId),
     campaignId: campaignOid(campaignId),
     candidateKey: key,
   };
@@ -393,7 +374,7 @@ async function getCampaignWhatsAppThreadMessages(
   };
 }
 
-async function sendCampaignWhatsAppSessionMessage(userId, campaignId, candidateKey, body) {
+async function sendCampaignWhatsAppSessionMessage(actorUserId, campaignId, candidateKey, body) {
   const text = String(body || "").trim();
   if (!text) {
     const err = new Error("Message cannot be empty.");
@@ -401,16 +382,8 @@ async function sendCampaignWhatsAppSessionMessage(userId, campaignId, candidateK
     throw err;
   }
 
-  const campaign = await Campaign.findOne({
-    _id: campaignOid(campaignId),
-    userId: userOid(userId),
-  }).lean();
-
-  if (!campaign) {
-    const err = new Error("Campaign not found");
-    err.statusCode = 404;
-    throw err;
-  }
+  const campaign = await findCampaignInScope(actorUserId, campaignId);
+  const ownerUserId = campaignOwnerUserId(campaign);
 
   const key = String(candidateKey || "").trim();
   if (!key) {
@@ -437,13 +410,13 @@ async function sendCampaignWhatsAppSessionMessage(userId, campaignId, candidateK
 
   const enrollment = await CampaignSequenceEnrollment.findOne({
     campaignId: campaign._id,
-    userId: userOid(userId),
+    userId: userOid(ownerUserId),
     candidateKey: key,
   }).lean();
 
   const priorMessages = await CampaignWhatsAppMessage.find({
     campaignId: campaign._id,
-    userId: userOid(userId),
+    userId: userOid(ownerUserId),
     candidateKey: key,
   })
     .sort({ sentAt: 1 })
@@ -462,10 +435,10 @@ async function sendCampaignWhatsAppSessionMessage(userId, campaignId, candidateK
   const sentAt = new Date();
   let sendResult;
   try {
-    sendResult = await sendWhatsAppSessionMessage(userId, { to: phone, body: text });
+    sendResult = await sendWhatsAppSessionMessage(ownerUserId, { to: phone, body: text });
   } catch (sendError) {
     await logCampaignWhatsAppMessage({
-      userId,
+      userId: ownerUserId,
       campaignId,
       enrollmentId: enrollment?._id,
       candidateKey: key,
@@ -484,7 +457,7 @@ async function sendCampaignWhatsAppSessionMessage(userId, campaignId, candidateK
   }
 
   const doc = await logCampaignWhatsAppMessage({
-    userId,
+    userId: ownerUserId,
     campaignId,
     enrollmentId: enrollment?._id,
     candidateKey: key,
@@ -500,7 +473,7 @@ async function sendCampaignWhatsAppSessionMessage(userId, campaignId, candidateK
     sentAt,
   });
 
-  notifyCampaignThreadUpdated(String(userId), {
+  notifyCampaignThreadUpdated(String(ownerUserId), {
     campaignId: String(campaign._id),
     candidateKey: key,
     newMessages: 1,
@@ -508,7 +481,7 @@ async function sendCampaignWhatsAppSessionMessage(userId, campaignId, candidateK
     source: "whatsapp_send",
   });
 
-  const readState = await markCampaignWhatsAppThreadRead(userId, campaignId, key);
+  const readState = await markCampaignWhatsAppThreadRead(actorUserId, campaignId, key);
 
   return {
     message: formatMessageRow(doc),

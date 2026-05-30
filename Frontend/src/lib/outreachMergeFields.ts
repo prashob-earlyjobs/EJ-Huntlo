@@ -39,3 +39,62 @@ export function insertTextIntoField(
   const pos = value.length;
   return { value, selectionStart: pos, selectionEnd: pos };
 }
+
+export type OutreachMergeContact = {
+  name?: string;
+  company?: string;
+  role?: string;
+};
+
+/** Sample contact values for preview / test sends. */
+export const OUTREACH_PREVIEW_CONTACT: OutreachMergeContact = {
+  name: "Alex Johnson",
+  company: "Acme Corp",
+  role: "Software Engineer",
+};
+
+function firstNameFromFullName(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return "";
+  const parts = trimmed.split(/\s+/).filter(Boolean);
+  return parts[0] || trimmed;
+}
+
+/** Must match Backend outreachMergeService.applyMergeFields. */
+export function applyOutreachMergeFields(
+  text: string,
+  {
+    contact,
+    senderFirstName = "",
+  }: { contact?: OutreachMergeContact; senderFirstName?: string }
+): string {
+  const raw = String(text || "");
+  if (!raw) return raw;
+
+  const firstName = firstNameFromFullName(contact?.name || "");
+  const company = String(contact?.company || "").trim();
+  const jobTitle = String(contact?.role || "").trim();
+  const sender = String(senderFirstName || "").trim();
+
+  const replacements: Record<string, string> = {
+    FirstName: firstName,
+    name: firstName,
+    CurrentCompany: company,
+    company,
+    JobTitle: jobTitle,
+    jobtitle: jobTitle,
+    SenderFirstName: sender,
+    senderfirstname: sender,
+  };
+
+  return raw.replace(/\{\{\s*([a-zA-Z][a-zA-Z0-9]*)\s*\}\}/g, (match, key: string) => {
+    if (Object.prototype.hasOwnProperty.call(replacements, key)) {
+      return replacements[key];
+    }
+    const normalized = key.replace(/\s+/g, "");
+    if (Object.prototype.hasOwnProperty.call(replacements, normalized)) {
+      return replacements[normalized];
+    }
+    return match;
+  });
+}

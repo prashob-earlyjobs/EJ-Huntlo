@@ -7,6 +7,12 @@ const { lookupUserRevealedContacts } = require("./contactRevealService");
 const { deleteEnrollmentsForCampaign } = require("./campaignOutreachSendService");
 const { deleteRepliesForCampaign } = require("./campaignReplySyncService");
 const { normalizeLinkedinProfileUrl } = require("../utils/contactReveal");
+const {
+  campaignAccessFilterForActor,
+  campaignOwnerUserId,
+  findCampaignInScope,
+  findCampaignDocumentInScope,
+} = require("../utils/campaignScope");
 
 /** WhatsApp campaign testing — E.164 India. Replace/remove when using real contact phones. */
 const WHATSAPP_TEST_PHONE_E164 = "+918714500637";
@@ -86,8 +92,17 @@ function normalizeCalendlyAutomation(raw) {
   };
 }
 
-function formatCampaign(doc) {
+function formatCampaign(doc, listStats) {
   const contacts = Array.isArray(doc.contacts) ? doc.contacts : [];
+  const contactCount = contacts.length;
+  const stats =
+    listStats && typeof listStats === "object"
+      ? listStats
+      : null;
+  const contactsSent = stats ? Math.max(0, Number(stats.sent) || 0) : undefined;
+  const interestedCount = stats ? Math.max(0, Number(stats.interested) || 0) : undefined;
+  const lastActivityAt = stats ? resolveLastActivityAt(doc, stats) : undefined;
+
   return {
     id: String(doc._id),
     name: doc.name || "",
@@ -102,11 +117,72 @@ function formatCampaign(doc) {
       : null,
     whatsAppInterestedCount: Math.max(0, Number(doc.whatsAppInterestedCount) || 0),
     whatsAppNotInterestedCount: Math.max(0, Number(doc.whatsAppNotInterestedCount) || 0),
-    contactCount: contacts.length,
+    contactCount,
     contacts: contacts.map(formatContact),
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
+    ...(contactsSent !== undefined ? { contactsSent } : {}),
+    ...(interestedCount !== undefined ? { interestedCount } : {}),
+    ...(lastActivityAt !== undefined ? { lastActivityAt } : {}),
   };
+}
+
+function resolveLastActivityAt(doc, listStats) {
+  const stamps = [
+    doc.updatedAt,
+    doc.createdAt,
+    listStats?.maxLastSent,
+    listStats?.maxLastReply,
+    listStats?.maxDispositionAt,
+    listStats?.maxEnrollmentUpdated,
+  ]
+    .map((value) => {
+      if (!value) return 0;
+      const time = new Date(value).getTime();
+      return Number.isFinite(time) ? time : 0;
+    })
+    .filter((time) => time > 0);
+  if (stamps.length === 0) return null;
+  return new Date(Math.max(...stamps)).toISOString();
+}
+
+async function loadCampaignListStats(actorUserId, campaignIds) {
+  if (!Array.isArray(campaignIds) || campaignIds.length === 0) {
+    return new Map();
+  }
+  const oids = campaignIds
+    .filter((id) => mongoose.Types.ObjectId.isValid(String(id)))
+    .map((id) => new mongoose.Types.ObjectId(String(id)));
+  if (oids.length === 0) return new Map();
+
+  const access = await campaignAccessFilterForActor(actorUserId);
+  const match = { campaignId: { $in: oids } };
+  if (access?.userId) {
+    match.userId = access.userId;
+  }
+
+  const rows = await CampaignSequenceEnrollment.aggregate([
+    { $match: match },
+    {
+      $group: {
+        _id: "$campaignId",
+        sent: { $sum: { $cond: [{ $gt: ["$sentCount", 0] }, 1, 0] } },
+        interested: {
+          $sum: { $cond: [{ $eq: ["$replyDisposition", "interested"] }, 1, 0] },
+        },
+        maxLastSent: { $max: "$lastSentAt" },
+        maxLastReply: { $max: "$lastReplyAt" },
+        maxDispositionAt: { $max: "$replyDispositionAt" },
+        maxEnrollmentUpdated: { $max: "$updatedAt" },
+      },
+    },
+  ]);
+
+  const map = new Map();
+  for (const row of rows) {
+    map.set(String(row._id), row);
+  }
+  return map;
 }
 
 function userOid(userId) {
@@ -122,22 +198,26 @@ function assertValidCampaignId(campaignId) {
   return new mongoose.Types.ObjectId(campaignId);
 }
 
-async function listCampaigns(userId, options = {}) {
+async function listCampaigns(actorUserId, options = {}) {
   const pageRaw = Number(options.page);
   const limitRaw = Number(options.limit);
   const page = Number.isFinite(pageRaw) && pageRaw > 0 ? Math.floor(pageRaw) : 1;
   const limit = Math.min(100, Math.max(1, Number.isFinite(limitRaw) ? Math.floor(limitRaw) : 15));
   const skip = (page - 1) * limit;
 
-  const filter = { userId: userOid(userId) };
-  const ownerOid = userOid(userId);
+  const filter = await campaignAccessFilterForActor(actorUserId);
+  if (!filter) {
+    const err = new Error("Invalid session");
+    err.statusCode = 401;
+    throw err;
+  }
 
   const [docs, total, active, contactsAgg] = await Promise.all([
     Campaign.find(filter).sort({ updatedAt: -1 }).skip(skip).limit(limit).lean(),
     Campaign.countDocuments(filter),
     Campaign.countDocuments({ ...filter, outreachStatus: "active" }),
     Campaign.aggregate([
-      { $match: { userId: ownerOid } },
+      { $match: filter },
       {
         $project: {
           contactCount: { $size: { $ifNull: ["$contacts", []] } },
@@ -147,7 +227,21 @@ async function listCampaigns(userId, options = {}) {
     ]),
   ]);
 
-  const campaigns = docs.map(formatCampaign);
+  const statsById = await loadCampaignListStats(
+    actorUserId,
+    docs.map((doc) => doc._id)
+  );
+  const emptyListStats = {
+    sent: 0,
+    interested: 0,
+    maxLastSent: null,
+    maxLastReply: null,
+    maxDispositionAt: null,
+    maxEnrollmentUpdated: null,
+  };
+  const campaigns = docs.map((doc) =>
+    formatCampaign(doc, statsById.get(String(doc._id)) || emptyListStats)
+  );
   const totalPages = Math.max(1, Math.ceil(total / limit) || 1);
   const safePage = Math.min(page, totalPages);
   const hasMore = safePage < totalPages;
@@ -173,15 +267,9 @@ async function listCampaigns(userId, options = {}) {
   };
 }
 
-async function listCampaignContacts(userId, campaignId, options = {}) {
+async function listCampaignContacts(actorUserId, campaignId, options = {}) {
   const oid = assertValidCampaignId(campaignId);
-  const ownerOid = userOid(userId);
-  const exists = await Campaign.exists({ _id: oid, userId: ownerOid });
-  if (!exists) {
-    const err = new Error("Campaign not found");
-    err.statusCode = 404;
-    throw err;
-  }
+  await findCampaignInScope(actorUserId, campaignId, { select: "_id" });
 
   const pageRaw = Number(options.page);
   const limitRaw = Number(options.limit);
@@ -198,7 +286,7 @@ async function listCampaignContacts(userId, campaignId, options = {}) {
       : "all";
 
   const pipeline = [
-    { $match: { _id: oid, userId: ownerOid } },
+    { $match: { _id: oid } },
     { $unwind: "$contacts" },
     {
       $lookup: {
@@ -296,14 +384,8 @@ async function listCampaignContacts(userId, campaignId, options = {}) {
   };
 }
 
-async function getCampaign(userId, campaignId) {
-  const oid = assertValidCampaignId(campaignId);
-  const doc = await Campaign.findOne({ _id: oid, userId: userOid(userId) }).lean();
-  if (!doc) {
-    const err = new Error("Campaign not found");
-    err.statusCode = 404;
-    throw err;
-  }
+async function getCampaign(actorUserId, campaignId) {
+  const doc = await findCampaignInScope(actorUserId, campaignId);
   return formatCampaign(doc);
 }
 
@@ -322,14 +404,8 @@ async function createCampaign(userId, { name, contacts }) {
   return formatCampaign(doc.toObject());
 }
 
-async function addContactsToCampaign(userId, campaignId, contacts) {
-  const oid = assertValidCampaignId(campaignId);
-  const doc = await Campaign.findOne({ _id: oid, userId: userOid(userId) });
-  if (!doc) {
-    const err = new Error("Campaign not found");
-    err.statusCode = 404;
-    throw err;
-  }
+async function addContactsToCampaign(actorUserId, campaignId, contacts) {
+  const doc = await findCampaignDocumentInScope(actorUserId, campaignId);
 
   const incoming = normalizeContacts(contacts);
   const existingKeys = new Set(
@@ -359,8 +435,7 @@ async function addContactsToCampaign(userId, campaignId, contacts) {
   };
 }
 
-async function removeContactFromCampaign(userId, campaignId, candidateKey) {
-  const oid = assertValidCampaignId(campaignId);
+async function removeContactFromCampaign(actorUserId, campaignId, candidateKey) {
   const key = String(candidateKey || "").trim();
   if (!key) {
     const err = new Error("candidateKey is required");
@@ -368,12 +443,7 @@ async function removeContactFromCampaign(userId, campaignId, candidateKey) {
     throw err;
   }
 
-  const doc = await Campaign.findOne({ _id: oid, userId: userOid(userId) });
-  if (!doc) {
-    const err = new Error("Campaign not found");
-    err.statusCode = 404;
-    throw err;
-  }
+  const doc = await findCampaignDocumentInScope(actorUserId, campaignId);
 
   const before = Array.isArray(doc.contacts) ? doc.contacts.length : 0;
   doc.contacts = (doc.contacts || []).filter(
@@ -391,11 +461,11 @@ async function removeContactFromCampaign(userId, campaignId, candidateKey) {
   };
 }
 
-async function updateCampaignContactFields(userId, campaignId, candidateKey, email, phone) {
+async function updateCampaignContactFields(ownerUserId, campaignId, candidateKey, email, phone) {
   await Campaign.updateOne(
     {
       _id: assertValidCampaignId(campaignId),
-      userId: userOid(userId),
+      userId: userOid(ownerUserId),
       "contacts.candidateKey": candidateKey,
     },
     {
@@ -411,14 +481,16 @@ async function updateCampaignContactFields(userId, campaignId, candidateKey, ema
  * Fill missing email/phone on campaign contacts from the user's reveal cache.
  * Never overwrites values already set (including manual DB/UI edits).
  */
-async function syncCampaignContactsFromUserCache(userId, campaignId) {
-  const campaign = await getCampaign(userId, campaignId);
+async function syncCampaignContactsFromUserCache(actorUserId, campaignId) {
+  const campaignDoc = await findCampaignInScope(actorUserId, campaignId);
+  const ownerUserId = campaignOwnerUserId(campaignDoc);
+  const campaign = formatCampaign(campaignDoc);
   const linkedinUrls = (campaign.contacts || [])
     .map((c) => c.linkedinUrl)
     .filter(Boolean);
   if (linkedinUrls.length === 0) return campaign;
 
-  const lookup = await lookupUserRevealedContacts(userId, linkedinUrls);
+  const lookup = await lookupUserRevealedContacts(ownerUserId, linkedinUrls);
 
   for (const contact of campaign.contacts) {
     const key = normalizeLinkedinProfileUrl(contact.linkedinUrl);
@@ -436,7 +508,7 @@ async function syncCampaignContactsFromUserCache(userId, campaignId) {
     if (email === existingEmail && phone === existingPhone) continue;
 
     await updateCampaignContactFields(
-      userId,
+      ownerUserId,
       campaignId,
       contact.candidateKey,
       email,
@@ -444,22 +516,17 @@ async function syncCampaignContactsFromUserCache(userId, campaignId) {
     );
   }
 
-  return getCampaign(userId, campaignId);
+  return getCampaign(actorUserId, campaignId);
 }
 
 async function setCampaignOutreachPlan(
-  userId,
+  actorUserId,
   campaignId,
   outreachPlanId,
   outreachChannel = "gmail"
 ) {
-  const oid = assertValidCampaignId(campaignId);
-  const doc = await Campaign.findOne({ _id: oid, userId: userOid(userId) });
-  if (!doc) {
-    const err = new Error("Campaign not found");
-    err.statusCode = 404;
-    throw err;
-  }
+  const doc = await findCampaignDocumentInScope(actorUserId, campaignId);
+  const ownerOid = userOid(campaignOwnerUserId(doc));
 
   const channel = outreachChannel === "whatsapp" ? "whatsapp" : "gmail";
   const raw = outreachPlanId === null || outreachPlanId === undefined ? "" : String(outreachPlanId).trim();
@@ -473,7 +540,6 @@ async function setCampaignOutreachPlan(
       throw err;
     }
     const planOid = new mongoose.Types.ObjectId(raw);
-    const ownerOid = userOid(userId);
     if (channel === "whatsapp") {
       const plan = await WhatsAppOutreachPlan.findOne({ _id: planOid, userId: ownerOid }).lean();
       if (!plan) {
@@ -497,40 +563,23 @@ async function setCampaignOutreachPlan(
   return formatCampaign(doc.toObject());
 }
 
-async function updateCampaignJobDescription(userId, campaignId, jobDescription) {
-  const oid = assertValidCampaignId(campaignId);
-  const doc = await Campaign.findOne({ _id: oid, userId: userOid(userId) });
-  if (!doc) {
-    const err = new Error("Campaign not found");
-    err.statusCode = 404;
-    throw err;
-  }
+async function updateCampaignJobDescription(actorUserId, campaignId, jobDescription) {
+  const doc = await findCampaignDocumentInScope(actorUserId, campaignId);
   doc.jobDescription = String(jobDescription || "").trim();
   await doc.save();
   return formatCampaign(doc.toObject());
 }
 
-async function updateCampaignCalendlyAutomation(userId, campaignId, calendlyAutomation) {
-  const oid = assertValidCampaignId(campaignId);
-  const doc = await Campaign.findOne({ _id: oid, userId: userOid(userId) });
-  if (!doc) {
-    const err = new Error("Campaign not found");
-    err.statusCode = 404;
-    throw err;
-  }
+async function updateCampaignCalendlyAutomation(actorUserId, campaignId, calendlyAutomation) {
+  const doc = await findCampaignDocumentInScope(actorUserId, campaignId);
   doc.calendlyAutomation = normalizeCalendlyAutomation(calendlyAutomation);
   await doc.save();
   return formatCampaign(doc.toObject());
 }
 
-async function deleteCampaign(userId, campaignId) {
-  const oid = assertValidCampaignId(campaignId);
-  const result = await Campaign.deleteOne({ _id: oid, userId: userOid(userId) });
-  if (result.deletedCount === 0) {
-    const err = new Error("Campaign not found");
-    err.statusCode = 404;
-    throw err;
-  }
+async function deleteCampaign(actorUserId, campaignId) {
+  const doc = await findCampaignDocumentInScope(actorUserId, campaignId);
+  await Campaign.deleteOne({ _id: doc._id });
   await deleteEnrollmentsForCampaign(campaignId);
   await deleteRepliesForCampaign(campaignId);
 }

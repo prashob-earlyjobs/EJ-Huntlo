@@ -2,6 +2,7 @@ const express = require("express");
 const { authenticate } = require("../middleware/auth");
 const {
   listPlansHandler,
+  listSavedOutreachPlansHandler,
   getPlanHandler,
   createPlanHandler,
   updatePlanHandler,
@@ -25,6 +26,7 @@ const { generateSequenceFromJdHandler } = require("../controllers/outreachAiCont
 const router = express.Router();
 
 router.post("/ai/generate-sequence", authenticate, generateSequenceFromJdHandler);
+router.get("/saved-plans", authenticate, listSavedOutreachPlansHandler);
 router.get("/templates", authenticate, listTemplatesHandler);
 router.post("/templates", authenticate, createTemplateHandler);
 router.get("/templates/:id", authenticate, getTemplateHandler);

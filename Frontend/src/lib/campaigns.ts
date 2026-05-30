@@ -37,5 +37,11 @@ export type CampaignRecord = {
   outreachChannel?: "gmail" | "whatsapp";
   outreachStatus?: CampaignOutreachStatus;
   outreachStartedAt?: string | null;
+  /** Contacts with at least one outreach message sent (list view). */
+  contactsSent?: number;
+  /** Candidates marked interested (list view). */
+  interestedCount?: number;
+  /** Latest send, reply, or campaign update (list view). */
+  lastActivityAt?: string | null;
   contacts: CampaignContact[];
 };

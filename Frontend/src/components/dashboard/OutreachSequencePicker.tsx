@@ -1,8 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import { DashboardToast } from "@/components/dashboard/DashboardToast";
 import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
 import { OutreachSequencePickerSkeleton } from "@/components/dashboard/OutreachSequencePickerSkeleton";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
@@ -13,19 +12,65 @@ import {
   dashboardLabelClass,
 } from "@/lib/dashboardStyles";
 import { GenerateOutreachAiModal } from "@/components/dashboard/GenerateOutreachAiModal";
+import type { GenerateOutreachFromJdResult } from "@/lib/outreachAiApi";
 import type { OutreachTemplateListItem, OutreachTouchpointDraft } from "@/lib/outreachTemplates";
+import type { WhatsAppTouchpointDraft } from "@/lib/whatsappOutreach";
+
+export type OutreachPlanChannel = "gmail" | "whatsapp";
 
 export type ExistingOutreachPlanOption = {
   id: string;
   name: string;
   touchpointCount: number;
+  channel: OutreachPlanChannel;
 };
 
 export type CreateOutreachChoice =
   | { type: "scratch"; channel: "gmail" | "whatsapp"; jobDescription?: string }
   | { type: "template"; templateId: string }
-  | { type: "clone"; planId: string }
-  | { type: "ai"; touchpoints: OutreachTouchpointDraft[]; planName: string };
+  | { type: "clone"; planId: string; channel: OutreachPlanChannel }
+  | {
+      type: "ai";
+      channel: "gmail";
+      planName: string;
+      jobDescription: string;
+      touchpoints: OutreachTouchpointDraft[];
+    }
+  | {
+      type: "ai";
+      channel: "whatsapp";
+      planName: string;
+      jobDescription: string;
+      touchpoints: WhatsAppTouchpointDraft[];
+    };
+
+function cloneSelectionKey(channel: OutreachPlanChannel, planId: string) {
+  return `${channel}:${planId}`;
+}
+
+function parseCloneSelection(
+  key: string
+): { channel: OutreachPlanChannel; planId: string } | null {
+  if (key.startsWith("whatsapp:")) {
+    const planId = key.slice("whatsapp:".length);
+    return planId ? { channel: "whatsapp", planId } : null;
+  }
+  if (key.startsWith("gmail:")) {
+    const planId = key.slice("gmail:".length);
+    return planId ? { channel: "gmail", planId } : null;
+  }
+  return null;
+}
+
+function planChannelLabel(channel: OutreachPlanChannel) {
+  return channel === "whatsapp" ? "WhatsApp" : "Gmail";
+}
+
+function planOptionLabel(plan: ExistingOutreachPlanOption) {
+  return `${plan.name} · ${plan.touchpointCount} touchpoint${
+    plan.touchpointCount === 1 ? "" : "s"
+  } · ${planChannelLabel(plan.channel)}`;
+}
 
 type Variant = "modal" | "embedded" | "campaign";
 
@@ -34,6 +79,10 @@ type Props = {
   allowedChannels?: ("gmail" | "whatsapp")[];
   existingPlans: ExistingOutreachPlanOption[];
   plansLoading?: boolean;
+  plansPage?: number;
+  plansTotalPages?: number;
+  plansTotal?: number;
+  onPlansPageChange?: (page: number) => void;
   templates: OutreachTemplateListItem[];
   templatesLoading?: boolean;
   /** False until the first templates/plans fetch has finished. */
@@ -43,6 +92,56 @@ type Props = {
   readOnly?: boolean;
   onChoose: (choice: CreateOutreachChoice) => void;
 };
+
+function SavedOutreachesPagination({
+  page,
+  totalPages,
+  total,
+  loading,
+  onPageChange,
+  compact,
+}: {
+  page: number;
+  totalPages: number;
+  total: number;
+  loading?: boolean;
+  onPageChange: (page: number) => void;
+  compact?: boolean;
+}) {
+  if (totalPages <= 1) return null;
+  return (
+    <div
+      className={`dashboard-pagination dashboard-pagination--compact${
+        compact ? " mt-2" : " mt-3"
+      }`}
+    >
+      <p className="dashboard-pagination-label tabular-nums">
+        Page {page} of {totalPages}
+        <span className="text-[#424656]/80"> · {total.toLocaleString()} total</span>
+      </p>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          disabled={loading || page <= 1}
+          onClick={() => onPageChange(page - 1)}
+          className={`${dashboardBtnSecondaryClass} disabled:cursor-not-allowed disabled:opacity-50`}
+        >
+          <MaterialIcon name="chevron_left" className="text-base" />
+          Previous
+        </button>
+        <button
+          type="button"
+          disabled={loading || page >= totalPages}
+          onClick={() => onPageChange(page + 1)}
+          className={`${dashboardBtnSecondaryClass} disabled:cursor-not-allowed disabled:opacity-50`}
+        >
+          Next
+          <MaterialIcon name="chevron_right" className="text-base" />
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function pickerStyles(variant: Variant) {
   if (variant === "campaign") {
@@ -170,6 +269,10 @@ export function OutreachSequencePicker({
   allowedChannels = ["gmail", "whatsapp"],
   existingPlans,
   plansLoading = false,
+  plansPage = 1,
+  plansTotalPages = 1,
+  plansTotal = 0,
+  onPlansPageChange,
   templates,
   templatesLoading = false,
   optionsReady,
@@ -178,17 +281,49 @@ export function OutreachSequencePicker({
   onChoose,
 }: Props) {
   const [step, setStep] = useState<"choose" | "clone" | "scratchChannel" | "aiChannel">("choose");
-  const [clonePlanId, setClonePlanId] = useState("");
+  const [cloneSelection, setCloneSelection] = useState("");
   const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [aiChannel, setAiChannel] = useState<"gmail" | "whatsapp">("gmail");
   const [jobDescription, setJobDescription] = useState("");
   const [scratchChannel, setScratchChannel] = useState<"gmail" | "whatsapp" | "">("");
-  const [pickerToast, setPickerToast] = useState<string>("");
+
+  const handleAiGenerated = (result: GenerateOutreachFromJdResult) => {
+    if (result.channel === "whatsapp") {
+      onChoose({
+        type: "ai",
+        channel: "whatsapp",
+        planName: result.planName,
+        jobDescription: result.jobDescription,
+        touchpoints: result.touchpoints,
+      });
+      return;
+    }
+    onChoose({
+      type: "ai",
+      channel: "gmail",
+      planName: result.planName,
+      jobDescription: result.jobDescription,
+      touchpoints: result.touchpoints,
+    });
+  };
+
   const s = pickerStyles(variant);
 
   const showLead = lead !== undefined && lead !== "";
   const pickerDisabled = readOnly;
   const allowsGmail = allowedChannels.includes("gmail");
   const allowsWhatsApp = allowedChannels.includes("whatsapp");
+
+  const visiblePlans = useMemo(
+    () => existingPlans.filter((p) => allowedChannels.includes(p.channel)),
+    [existingPlans, allowedChannels]
+  );
+
+  const savedPlansCount = plansTotal > 0 ? plansTotal : visiblePlans.length;
+
+  useEffect(() => {
+    setCloneSelection("");
+  }, [plansPage, existingPlans]);
 
   const globalTemplates = templates.filter((t) => t.isGlobal);
   const userTemplates = templates.filter((t) => !t.isGlobal);
@@ -198,7 +333,7 @@ export function OutreachSequencePicker({
     optionsReady === undefined ? listLoading : !optionsReady || listLoading;
   const showEmptyHints = optionsReady !== false && !pickerLoading;
   const hasTemplateList =
-    globalTemplates.length > 0 || userTemplates.length > 0 || existingPlans.length > 0;
+    globalTemplates.length > 0 || userTemplates.length > 0 || savedPlansCount > 0;
 
   if (step === "scratchChannel") {
     const normalizedJobDescription = jobDescription.trim();
@@ -325,6 +460,7 @@ export function OutreachSequencePicker({
               brandProvider="gmail"
               label="Gmail"
               onClick={() => {
+                setAiChannel("gmail");
                 setAiModalOpen(true);
                 setStep("choose");
               }}
@@ -336,7 +472,9 @@ export function OutreachSequencePicker({
               brandProvider="whatsapp"
               label="WhatsApp"
               onClick={() => {
-                setPickerToast("AI generation is currently available for Gmail only.");
+                setAiChannel("whatsapp");
+                setAiModalOpen(true);
+                setStep("choose");
               }}
             />
           ) : null}
@@ -367,26 +505,36 @@ export function OutreachSequencePicker({
           <label className={`${dashboardLabelClass} block`}>
             Outreach plan
             <select
-              value={clonePlanId}
-              onChange={(e) => setClonePlanId(e.target.value)}
+              value={cloneSelection}
+              onChange={(e) => setCloneSelection(e.target.value)}
               className={`${dashboardInputClass} mt-2 w-full`}
               disabled={pickerDisabled || plansLoading}
             >
               <option value="">{plansLoading ? "Loading plans…" : "Select a plan…"}</option>
-              {existingPlans.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} · {p.touchpointCount} touchpoints
+              {visiblePlans.map((p) => (
+                <option key={cloneSelectionKey(p.channel, p.id)} value={cloneSelectionKey(p.channel, p.id)}>
+                  {planOptionLabel(p)}
                 </option>
               ))}
             </select>
           </label>
         )}
+        {onPlansPageChange ? (
+          <SavedOutreachesPagination
+            page={plansPage}
+            totalPages={plansTotalPages}
+            total={savedPlansCount}
+            loading={plansLoading}
+            onPageChange={onPlansPageChange}
+            compact={variant === "embedded"}
+          />
+        ) : null}
         <div className={s.actions}>
           <button
             type="button"
             onClick={() => {
               setStep("choose");
-              setClonePlanId("");
+              setCloneSelection("");
             }}
             className={`${dashboardBtnSecondaryClass} px-4 py-2.5 text-sm`}
           >
@@ -394,8 +542,16 @@ export function OutreachSequencePicker({
           </button>
           <button
             type="button"
-            disabled={pickerDisabled || !clonePlanId}
-            onClick={() => onChoose({ type: "clone", planId: clonePlanId })}
+            disabled={pickerDisabled || !cloneSelection}
+            onClick={() => {
+              const parsed = parseCloneSelection(cloneSelection);
+              if (!parsed) return;
+              onChoose({
+                type: "clone",
+                planId: parsed.planId,
+                channel: parsed.channel,
+              });
+            }}
             className={`${dashboardBtnPrimaryClass} px-5 py-2.5 text-sm disabled:opacity-55`}
           >
             Continue
@@ -404,10 +560,9 @@ export function OutreachSequencePicker({
 
         <GenerateOutreachAiModal
           open={aiModalOpen}
+          channel={aiChannel}
           onClose={() => setAiModalOpen(false)}
-          onGenerated={({ touchpoints, planName }) =>
-            onChoose({ type: "ai", touchpoints, planName })
-          }
+          onGenerated={handleAiGenerated}
         />
       </div>
     );
@@ -441,16 +596,16 @@ export function OutreachSequencePicker({
           icon="content_copy"
           label="Clone an existing outreach"
           disabled={
-            pickerDisabled || pickerLoading || (!plansLoading && existingPlans.length === 0)
+            pickerDisabled || pickerLoading || (!plansLoading && savedPlansCount === 0)
           }
           onClick={() => {
-            if (pickerLoading || (existingPlans.length === 0 && !plansLoading)) return;
+            if (pickerLoading || (savedPlansCount === 0 && !plansLoading)) return;
             setStep("clone");
           }}
         />
       </div>
 
-      {showEmptyHints && existingPlans.length === 0 ? (
+      {showEmptyHints && savedPlansCount === 0 ? (
         <p className={s.hint}>Create and save a plan first to enable cloning.</p>
       ) : null}
 
@@ -526,39 +681,70 @@ export function OutreachSequencePicker({
               </>
             ) : null}
 
-            {existingPlans.length > 0 ? (
+            {savedPlansCount > 0 ? (
               <>
                 <p className={s.subheading}>Your saved outreaches</p>
                 <div className={s.templateList}>
-                  {existingPlans.map((plan) => (
-                    <button
-                      key={plan.id}
-                      type="button"
-                      className={s.templateRow}
-                      disabled={pickerDisabled}
-                      onClick={() => onChoose({ type: "clone", planId: plan.id })}
-                    >
-                      <span
-                        className={
-                          variant === "embedded"
-                            ? `${s.iconBox} border-[#0050cb]/20 bg-[#0050cb]/10 text-[#0050cb]`
-                            : `${s.iconBox} border-[#0050cb]/20 bg-[#0050cb]/10 text-[#0050cb]`
+                  {plansLoading && visiblePlans.length === 0 ? (
+                    <>
+                      <div className="dashboard-shimmer h-12 w-full" aria-hidden />
+                      <div className="dashboard-shimmer h-12 w-full" aria-hidden />
+                    </>
+                  ) : (
+                    visiblePlans.map((plan) => (
+                      <button
+                        key={cloneSelectionKey(plan.channel, plan.id)}
+                        type="button"
+                        className={s.templateRow}
+                        disabled={pickerDisabled}
+                        onClick={() =>
+                          onChoose({ type: "clone", planId: plan.id, channel: plan.channel })
                         }
-                        aria-hidden
                       >
-                        <MaterialIcon name="description" className={s.iconSize} />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className={`block ${s.templateName}`}>{plan.name}</span>
-                        <span className={`block ${s.templateMeta}`}>
-                          {plan.touchpointCount} touchpoint
-                          {plan.touchpointCount === 1 ? "" : "s"} · Saved plan
+                        <span
+                          className={
+                            variant === "embedded"
+                              ? `${s.iconBox} border-[#0050cb]/20 bg-[#0050cb]/10 text-[#0050cb]`
+                              : `${s.iconBox} border-[#0050cb]/20 bg-[#0050cb]/10 text-[#0050cb]`
+                          }
+                          aria-hidden
+                        >
+                          {plan.channel === "whatsapp" ? (
+                            <IntegrationBrandLogo
+                              provider="whatsapp"
+                              title="WhatsApp"
+                              className="dashboard-integration-brand-logo"
+                            />
+                          ) : (
+                            <IntegrationBrandLogo
+                              provider="gmail"
+                              title="Gmail"
+                              className="dashboard-integration-brand-logo"
+                            />
+                          )}
                         </span>
-                      </span>
-                      <MaterialIcon name="chevron_right" className={s.chevron} aria-hidden />
-                    </button>
-                  ))}
+                        <span className="min-w-0 flex-1">
+                          <span className={`block ${s.templateName}`}>{plan.name}</span>
+                          <span className={`block ${s.templateMeta}`}>
+                            {plan.touchpointCount} touchpoint
+                            {plan.touchpointCount === 1 ? "" : "s"} · {planChannelLabel(plan.channel)}
+                          </span>
+                        </span>
+                        <MaterialIcon name="chevron_right" className={s.chevron} aria-hidden />
+                      </button>
+                    ))
+                  )}
                 </div>
+                {onPlansPageChange ? (
+                  <SavedOutreachesPagination
+                    page={plansPage}
+                    totalPages={plansTotalPages}
+                    total={savedPlansCount}
+                    loading={plansLoading}
+                    onPageChange={onPlansPageChange}
+                    compact={variant === "embedded"}
+                  />
+                ) : null}
               </>
             ) : null}
           </div>
@@ -569,22 +755,14 @@ export function OutreachSequencePicker({
 
       <GenerateOutreachAiModal
         open={aiModalOpen}
+        channel={aiChannel}
         onClose={() => setAiModalOpen(false)}
         onBack={() => {
           setAiModalOpen(false);
           setStep("aiChannel");
         }}
-        onGenerated={({ touchpoints, planName }) =>
-          onChoose({ type: "ai", touchpoints, planName })
-        }
+        onGenerated={handleAiGenerated}
       />
-      {pickerToast ? (
-        <DashboardToast
-          message={pickerToast}
-          variant="error"
-          onDismiss={() => setPickerToast("")}
-        />
-      ) : null}
     </div>
   );
 }

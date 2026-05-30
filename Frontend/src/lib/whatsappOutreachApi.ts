@@ -75,6 +75,41 @@ function parsePlan(raw: unknown): WhatsAppOutreachPlanRecord | null {
   };
 }
 
+export type WhatsAppOutreachPlanListItem = {
+  id: string;
+  name: string;
+  touchpointCount: number;
+};
+
+export async function listWhatsAppOutreachPlans(
+  token: string
+): Promise<WhatsAppOutreachPlanListItem[]> {
+  const res = await fetch(`${apiBase()}/api/outreach/whatsapp/plans`, {
+    headers: authHeaders(token),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.success) {
+    throw new Error(
+      typeof data.message === "string" ? data.message : "Failed to load WhatsApp sequences"
+    );
+  }
+  if (!Array.isArray(data.plans)) return [];
+  return data.plans
+    .map((raw: unknown) => {
+      if (!raw || typeof raw !== "object") return null;
+      const o = raw as Record<string, unknown>;
+      const id = typeof o.id === "string" ? o.id : "";
+      const name = typeof o.name === "string" ? o.name : "";
+      if (!id || !name) return null;
+      return {
+        id,
+        name,
+        touchpointCount: Math.max(0, Number(o.touchpointCount) || 0),
+      } satisfies WhatsAppOutreachPlanListItem;
+    })
+    .filter((item): item is WhatsAppOutreachPlanListItem => item !== null);
+}
+
 export async function fetchWhatsAppOutreachPlan(
   token: string,
   planId: string

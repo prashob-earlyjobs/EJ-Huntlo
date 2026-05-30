@@ -1,6 +1,5 @@
 "use client";
 
-import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import type { CampaignRecord } from "@/lib/campaigns";
 import type { CampaignsListSummary } from "@/lib/campaignsApi";
@@ -36,6 +35,12 @@ function formatCampaignWhen(iso: string) {
     }
   }
   return { primary, title };
+}
+
+function truncateCampaignName(name: string, maxLength = 25): string {
+  const trimmed = name.trim();
+  if (trimmed.length <= maxLength) return trimmed;
+  return `${trimmed.slice(0, maxLength)}…`;
 }
 
 function statusPillClass(status?: CampaignRecord["outreachStatus"]) {
@@ -110,12 +115,19 @@ export function CampaignsListTable({
         </div>
       </div>
 
-      <div
-        className={`dashboard-thin-scrollbar dashboard-campaigns-table-scroll${loading ? " dashboard-campaigns-table-scroll--loading" : ""}`}
-        aria-busy={loading}
-      >
-        <div className="dashboard-table-wrap">
-          <table className="dashboard-table dashboard-table--campaigns" role="grid">
+      <div className="dashboard-campaigns-table-shell">
+        <p className="dashboard-campaigns-table-scroll-hint" aria-hidden="true">
+          Swipe sideways to see all columns
+        </p>
+        <div
+          className={`dashboard-thin-scrollbar dashboard-campaigns-table-scroll${loading ? " dashboard-campaigns-table-scroll--loading" : ""}`}
+          aria-busy={loading}
+          tabIndex={0}
+          role="region"
+          aria-label="Campaigns table. Scroll horizontally on small screens to see all columns."
+        >
+          <div className="dashboard-table-wrap dashboard-table-wrap--scroll-x">
+            <table className="dashboard-table dashboard-table--campaigns" role="grid">
             <thead>
               <tr>
                 <th scope="col">Campaign</th>
@@ -123,6 +135,13 @@ export function CampaignsListTable({
                 <th scope="col" className="tabular-nums">
                   Contacts
                 </th>
+                <th scope="col" className="tabular-nums">
+                  Sent / progress
+                </th>
+                <th scope="col" className="tabular-nums">
+                  Interested
+                </th>
+                <th scope="col">Last activity</th>
                 <th scope="col">Status</th>
                 <th scope="col" className="dashboard-campaigns-table-action-col">
                   <span className="sr-only">Open</span>
@@ -132,8 +151,13 @@ export function CampaignsListTable({
             <tbody>
               {campaigns.map((campaign) => {
                 const when = formatCampaignWhen(campaign.createdAt);
+                const activityWhen = formatCampaignWhen(
+                  campaign.lastActivityAt || campaign.createdAt
+                );
                 const isWhatsApp = campaign.outreachChannel === "whatsapp";
                 const contactCount = campaign.contacts.length;
+                const contactsSent = campaign.contactsSent ?? 0;
+                const interestedCount = campaign.interestedCount ?? 0;
                 return (
                   <tr
                     key={campaign.id}
@@ -154,8 +178,11 @@ export function CampaignsListTable({
                           <MaterialIcon name="flag" className="text-lg" />
                         </span>
                         <div className="min-w-0">
-                          <p className="dashboard-campaigns-name truncate" title={campaign.name}>
-                            {campaign.name}
+                          <p
+                            className="dashboard-campaigns-name"
+                            title={campaign.name.length > 25 ? campaign.name : undefined}
+                          >
+                            {truncateCampaignName(campaign.name)}
                           </p>
                           <p
                             className="dashboard-campaigns-meta truncate"
@@ -167,20 +194,40 @@ export function CampaignsListTable({
                       </div>
                     </td>
                     <td>
-                      <span className="dashboard-campaigns-channel">
-                        <IntegrationBrandLogo
-                          provider={isWhatsApp ? "whatsapp" : "gmail"}
-                          title={isWhatsApp ? "WhatsApp" : "Email"}
-                          className="h-5 w-5 shrink-0"
-                        />
-                        <span className="dashboard-campaigns-channel-label">
-                          {isWhatsApp ? "WhatsApp" : "Email"}
-                        </span>
+                      <span className="dashboard-campaigns-channel-label">
+                        {isWhatsApp ? "WhatsApp" : "Email"}
                       </span>
                     </td>
                     <td className="tabular-nums">
                       <span className="dashboard-campaigns-metric">
                         {contactCount.toLocaleString()}
+                      </span>
+                    </td>
+                    <td className="tabular-nums">
+                      <span
+                        className="dashboard-campaigns-metric dashboard-campaigns-metric--progress"
+                        title={`${contactsSent.toLocaleString()} of ${contactCount.toLocaleString()} contacts messaged`}
+                      >
+                        {contactCount > 0
+                          ? `${contactsSent.toLocaleString()} / ${contactCount.toLocaleString()}`
+                          : "—"}
+                      </span>
+                    </td>
+                    <td className="tabular-nums">
+                      <span
+                        className={`dashboard-campaigns-metric${
+                          interestedCount > 0 ? " dashboard-campaigns-metric--interested" : ""
+                        }`}
+                      >
+                        {interestedCount > 0 ? interestedCount.toLocaleString() : "—"}
+                      </span>
+                    </td>
+                    <td>
+                      <span
+                        className="dashboard-campaigns-activity"
+                        title={activityWhen.title || undefined}
+                      >
+                        {activityWhen.primary}
                       </span>
                     </td>
                     <td>
@@ -202,6 +249,7 @@ export function CampaignsListTable({
               })}
             </tbody>
           </table>
+        </div>
         </div>
       </div>
     </>
