@@ -141,6 +141,11 @@
   width: 0.875rem;
 }
 
+.dashboard-nav-icon--compact .material-symbols-outlined {
+  font-size: 0.875rem;
+  line-height: 1;
+}
+
 .dashboard-sidebar--compact .dashboard-nav-label {
   display: block;
   font-size: 0.8125rem;
@@ -1874,6 +1879,12 @@
   border-radius: 0.75rem;
   border: 1px solid color-mix(in srgb, var(--dash-outline) 45%, transparent);
   background: rgba(255, 255, 255, 0.6);
+}
+
+.dashboard-table-wrap--refreshing .dashboard-table-wrap {
+  opacity: 0.6;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
 }
 
 .dashboard-table {
@@ -3715,31 +3726,22 @@
 
 .dashboard-people-scout-divider {
   margin-top: 2rem;
+  min-width: 0;
   border-top: 1px solid color-mix(in srgb, var(--dash-outline) 35%, transparent);
   padding-top: 1.5rem;
 }
 
 .dashboard-people-scout-recent-grid {
   display: grid;
-  grid-template-columns: 1fr;
+  min-width: 0;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
   gap: 1rem;
   margin-top: 1rem;
 }
 
-@media (min-width: 640px) {
-  .dashboard-people-scout-recent-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-@media (min-width: 1280px) {
-  .dashboard-people-scout-recent-grid {
-    grid-template-columns: repeat(3, 1fr);
-  }
-}
-
 .dashboard-people-scout-recent-card {
   display: flex;
+  min-width: 0;
   width: 100%;
   flex-direction: column;
   border-radius: 0.75rem;
@@ -3768,6 +3770,14 @@
   font-size: 0.75rem;
   font-weight: 500;
   color: var(--dash-on-surface-variant);
+}
+
+.dashboard-people-scout-recent-time {
+  margin-top: 0.375rem;
+  display: block;
+  font-size: 0.6875rem;
+  line-height: 1.25;
+  color: color-mix(in srgb, var(--dash-on-surface-variant) 78%, transparent);
 }
 
 .dashboard-people-scout-recent-meta {
