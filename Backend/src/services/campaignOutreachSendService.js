@@ -837,17 +837,44 @@ async function processWhatsAppEnrollmentDoc(enrollment, campaign) {
   });
 }
 
+/**
+ * Mark campaign completed when:
+ * 1) No enrollments still queued for automated sends (active/deferred).
+ * 2) Every contact who replied has a final result (interested / not_interested).
+ */
 async function maybeCompleteCampaign(campaignId) {
-  const remaining = await CampaignSequenceEnrollment.countDocuments({
-    campaignId: new mongoose.Types.ObjectId(campaignId),
-    status: { $in: ["active", "paused", "deferred"] },
+  const campaignOid = new mongoose.Types.ObjectId(campaignId);
+  const campaign = await Campaign.findById(campaignOid)
+    .select("outreachChannel outreachStatus userId")
+    .lean();
+  if (!campaign || campaign.outreachStatus !== "active") return false;
+
+  const pendingAutomation = await CampaignSequenceEnrollment.countDocuments({
+    campaignId: campaignOid,
+    status: { $in: ["active", "deferred"] },
   });
-  if (remaining === 0) {
-    await Campaign.updateOne(
-      { _id: new mongoose.Types.ObjectId(campaignId) },
-      { $set: { outreachStatus: "completed" } }
-    );
-  }
+  if (pendingAutomation > 0) return false;
+
+  const pendingFinalResults = await CampaignSequenceEnrollment.countDocuments({
+    campaignId: campaignOid,
+    hasReply: true,
+    replyDisposition: { $nin: ["interested", "not_interested"] },
+  });
+  if (pendingFinalResults > 0) return false;
+
+  await Campaign.updateOne({ _id: campaignOid }, { $set: { outreachStatus: "completed" } });
+
+  const { notifyCampaignThreadUpdated } = require("../realtime/notify");
+  notifyCampaignThreadUpdated(String(campaign.userId), {
+    campaignId: String(campaignId),
+    candidateKey: "",
+    newMessages: 0,
+    hasNewCandidateReply: false,
+    source: "campaign_completed",
+    outreachStatus: "completed",
+  });
+
+  return true;
 }
 
 /**
@@ -890,11 +917,149 @@ function pct(part, total) {
   return Math.round((part / total) * 1000) / 10;
 }
 
-/**
- * Email outreach metrics for campaign Report / Activity tabs.
- * "Replied" is used instead of opens — Gmail API does not expose read receipts for outreach.
- */
-async function getEmailCampaignReport(userId, campaignId) {
+function formatReportCandidate(row, { isWhatsApp, status }) {
+  const name = String(row.contactName || "").trim() || "Unnamed contact";
+  const enrollmentStatus = status || row.status || "";
+  let detail = String(row.lastError || "").trim();
+  if (enrollmentStatus === "skipped") {
+    detail = detail || (isWhatsApp ? "No phone on file" : "No email on file");
+  } else if (enrollmentStatus === "failed") {
+    detail = detail || (isWhatsApp ? "WhatsApp send failed" : "Send failed");
+  } else if (row.replyDisposition === "interested") {
+    detail = "Interested";
+  } else if (row.replyDisposition === "not_interested") {
+    detail = "Not interested";
+  } else if (row.hasReply) {
+    detail = "Replied";
+  } else if ((row.sentCount || 0) > 0) {
+    detail = `Sent ${row.sentCount || 1} message${(row.sentCount || 0) === 1 ? "" : "s"}`;
+  }
+
+  return {
+    candidateKey: String(row.candidateKey || "").trim(),
+    name,
+    email: String(row.contactEmail || "").trim(),
+    phone: String(row.contactPhone || "").trim(),
+    role: String(row.contactRole || "").trim(),
+    company: String(row.contactCompany || "").trim(),
+    enrollmentStatus,
+    replyDisposition: String(row.replyDisposition || "unknown"),
+    sentCount: row.sentCount || 0,
+    hasReply: Boolean(row.hasReply),
+    detail,
+    lastSentAt: row.lastSentAt || null,
+    lastReplyAt: row.lastReplyAt || null,
+  };
+}
+
+function sortReportCandidates(list) {
+  return [...list].sort((a, b) =>
+    a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
+  );
+}
+
+function parseActivityPagination(options = {}) {
+  const pageRaw = Number(options.page);
+  const limitRaw = Number(options.limit);
+  const page = Number.isFinite(pageRaw) && pageRaw > 0 ? Math.floor(pageRaw) : 1;
+  const limit = Math.min(
+    50,
+    Math.max(1, Number.isFinite(limitRaw) ? Math.floor(limitRaw) : 20)
+  );
+  return { page, limit };
+}
+
+function paginateActivityList(items, page, limit) {
+  const total = items.length;
+  const totalPages = Math.max(1, Math.ceil(total / limit) || 1);
+  const safePage = Math.min(Math.max(1, page), totalPages);
+  const skip = (safePage - 1) * limit;
+  return {
+    activities: items.slice(skip, skip + limit),
+    pagination: {
+      page: safePage,
+      limit,
+      total,
+      totalPages,
+      hasMore: safePage < totalPages,
+    },
+  };
+}
+
+function buildRecentActivityFromEnrollments(enrollments, channel) {
+  const isWhatsApp = channel === "whatsapp";
+  const recentActivity = [];
+
+  for (const row of enrollments) {
+    const name = String(row.contactName || "").trim() || "Contact";
+    const status = row.status || "";
+    const contactEmail = String(row.contactEmail || "").trim();
+    const contactPhone = String(row.contactPhone || "").trim();
+
+    if (status === "failed" || status === "skipped") {
+      recentActivity.push({
+        type: status === "skipped" ? "skipped" : "failed",
+        candidateKey: row.candidateKey || "",
+        contactName: name,
+        contactEmail,
+        contactPhone,
+        at: row.updatedAt || row.lastSentAt || new Date(),
+        detail:
+          row.lastError ||
+          (status === "skipped"
+            ? isWhatsApp
+              ? "No phone on file"
+              : "No email on file"
+            : isWhatsApp
+              ? "WhatsApp send failed"
+              : "Send failed"),
+      });
+      continue;
+    }
+
+    if ((row.sentCount || 0) > 0) {
+      if (row.lastSentAt) {
+        recentActivity.push({
+          type: "sent",
+          candidateKey: row.candidateKey || "",
+          contactName: name,
+          contactEmail,
+          contactPhone,
+          at: row.lastSentAt,
+          detail: isWhatsApp
+            ? `Message ${row.sentCount || 1} sent`
+            : `Step ${row.sentCount || 1} sent`,
+        });
+      }
+      if (row.hasReply && row.lastReplyAt) {
+        recentActivity.push({
+          type:
+            row.replyDisposition === "interested"
+              ? "interested"
+              : row.replyDisposition === "not_interested"
+                ? "not_interested"
+                : "reply",
+          candidateKey: row.candidateKey || "",
+          contactName: name,
+          contactEmail,
+          contactPhone,
+          at: row.lastReplyAt,
+          detail:
+            row.replyDisposition === "interested"
+              ? "Marked interested"
+              : row.replyDisposition === "not_interested"
+                ? "Marked not interested"
+                : "Candidate replied",
+        });
+      }
+    }
+  }
+
+  recentActivity.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+  return recentActivity;
+}
+
+async function loadCampaignReportEnrollments(userId, campaignId) {
   const campaign = await Campaign.findOne({
     _id: new mongoose.Types.ObjectId(campaignId),
     userId: userOid(userId),
@@ -915,96 +1080,86 @@ async function getEmailCampaignReport(userId, campaignId) {
       .trim()
       .includes("@")
   ).length;
-
-  if (channel === "whatsapp") {
-    return {
-      channel,
-      campaignName: campaign.name || "",
-      outreachStatus: campaign.outreachStatus || "idle",
-      totalContacts,
-      contactsWithEmail: 0,
-      enrolled: 0,
-      sent: 0,
-      replied: 0,
-      interested: 0,
-      notInterested: 0,
-      notDelivered: 0,
-      awaitingReply: 0,
-      matrix: [],
-      recentActivity: [],
-      note: "Switch to the WhatsApp tab for WhatsApp delivery and read metrics.",
-    };
-  }
+  const contactsWithPhone = (campaign.contacts || []).filter((c) =>
+    Boolean(String(c.phone || "").trim())
+  ).length;
 
   const enrollments = await CampaignSequenceEnrollment.find({
     campaignId: campaign._id,
     userId: userOid(userId),
   })
     .select(
-      "candidateKey contactName contactEmail status sentCount hasReply replyDisposition lastSentAt lastReplyAt lastError updatedAt"
+      "candidateKey contactName contactEmail contactPhone contactRole contactCompany status sentCount hasReply replyDisposition lastSentAt lastReplyAt lastError updatedAt"
     )
     .lean();
 
+  return {
+    channel,
+    campaign,
+    enrollments,
+    totalContacts,
+    contactsWithEmail,
+    contactsWithPhone,
+  };
+}
+
+function buildCampaignReportFromEnrollments({
+  channel,
+  campaign,
+  enrollments,
+  totalContacts,
+  contactsWithEmail,
+  contactsWithPhone,
+}) {
+  const isWhatsApp = channel === "whatsapp";
   let sent = 0;
   let notDelivered = 0;
   let replied = 0;
   let interested = 0;
   let notInterested = 0;
 
-  const recentActivity = [];
+  const breakdown = {
+    sent: [],
+    replied: [],
+    interested: [],
+    not_interested: [],
+    not_delivered: [],
+    awaiting_reply: [],
+  };
 
   for (const row of enrollments) {
     const name = String(row.contactName || "").trim() || "Contact";
     const status = row.status || "";
+    const contactEmail = String(row.contactEmail || "").trim();
+    const contactPhone = String(row.contactPhone || "").trim();
 
     if (status === "failed" || status === "skipped") {
       notDelivered += 1;
-      recentActivity.push({
-        type: status === "skipped" ? "skipped" : "failed",
-        candidateKey: row.candidateKey || "",
-        contactName: name,
-        contactEmail: row.contactEmail || "",
-        at: row.updatedAt || row.lastSentAt || new Date(),
-        detail: row.lastError || (status === "skipped" ? "No email on file" : "Send failed"),
-      });
+      breakdown.not_delivered.push(
+        formatReportCandidate(row, { isWhatsApp, status })
+      );
       continue;
     }
 
     if ((row.sentCount || 0) > 0) {
       sent += 1;
-      if (row.hasReply) replied += 1;
-      if (row.replyDisposition === "interested") interested += 1;
-      if (row.replyDisposition === "not_interested") notInterested += 1;
+      const candidate = formatReportCandidate(row, { isWhatsApp, status });
+      breakdown.sent.push(candidate);
 
-      if (row.lastSentAt) {
-        recentActivity.push({
-          type: "sent",
-          candidateKey: row.candidateKey || "",
-          contactName: name,
-          contactEmail: row.contactEmail || "",
-          at: row.lastSentAt,
-          detail: `Step ${row.sentCount || 1} sent`,
-        });
+      if (row.hasReply) {
+        replied += 1;
+        breakdown.replied.push(candidate);
+      } else {
+        breakdown.awaiting_reply.push(candidate);
       }
-      if (row.hasReply && row.lastReplyAt) {
-        recentActivity.push({
-          type:
-            row.replyDisposition === "interested"
-              ? "interested"
-              : row.replyDisposition === "not_interested"
-                ? "not_interested"
-                : "reply",
-          candidateKey: row.candidateKey || "",
-          contactName: name,
-          contactEmail: row.contactEmail || "",
-          at: row.lastReplyAt,
-          detail:
-            row.replyDisposition === "interested"
-              ? "Marked interested"
-              : row.replyDisposition === "not_interested"
-                ? "Marked not interested"
-                : "Candidate replied",
-        });
+
+      if (row.replyDisposition === "interested") {
+        interested += 1;
+        breakdown.interested.push(candidate);
+      }
+      if (row.replyDisposition === "not_interested") {
+        notInterested += 1;
+        breakdown.not_interested.push(candidate);
       }
     }
   }
@@ -1018,47 +1173,60 @@ async function getEmailCampaignReport(userId, campaignId) {
       label: "Sent",
       count: sent,
       rate: sentDenom > 0 ? 100 : 0,
-      description: "Contacts who received at least one sequence email",
+      description: isWhatsApp
+        ? "Contacts who received at least one WhatsApp message"
+        : "Contacts who received at least one sequence email",
     },
     {
       key: "replied",
       label: "Replied",
       count: replied,
       rate: pct(replied, sentDenom),
-      description:
-        "Candidates who replied (Gmail does not provide open/read tracking for outreach)",
+      description: isWhatsApp
+        ? "Candidates who replied on WhatsApp"
+        : "Candidates who replied (Gmail does not provide open/read tracking for outreach)",
     },
     {
       key: "interested",
       label: "Interested",
       count: interested,
       rate: pct(interested, sentDenom),
-      description: "Replies classified as interested",
+      description: isWhatsApp
+        ? "Candidates classified as interested (AI qualification or manual outcome)"
+        : "Replies classified as interested",
     },
     {
       key: "not_interested",
       label: "Not interested",
       count: notInterested,
       rate: pct(notInterested, sentDenom),
-      description: "Replies classified as not interested",
+      description: isWhatsApp
+        ? "Candidates classified as not interested"
+        : "Replies classified as not interested",
     },
     {
       key: "not_delivered",
       label: "Not delivered",
       count: notDelivered,
       rate: pct(notDelivered, enrollments.length || totalContacts),
-      description: "Skipped (no email) or failed to send",
+      description: isWhatsApp
+        ? "Skipped (no phone) or failed to send"
+        : "Skipped (no email) or failed to send",
     },
     {
       key: "awaiting_reply",
       label: "Awaiting reply",
       count: awaitingReply,
       rate: pct(awaitingReply, sentDenom),
-      description: "Sent at least one email but no reply yet",
+      description: isWhatsApp
+        ? "Sent at least one message but no reply yet"
+        : "Sent at least one email but no reply yet",
     },
   ];
 
-  recentActivity.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+  for (const key of Object.keys(breakdown)) {
+    breakdown[key] = sortReportCandidates(breakdown[key]);
+  }
 
   return {
     channel,
@@ -1067,6 +1235,7 @@ async function getEmailCampaignReport(userId, campaignId) {
     outreachStartedAt: campaign.outreachStartedAt || null,
     totalContacts,
     contactsWithEmail,
+    contactsWithPhone,
     enrolled: enrollments.length,
     sent,
     replied,
@@ -1075,8 +1244,35 @@ async function getEmailCampaignReport(userId, campaignId) {
     notDelivered,
     awaitingReply,
     matrix,
-    recentActivity: recentActivity.slice(0, 50),
+    breakdown,
     note: null,
+  };
+}
+
+/**
+ * Outreach metrics for campaign Report / Activity tabs (Gmail and WhatsApp).
+ * "Replied" is used instead of opens — Gmail API does not expose read receipts for outreach.
+ */
+async function getEmailCampaignReport(userId, campaignId) {
+  const ctx = await loadCampaignReportEnrollments(userId, campaignId);
+  return buildCampaignReportFromEnrollments(ctx);
+}
+
+/**
+ * Paginated outreach activity for the Activity tab.
+ */
+async function getEmailCampaignReportActivity(userId, campaignId, options = {}) {
+  const { page, limit } = parseActivityPagination(options);
+  const ctx = await loadCampaignReportEnrollments(userId, campaignId);
+  const allActivities = buildRecentActivityFromEnrollments(ctx.enrollments, ctx.channel);
+  const { activities, pagination } = paginateActivityList(allActivities, page, limit);
+
+  return {
+    channel: ctx.channel,
+    campaignName: ctx.campaign.name || "",
+    outreachStatus: ctx.campaign.outreachStatus || "idle",
+    activities,
+    pagination,
   };
 }
 
@@ -1095,7 +1291,9 @@ module.exports = {
   resumeCampaignSequence,
   getSequenceStatus,
   getEmailCampaignReport,
+  getEmailCampaignReportActivity,
   processDueEnrollments,
+  maybeCompleteCampaign,
   deleteEnrollmentsForCampaign,
   formatEnrollment,
 };

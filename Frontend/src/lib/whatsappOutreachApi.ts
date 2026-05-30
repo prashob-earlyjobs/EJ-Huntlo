@@ -1,10 +1,21 @@
 import { authHeaders } from "@/lib/auth";
 import type { WhatsAppTouchpointDraft } from "@/lib/whatsappOutreach";
 
+export type WhatsAppCalendlyAutomation = {
+  enabled: boolean;
+  meetingUri?: string;
+  meetingName?: string;
+  schedulingUrl?: string;
+  durationMinutes?: number;
+  kind?: string;
+};
+
 export type WhatsAppOutreachPlanRecord = {
   id: string;
   channel: "whatsapp";
   name: string;
+  jobDescription?: string;
+  calendlyAutomation?: WhatsAppCalendlyAutomation;
   touchpoints: WhatsAppTouchpointDraft[];
   touchpointCount?: number;
   createdAt?: string;
@@ -40,7 +51,28 @@ function parsePlan(raw: unknown): WhatsAppOutreachPlanRecord | null {
   const touchpoints = Array.isArray(o.touchpoints)
     ? o.touchpoints.map(parseTouchpoint).filter((t): t is WhatsAppTouchpointDraft => t !== null)
     : [];
-  return { id, channel: "whatsapp", name, touchpoints };
+  const jobDescription =
+    typeof o.jobDescription === "string" ? o.jobDescription.trim() : undefined;
+  let calendlyAutomation: WhatsAppCalendlyAutomation | undefined;
+  if (o.calendlyAutomation && typeof o.calendlyAutomation === "object") {
+    const c = o.calendlyAutomation as Record<string, unknown>;
+    calendlyAutomation = {
+      enabled: Boolean(c.enabled),
+      ...(typeof c.meetingUri === "string" ? { meetingUri: c.meetingUri } : {}),
+      ...(typeof c.meetingName === "string" ? { meetingName: c.meetingName } : {}),
+      ...(typeof c.schedulingUrl === "string" ? { schedulingUrl: c.schedulingUrl } : {}),
+      ...(typeof c.durationMinutes === "number" ? { durationMinutes: c.durationMinutes } : {}),
+      ...(typeof c.kind === "string" ? { kind: c.kind } : {}),
+    };
+  }
+  return {
+    id,
+    channel: "whatsapp",
+    name,
+    ...(jobDescription ? { jobDescription } : {}),
+    ...(calendlyAutomation ? { calendlyAutomation } : {}),
+    touchpoints,
+  };
 }
 
 export async function fetchWhatsAppOutreachPlan(
@@ -67,6 +99,8 @@ export async function saveWhatsAppOutreachPlan(
     planId?: string | "new";
     name: string;
     touchpoints: WhatsAppTouchpointDraft[];
+    jobDescription?: string;
+    calendlyAutomation?: WhatsAppCalendlyAutomation;
   }
 ): Promise<WhatsAppOutreachPlanRecord> {
   const isNew = !payload.planId || payload.planId === "new";
@@ -80,6 +114,12 @@ export async function saveWhatsAppOutreachPlan(
       name: payload.name,
       channel: "whatsapp",
       touchpoints: payload.touchpoints,
+      ...(payload.jobDescription !== undefined
+        ? { jobDescription: payload.jobDescription }
+        : {}),
+      ...(payload.calendlyAutomation !== undefined
+        ? { calendlyAutomation: payload.calendlyAutomation }
+        : {}),
     }),
   });
   const data = await res.json().catch(() => ({}));

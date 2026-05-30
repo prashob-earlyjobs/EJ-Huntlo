@@ -8,6 +8,7 @@ import {
   CampaignWorkspace,
 } from "@/components/dashboard/CampaignWorkspace";
 import { CampaignsListSkeleton } from "@/components/dashboard/CampaignsListSkeleton";
+import { CampaignsListTable } from "@/components/dashboard/CampaignsListTable";
 import { CampaignWorkspaceSkeleton } from "@/components/dashboard/CampaignWorkspaceSkeleton";
 import {
   CreateCampaignModal,
@@ -15,56 +16,23 @@ import {
 } from "@/components/dashboard/CreateCampaignModal";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import type { CampaignRecord } from "@/lib/campaigns";
-import { fetchCampaign } from "@/lib/campaignsApi";
+import { fetchCampaign, type CampaignsListSummary } from "@/lib/campaignsApi";
 import { getStoredAuth } from "@/lib/auth";
+import type { ReportMetricKey } from "@/lib/campaignEmailReport";
 import {
   parseCampaignWorkspaceTabFromPathname,
+  pathForCampaignReportMetric,
+  pathForCampaignWhatsAppConversation,
   pathForCampaignWorkspace,
   pathForCampaignsList,
-  replaceCampaignWorkspaceUrl,
   type CampaignWorkspaceTab,
 } from "@/lib/campaignRoutes";
+import { dashboardBtnSecondaryClass } from "@/lib/dashboardStyles";
 
 const ENTERPRISE_PLAN_ID = "enterprise";
 const ENTERPRISE_LOCKED_MESSAGE =
   "Campaigns are available on the Enterprise plan. Upgrade to organize and run outreach campaigns.";
-function formatCampaignStatus(status?: CampaignRecord["outreachStatus"]) {
-  if (status === "active") {
-    return {
-      label: "Active",
-      className: "bg-emerald-50 text-emerald-700",
-    };
-  }
-  if (status === "paused") {
-    return {
-      label: "Paused",
-      className: "bg-amber-50 text-amber-800",
-    };
-  }
-  if (status === "completed") {
-    return {
-      label: "Completed",
-      className: "bg-slate-100 text-slate-700",
-    };
-  }
-  return {
-    label: "Draft",
-    className: "bg-blue-50 text-blue-700",
-  };
-}
 
-function formatCampaignChannel(channel?: CampaignRecord["outreachChannel"]) {
-  if (channel === "whatsapp") {
-    return {
-      label: "WhatsApp",
-      className: "bg-green-50 text-green-700",
-    };
-  }
-  return {
-    label: "Email",
-    className: "bg-indigo-50 text-indigo-700",
-  };
-}
 type Props = {
   currentPlanId: string;
   /** False until /api/users/me (or dashboard overview) has set the real plan id. */
@@ -73,13 +41,17 @@ type Props = {
   onGoToIntegrations?: () => void;
   campaigns: CampaignRecord[];
   campaignsLoading?: boolean;
-  campaignsLoadingMore?: boolean;
-  campaignsHasMore?: boolean;
-  onLoadMoreCampaigns?: () => Promise<void> | void;
+  campaignsPage?: number;
+  campaignsTotal?: number;
+  campaignsTotalPages?: number;
+  campaignsSummary?: CampaignsListSummary;
+  onCampaignsPageChange?: (page: number) => void;
   onCreateCampaign: (name: string) => Promise<CampaignRecord | null>;
   onCampaignUpdated?: (campaign: CampaignRecord) => void;
   routeCampaignId?: string;
   routeWorkspaceTab?: CampaignWorkspaceTab;
+  routeReportMetric?: ReportMetricKey | null;
+  routeWhatsAppContactKey?: string | null;
   onAddFromSearchHistory?: () => void;
 };
 
@@ -90,13 +62,17 @@ export function CampaignsPanel({
   onGoToIntegrations,
   campaigns,
   campaignsLoading = false,
-  campaignsLoadingMore = false,
-  campaignsHasMore = false,
-  onLoadMoreCampaigns,
+  campaignsPage = 1,
+  campaignsTotal = 0,
+  campaignsTotalPages = 1,
+  campaignsSummary = { total: 0, active: 0, contacts: 0 },
+  onCampaignsPageChange,
   onCreateCampaign,
   onCampaignUpdated,
   routeCampaignId = "",
   routeWorkspaceTab = "Editor",
+  routeReportMetric = null,
+  routeWhatsAppContactKey = null,
   onAddFromSearchHistory,
 }: Props) {
   const router = useRouter();
@@ -110,9 +86,7 @@ export function CampaignsPanel({
   const [fetchCampaignError, setFetchCampaignError] = useState("");
   const [workspaceTab, setWorkspaceTab] =
     useState<CampaignWorkspaceTab>(routeWorkspaceTab);
-  const [listReady, setListReady] = useState(false);
   const listScrollRef = useRef<HTMLDivElement | null>(null);
-  const loadMoreRef = useRef<HTMLLIElement | null>(null);
 
   const activeCampaignId = routeCampaignId.trim() || null;
   const listCampaign =
@@ -191,51 +165,15 @@ export function CampaignsPanel({
     !resolvedCampaign &&
     (campaignsLoading || fetchCampaignLoading || !fetchCampaignAttempted);
 
-  useEffect(() => {
-    if (!campaignsLoading) setListReady(true);
-  }, [campaignsLoading]);
-
-  /** Shimmer until plan is known, campaigns load, or list has hydrated once. */
+  /** Full skeleton only on first load (no campaigns yet). */
   const showListShimmer =
-    !planResolved ||
-    campaignsLoading ||
-    (isEnterprise && !listReady);
+    !planResolved || (campaignsLoading && campaignsTotal === 0 && isEnterprise);
 
   const showEnterpriseLocked =
-    planResolved && !isEnterprise && !campaignsLoading && campaigns.length === 0;
-  const hasMoreCampaigns = Boolean(campaignsHasMore);
-
-  useEffect(() => {
-    if (!hasMoreCampaigns || !onLoadMoreCampaigns || campaignsLoadingMore) return;
-    const root = listScrollRef.current;
-    const target = loadMoreRef.current;
-    if (!root || !target) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) {
-            onLoadMoreCampaigns();
-            break;
-          }
-        }
-      },
-      {
-        root,
-        rootMargin: "0px 0px 240px 0px",
-        threshold: 0.01,
-      }
-    );
-    observer.observe(target);
-    return () => observer.disconnect();
-  }, [hasMoreCampaigns, onLoadMoreCampaigns, campaignsLoadingMore]);
-
-  useEffect(() => {
-    const root = listScrollRef.current;
-    if (!root || !hasMoreCampaigns || !onLoadMoreCampaigns || campaignsLoadingMore) return;
-    if (root.scrollHeight > root.clientHeight) return;
-    onLoadMoreCampaigns();
-  }, [hasMoreCampaigns, onLoadMoreCampaigns, campaignsLoadingMore, campaigns.length]);
+    planResolved && !isEnterprise && !campaignsLoading && campaignsTotal === 0;
+  const showEmptyList =
+    planResolved && isEnterprise && !campaignsLoading && campaignsTotal === 0;
+  const showPagination = campaignsTotalPages > 1;
 
   useEffect(() => {
     setWorkspaceTab(routeWorkspaceTab);
@@ -250,14 +188,41 @@ export function CampaignsPanel({
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
+  useEffect(() => {
+    listScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  }, [campaignsPage]);
+
   const selectWorkspaceTab = useCallback(
     (tab: CampaignWorkspaceTab) => {
       setWorkspaceTab(tab);
       if (resolvedCampaign) {
-        replaceCampaignWorkspaceUrl(resolvedCampaign.id, tab);
+        router.push(pathForCampaignWorkspace(resolvedCampaign.id, tab));
       }
     },
-    [resolvedCampaign]
+    [resolvedCampaign, router]
+  );
+
+  const openReportMetric = useCallback(
+    (metric: ReportMetricKey) => {
+      if (!resolvedCampaign) return;
+      router.push(pathForCampaignReportMetric(resolvedCampaign.id, metric));
+    },
+    [resolvedCampaign, router]
+  );
+
+  const closeReportMetric = useCallback(() => {
+    if (!resolvedCampaign) return;
+    router.push(pathForCampaignWorkspace(resolvedCampaign.id, "Report"));
+  }, [resolvedCampaign, router]);
+
+  const openWhatsAppConversation = useCallback(
+    (candidateKey: string) => {
+      const key = candidateKey.trim();
+      if (!resolvedCampaign || !key) return;
+      setWorkspaceTab("WhatsApp");
+      router.push(pathForCampaignWhatsAppConversation(resolvedCampaign.id, key));
+    },
+    [resolvedCampaign, router]
   );
 
   const openCampaign = useCallback(
@@ -266,6 +231,14 @@ export function CampaignsPanel({
       router.push(pathForCampaignWorkspace(campaignId, tab));
     },
     [router]
+  );
+
+  const handleCampaignUpdated = useCallback(
+    (updated: CampaignRecord) => {
+      setFetchedCampaign((prev) => (prev?.id === updated.id ? updated : prev));
+      onCampaignUpdated?.(updated);
+    },
+    [onCampaignUpdated]
   );
 
   const openCreateModal = () => {
@@ -330,9 +303,14 @@ export function CampaignsPanel({
           <CampaignWorkspace
             campaign={resolvedCampaign}
             workspaceTab={workspaceTab}
+            reportMetric={routeReportMetric}
             onWorkspaceTabChange={selectWorkspaceTab}
+            onOpenReportMetric={openReportMetric}
+            onCloseReportMetric={closeReportMetric}
+            onViewWhatsAppConversation={openWhatsAppConversation}
+            whatsappContactKey={routeWhatsAppContactKey}
             onBack={() => router.push(pathForCampaignsList())}
-            onCampaignUpdated={onCampaignUpdated}
+            onCampaignUpdated={handleCampaignUpdated}
             onGoToIntegrations={onGoToIntegrations}
             onAddFromSearchHistory={onAddFromSearchHistory}
           />
@@ -342,33 +320,49 @@ export function CampaignsPanel({
     );
   }
 
+  const campaignCountLabel = `${campaignsTotal.toLocaleString()} campaign${
+    campaignsTotal === 1 ? "" : "s"
+  }`;
+
   return (
     <>
-      <section className="dashboard-card dashboard-card--fill flex h-full min-w-0 max-w-full w-full flex-col p-6">
-        <div className="dashboard-card-panel-header flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h3 className="dashboard-section-title flex items-center gap-2">
-              <MaterialIcon name="flag" className="text-xl text-[#0050cb]" />
-              Campaigns
-            </h3>
-            <p className="dashboard-text-body mt-1">
-              Organize outreach sequences and contacts into reusable campaigns.
-            </p>
+      <section className="dashboard-card dashboard-card--fill dashboard-campaigns-panel flex h-full min-w-0 max-w-full w-full flex-col">
+        <div className="dashboard-card-panel-header dashboard-campaigns-panel-header">
+          <div className="dashboard-results-toolbar">
+            <div className="min-w-0 flex-1">
+              <h3 className="dashboard-section-title flex items-center gap-2">
+                <MaterialIcon name="flag" className="text-xl text-[#0050cb]" />
+                Campaigns
+              </h3>
+              <p className="dashboard-text-body mt-1">
+                Organize outreach sequences and contacts into reusable campaigns.
+              </p>
+            </div>
+            <div className="dashboard-results-toolbar-actions">
+              {!showListShimmer && campaignsTotal > 0 ? (
+                <span
+                  className="dashboard-results-toolbar-badge tabular-nums"
+                  title={campaignCountLabel}
+                >
+                  {campaignCountLabel}
+                </span>
+              ) : null}
+              <button
+                type="button"
+                disabled={!planResolved || !isEnterprise}
+                onClick={openCreateModal}
+                className="dashboard-btn-primary shrink-0 px-3 py-1.5 text-xs disabled:opacity-55"
+              >
+                <MaterialIcon name="add" className="text-sm" />
+                New campaign
+              </button>
+            </div>
           </div>
-          <button
-            type="button"
-            disabled={!planResolved || !isEnterprise}
-            onClick={openCreateModal}
-            className="dashboard-btn-primary shrink-0 px-3 py-1.5 text-xs disabled:opacity-55"
-          >
-            <MaterialIcon name="add" className="text-sm" />
-            New campaign
-          </button>
         </div>
 
         <div
           ref={listScrollRef}
-          className="dashboard-card-body-scroll dashboard-outreach-panel-body mt-4 flex flex-1 flex-col"
+          className="dashboard-card-body-scroll dashboard-campaigns-panel-body"
         >
           {showListShimmer ? (
             <CampaignsListSkeleton count={5} />
@@ -380,65 +374,77 @@ export function CampaignsPanel({
                 onClick={onViewPlans}
                 className="dashboard-btn-primary mt-3 px-4 py-2 text-sm"
               >
+                <MaterialIcon name="workspace_premium" className="text-base" />
                 View Enterprise plan
               </button>
             </div>
-          ) : campaigns.length === 0 ? (
-            <div className="flex flex-1 flex-col items-center justify-center gap-2 py-12 text-center">
-              <MaterialIcon name="flag" className="text-4xl text-slate-400" />
-              <p className="text-base font-semibold text-[#141b2b]">No campaigns yet</p>
-              <p className="dashboard-text-body max-w-sm">
-                Create a campaign to group outreach plans and track sends across your pipeline.
+          ) : showEmptyList ? (
+            <div className="dashboard-empty-state">
+              <div className="dashboard-empty-state-icon">
+                <MaterialIcon name="flag" className="text-[28px]" />
+              </div>
+              <p className="mt-4 text-base font-semibold text-[#141b2b]">No campaigns yet</p>
+              <p className="mt-2 max-w-sm text-sm text-[#424656]">
+                Create a campaign to group outreach plans, contacts, and performance across your
+                pipeline.
               </p>
+              {isEnterprise ? (
+                <button
+                  type="button"
+                  onClick={openCreateModal}
+                  className="dashboard-btn-primary mt-6"
+                >
+                  <MaterialIcon name="add" className="text-base" />
+                  New campaign
+                </button>
+              ) : (
+                <button type="button" onClick={onViewPlans} className="dashboard-btn-primary mt-6">
+                  <MaterialIcon name="workspace_premium" className="text-base" />
+                  View Enterprise plan
+                </button>
+              )}
             </div>
           ) : (
-            <ul className="flex flex-col gap-2">
-              {campaigns.map((campaign) => {
-                const statusMeta = formatCampaignStatus(campaign.outreachStatus);
-                const channelMeta = formatCampaignChannel(campaign.outreachChannel);
-                return (
-                  <li key={campaign.id}>
-                    <button
-                      type="button"
-                      onClick={() => openCampaign(campaign.id, "Editor")}
-                      className="flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left transition hover:border-[#0050cb]/40 hover:bg-[#f8f9ff]"
-                    >
-                      <span
-                        className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-[#0050cb]/15 bg-[#0050cb]/10 text-[#0050cb]"
-                        aria-hidden
-                      >
-                        <MaterialIcon name="flag" className="text-xl" />
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-semibold text-[#141b2b]">{campaign.name}</p>
-                        <p className="truncate text-xs text-slate-500">
-                          {campaign.contacts.length} contact
-                          {campaign.contacts.length === 1 ? "" : "s"}
-                        </p>
-                      </div>
-                      <span
-                        className={`inline-flex shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${statusMeta.className}`}
-                      >
-                        {statusMeta.label}
-                      </span>
-                      <span
-                        className={`inline-flex shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${channelMeta.className}`}
-                      >
-                        {channelMeta.label}
-                      </span>
-                      <MaterialIcon name="chevron_right" className="shrink-0 text-slate-400" aria-hidden />
-                    </button>
-                  </li>
-                );
-              })}
-              {hasMoreCampaigns ? (
-                <li ref={loadMoreRef} aria-hidden className="py-2">
-                  <div className="dashboard-shimmer h-10 w-full rounded-lg" />
-                </li>
-              ) : null}
-            </ul>
+            <CampaignsListTable
+              campaigns={campaigns}
+              summary={campaignsSummary}
+              loading={campaignsLoading}
+              onOpenCampaign={(id) => openCampaign(id, "Editor")}
+            />
           )}
         </div>
+
+        {showPagination && !showListShimmer && !showEmptyList && !showEnterpriseLocked ? (
+          <div className="dashboard-campaigns-pagination dashboard-pagination shrink-0">
+            <p className="dashboard-pagination-label tabular-nums">
+              Page {campaignsPage} of {campaignsTotalPages}
+              <span className="text-[#424656]/80">
+                {" "}
+                · {campaignsTotal.toLocaleString()} total
+              </span>
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={campaignsLoading || campaignsPage <= 1}
+                onClick={() => onCampaignsPageChange?.(campaignsPage - 1)}
+                className={`${dashboardBtnSecondaryClass} disabled:cursor-not-allowed disabled:opacity-50`}
+              >
+                <MaterialIcon name="chevron_left" className="text-base" />
+                Previous
+              </button>
+              <button
+                type="button"
+                disabled={campaignsLoading || campaignsPage >= campaignsTotalPages}
+                onClick={() => onCampaignsPageChange?.(campaignsPage + 1)}
+                className={`${dashboardBtnSecondaryClass} disabled:cursor-not-allowed disabled:opacity-50`}
+              >
+                Next
+                <MaterialIcon name="chevron_right" className="text-base" />
+              </button>
+            </div>
+          </div>
+        ) : null}
       </section>
 
       {createModal}

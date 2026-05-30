@@ -7,6 +7,7 @@ const UserIntegration = require("../models/UserIntegration");
 const { sendGmailMessage, buildReplySubject } = require("./gmailSendService");
 const { generateCampaignAutoReply } = require("./outreachReplyAiService");
 const { notifyCampaignThreadUpdated } = require("../realtime/notify");
+const { maybeCompleteCampaign } = require("./campaignOutreachSendService");
 const { getAiConfig } = require("../config/ai");
 
 const MAX_AUTO_REPLIES = Math.max(
@@ -76,18 +77,20 @@ function ensureCalendlyLinkInReply(replyBody, calendlyAutomation) {
 async function loadAutoReplyContext(enrollment) {
   const userId = String(enrollment.userId);
   const campaign = await Campaign.findById(enrollment.campaignId)
-    .select("name outreachPlanId")
+    .select("name outreachPlanId calendlyAutomation")
     .lean();
 
   let planSummary = "";
-  let calendlyAutomation = { enabled: false, meetingName: "", schedulingUrl: "" };
+  let calendlyAutomation = normalizeCalendlyAutomation(campaign?.calendlyAutomation);
   if (campaign?.outreachPlanId) {
     const plan = await OutreachPlan.findById(campaign.outreachPlanId)
       .select("name touchpoints calendlyAutomation")
       .lean();
     if (plan) {
       planSummary = `Plan: ${plan.name || ""}\n${summarizePlanTouchpoints(plan.touchpoints)}`;
-      calendlyAutomation = normalizeCalendlyAutomation(plan.calendlyAutomation);
+      if (!calendlyAutomation.enabled) {
+        calendlyAutomation = normalizeCalendlyAutomation(plan.calendlyAutomation);
+      }
     }
   }
 
@@ -203,6 +206,9 @@ async function maybeAutoReplyAfterCandidateMessage({
           },
         }
       );
+      void maybeCompleteCampaign(String(enrollment.campaignId)).catch((err) => {
+        console.error("[outreach-auto-reply] maybeCompleteCampaign failed:", err?.message || err);
+      });
     }
     return { sent: false, reason: "no_reply_body", disposition: ai.disposition };
   }
@@ -270,6 +276,12 @@ async function maybeAutoReplyAfterCandidateMessage({
     hasNewCandidateReply: false,
     source: "auto_reply",
   });
+
+  if (isFinalDisposition(ai.disposition)) {
+    void maybeCompleteCampaign(String(enrollment.campaignId)).catch((err) => {
+      console.error("[outreach-auto-reply] maybeCompleteCampaign failed:", err?.message || err);
+    });
+  }
 
   return {
     sent: true,

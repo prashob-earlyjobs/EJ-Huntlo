@@ -17,6 +17,18 @@ const campaignContactSchema = new mongoose.Schema(
   { _id: true }
 );
 
+const calendlyAutomationSchema = new mongoose.Schema(
+  {
+    enabled: { type: Boolean, default: false },
+    meetingUri: { type: String, trim: true, default: "" },
+    meetingName: { type: String, trim: true, default: "" },
+    schedulingUrl: { type: String, trim: true, default: "" },
+    durationMinutes: { type: Number, default: 0, min: 0 },
+    kind: { type: String, trim: true, default: "" },
+  },
+  { _id: false }
+);
+
 const campaignSchema = new mongoose.Schema(
   {
     userId: {
@@ -26,6 +38,13 @@ const campaignSchema = new mongoose.Schema(
       index: true,
     },
     name: { type: String, trim: true, required: true },
+    /** Role context for AI replies and the Job description workspace tab. */
+    jobDescription: { type: String, default: "" },
+    /** Per-campaign Calendly link for AI auto-replies (email interested flow). */
+    calendlyAutomation: {
+      type: calendlyAutomationSchema,
+      default: () => ({ enabled: false }),
+    },
     outreachPlanId: {
       type: mongoose.Schema.Types.ObjectId,
       default: null,

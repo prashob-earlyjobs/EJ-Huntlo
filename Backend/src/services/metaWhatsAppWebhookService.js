@@ -7,7 +7,10 @@ const { normalizeToE164 } = require("./whatsappPhoneUtils");
 const { notifyCampaignThreadUpdated } = require("../realtime/notify");
 const { applyMergeFields } = require("./outreachMergeService");
 const { sendWhatsAppSessionMessage } = require("./whatsappSendService");
-const { maybeHandleWhatsAppAiQualification } = require("./whatsappQualificationAiService");
+const {
+  maybeHandleWhatsAppAiQualification,
+  isWhatsAppAiEnabled,
+} = require("./whatsappQualificationAiService");
 
 function toArray(value) {
   return Array.isArray(value) ? value : [];
@@ -290,19 +293,21 @@ async function handleInboundMessage({ metadataPhoneNumberId, message }) {
     bodyPreview: bodyPreview || "(empty)",
   });
 
-  const followUpResult = await maybeSendReplyFollowUp(enrollment).catch((err) => {
-    console.error("[meta-webhook] reply-followup failed", err?.message || err);
-    return { sent: false };
-  });
+  if (!isWhatsAppAiEnabled()) {
+    const followUpResult = await maybeSendReplyFollowUp(enrollment).catch((err) => {
+      console.error("[meta-webhook] reply-followup failed", err?.message || err);
+      return { sent: false };
+    });
 
-  if (followUpResult.sent) {
-    return {
-      kind: "inbound",
-      action: "stored",
-      externalMessageId,
-      enrollmentId: String(enrollment._id),
-      campaignId: String(enrollment.campaignId),
-    };
+    if (followUpResult.sent) {
+      return {
+        kind: "inbound",
+        action: "stored",
+        externalMessageId,
+        enrollmentId: String(enrollment._id),
+        campaignId: String(enrollment.campaignId),
+      };
+    }
   }
 
   try {

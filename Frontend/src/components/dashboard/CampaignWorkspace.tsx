@@ -16,8 +16,11 @@ import {
   type ExistingOutreachPlanOption,
 } from "@/components/dashboard/OutreachSequencePicker";
 import { CampaignEmailReportPanel } from "@/components/dashboard/CampaignEmailReportPanel";
+import { CampaignJobDescriptionPanel } from "@/components/dashboard/CampaignJobDescriptionPanel";
 import { CampaignContactsSkeleton } from "@/components/dashboard/CampaignContactsSkeleton";
 import { CampaignWhatsAppCommunicationsPanel } from "@/components/dashboard/CampaignWhatsAppCommunicationsPanel";
+import { CampaignWorkspaceEmptyState } from "@/components/dashboard/CampaignWorkspaceEmptyState";
+import { ImportCampaignContactsCsvModal } from "@/components/dashboard/ImportCampaignContactsCsvModal";
 import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
 import { OutreachSequencePickerSkeleton } from "@/components/dashboard/OutreachSequencePickerSkeleton";
 import { OutreachPlanEditor } from "@/components/dashboard/OutreachPlanEditor";
@@ -26,6 +29,7 @@ import { WhatsAppOutreachEditor } from "@/components/dashboard/WhatsAppOutreachE
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { authHeaders, getStoredAuth } from "@/lib/auth";
 import type { CampaignContact, CampaignRecord } from "@/lib/campaigns";
+import type { ReportMetricKey } from "@/lib/campaignEmailReport";
 import {
   getActiveCampaignRevealJob,
   pollCampaignRevealJob,
@@ -41,6 +45,8 @@ import {
   resumeCampaignSequence,
   setCampaignOutreachPlan,
   syncCampaignRevealedContacts,
+  updateCampaignCalendlyAutomation,
+  updateCampaignJobDescription,
 } from "@/lib/campaignsApi";
 import {
   type ContactEmailThreadResult,
@@ -48,7 +54,11 @@ import {
   syncCampaignReplies,
 } from "@/lib/campaignEmailThread";
 import { useCampaignThreadRealtime } from "@/lib/realtime/useCampaignThreadRealtime";
-import { dashboardBtnPrimaryClass, dashboardBtnSecondaryClass } from "@/lib/dashboardStyles";
+import {
+  dashboardBtnPrimaryClass,
+  dashboardBtnSecondaryClass,
+  dashboardInputClass,
+} from "@/lib/dashboardStyles";
 import {
   CAMPAIGN_WORKSPACE_TABS,
   type CampaignWorkspaceTab,
@@ -64,6 +74,7 @@ import {
 } from "@/lib/whatsappOutreach";
 import {
   fetchWhatsAppOutreachPlan,
+  saveWhatsAppOutreachPlan,
   type WhatsAppOutreachPlanRecord,
 } from "@/lib/whatsappOutreachApi";
 
@@ -73,17 +84,51 @@ const COMING_SOON_TABS = new Set<CampaignWorkspaceTab>(["Settings"]);
 const CONTACTS_LIST_PAGE_SIZE = 15;
 const EMAIL_LIST_PAGE_SIZE = 15;
 
+type GmailCalendlyAutomationState = {
+  enabled?: boolean;
+  meetingUri?: string;
+  meetingName?: string;
+  schedulingUrl?: string;
+  durationMinutes?: number;
+  kind?: string;
+};
+
+function pickCampaignCalendly(
+  campaign: { calendlyAutomation?: GmailCalendlyAutomationState },
+  planCalendly?: GmailCalendlyAutomationState
+): GmailCalendlyAutomationState | undefined {
+  if (campaign.calendlyAutomation?.enabled && campaign.calendlyAutomation.schedulingUrl?.trim()) {
+    return campaign.calendlyAutomation;
+  }
+  if (planCalendly?.enabled && planCalendly.schedulingUrl?.trim()) {
+    return planCalendly;
+  }
+  return campaign.calendlyAutomation || planCalendly;
+}
+
+function campaignCalendlySchedulingUrl(
+  campaign: { calendlyAutomation?: GmailCalendlyAutomationState },
+  planUrl?: string
+): string {
+  const fromCampaign = pickCampaignCalendly(campaign)?.schedulingUrl?.trim();
+  if (fromCampaign) return fromCampaign;
+  return planUrl?.trim() || "";
+}
+
 type GmailEditorState = {
   planId: string | "new";
   planName: string;
   touchpoints: OutreachTouchpointDraft[];
   lockSchedule: boolean;
+  calendlyAutomation?: GmailCalendlyAutomationState;
 };
 
 type WhatsAppEditorState = {
   planId: string | "new";
   planName: string;
   touchpoints: WhatsAppTouchpointDraft[];
+  jobDescription?: string;
+  calendlySchedulingUrl?: string;
 };
 
 type ActiveEditor =
@@ -93,7 +138,12 @@ type ActiveEditor =
 type Props = {
   campaign: CampaignRecord;
   workspaceTab: CampaignWorkspaceTab;
+  reportMetric?: ReportMetricKey | null;
   onWorkspaceTabChange: (tab: CampaignWorkspaceTab) => void;
+  onOpenReportMetric?: (metric: ReportMetricKey) => void;
+  onCloseReportMetric?: () => void;
+  onViewWhatsAppConversation?: (candidateKey: string) => void;
+  whatsappContactKey?: string | null;
   onBack: () => void;
   onCampaignUpdated?: (campaign: CampaignRecord) => void;
   onGoToIntegrations?: () => void;
@@ -274,14 +324,18 @@ function parseCsvContacts(fileText: string): {
 export function CampaignWorkspace({
   campaign,
   workspaceTab: activeTab,
+  reportMetric = null,
   onWorkspaceTabChange,
+  onOpenReportMetric,
+  onCloseReportMetric,
+  onViewWhatsAppConversation,
+  whatsappContactKey = null,
   onBack,
   onCampaignUpdated,
   onGoToIntegrations,
   onAddFromSearchHistory,
 }: Props) {
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
-  const [starred, setStarred] = useState(false);
   const [launchBusy, setLaunchBusy] = useState(false);
   const [launchNotice, setLaunchNotice] = useState("");
   const [launchError, setLaunchError] = useState("");
@@ -307,6 +361,12 @@ export function CampaignWorkspace({
   const [threadReloadByKey, setThreadReloadByKey] = useState<Record<string, number>>({});
   const [editorPhase, setEditorPhase] = useState<"choose" | "editing">("choose");
   const [editor, setEditor] = useState<ActiveEditor | null>(null);
+  const [standaloneJobDescription, setStandaloneJobDescription] = useState(
+    () => campaign.jobDescription?.trim() || ""
+  );
+  const [jobDescriptionLoading, setJobDescriptionLoading] = useState(false);
+  const [jobDescriptionSaving, setJobDescriptionSaving] = useState(false);
+  const [jobDescriptionNotice, setJobDescriptionNotice] = useState("");
   const [editorNotice, setEditorNotice] = useState("");
   const [saveToast, setSaveToast] = useState<{
     message: string;
@@ -335,8 +395,8 @@ export function CampaignWorkspace({
   const [removeContactConfirm, setRemoveContactConfirm] = useState<CampaignContact | null>(null);
   const [revealInProgress, setRevealInProgress] = useState(false);
   const [waCommsRefreshKey, setWaCommsRefreshKey] = useState(0);
+  const [contactViewsRevision, setContactViewsRevision] = useState(0);
   const [revealStarting, setRevealStarting] = useState(false);
-  const csvFileInputRef = useRef<HTMLInputElement | null>(null);
   const [csvImportBusy, setCsvImportBusy] = useState(false);
   const [csvModalOpen, setCsvModalOpen] = useState(false);
   const [csvFileName, setCsvFileName] = useState("");
@@ -372,6 +432,16 @@ export function CampaignWorkspace({
     setContacts(campaign.contacts);
     setContactsError("");
   }, [contactsFromPropsKey, campaign.id]);
+
+  const reloadCampaignRecord = useCallback(async () => {
+    const auth = getStoredAuth();
+    if (!auth?.token) return null;
+    try {
+      return await fetchCampaign(auth.token, campaign.id);
+    } catch {
+      return null;
+    }
+  }, [campaign.id]);
 
   const reloadContacts = useCallback(async () => {
     const auth = getStoredAuth();
@@ -620,6 +690,8 @@ export function CampaignWorkspace({
     try {
       if (channel === "whatsapp") {
         const plan = await fetchWhatsAppOutreachPlan(auth.token, planId);
+        const linkedJd = plan.jobDescription?.trim() || campaign.jobDescription?.trim() || "";
+        setStandaloneJobDescription(linkedJd);
         openWhatsAppEditor({
           planId: plan.id,
           planName: plan.name || campaign.name,
@@ -627,6 +699,11 @@ export function CampaignWorkspace({
             plan.touchpoints.length > 0
               ? plan.touchpoints.map((tp) => ({ ...tp }))
               : createInitialWhatsAppSequence(),
+          jobDescription: linkedJd,
+          calendlySchedulingUrl: campaignCalendlySchedulingUrl(
+            campaign,
+            plan.calendlyAutomation?.schedulingUrl
+          ),
         });
       } else {
         const res = await fetch(`${apiBase}/api/outreach/plans/${planId}`, {
@@ -638,6 +715,7 @@ export function CampaignWorkspace({
             id: string;
             name: string;
             touchpoints: OutreachTouchpointDraft[];
+            calendlyAutomation?: GmailCalendlyAutomationState;
           };
           openGmailEditor({
             planId: plan.id,
@@ -647,6 +725,7 @@ export function CampaignWorkspace({
                 ? plan.touchpoints.map((tp) => ({ ...tp }))
                 : [createEmptyTouchpoint(1)],
             lockSchedule: true,
+            calendlyAutomation: pickCampaignCalendly(campaign, plan.calendlyAutomation),
           });
         } else {
           setEditorNotice("Saved sequence not found. Choose a new one below.");
@@ -683,11 +762,19 @@ export function CampaignWorkspace({
   ]);
 
   const handleWhatsAppPlanSaved = useCallback(
-    async (
-      _message: string,
-      savedPlan?: { id: string; name: string; touchpoints: WhatsAppTouchpointDraft[] }
-    ) => {
+    async (_message: string, savedPlan?: WhatsAppOutreachPlanRecord) => {
       if (!savedPlan?.id) return;
+
+      const jd =
+        savedPlan.jobDescription?.trim() ||
+        (editor?.channel === "whatsapp" ? editor.state.jobDescription : "") ||
+        campaign.jobDescription ||
+        "";
+
+      const calendlyUrl = campaignCalendlySchedulingUrl(
+        campaign,
+        savedPlan.calendlyAutomation?.schedulingUrl
+      );
 
       setEditor({
         channel: "whatsapp",
@@ -695,8 +782,11 @@ export function CampaignWorkspace({
           planId: savedPlan.id,
           planName: savedPlan.name,
           touchpoints: savedPlan.touchpoints,
+          jobDescription: jd,
+          calendlySchedulingUrl: calendlyUrl,
         },
       });
+      setStandaloneJobDescription(jd);
       setEditorPhase("editing");
       setBypassLinkedPlan(false);
       setEditorNotice("");
@@ -708,13 +798,28 @@ export function CampaignWorkspace({
       const auth = getStoredAuth();
       if (!auth?.token) return;
       try {
-        const updated = await setCampaignOutreachPlan(
+        let updated = await setCampaignOutreachPlan(
           auth.token,
           campaign.id,
           savedPlan.id,
           "whatsapp"
         );
         onCampaignUpdatedRef.current?.(updated);
+        if (jd) {
+          updated = await updateCampaignJobDescription(auth.token, campaign.id, jd);
+          onCampaignUpdatedRef.current?.(updated);
+        }
+        const calendlyToSync = savedPlan.calendlyAutomation?.enabled
+          ? savedPlan.calendlyAutomation
+          : pickCampaignCalendly(campaign);
+        if (calendlyToSync?.enabled && calendlyToSync.schedulingUrl?.trim()) {
+          updated = await updateCampaignCalendlyAutomation(
+            auth.token,
+            campaign.id,
+            calendlyToSync
+          );
+          onCampaignUpdatedRef.current?.(updated);
+        }
       } catch {
         setSaveToast({
           message: "Sequence saved, but could not link to this campaign. Try saving again.",
@@ -722,7 +827,7 @@ export function CampaignWorkspace({
         });
       }
     },
-    [campaign.id]
+    [campaign, campaign.id, campaign.jobDescription, editor]
   );
 
   const handleLaunchWhatsAppCampaign = useCallback(
@@ -760,13 +865,50 @@ export function CampaignWorkspace({
     [campaign.id]
   );
 
+  const handleSaveCampaignCalendly = useCallback(
+    async (automation: GmailCalendlyAutomationState) => {
+      const auth = getStoredAuth();
+      if (!auth?.token) {
+        throw new Error("Please sign in again.");
+      }
+      const updated = await updateCampaignCalendlyAutomation(
+        auth.token,
+        campaign.id,
+        automation
+      );
+      onCampaignUpdatedRef.current?.(updated);
+      setEditor((prev) => {
+        if (prev?.channel === "gmail") {
+          return { ...prev, state: { ...prev.state, calendlyAutomation: automation } };
+        }
+        if (prev?.channel === "whatsapp") {
+          return {
+            ...prev,
+            state: {
+              ...prev.state,
+              calendlySchedulingUrl: automation.schedulingUrl?.trim() || "",
+            },
+          };
+        }
+        return prev;
+      });
+    },
+    [campaign.id]
+  );
+
   const handlePlanSaved = useCallback(
     async (
       _message: string,
-      savedPlan?: { id: string; name: string; touchpoints: OutreachTouchpointDraft[] }
+      savedPlan?: {
+        id: string;
+        name: string;
+        touchpoints: OutreachTouchpointDraft[];
+        calendlyAutomation?: GmailCalendlyAutomationState;
+      }
     ) => {
       if (!savedPlan?.id) return;
 
+      const planCalendly = savedPlan.calendlyAutomation;
       setEditor({
         channel: "gmail",
         state: {
@@ -774,6 +916,7 @@ export function CampaignWorkspace({
           planName: savedPlan.name,
           touchpoints: savedPlan.touchpoints,
           lockSchedule: true,
+          calendlyAutomation: pickCampaignCalendly(campaign, planCalendly),
         },
       });
       setEditorPhase("editing");
@@ -787,12 +930,19 @@ export function CampaignWorkspace({
       const auth = getStoredAuth();
       if (!auth?.token) return;
       try {
-        const updated = await setCampaignOutreachPlan(
+        let updated = await setCampaignOutreachPlan(
           auth.token,
           campaign.id,
           savedPlan.id,
           "gmail"
         );
+        if (planCalendly) {
+          updated = await updateCampaignCalendlyAutomation(
+            auth.token,
+            campaign.id,
+            planCalendly
+          );
+        }
         onCampaignUpdatedRef.current?.(updated);
       } catch {
         setSaveToast({
@@ -801,10 +951,12 @@ export function CampaignWorkspace({
         });
       }
     },
-    [campaign.id]
+    [campaign, campaign.id]
   );
 
   const outreachStatus = campaign.outreachStatus ?? "idle";
+  const campaignFieldsLocked =
+    outreachStatus === "active" || outreachStatus === "completed";
   const hasLinkedPlan = Boolean(campaign.outreachPlanId?.trim());
   const channelLocked = hasLinkedPlan || Boolean(editor?.channel);
   const effectiveChannel: "gmail" | "whatsapp" | null =
@@ -816,9 +968,22 @@ export function CampaignWorkspace({
         : null);
   const allowedPickerChannels: ("gmail" | "whatsapp")[] =
     channelLocked && effectiveChannel ? [effectiveChannel] : ["gmail", "whatsapp"];
+  const isWhatsAppCampaign =
+    campaign.outreachChannel === "whatsapp" ||
+    effectiveChannel === "whatsapp" ||
+    editor?.channel === "whatsapp";
+
+  const showJobDescriptionTab =
+    isWhatsAppCampaign || Boolean(String(campaign.jobDescription || "").trim());
+
   const visibleWorkspaceTabs = CAMPAIGN_WORKSPACE_TABS.filter((tab) => {
+    if (tab === "Job description" && !showJobDescriptionTab) return false;
     if (!channelLocked || !effectiveChannel) return true;
-    if (effectiveChannel === "gmail") return tab !== "WhatsApp";
+    if (effectiveChannel === "gmail") {
+      if (tab === "WhatsApp") return false;
+      if (tab === "Job description") return showJobDescriptionTab;
+      return true;
+    }
     return tab !== "Emails";
   });
   const hasSequence = Boolean(campaign.outreachPlanId?.trim());
@@ -829,6 +994,163 @@ export function CampaignWorkspace({
       onWorkspaceTabChange("Editor");
     }
   }, [activeTab, onWorkspaceTabChange, visibleWorkspaceTabs]);
+
+  const whatsappJobDescriptionEditing =
+    editorPhase === "editing" && editor?.channel === "whatsapp";
+
+  const whatsappJobDescriptionValue = whatsappJobDescriptionEditing
+    ? editor.state.jobDescription ?? campaign.jobDescription ?? ""
+    : standaloneJobDescription || campaign.jobDescription || "";
+
+  const setWhatsappJobDescriptionValue = useCallback(
+    (value: string) => {
+      if (whatsappJobDescriptionEditing) {
+        setEditor((prev) =>
+          prev?.channel === "whatsapp"
+            ? { ...prev, state: { ...prev.state, jobDescription: value } }
+            : prev
+        );
+      }
+      setStandaloneJobDescription(value);
+    },
+    [whatsappJobDescriptionEditing]
+  );
+
+  useEffect(() => {
+    const fromCampaign = campaign.jobDescription?.trim() || "";
+    if (fromCampaign && !standaloneJobDescription.trim()) {
+      setStandaloneJobDescription(fromCampaign);
+    }
+  }, [campaign.id, campaign.jobDescription, standaloneJobDescription]);
+
+  useEffect(() => {
+    if (activeTab !== "Job description") return;
+
+    if (whatsappJobDescriptionEditing) {
+      const fromCampaign = campaign.jobDescription?.trim() || "";
+      if (fromCampaign && !String(editor?.state.jobDescription || "").trim()) {
+        setEditor((prev) =>
+          prev?.channel === "whatsapp"
+            ? { ...prev, state: { ...prev.state, jobDescription: fromCampaign } }
+            : prev
+        );
+      }
+      return;
+    }
+
+    const planId = campaign.outreachPlanId?.trim();
+    if (!planId || campaign.outreachChannel !== "whatsapp") return;
+
+    const auth = getStoredAuth();
+    if (!auth?.token) return;
+
+    let cancelled = false;
+    setJobDescriptionLoading(true);
+    setJobDescriptionNotice("");
+    void fetchWhatsAppOutreachPlan(auth.token, planId)
+      .then((plan) => {
+        if (cancelled) return;
+        const jd =
+          plan.jobDescription?.trim() || campaign.jobDescription?.trim() || "";
+        setStandaloneJobDescription(jd);
+        if (jd && !campaign.jobDescription?.trim()) {
+          void updateCampaignJobDescription(auth.token, campaign.id, jd).then((updated) => {
+            if (!cancelled) onCampaignUpdatedRef.current?.(updated);
+          });
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setJobDescriptionNotice(
+          err instanceof Error ? err.message : "Could not load job description."
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setJobDescriptionLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeTab,
+    campaign.id,
+    campaign.jobDescription,
+    campaign.outreachPlanId,
+    campaign.outreachChannel,
+    editor?.state.jobDescription,
+    whatsappJobDescriptionEditing,
+  ]);
+
+  const persistCampaignJobDescription = useCallback(
+    async (jobDescription: string) => {
+      const jd = jobDescription.trim();
+      if (!jd) return;
+      const auth = getStoredAuth();
+      if (!auth?.token) return;
+      const updated = await updateCampaignJobDescription(auth.token, campaign.id, jd);
+      onCampaignUpdatedRef.current?.(updated);
+      setStandaloneJobDescription(jd);
+    },
+    [campaign.id]
+  );
+
+  const handleSaveJobDescription = useCallback(async () => {
+    if (campaignFieldsLocked) return;
+    const jd = whatsappJobDescriptionValue.trim();
+    if (!jd) {
+      setJobDescriptionNotice("Enter a job description before saving.");
+      return;
+    }
+
+    const auth = getStoredAuth();
+    if (!auth?.token) {
+      setJobDescriptionNotice("Please sign in again.");
+      return;
+    }
+
+    setJobDescriptionSaving(true);
+    setJobDescriptionNotice("");
+    try {
+      const updatedCampaign = await updateCampaignJobDescription(auth.token, campaign.id, jd);
+      onCampaignUpdatedRef.current?.(updatedCampaign);
+      setStandaloneJobDescription(jd);
+      if (whatsappJobDescriptionEditing) {
+        setEditor((prev) =>
+          prev?.channel === "whatsapp"
+            ? { ...prev, state: { ...prev.state, jobDescription: jd } }
+            : prev
+        );
+      }
+
+      const planId = campaign.outreachPlanId?.trim();
+      if (planId && campaign.outreachChannel === "whatsapp") {
+        const plan = await fetchWhatsAppOutreachPlan(auth.token, planId);
+        await saveWhatsAppOutreachPlan(auth.token, {
+          planId: plan.id,
+          name: plan.name,
+          touchpoints: plan.touchpoints,
+          jobDescription: jd,
+          ...(plan.calendlyAutomation ? { calendlyAutomation: plan.calendlyAutomation } : {}),
+        });
+      }
+
+      setJobDescriptionNotice("Job description saved.");
+    } catch (err) {
+      setJobDescriptionNotice(
+        err instanceof Error ? err.message : "Could not save job description."
+      );
+    } finally {
+      setJobDescriptionSaving(false);
+    }
+  }, [
+    campaign.id,
+    campaign.outreachChannel,
+    campaign.outreachPlanId,
+    campaignFieldsLocked,
+    whatsappJobDescriptionEditing,
+    whatsappJobDescriptionValue,
+  ]);
 
   const handleLaunchSequence = useCallback(async () => {
     const auth = getStoredAuth();
@@ -919,8 +1241,55 @@ export function CampaignWorkspace({
     [campaign.id]
   );
 
+  const loadEmailListPage = useCallback(
+    async (pageOverride?: number) => {
+      const auth = getStoredAuth();
+      if (!auth?.token) return;
+      const page = pageOverride ?? emailListPage;
+      setEmailListLoading(true);
+      setEmailListError("");
+      try {
+        const result = await fetchCampaignContactsPage(auth.token, campaign.id, {
+          page,
+          limit: EMAIL_LIST_PAGE_SIZE,
+          search: emailSearch,
+          disposition: emailFilter,
+        });
+        setEmailListRows(result.contacts);
+        setEmailListTotal(result.pagination.total);
+        setEmailListTotalPages(Math.max(1, result.pagination.totalPages));
+        setEmailDispositionByKey((prev) => ({
+          ...prev,
+          ...result.dispositionByCandidateKey,
+        }));
+        setEmailListPage(result.pagination.page);
+        if (page > result.pagination.totalPages) {
+          setEmailListPage(Math.max(1, result.pagination.totalPages));
+        }
+      } catch (err) {
+        setEmailListError(err instanceof Error ? err.message : "Could not load email contacts.");
+        setEmailListRows([]);
+        setEmailListTotal(0);
+        setEmailListTotalPages(1);
+      } finally {
+        setEmailListLoading(false);
+      }
+    },
+    [campaign.id, emailFilter, emailListPage, emailSearch]
+  );
+
+  const refreshContactDependentViews = useCallback(() => {
+    setContactsListPage(1);
+    setEmailListPage(1);
+    setWaCommsRefreshKey((k) => k + 1);
+    setContactViewsRevision((r) => r + 1);
+    void loadContactsListPage(1);
+    void loadEmailListPage(1);
+  }, [loadContactsListPage, loadEmailListPage]);
+
   const handleRemoveContactFromCampaign = useCallback(
     async (contact: CampaignContact) => {
+      if (campaignFieldsLocked) return;
       const auth = getStoredAuth();
       if (!auth?.token) return;
       const key = String(contact.candidateKey || "").trim();
@@ -930,9 +1299,7 @@ export function CampaignWorkspace({
         const result = await removeContactFromCampaignApi(auth.token, campaign.id, key);
         onCampaignUpdatedRef.current?.(result.campaign);
         setContacts(result.campaign.contacts);
-        if (activeTab === "Contacts") {
-          void loadContactsListPage(contactsListPage);
-        }
+        refreshContactDependentViews();
         setSaveToast({
           message:
             result.removed > 0
@@ -951,7 +1318,7 @@ export function CampaignWorkspace({
         setRemoveContactBusyKey("");
       }
     },
-    [activeTab, campaign.id, contactsListPage, loadContactsListPage, removeContactBusyKey]
+    [campaign.id, campaignFieldsLocked, refreshContactDependentViews, removeContactBusyKey]
   );
 
   const handleSyncAllThreads = useCallback(async () => {
@@ -993,6 +1360,7 @@ export function CampaignWorkspace({
         });
         onCampaignUpdatedRef.current?.(result.campaign);
         setContacts(result.campaign.contacts);
+        refreshContactDependentViews();
         setCsvModalOpen(false);
         setCsvFileName("");
         setCsvParsedContacts([]);
@@ -1001,10 +1369,6 @@ export function CampaignWorkspace({
           message: `Imported ${result.addedCount} contact${result.addedCount === 1 ? "" : "s"} from CSV.`,
           variant: "success",
         });
-        if (activeTab === "Contacts") {
-          setContactsListPage(1);
-          void loadContactsListPage(1);
-        }
       } catch (err) {
         setSaveToast({
           message: err instanceof Error ? err.message : "Could not import contacts from CSV.",
@@ -1014,7 +1378,7 @@ export function CampaignWorkspace({
         setCsvImportBusy(false);
       }
     },
-    [activeTab, campaign.id, loadContactsListPage]
+    [campaign.id, refreshContactDependentViews]
   );
 
   const handleCsvFileSelected = useCallback(async (file: File) => {
@@ -1049,9 +1413,24 @@ export function CampaignWorkspace({
       hasNewCandidateReply: boolean;
       newMessages: number;
       source?: string;
+      outreachStatus?: "completed";
     }) => {
+      if (payload.source === "campaign_completed" || payload.outreachStatus === "completed") {
+        void reloadCampaignRecord().then((full) => {
+          if (full) onCampaignUpdatedRef.current?.(full);
+        });
+        setWaCommsRefreshKey((k) => k + 1);
+        setLaunchNotice("Campaign outreach sequence completed.");
+        setLaunchError("");
+        return;
+      }
+
       const isWhatsApp =
-        payload.source === "whatsapp_reply" || payload.source === "whatsapp_send";
+        payload.source === "whatsapp_reply" ||
+        payload.source === "whatsapp_send" ||
+        payload.source === "whatsapp_ai" ||
+        payload.source === "outreach_sent" ||
+        payload.source === "reply_followup_sent";
       if (isWhatsApp) {
         setWaCommsRefreshKey((k) => k + 1);
         if (payload.hasNewCandidateReply) {
@@ -1070,19 +1449,21 @@ export function CampaignWorkspace({
         setSyncThreadsNotice("Email thread updated live.");
       }
     },
-    []
+    [reloadCampaignRecord]
   );
 
   useCampaignThreadRealtime(
     campaign.id,
     handleRealtimeThreadUpdate,
-    activeTab === "Emails" || activeTab === "WhatsApp"
+    campaign.outreachChannel === "whatsapp" ||
+      activeTab === "Emails" ||
+      activeTab === "WhatsApp"
   );
 
   useEffect(() => {
     if (activeTab !== "Contacts") return;
     void loadContactsListPage(contactsListPage);
-  }, [activeTab, contactsListPage, loadContactsListPage, contactsFromPropsKey]);
+  }, [activeTab, contactsListPage, loadContactsListPage, contactsFromPropsKey, contactViewsRevision]);
 
   useEffect(() => {
     if (activeTab !== "Emails") return;
@@ -1097,38 +1478,6 @@ export function CampaignWorkspace({
     () => emailListRows.find((c) => c.candidateKey === selectedEmailContactKey) ?? null,
     [emailListRows, selectedEmailContactKey]
   );
-
-  const loadEmailListPage = useCallback(async () => {
-    const auth = getStoredAuth();
-    if (!auth?.token) return;
-    setEmailListLoading(true);
-    setEmailListError("");
-    try {
-      const result = await fetchCampaignContactsPage(auth.token, campaign.id, {
-        page: emailListPage,
-        limit: EMAIL_LIST_PAGE_SIZE,
-        search: emailSearch,
-        disposition: emailFilter,
-      });
-      setEmailListRows(result.contacts);
-      setEmailListTotal(result.pagination.total);
-      setEmailListTotalPages(Math.max(1, result.pagination.totalPages));
-      setEmailDispositionByKey((prev) => ({
-        ...prev,
-        ...result.dispositionByCandidateKey,
-      }));
-      if (emailListPage > result.pagination.totalPages) {
-        setEmailListPage(Math.max(1, result.pagination.totalPages));
-      }
-    } catch (err) {
-      setEmailListError(err instanceof Error ? err.message : "Could not load email contacts.");
-      setEmailListRows([]);
-      setEmailListTotal(0);
-      setEmailListTotalPages(1);
-    } finally {
-      setEmailListLoading(false);
-    }
-  }, [campaign.id, emailFilter, emailListPage, emailSearch]);
 
   const buildCompactPageItems = useCallback((currentPage: number, totalPages: number) => {
     const total = Math.max(1, totalPages);
@@ -1158,7 +1507,7 @@ export function CampaignWorkspace({
   useEffect(() => {
     if (activeTab !== "Emails") return;
     void loadEmailListPage();
-  }, [activeTab, loadEmailListPage]);
+  }, [activeTab, loadEmailListPage, contactViewsRevision]);
 
   const contactsListPageItems = useMemo(
     () => buildCompactPageItems(contactsListPage, contactsListTotalPages),
@@ -1219,11 +1568,23 @@ export function CampaignWorkspace({
 
   const handleSequenceChoice = async (choice: CreateOutreachChoice) => {
     if (choice.type === "scratch") {
-        if (choice.channel === "whatsapp") {
+      const jd = choice.jobDescription?.trim() || "";
+      if (jd) {
+        setStandaloneJobDescription(jd);
+        try {
+          await persistCampaignJobDescription(jd);
+        } catch (err) {
+          setEditorNotice(
+            err instanceof Error ? err.message : "Could not save job description."
+          );
+        }
+      }
+      if (choice.channel === "whatsapp") {
         openWhatsAppEditor({
           planId: "new",
           planName: campaign.name,
           touchpoints: createInitialWhatsAppSequence(),
+          jobDescription: jd,
         });
       } else {
         openGmailEditor({
@@ -1231,6 +1592,7 @@ export function CampaignWorkspace({
           planName: campaign.name,
           touchpoints: [createEmptyTouchpoint(1)],
           lockSchedule: false,
+          calendlyAutomation: campaign.calendlyAutomation,
         });
       }
       return;
@@ -1263,6 +1625,7 @@ export function CampaignWorkspace({
         planName: campaign.name,
         touchpoints: tpl.touchpoints.map((tp) => ({ ...tp })),
         lockSchedule: true,
+        calendlyAutomation: campaign.calendlyAutomation,
       });
       return;
     }
@@ -1273,6 +1636,7 @@ export function CampaignWorkspace({
         planName: choice.planName || campaign.name,
         touchpoints: choice.touchpoints.map((tp) => ({ ...tp })),
         lockSchedule: false,
+        calendlyAutomation: campaign.calendlyAutomation,
       });
       return;
     }
@@ -1298,6 +1662,7 @@ export function CampaignWorkspace({
                 ? plan.touchpoints.map((tp) => ({ ...tp }))
                 : [createEmptyTouchpoint(1)],
             lockSchedule: true,
+            calendlyAutomation: campaign.calendlyAutomation,
           });
         } else {
           setEditorNotice("Could not load outreach plan to clone.");
@@ -1325,7 +1690,7 @@ export function CampaignWorkspace({
 
   const handleRemoveCandidate = useCallback(
     async (candidateKey: string) => {
-      if (outreachStatus !== "idle") return;
+      if (campaignFieldsLocked) return;
       const auth = getStoredAuth();
       if (!auth?.token) {
         setSaveToast({ message: "Please sign in again.", variant: "error" });
@@ -1335,7 +1700,7 @@ export function CampaignWorkspace({
         const result = await removeContactFromCampaignApi(auth.token, campaign.id, candidateKey);
         onCampaignUpdatedRef.current?.(result.campaign);
         setContacts(result.campaign.contacts);
-        setWaCommsRefreshKey((k) => k + 1);
+        refreshContactDependentViews();
         setSaveToast({
           message: result.removed ? "Candidate removed from campaign." : "Candidate not found.",
           variant: result.removed ? "success" : "error",
@@ -1347,7 +1712,7 @@ export function CampaignWorkspace({
         });
       }
     },
-    [campaign.id, outreachStatus]
+    [campaign.id, campaignFieldsLocked, refreshContactDependentViews]
   );
 
   return (
@@ -1365,76 +1730,6 @@ export function CampaignWorkspace({
           <h1 className="dashboard-section-title min-w-0 flex-1 truncate text-lg">
             {campaign.name}
           </h1>
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
-            {outreachStatus === "active" ? (
-              <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
-                Active
-              </span>
-            ) : outreachStatus === "paused" ? (
-              <span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-800">
-                Paused
-              </span>
-            ) : outreachStatus === "completed" ? (
-              <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">
-                Completed
-              </span>
-            ) : null}
-            {outreachStatus === "active" ? (
-              <button
-                type="button"
-                onClick={() => void handlePauseSequence()}
-                disabled={launchBusy}
-                className={`${dashboardBtnSecondaryClass} px-3 py-1.5 text-xs disabled:opacity-55`}
-              >
-                Pause
-              </button>
-            ) : outreachStatus === "paused" ? (
-              <button
-                type="button"
-                onClick={() => void handleResumeSequence()}
-                disabled={launchBusy}
-                className={`${dashboardBtnPrimaryClass} px-3 py-1.5 text-xs disabled:opacity-55`}
-              >
-                {launchBusy ? "Resuming…" : "Resume"}
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => void handleLaunchSequence()}
-                disabled={launchBusy || !hasSequence || !hasContacts}
-                title={
-                  launchBusy
-                    ? "Launching…"
-                    : !hasSequence
-                      ? "Save a sequence on the Editor tab first"
-                      : !hasContacts
-                        ? "Add contacts to this campaign first"
-                        : "Launch"
-                }
-                aria-label={
-                  launchBusy ? "Launching campaign sequence" : "Launch campaign sequence"
-                }
-                className={`${dashboardBtnPrimaryClass} inline-flex h-9 w-9 shrink-0 items-center justify-center p-0 disabled:opacity-55`}
-              >
-                {launchBusy ? (
-                  <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-                ) : (
-                  <MaterialIcon name="play_arrow" className="text-xl" />
-                )}
-              </button>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={() => setStarred((v) => !v)}
-            className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition hover:bg-slate-100 ${
-              starred ? "text-amber-500" : "text-slate-500"
-            }`}
-            aria-label={starred ? "Remove from favorites" : "Add to favorites"}
-            aria-pressed={starred}
-          >
-            <MaterialIcon name={starred ? "star" : "star_border"} className="text-[22px]" />
-          </button>
         </div>
 
         <nav
@@ -1480,9 +1775,22 @@ export function CampaignWorkspace({
               planId={editor.state.planId}
               initialPlanName={editor.state.planName}
               initialTouchpoints={editor.state.touchpoints}
-              lockSchedule={editor.state.lockSchedule}
+              initialCalendlyAutomation={pickCampaignCalendly(
+                campaign,
+                editor.state.calendlyAutomation
+              )}
+              lockSchedule={editor.state.lockSchedule || campaignFieldsLocked}
+              editorLocked={campaignFieldsLocked}
+              campaignOutreachStatus={outreachStatus}
+              hasCampaignContacts={hasContacts}
+              hasSequence={hasSequence}
+              launchBusy={launchBusy}
+              onLaunchCampaign={() => void handleLaunchSequence()}
+              onPauseCampaign={() => void handlePauseSequence()}
+              onResumeCampaign={() => void handleResumeSequence()}
               onCancel={backToSequenceChoose}
               onGoToIntegrations={onGoToIntegrations}
+              saveCalendlyToCampaign={(automation) => handleSaveCampaignCalendly(automation)}
               onSaved={(message, saved) => void handlePlanSaved(message, saved)}
             />
           ) : editorPhase === "editing" && editor?.channel === "whatsapp" ? (
@@ -1491,8 +1799,15 @@ export function CampaignWorkspace({
               planId={editor.state.planId}
               initialPlanName={editor.state.planName}
               initialTouchpoints={editor.state.touchpoints}
+              jobDescription={editor.state.jobDescription ?? ""}
+              onJobDescriptionChange={setWhatsappJobDescriptionValue}
+              initialCalendlySchedulingUrl={campaignCalendlySchedulingUrl(
+                campaign,
+                editor.state.calendlySchedulingUrl
+              )}
               onCancel={backToSequenceChoose}
               onGoToIntegrations={onGoToIntegrations}
+              saveCalendlyToCampaign={(automation) => handleSaveCampaignCalendly(automation)}
               onSaved={(message, saved) => void handleWhatsAppPlanSaved(message, saved)}
               onLaunchCampaign={(saved) => handleLaunchWhatsAppCampaign(saved)}
               onPauseCampaign={() => handlePauseSequence()}
@@ -1505,27 +1820,72 @@ export function CampaignWorkspace({
               }}
             />
           ) : (
-            <div className="dashboard-outreach-scroll flex flex-1 flex-col items-center overflow-auto px-4 py-6 sm:px-8">
+            <div className="dashboard-campaign-editor-panel flex min-h-0 flex-1 flex-col">
               {editorNotice ? (
-                <p className="dashboard-alert-notice mb-4 w-full max-w-xl shrink-0 text-sm">
+                <p className="dashboard-alert-notice dashboard-campaign-editor-notice shrink-0 text-sm">
                   {editorNotice}
                 </p>
               ) : null}
-              <div className="w-full max-w-xl">
-                <OutreachSequencePicker
-                  variant="modal"
-                  allowedChannels={allowedPickerChannels}
-                  existingPlans={modalPlans}
-                  plansLoading={modalPlansLoading}
-                  templates={modalTemplates}
-                  templatesLoading={modalTemplatesLoading}
-                  optionsReady={sequenceOptionsReady}
-                  lead="Create or select a sequence for this campaign"
-                  onChoose={(choice) => void handleSequenceChoice(choice)}
-                />
+              {campaignFieldsLocked ? (
+                <p
+                  className="dashboard-alert-notice dashboard-campaign-editor-notice shrink-0 text-sm"
+                  role="status"
+                >
+                  {outreachStatus === "completed"
+                    ? "This campaign is completed. Sequence and campaign settings are read-only."
+                    : "Campaign is running. Pause the campaign to change the sequence or campaign settings."}
+                </p>
+              ) : null}
+              <div className="dashboard-campaign-report-toolbar shrink-0">
+                <div className="dashboard-campaign-report-toolbar-row">
+                  <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                    <span className="dashboard-campaign-sequence-toolbar-icon" aria-hidden>
+                      <MaterialIcon name="playlist_play" className="text-[22px]" />
+                    </span>
+                    <div className="min-w-0">
+                      <h2 className="dashboard-campaign-report-title">Campaign sequence</h2>
+                      <p className="dashboard-campaign-report-subtitle">
+                        Create or select an outreach sequence for this campaign
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="dashboard-campaign-editor-body dashboard-outreach-scroll min-h-0 flex-1 overflow-y-auto">
+                <div className="dashboard-campaign-editor-inner">
+                  <OutreachSequencePicker
+                    variant="campaign"
+                    allowedChannels={allowedPickerChannels}
+                    existingPlans={modalPlans}
+                    plansLoading={modalPlansLoading}
+                    templates={modalTemplates}
+                    templatesLoading={modalTemplatesLoading}
+                    optionsReady={sequenceOptionsReady}
+                    readOnly={campaignFieldsLocked}
+                    onChoose={(choice) => void handleSequenceChoice(choice)}
+                  />
+                </div>
               </div>
             </div>
           )
+        ) : activeTab === "Job description" ? (
+          <CampaignJobDescriptionPanel
+            value={whatsappJobDescriptionValue}
+            onChange={setWhatsappJobDescriptionValue}
+            onSave={() => void handleSaveJobDescription()}
+            loading={jobDescriptionLoading}
+            saving={jobDescriptionSaving}
+            notice={jobDescriptionNotice}
+            locked={campaignFieldsLocked}
+            outreachStatus={outreachStatus}
+            isWhatsApp={isWhatsAppCampaign}
+            showEmptyGuidance={
+              !whatsappJobDescriptionValue.trim() &&
+              !hasSequence &&
+              !whatsappJobDescriptionEditing
+            }
+            showEditorTabHint={whatsappJobDescriptionEditing}
+          />
         ) : activeTab === "Emails" ? (
           <div className="dashboard-campaign-emails-panel flex min-h-0 flex-1 flex-col">
             {emailListTotal > 0 ? (
@@ -1618,32 +1978,31 @@ export function CampaignWorkspace({
                   {emailListError}
                 </p>
               ) : emailListTotal === 0 ? (
-                <div className="dashboard-campaign-workspace-placeholder-wrap">
-                  <IntegrationBrandLogo provider="gmail" title="Gmail" className="mb-2 h-10 w-10" />
-                  <p className="dashboard-campaign-workspace-placeholder">
-                    No contacts yet. Add candidates from{" "}
-                    <span className="font-medium text-[#202124]">Session Results</span> using{" "}
-                    <span className="font-medium text-[#202124]">Add to campaign</span>.
-                  </p>
-                  <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-                    <button
-                      type="button"
-                      className={`${dashboardBtnPrimaryClass} px-3 py-1.5 text-sm`}
-                      onClick={onAddFromSearchHistory}
-                    >
-                      <MaterialIcon name="history" className="text-base" />
-                      Add candidate from search history
-                    </button>
-                    <button
-                      type="button"
-                      className={`${dashboardBtnSecondaryClass} px-3 py-1.5 text-sm`}
-                      onClick={openCsvModal}
-                    >
-                      <MaterialIcon name="upload_file" className="text-base" />
-                      Upload CSV
-                    </button>
-                  </div>
-                </div>
+                <CampaignWorkspaceEmptyState
+                  brand="gmail"
+                  title="No contacts yet"
+                  description={
+                    <>
+                      Add candidates from{" "}
+                      <span className="font-medium text-[#141b2b]">Session Results</span> using{" "}
+                      <span className="font-medium text-[#141b2b]">Add to campaign</span>, then
+                      view Gmail conversations here.
+                    </>
+                  }
+                  actions={[
+                    {
+                      label: "Add from search history",
+                      icon: "history",
+                      onClick: onAddFromSearchHistory,
+                    },
+                    {
+                      label: "Upload CSV",
+                      icon: "upload_file",
+                      variant: "secondary",
+                      onClick: openCsvModal,
+                    },
+                  ]}
+                />
               ) : (
                 <>
                   <aside className="dashboard-campaign-wa-comms-list flex min-h-0 w-full min-w-0 flex-col border-slate-200 md:w-[min(100%,360px)] md:max-w-[40%] md:border-r">
@@ -1847,14 +2206,31 @@ export function CampaignWorkspace({
         ) : activeTab === "WhatsApp" ? (
           <CampaignWhatsAppCommunicationsPanel
             campaignId={campaign.id}
+            initialContactKey={whatsappContactKey}
             refreshKey={waCommsRefreshKey}
             revealInProgress={revealInProgress}
-            onAddFromSearchHistory={onAddFromSearchHistory}
-            onUploadCsv={openCsvModal}
-            onRemoveCandidate={(candidateKey) => void handleRemoveCandidate(candidateKey)}
+            contactsLocked={campaignFieldsLocked}
+            onAddFromSearchHistory={
+              campaignFieldsLocked ? undefined : onAddFromSearchHistory
+            }
+            onUploadCsv={campaignFieldsLocked ? undefined : openCsvModal}
+            onRemoveCandidate={
+              campaignFieldsLocked
+                ? undefined
+                : (candidateKey) => void handleRemoveCandidate(candidateKey)
+            }
           />
         ) : activeTab === "Report" ? (
-          <CampaignEmailReportPanel campaignId={campaign.id} variant="report" />
+          <CampaignEmailReportPanel
+            campaignId={campaign.id}
+            variant="report"
+            reportMetric={reportMetric}
+            onOpenReportMetric={onOpenReportMetric}
+            onCloseReportMetric={onCloseReportMetric}
+            onViewWhatsAppConversation={
+              isWhatsAppCampaign ? onViewWhatsAppConversation : undefined
+            }
+          />
         ) : activeTab === "Activity" ? (
           <CampaignEmailReportPanel campaignId={campaign.id} variant="activity" />
         ) : activeTab === "Contacts" ? (
@@ -1866,7 +2242,15 @@ export function CampaignWorkspace({
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  className={`${dashboardBtnSecondaryClass} cursor-pointer px-2.5 py-1 text-xs`}
+                  className={`${dashboardBtnSecondaryClass} cursor-pointer px-2.5 py-1 text-xs disabled:opacity-55`}
+                  disabled={campaignFieldsLocked}
+                  title={
+                    campaignFieldsLocked
+                      ? outreachStatus === "completed"
+                        ? "Campaign completed"
+                        : "Pause the campaign to add contacts"
+                      : undefined
+                  }
                   onClick={() => {
                     window.location.href = "/dashboard/search/history";
                   }}
@@ -1876,7 +2260,14 @@ export function CampaignWorkspace({
                 <button
                   type="button"
                   className={`${dashboardBtnSecondaryClass} cursor-pointer px-2.5 py-1 text-xs disabled:opacity-55`}
-                  disabled={csvImportBusy}
+                  disabled={csvImportBusy || campaignFieldsLocked}
+                  title={
+                    campaignFieldsLocked
+                      ? outreachStatus === "completed"
+                        ? "Campaign completed"
+                        : "Pause the campaign to import contacts"
+                      : undefined
+                  }
                   onClick={() => setCsvModalOpen(true)}
                 >
                   {csvImportBusy ? "Importing…" : "Import CSV"}
@@ -1891,30 +2282,26 @@ export function CampaignWorkspace({
                   {contactsListError}
                 </p>
               ) : contactsListRows.length === 0 ? (
-                <div className="dashboard-campaign-workspace-placeholder-wrap">
-                  <MaterialIcon name="group" className="mb-2 block text-4xl text-[#80868b]" />
-                  <p className="dashboard-campaign-workspace-placeholder">
-                    No contacts in this campaign yet.
-                  </p>
-                  <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-                    <button
-                      type="button"
-                      className={`${dashboardBtnPrimaryClass} px-3 py-1.5 text-sm`}
-                      onClick={onAddFromSearchHistory}
-                    >
-                      <MaterialIcon name="history" className="text-base" />
-                      Add candidate from search history
-                    </button>
-                    <button
-                      type="button"
-                      className={`${dashboardBtnSecondaryClass} px-3 py-1.5 text-sm`}
-                      onClick={openCsvModal}
-                    >
-                      <MaterialIcon name="upload_file" className="text-base" />
-                      Upload CSV
-                    </button>
-                  </div>
-                </div>
+                <CampaignWorkspaceEmptyState
+                  icon="group"
+                  title="No contacts in this campaign"
+                  description="Import candidates from search history or upload a CSV to build your outreach list."
+                  actions={[
+                    {
+                      label: "Add from search history",
+                      icon: "history",
+                      disabled: campaignFieldsLocked,
+                      onClick: onAddFromSearchHistory,
+                    },
+                    {
+                      label: "Upload CSV",
+                      icon: "upload_file",
+                      variant: "secondary",
+                      disabled: campaignFieldsLocked,
+                      onClick: openCsvModal,
+                    },
+                  ]}
+                />
               ) : (
                 <ul className="dashboard-campaign-emails-list">
                   {contactsListRows.map((contact) => {
@@ -1957,9 +2344,11 @@ export function CampaignWorkspace({
                             <button
                               type="button"
                               className={`inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 ${
-                                openContactMenuKey === contact.candidateKey
-                                  ? "opacity-100"
-                                  : "opacity-0 group-hover:opacity-100"
+                                campaignFieldsLocked
+                                  ? "hidden"
+                                  : openContactMenuKey === contact.candidateKey
+                                    ? "opacity-100"
+                                    : "opacity-0 group-hover:opacity-100"
                               }`}
                               disabled={removeContactBusyKey === contact.candidateKey}
                               onClick={() =>
@@ -2127,107 +2516,18 @@ export function CampaignWorkspace({
             document.body
           )
         : null}
-      {csvModalOpen
-        ? createPortal(
-            <div className="dashboard-modal-overlay" role="dialog" aria-modal="true">
-              <div
-                className="dashboard-confirm-modal-backdrop cursor-pointer"
-                onClick={() => setCsvModalOpen(false)}
-              />
-              <div className="dashboard-modal dashboard-confirm-modal-panel max-w-xl">
-                <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-                  <h3 className="dashboard-confirm-modal-title">Import contacts from CSV</h3>
-                  <button
-                    type="button"
-                    className="dashboard-confirm-modal-close cursor-pointer"
-                    onClick={() => setCsvModalOpen(false)}
-                    aria-label="Close"
-                  >
-                    <MaterialIcon name="close" className="dashboard-confirm-modal-icon-symbol" />
-                  </button>
-                </div>
-                <div className="space-y-3 px-5 py-4 text-sm">
-                  <p className="text-slate-600">
-                    Mandatory headers: <strong>{CSV_MANDATORY_HEADERS.join(", ")}</strong>
-                  </p>
-                  <div className="flex items-center justify-center gap-2">
-                    <button
-                      type="button"
-                      className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-[#0050cb] bg-white px-3 text-xs font-medium text-[#0050cb] transition hover:bg-[#eef4ff]"
-                      onClick={() => csvFileInputRef.current?.click()}
-                    >
-                      <MaterialIcon name="upload_file" className="text-sm" />
-                      Select CSV
-                    </button>
-                    <button
-                      type="button"
-                      className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 text-xs font-medium text-slate-600 transition hover:bg-slate-50"
-                      onClick={downloadSampleCsv}
-                      title="Download sample CSV"
-                      aria-label="Download sample CSV"
-                    >
-                      <MaterialIcon name="download" className="text-sm" />
-                      Sample CSV
-                    </button>
-                    <input
-                      ref={csvFileInputRef}
-                      type="file"
-                      accept=".csv,text/csv"
-                      className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) void handleCsvFileSelected(file);
-                        e.currentTarget.value = "";
-                      }}
-                    />
-                  </div>
-                  {csvFileName ? (
-                    <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                      Selected: {csvFileName}
-                    </p>
-                  ) : null}
-                  {csvValidationErrors.length > 0 ? (
-                    <div className="rounded-lg border border-red-200 bg-red-50 p-3">
-                      <p className="mb-1 font-medium text-red-700">Please fix these errors:</p>
-                      <ul className="list-disc space-y-1 pl-5 text-xs text-red-700">
-                        {csvValidationErrors.map((err, i) => (
-                          <li key={`${err}-${i}`}>{err}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : csvFileName ? (
-                    <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-700">
-                      CSV validated. {csvParsedContacts.length} contact
-                      {csvParsedContacts.length === 1 ? "" : "s"} ready to import.
-                    </div>
-                  ) : null}
-                </div>
-                <div className="dashboard-confirm-modal-footer">
-                  <button
-                    type="button"
-                    className="inline-flex h-9 cursor-pointer items-center rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-                    onClick={() => setCsvModalOpen(false)}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    className="inline-flex h-9 cursor-pointer items-center rounded-md border border-[#0050cb] bg-[#0050cb] px-3 text-sm font-medium text-white transition hover:bg-[#003d99] disabled:opacity-55"
-                    disabled={
-                      csvImportBusy ||
-                      csvParsedContacts.length === 0 ||
-                      csvValidationErrors.length > 0
-                    }
-                    onClick={() => void importParsedCsvContacts(csvParsedContacts)}
-                  >
-                    {csvImportBusy ? "Importing…" : "Import contacts"}
-                  </button>
-                </div>
-              </div>
-            </div>,
-            document.body
-          )
-        : null}
+      <ImportCampaignContactsCsvModal
+        open={csvModalOpen}
+        busy={csvImportBusy}
+        mandatoryHeaders={CSV_MANDATORY_HEADERS}
+        fileName={csvFileName}
+        validationErrors={csvValidationErrors}
+        readyCount={csvParsedContacts.length}
+        onClose={closeCsvModal}
+        onFileSelect={handleCsvFileSelected}
+        onDownloadSample={downloadSampleCsv}
+        onImport={() => void importParsedCsvContacts(csvParsedContacts)}
+      />
     </section>
   );
 }

@@ -13,6 +13,8 @@ export type CampaignThreadUpdatedPayload = {
   hasNewCandidateReply: boolean;
   source: string;
   at: string;
+  /** Set when automated outreach finishes for the whole campaign. */
+  outreachStatus?: "completed";
 };
 
 export type RealtimeMessage =

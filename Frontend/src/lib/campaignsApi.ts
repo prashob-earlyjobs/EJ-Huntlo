@@ -2,6 +2,7 @@ import { authHeaders } from "@/lib/auth";
 import type {
   CampaignContact,
   CampaignOutreachStatus,
+  CampaignCalendlyAutomation,
   CampaignRecord,
 } from "@/lib/campaigns";
 
@@ -68,11 +69,32 @@ function parseCampaign(raw: unknown): CampaignRecord | null {
       : o.outreachStartedAt
         ? new Date(String(o.outreachStartedAt)).toISOString()
         : null;
+  const jobDescription =
+    typeof o.jobDescription === "string" ? o.jobDescription.trim() : "";
+
+  let calendlyAutomation: CampaignCalendlyAutomation | undefined;
+  if (o.calendlyAutomation && typeof o.calendlyAutomation === "object") {
+    const c = o.calendlyAutomation as Record<string, unknown>;
+    calendlyAutomation = {
+      enabled: Boolean(c.enabled),
+      meetingUri: typeof c.meetingUri === "string" ? c.meetingUri.trim() : "",
+      meetingName: typeof c.meetingName === "string" ? c.meetingName.trim() : "",
+      schedulingUrl: typeof c.schedulingUrl === "string" ? c.schedulingUrl.trim() : "",
+      durationMinutes:
+        typeof c.durationMinutes === "number" && Number.isFinite(c.durationMinutes)
+          ? c.durationMinutes
+          : 0,
+      kind: typeof c.kind === "string" ? c.kind.trim() : "",
+    };
+  }
+
   return {
     id,
     name,
     createdAt,
     contacts,
+    jobDescription,
+    ...(calendlyAutomation ? { calendlyAutomation } : {}),
     ...(outreachPlanId ? { outreachPlanId } : {}),
     ...(outreachChannel ? { outreachChannel } : {}),
     ...(outreachStatus ? { outreachStatus } : {}),
@@ -167,6 +189,48 @@ export async function setCampaignOutreachPlan(
   if (!res.ok || !data.success) {
     throw new Error(
       typeof data.message === "string" ? data.message : "Failed to link sequence to campaign"
+    );
+  }
+  const campaign = parseCampaign(data.campaign);
+  if (!campaign) throw new Error("Invalid campaign response");
+  return campaign;
+}
+
+export async function updateCampaignJobDescription(
+  token: string,
+  campaignId: string,
+  jobDescription: string
+): Promise<CampaignRecord> {
+  const res = await fetch(`${apiBase()}/api/campaigns/${campaignId}/job-description`, {
+    method: "PATCH",
+    headers: authHeaders(token),
+    body: JSON.stringify({ jobDescription: jobDescription.trim() }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.success) {
+    throw new Error(
+      typeof data.message === "string" ? data.message : "Failed to save job description"
+    );
+  }
+  const campaign = parseCampaign(data.campaign);
+  if (!campaign) throw new Error("Invalid campaign response");
+  return campaign;
+}
+
+export async function updateCampaignCalendlyAutomation(
+  token: string,
+  campaignId: string,
+  calendlyAutomation: CampaignCalendlyAutomation
+): Promise<CampaignRecord> {
+  const res = await fetch(`${apiBase()}/api/campaigns/${campaignId}/calendly-automation`, {
+    method: "PATCH",
+    headers: authHeaders(token),
+    body: JSON.stringify({ calendlyAutomation }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.success) {
+    throw new Error(
+      typeof data.message === "string" ? data.message : "Failed to save interview link"
     );
   }
   const campaign = parseCampaign(data.campaign);
@@ -279,12 +343,29 @@ export async function fetchCampaigns(token: string): Promise<CampaignRecord[]> {
     .filter((c: CampaignRecord | null): c is CampaignRecord => c !== null);
 }
 
+export const CAMPAIGNS_LIST_PAGE_SIZE = 15;
+
+export type CampaignsListSummary = {
+  total: number;
+  active: number;
+  contacts: number;
+};
+
+export type CampaignsListPagination = {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+  hasMore: boolean;
+};
+
 export async function fetchCampaignsPage(
   token: string,
   options?: { page?: number; limit?: number }
 ): Promise<{
   campaigns: CampaignRecord[];
-  pagination: { page: number; limit: number; total: number; hasMore: boolean };
+  summary: CampaignsListSummary;
+  pagination: CampaignsListPagination;
 }> {
   const params = new URLSearchParams();
   if (options?.page && options.page > 0) params.set("page", String(options.page));
@@ -302,14 +383,35 @@ export async function fetchCampaignsPage(
         .map(parseCampaign)
         .filter((c: CampaignRecord | null): c is CampaignRecord => c !== null)
     : [];
+  const page = typeof data.pagination?.page === "number" ? data.pagination.page : options?.page || 1;
+  const limit =
+    typeof data.pagination?.limit === "number"
+      ? data.pagination.limit
+      : options?.limit || CAMPAIGNS_LIST_PAGE_SIZE;
+  const total =
+    typeof data.pagination?.total === "number" ? data.pagination.total : campaigns.length;
+  const totalPages =
+    typeof data.pagination?.totalPages === "number"
+      ? data.pagination.totalPages
+      : Math.max(1, Math.ceil(total / limit) || 1);
+  const summaryRaw =
+    data.summary && typeof data.summary === "object"
+      ? (data.summary as Record<string, unknown>)
+      : null;
+
   return {
     campaigns,
+    summary: {
+      total: typeof summaryRaw?.total === "number" ? summaryRaw.total : total,
+      active: typeof summaryRaw?.active === "number" ? summaryRaw.active : 0,
+      contacts: typeof summaryRaw?.contacts === "number" ? summaryRaw.contacts : 0,
+    },
     pagination: {
-      page: typeof data.pagination?.page === "number" ? data.pagination.page : options?.page || 1,
-      limit:
-        typeof data.pagination?.limit === "number" ? data.pagination.limit : options?.limit || 20,
-      total: typeof data.pagination?.total === "number" ? data.pagination.total : campaigns.length,
-      hasMore: Boolean(data.pagination?.hasMore),
+      page,
+      limit,
+      total,
+      totalPages,
+      hasMore: typeof data.pagination?.hasMore === "boolean" ? data.pagination.hasMore : page < totalPages,
     },
   };
 }

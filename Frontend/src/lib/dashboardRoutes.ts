@@ -3,6 +3,8 @@
  * Sidebar and programmatic navigation should use these paths (not setState alone).
  */
 
+import type { ReportMetricKey } from "@/lib/campaignEmailReport";
+import { reportMetricFromSlug } from "@/lib/campaignEmailReport";
 import {
   campaignWorkspaceTabFromSlug,
   pathForCampaignWorkspace,
@@ -31,6 +33,9 @@ export type DashboardRouteParams = {
   sessionId?: string;
   campaignId?: string;
   campaignWorkspaceTab?: CampaignWorkspaceTab;
+  campaignReportMetric?: ReportMetricKey;
+  /** WhatsApp tab thread selection from URL segment. */
+  campaignWhatsAppContactKey?: string;
 };
 
 /** Modal / overlay state via search params (shareable URLs). */
@@ -92,11 +97,27 @@ export function tabFromPathSegments(segments: string[] | undefined): DashboardRo
   if (parts[0] === "campaigns") {
     const campaignId = parts[1]?.trim() || "";
     const tabSlug = parts[2]?.trim() || "editor";
+    const workspaceTab = campaignWorkspaceTabFromSlug(tabSlug);
+    const fourthSegment = parts[3]?.trim() || "";
+    let campaignReportMetric: ReportMetricKey | undefined;
+    let campaignWhatsAppContactKey: string | undefined;
+    if (workspaceTab === "Report" && fourthSegment) {
+      campaignReportMetric = reportMetricFromSlug(fourthSegment);
+    }
+    if (workspaceTab === "WhatsApp" && fourthSegment) {
+      try {
+        campaignWhatsAppContactKey = decodeURIComponent(fourthSegment).trim() || undefined;
+      } catch {
+        campaignWhatsAppContactKey = fourthSegment;
+      }
+    }
     return {
       tab: "Campaigns",
       ...(campaignId ? { campaignId } : {}),
-      ...(campaignId
-        ? { campaignWorkspaceTab: campaignWorkspaceTabFromSlug(tabSlug) }
+      ...(campaignId ? { campaignWorkspaceTab: workspaceTab } : {}),
+      ...(campaignId && campaignReportMetric ? { campaignReportMetric } : {}),
+      ...(campaignId && campaignWhatsAppContactKey
+        ? { campaignWhatsAppContactKey }
         : {}),
     };
   }

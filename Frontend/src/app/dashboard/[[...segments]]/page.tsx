@@ -1148,6 +1148,8 @@ export default function UserDashboardPage() {
     sessionId: routeSessionId = "",
     campaignId: routeCampaignId = "",
     campaignWorkspaceTab = "Editor",
+    campaignReportMetric = null,
+    campaignWhatsAppContactKey = "",
   } = useMemo(() => tabFromPathSegments(segments), [segments]);
 
   const userActionAlert = useUserActionAlert();
@@ -1213,9 +1215,14 @@ export default function UserDashboardPage() {
   const [sessionResultNotice, setSessionResultNotice] = useState("");
   const [campaigns, setCampaigns] = useState<CampaignRecord[]>([]);
   const [campaignsLoading, setCampaignsLoading] = useState(false);
-  const [campaignsLoadingMore, setCampaignsLoadingMore] = useState(false);
   const [campaignsPage, setCampaignsPage] = useState(1);
-  const [campaignsHasMore, setCampaignsHasMore] = useState(false);
+  const [campaignsTotal, setCampaignsTotal] = useState(0);
+  const [campaignsTotalPages, setCampaignsTotalPages] = useState(1);
+  const [campaignsSummary, setCampaignsSummary] = useState({
+    total: 0,
+    active: 0,
+    contacts: 0,
+  });
   const [addToCampaignBusy, setAddToCampaignBusy] = useState(false);
   const [savedSessionCandidateKeys, setSavedSessionCandidateKeys] = useState<string[]>([]);
   const [savedCandidatesList, setSavedCandidatesList] = useState<CandidateRow[]>([]);
@@ -1458,42 +1465,42 @@ export default function UserDashboardPage() {
       });
   }, []);
 
-  const CAMPAIGNS_PAGE_SIZE = 15;
-
-  const loadCampaignsList = useCallback(async (opts?: { append?: boolean; page?: number }) => {
+  const loadCampaignsList = useCallback(async (opts?: { page?: number }) => {
     const auth = getStoredAuth();
     if (!auth?.token || userPlanId !== "enterprise") {
       setCampaigns([]);
       setCampaignsLoading(false);
-      setCampaignsLoadingMore(false);
       setCampaignsPage(1);
-      setCampaignsHasMore(false);
+      setCampaignsTotal(0);
+      setCampaignsTotalPages(1);
+      setCampaignsSummary({ total: 0, active: 0, contacts: 0 });
       return;
     }
-    const append = Boolean(opts?.append);
     const page = Math.max(1, Number(opts?.page) || 1);
-    if (append) setCampaignsLoadingMore(true);
-    else setCampaignsLoading(true);
+    setCampaignsLoading(true);
     try {
-      const result = await fetchCampaignsPage(auth.token, {
-        page,
-        limit: CAMPAIGNS_PAGE_SIZE,
-      });
-      setCampaigns((prev) => (append ? [...prev, ...result.campaigns] : result.campaigns));
-      setCampaignsPage(page);
-      setCampaignsHasMore(result.pagination.hasMore);
+      const result = await fetchCampaignsPage(auth.token, { page });
+      setCampaigns(result.campaigns);
+      setCampaignsPage(result.pagination.page);
+      setCampaignsTotal(result.pagination.total);
+      setCampaignsTotalPages(result.pagination.totalPages);
+      setCampaignsSummary(result.summary);
     } catch {
       /* keep previous list */
     } finally {
-      if (append) setCampaignsLoadingMore(false);
-      else setCampaignsLoading(false);
+      setCampaignsLoading(false);
     }
   }, [userPlanId]);
 
-  const loadMoreCampaigns = useCallback(async () => {
-    if (campaignsLoading || campaignsLoadingMore || !campaignsHasMore) return;
-    await loadCampaignsList({ append: true, page: campaignsPage + 1 });
-  }, [campaignsHasMore, campaignsLoading, campaignsLoadingMore, campaignsPage, loadCampaignsList]);
+  const handleCampaignsPageChange = useCallback(
+    (page: number) => {
+      if (campaignsLoading) return;
+      const next = Math.max(1, Math.min(campaignsTotalPages, page));
+      if (next === campaignsPage) return;
+      void loadCampaignsList({ page: next });
+    },
+    [campaignsLoading, campaignsPage, campaignsTotalPages, loadCampaignsList]
+  );
 
   useEffect(() => {
     if (userPlanId !== "enterprise") return;
@@ -3870,13 +3877,13 @@ export default function UserDashboardPage() {
       if (!auth?.token) return null;
       try {
         const { campaign: record } = await createCampaign(auth.token, name);
-        setCampaigns((prev) => [record, ...prev]);
+        await loadCampaignsList({ page: 1 });
         return record;
       } catch {
         return null;
       }
     },
-    []
+    [loadCampaignsList]
   );
 
   const handleCampaignUpdated = useCallback((updated: CampaignRecord) => {
@@ -5024,13 +5031,17 @@ export default function UserDashboardPage() {
                 onAddFromSearchHistory={() => navigateToTab("Search history")}
                 campaigns={campaigns}
                 campaignsLoading={campaignsLoading}
-                campaignsLoadingMore={campaignsLoadingMore}
-                campaignsHasMore={campaignsHasMore}
-                onLoadMoreCampaigns={loadMoreCampaigns}
+                campaignsPage={campaignsPage}
+                campaignsTotal={campaignsTotal}
+                campaignsTotalPages={campaignsTotalPages}
+                campaignsSummary={campaignsSummary}
+                onCampaignsPageChange={handleCampaignsPageChange}
                 onCreateCampaign={handleCreateCampaign}
                 onCampaignUpdated={handleCampaignUpdated}
                 routeCampaignId={routeCampaignId}
                 routeWorkspaceTab={campaignWorkspaceTab}
+                routeReportMetric={campaignReportMetric ?? null}
+                routeWhatsAppContactKey={campaignWhatsAppContactKey || null}
               />
             ) : activeTab === "Integrations" ? (
               <IntegrationsPanel

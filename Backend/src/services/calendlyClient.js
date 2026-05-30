@@ -108,7 +108,9 @@ async function fetchCalendlyEventTypes(personalAccessToken, userUri) {
       if (!item || typeof item !== "object") continue;
       const schedulingUrl = String(item.scheduling_url || "").trim();
       if (!schedulingUrl) continue;
+      const uri = String(item.uri || "").trim();
       links.push({
+        uri: uri || schedulingUrl,
         name: String(item.name || "").trim() || "Calendly event",
         schedulingUrl,
         slug: String(item.slug || "").trim(),
@@ -116,6 +118,7 @@ async function fetchCalendlyEventTypes(personalAccessToken, userUri) {
           typeof item.duration === "number" && Number.isFinite(item.duration)
             ? item.duration
             : null,
+        kind: String(item.type || item.kind || "").trim(),
       });
     }
 

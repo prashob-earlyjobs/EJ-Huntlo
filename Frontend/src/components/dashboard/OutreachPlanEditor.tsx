@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { ConfirmModal } from "@/components/dashboard/ConfirmModal";
 import {
-  CalendlyMeetingPickerModal,
-  type CalendlyMeetingOption,
-} from "@/components/dashboard/CalendlyMeetingPickerModal";
+  CampaignLaunchAgentOverlay,
+  LAUNCH_AGENT_MIN_DURATION_MS,
+} from "@/components/dashboard/CampaignLaunchAgentOverlay";
+import { ConfirmModal } from "@/components/dashboard/ConfirmModal";
+import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
 import { OutreachFieldSelect } from "@/components/dashboard/OutreachFieldSelect";
 import { OutreachPillSelect } from "@/components/dashboard/OutreachPillSelect";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
@@ -36,19 +37,69 @@ import {
 } from "@/lib/outreachStartSchedule";
 import { OutreachStartScheduleBar } from "@/components/dashboard/OutreachStartScheduleBar";
 
+type CalendlyMeetingOption = {
+  uri: string;
+  name: string;
+  schedulingUrl: string;
+  durationMinutes: number;
+  kind: string;
+};
+
+type CalendlyAutomationDraft = {
+  enabled?: boolean;
+  meetingUri?: string;
+  meetingName?: string;
+  schedulingUrl?: string;
+  durationMinutes?: number;
+  kind?: string;
+};
+
+function calendlyMeetingFromAutomation(
+  automation?: CalendlyAutomationDraft
+): CalendlyMeetingOption | null {
+  if (!automation?.enabled || !automation.meetingUri?.trim() || !automation.meetingName?.trim()) {
+    return null;
+  }
+  return {
+    uri: automation.meetingUri.trim(),
+    name: automation.meetingName.trim(),
+    schedulingUrl: automation.schedulingUrl?.trim() || "",
+    durationMinutes: Number(automation.durationMinutes || 0),
+    kind: automation.kind?.trim() || "",
+  };
+}
+
 type Props = {
   planId?: string | "new";
   initialPlanName: string;
   initialTouchpoints: OutreachTouchpointDraft[];
+  initialCalendlyAutomation?: CalendlyAutomationDraft;
   /** Hide standalone header when nested under campaign workspace. */
   embedded?: boolean;
   /** Lock Start / Wait schedule pills when sequence came from template or saved plan. */
   lockSchedule?: boolean;
+  /** Read-only editor (active or completed campaign). */
+  editorLocked?: boolean;
+  /** Campaign workspace controls (embedded mode). */
+  campaignOutreachStatus?: "idle" | "active" | "paused" | "completed";
+  hasCampaignContacts?: boolean;
+  hasSequence?: boolean;
+  launchBusy?: boolean;
+  onLaunchCampaign?: () => void | Promise<void>;
+  onPauseCampaign?: () => void | Promise<void>;
+  onResumeCampaign?: () => void | Promise<void>;
   onCancel: () => void;
   onGoToIntegrations?: () => void;
+  /** When set (campaign editor), persist interview link on the campaign immediately. */
+  saveCalendlyToCampaign?: (automation: CalendlyAutomationDraft) => void | Promise<void>;
   onSaved: (
     message: string,
-    plan?: { id: string; name: string; touchpoints: OutreachTouchpointDraft[] }
+    plan?: {
+      id: string;
+      name: string;
+      touchpoints: OutreachTouchpointDraft[];
+      calendlyAutomation?: CalendlyAutomationDraft;
+    }
   ) => void;
 };
 
@@ -58,23 +109,28 @@ function SaveSequenceButton({
   onClick,
   compact = false,
   label = "Save sequence",
+  disabled = false,
+  className = "",
 }: {
   saving: boolean;
   saveSucceeded: boolean;
   onClick: () => void;
   compact?: boolean;
   label?: string;
+  disabled?: boolean;
+  className?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      disabled={saving || saveSucceeded}
+      disabled={disabled || saving || saveSucceeded}
       className={[
         "dashboard-btn-primary dashboard-outreach-save-btn disabled:opacity-55",
         compact ? "px-3 py-1.5 text-xs" : "dashboard-outreach-builder-save",
         saving ? "dashboard-outreach-save-btn--saving" : "",
         saveSucceeded ? "dashboard-outreach-save-btn--success" : "",
+        className,
       ]
         .filter(Boolean)
         .join(" ")}
@@ -204,12 +260,23 @@ export function OutreachPlanEditor({
   planId = "new",
   initialPlanName,
   initialTouchpoints,
+  initialCalendlyAutomation,
   embedded = false,
   lockSchedule = false,
+  editorLocked = false,
+  campaignOutreachStatus = "idle",
+  hasCampaignContacts = true,
+  hasSequence = true,
+  launchBusy = false,
+  onLaunchCampaign,
+  onPauseCampaign,
+  onResumeCampaign,
   onCancel,
   onGoToIntegrations,
+  saveCalendlyToCampaign,
   onSaved,
 }: Props) {
+  const scheduleLocked = lockSchedule || editorLocked;
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
   const auth = getStoredAuth();
 
@@ -246,14 +313,15 @@ export function OutreachPlanEditor({
   const [gmailEmail, setGmailEmail] = useState("");
   const [gmailConnected, setGmailConnected] = useState(false);
   const [calendlyConnected, setCalendlyConnected] = useState(false);
-  const [calendlyEmail, setCalendlyEmail] = useState("");
-  const [calendlyStatusLoading, setCalendlyStatusLoading] = useState(false);
-  const [calendlyModalOpen, setCalendlyModalOpen] = useState(false);
-  const [calendlyMeetingsLoading, setCalendlyMeetingsLoading] = useState(false);
-  const [calendlyMeetingsError, setCalendlyMeetingsError] = useState("");
+  const [calendlyPickerOpen, setCalendlyPickerOpen] = useState(false);
+  const [calendlyLoading, setCalendlyLoading] = useState(false);
+  const [calendlyError, setCalendlyError] = useState("");
   const [calendlyMeetings, setCalendlyMeetings] = useState<CalendlyMeetingOption[]>([]);
-  const [selectedCalendlyMeeting, setSelectedCalendlyMeeting] =
-    useState<CalendlyMeetingOption | null>(null);
+  const [calendlyPickerUri, setCalendlyPickerUri] = useState("");
+  const [calendlySaving, setCalendlySaving] = useState(false);
+  const [selectedCalendlyMeeting, setSelectedCalendlyMeeting] = useState<CalendlyMeetingOption | null>(
+    () => calendlyMeetingFromAutomation(initialCalendlyAutomation)
+  );
   const [saving, setSaving] = useState(false);
   const [saveSucceeded, setSaveSucceeded] = useState(false);
   const [error, setError] = useState("");
@@ -261,6 +329,7 @@ export function OutreachPlanEditor({
     order: number;
     label: string;
   } | null>(null);
+  const [launching, setLaunching] = useState(false);
 
   const canvasScrollRef = useRef<HTMLDivElement>(null);
   const stepSectionRefs = useRef<(HTMLElement | null)[]>([]);
@@ -316,83 +385,128 @@ export function OutreachPlanEditor({
 
   const loadCalendlyStatus = useCallback(async () => {
     if (!auth?.token) return;
-    setCalendlyStatusLoading(true);
     try {
       const res = await fetch(`${apiBase}/api/integrations/calendly/status`, {
         headers: authHeaders(auth.token),
       });
       const data = await res.json();
       setCalendlyConnected(Boolean(data.success && data.connected));
-      setCalendlyEmail(typeof data.email === "string" ? data.email : "");
     } catch {
       setCalendlyConnected(false);
-      setCalendlyEmail("");
-    } finally {
-      setCalendlyStatusLoading(false);
     }
   }, [apiBase, auth?.token]);
 
   const loadCalendlyMeetings = useCallback(async () => {
-    if (!auth?.token) return;
-    setCalendlyMeetingsLoading(true);
-    setCalendlyMeetingsError("");
+    if (!auth?.token) return [];
     try {
-      const res = await fetch(`${apiBase}/api/integrations/calendly/event-types`, {
+      const res = await fetch(`${apiBase}/api/integrations/calendly/links`, {
         headers: authHeaders(auth.token),
       });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.success) {
         throw new Error(
-          typeof data.message === "string"
+          typeof data?.message === "string"
             ? data.message
             : "Could not load Calendly meetings."
         );
       }
-      const rows = Array.isArray(data.meetings) ? data.meetings : [];
-      const parsed = rows
+      const rows = Array.isArray(data.links) ? data.links : [];
+      return rows
         .map((row: unknown) => {
           const o = row as Record<string, unknown>;
+          const schedulingUrl = String(o.schedulingUrl || "").trim();
+          const name = String(o.name || "").trim() || "Calendly event";
+          const uri = String(o.uri || schedulingUrl).trim();
           return {
-            uri: String(o.uri || "").trim(),
-            name: String(o.name || "").trim(),
-            schedulingUrl: String(o.schedulingUrl || "").trim(),
-            durationMinutes: Number(o.durationMinutes || 0),
+            uri,
+            name,
+            schedulingUrl,
+            durationMinutes: Number(o.durationMinutes ?? 0) || 0,
             kind: String(o.kind || "").trim(),
           } satisfies CalendlyMeetingOption;
         })
-        .filter((row: CalendlyMeetingOption) => row.uri && row.name);
-      setCalendlyMeetings(parsed);
-      if (!selectedCalendlyMeeting && parsed[0]) {
-        setSelectedCalendlyMeeting(parsed[0]);
-      }
+        .filter((row: CalendlyMeetingOption) => row.schedulingUrl && row.name);
     } catch (err) {
-      setCalendlyMeetings([]);
-      setCalendlyMeetingsError(
-        err instanceof Error ? err.message : "Could not load Calendly meetings."
-      );
-    } finally {
-      setCalendlyMeetingsLoading(false);
+      throw err instanceof Error ? err : new Error("Could not load Calendly meetings.");
     }
-  }, [apiBase, auth?.token, selectedCalendlyMeeting]);
+  }, [apiBase, auth?.token]);
 
   useEffect(() => {
     void loadGmailStatus();
     void loadCalendlyStatus();
   }, [loadGmailStatus, loadCalendlyStatus]);
 
-  const handleCalendlyEnableClick = async (opts?: { forceOpenPicker?: boolean }) => {
-    if (calendlyEnabled && !opts?.forceOpenPicker) {
-      setSelectedCalendlyMeeting(null);
+  const initialCalendlyKey = [
+    initialCalendlyAutomation?.enabled,
+    initialCalendlyAutomation?.meetingUri,
+    initialCalendlyAutomation?.meetingName,
+  ].join("|");
+
+  useEffect(() => {
+    setSelectedCalendlyMeeting(calendlyMeetingFromAutomation(initialCalendlyAutomation));
+  }, [planId, initialCalendlyKey, initialCalendlyAutomation]);
+
+  const openCalendlyPicker = useCallback(async () => {
+    if (!auth?.token) {
+      setCalendlyError("Please sign in again.");
       return;
     }
-    if (!calendlyConnected) {
-      setError("Calendly is not connected. Connect it under Integrations first.");
-      onGoToIntegrations?.();
-      return;
+    setCalendlyError("");
+    setCalendlyLoading(true);
+    try {
+      const meetings = await loadCalendlyMeetings();
+      if (meetings.length === 0) {
+        setCalendlyError("No Calendly meeting links found. Create an event type in Calendly.");
+        return;
+      }
+      setCalendlyMeetings(meetings);
+      const priorUri = selectedCalendlyMeeting?.uri?.trim() || "";
+      const priorUrl = selectedCalendlyMeeting?.schedulingUrl?.trim() || "";
+      const matched = meetings.find(
+        (m) =>
+          (priorUri && m.uri === priorUri) ||
+          (priorUrl && m.schedulingUrl === priorUrl) ||
+          (priorUri && m.schedulingUrl === priorUri)
+      );
+      setCalendlyPickerUri(matched?.uri || meetings[0]?.uri || "");
+      setCalendlyPickerOpen(true);
+    } catch (err) {
+      setCalendlyMeetings([]);
+      const message =
+        err instanceof Error ? err.message : "Could not load Calendly meetings.";
+      if (message.toLowerCase().includes("not connected")) {
+        onGoToIntegrations?.();
+      }
+      setCalendlyError(message);
+    } finally {
+      setCalendlyLoading(false);
     }
-    setCalendlyModalOpen(true);
-    if (calendlyMeetings.length === 0 && !calendlyMeetingsLoading) {
-      await loadCalendlyMeetings();
+  }, [auth?.token, loadCalendlyMeetings, onGoToIntegrations, selectedCalendlyMeeting]);
+
+  const applyCalendlyMeeting = async () => {
+    const meeting = calendlyMeetings.find((m) => m.uri === calendlyPickerUri);
+    if (!meeting) return;
+    const automation: CalendlyAutomationDraft = {
+      enabled: true,
+      meetingUri: meeting.uri,
+      meetingName: meeting.name,
+      schedulingUrl: meeting.schedulingUrl,
+      durationMinutes: meeting.durationMinutes,
+      kind: meeting.kind,
+    };
+    setSelectedCalendlyMeeting(meeting);
+    setCalendlyPickerOpen(false);
+    if (!saveCalendlyToCampaign) return;
+    setCalendlySaving(true);
+    setCalendlyError("");
+    try {
+      await saveCalendlyToCampaign(automation);
+    } catch (err) {
+      setCalendlyError(
+        err instanceof Error ? err.message : "Could not save interview link for this campaign."
+      );
+    } finally {
+      setCalendlySaving(false);
     }
   };
 
@@ -525,6 +639,7 @@ export function OutreachPlanEditor({
   };
 
   const addTouchpoint = () => {
+    if (editorLocked) return;
     const nextOrder = touchpoints.length + 1;
     setTouchpoints((prev) => [...prev, createEmptyTouchpoint(nextOrder)]);
     requestAnimationFrame(() => scrollToStep(touchpoints.length + 1));
@@ -541,6 +656,7 @@ export function OutreachPlanEditor({
   };
 
   const removeTouchpoint = (order: number) => {
+    if (editorLocked) return;
     if (touchpoints.length <= 1) return;
     const removeIndex = touchpoints.findIndex((tp) => tp.order === order);
     if (removeIndex < 0) return;
@@ -640,6 +756,7 @@ export function OutreachPlanEditor({
   };
 
   const insertMergeTag = (order: number, field: "subject" | "body", token: string) => {
+    if (editorLocked) return;
     const tp = touchpoints.find((t) => t.order === order);
     if (!tp) return;
     const mergeToken = `{{${token}}}`;
@@ -667,6 +784,7 @@ export function OutreachPlanEditor({
   };
 
   const savePlan = async () => {
+    if (editorLocked) return;
     if (!auth?.token) return;
     setSaving(true);
     setError("");
@@ -751,6 +869,7 @@ export function OutreachPlanEditor({
                     waitDays: tp.waitDays ?? 0,
                   }))
                 : touchpoints,
+              calendlyAutomation: savedCalendly,
             }
           : undefined
       );
@@ -772,7 +891,13 @@ export function OutreachPlanEditor({
 
   const planTitleEditor = (centered: boolean) => (
     <div className={centered ? "mx-auto min-w-0 max-w-md text-center" : "min-w-0"}>
-      {editingTitle ? (
+      {editorLocked ? (
+        <span
+          className={`dashboard-section-title truncate text-base ${centered ? "block text-center" : ""}`}
+        >
+          {planName}
+        </span>
+      ) : editingTitle ? (
         <input
           type="text"
           value={planName}
@@ -802,67 +927,184 @@ export function OutreachPlanEditor({
     </div>
   );
 
+  const launchCampaign = useCallback(async () => {
+    if (!onLaunchCampaign || launching) return;
+    setLaunching(true);
+    const overlayStartedAt = Date.now();
+    try {
+      await onLaunchCampaign();
+      const elapsed = Date.now() - overlayStartedAt;
+      if (elapsed < LAUNCH_AGENT_MIN_DURATION_MS) {
+        await new Promise((resolve) =>
+          window.setTimeout(resolve, LAUNCH_AGENT_MIN_DURATION_MS - elapsed)
+        );
+      }
+    } finally {
+      setLaunching(false);
+    }
+  }, [launching, onLaunchCampaign]);
+
   if (touchpoints.length === 0) return null;
+
+  const launchActionBusy = launching || launchBusy;
 
   return (
     <section
-      className={`dashboard-outreach-builder flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden bg-[#f8f9fc]${
-        embedded ? " dashboard-outreach-builder--embedded" : " dashboard-card dashboard-card--fill max-w-full"
-      }`}
+      className={`dashboard-outreach-builder flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden${
+        embedded ? " dashboard-outreach-builder--embedded" : " dashboard-card dashboard-card--fill max-w-full bg-[#f8f9fc]"
+      }${launching ? " dashboard-outreach-builder--launching" : ""}`}
     >
+      <CampaignLaunchAgentOverlay open={launching && Boolean(onLaunchCampaign)} channel="gmail" />
       {embedded ? (
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 sm:px-6">
-          <button
-            type="button"
-            onClick={onCancel}
-            className={`${dashboardBtnSecondaryClass} inline-flex items-center gap-1.5 px-3 py-1.5 text-sm`}
-          >
-            <MaterialIcon name="arrow_back" className="text-base" />
-            Change sequence
-          </button>
-          <div className="hidden min-w-0 flex-1 px-4 sm:block">{planTitleEditor(true)}</div>
-          <SaveSequenceButton
-            compact
-            saving={saving}
-            saveSucceeded={saveSucceeded}
-            onClick={() => void savePlan()}
-          />
-        </div>
+        <>
+          <div className="dashboard-outreach-gmail-bar shrink-0">
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={editorLocked}
+              title={editorLocked ? "Campaign settings are read-only" : "Change sequence"}
+              className={`${dashboardBtnSecondaryClass} inline-flex items-center gap-1.5 px-3 py-1.5 text-sm disabled:opacity-55`}
+            >
+              <MaterialIcon name="arrow_back" className="text-base" />
+              Change sequence
+            </button>
+            <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2">
+              <SaveSequenceButton
+                compact
+                saving={saving}
+                saveSucceeded={saveSucceeded}
+                disabled={editorLocked}
+                onClick={() => void savePlan()}
+                className="h-[38px] w-[137px] justify-center px-4 py-1.5 text-sm"
+              />
+              {campaignOutreachStatus === "active" ? (
+                <button
+                  type="button"
+                  onClick={() => void onPauseCampaign?.()}
+                  disabled={launchBusy}
+                  className={`${dashboardBtnSecondaryClass} px-3 py-1.5 text-xs disabled:opacity-55`}
+                >
+                  Pause
+                </button>
+              ) : campaignOutreachStatus === "paused" ? (
+                <button
+                  type="button"
+                  onClick={() => void onResumeCampaign?.()}
+                  disabled={launchBusy}
+                  className={`${dashboardBtnPrimaryClass} dashboard-outreach-save-btn inline-flex h-[38px] items-center justify-center gap-1.5 whitespace-nowrap px-4 py-1.5 text-sm disabled:opacity-55`}
+                >
+                  {launchBusy ? (
+                    <>
+                      <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
+                      Resuming…
+                    </>
+                  ) : (
+                    <>
+                      <MaterialIcon name="play_circle" className="text-base" />
+                      Resume campaign
+                    </>
+                  )}
+                </button>
+              ) : campaignOutreachStatus === "completed" ? (
+                <button
+                  type="button"
+                  disabled
+                  title="Campaign completed"
+                  aria-label="Campaign completed"
+                  className={`${dashboardBtnSecondaryClass} inline-flex cursor-not-allowed items-center gap-1.5 px-3 py-1.5 text-xs opacity-60`}
+                >
+                  <MaterialIcon
+                    name="check_circle"
+                    className="text-base text-slate-500"
+                    aria-hidden
+                  />
+                  Completed
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void launchCampaign()}
+                  disabled={launchActionBusy || !hasSequence || !hasCampaignContacts}
+                  title={
+                    launching
+                      ? "Launching…"
+                      : !hasSequence
+                        ? "Save a sequence first"
+                        : !hasCampaignContacts
+                          ? "Add contacts to this campaign first"
+                          : "Launch campaign"
+                  }
+                  className={`${dashboardBtnPrimaryClass} dashboard-outreach-save-btn inline-flex h-[38px] items-center justify-center gap-1.5 whitespace-nowrap px-4 py-1.5 text-sm disabled:opacity-55`}
+                >
+                  {launching ? (
+                    <>
+                      <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
+                      Launching…
+                    </>
+                  ) : (
+                    <>
+                      <MaterialIcon name="rocket_launch" className="text-base" />
+                      Launch campaign
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="dashboard-campaign-report-toolbar shrink-0">
+            <div className="dashboard-campaign-report-toolbar-row">
+              <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                <span className="dashboard-campaign-sequence-toolbar-icon" aria-hidden>
+                  <IntegrationBrandLogo provider="gmail" title="Gmail" className="h-[22px] w-[22px]" />
+                </span>
+                <div className="min-w-0">
+                  <h2 className="dashboard-campaign-report-title">Email sequence</h2>
+                  <p className="dashboard-campaign-report-subtitle">
+                    Edit steps, schedule, and message content
+                  </p>
+                </div>
+              </div>
+              <div className="dashboard-outreach-gmail-plan-meta hidden min-w-0 max-w-[min(100%,18rem)] sm:block">
+                {planTitleEditor(false)}
+              </div>
+            </div>
+          </div>
+          <div className="dashboard-outreach-gmail-plan-meta dashboard-outreach-gmail-plan-meta--mobile shrink-0 sm:hidden">
+            {planTitleEditor(false)}
+          </div>
+        </>
       ) : (
-        <header className="shrink-0 border-b border-slate-200 bg-white px-4 py-4 sm:px-6">
-          <div className="flex flex-wrap items-start justify-between gap-3">
+        <header className="dashboard-outreach-builder-top shrink-0">
+          <div className="dashboard-outreach-builder-top-row">
             <div className="min-w-0">
-              <h3 className="dashboard-section-title text-lg">Create outreach</h3>
+              <h3 className="dashboard-outreach-builder-title">Create outreach</h3>
               <p className="dashboard-text-body mt-1 text-sm">
                 Build your email sequence step by step.
               </p>
             </div>
-            <div className="flex shrink-0 gap-2">
+            <div className="dashboard-outreach-builder-top-actions">
               <button
                 type="button"
                 onClick={onCancel}
-                className={`${dashboardBtnSecondaryClass} px-4 py-2 text-sm`}
+                className={`${dashboardBtnSecondaryClass} dashboard-outreach-builder-cancel`}
               >
                 Cancel
               </button>
               <SaveSequenceButton
                 saving={saving}
                 saveSucceeded={saveSucceeded}
+                disabled={editorLocked}
                 onClick={() => void savePlan()}
                 label="Save"
               />
             </div>
           </div>
-          <div className="mt-4 border-t border-slate-100 pt-4">{planTitleEditor(false)}</div>
+          <div className="dashboard-outreach-builder-plan-meta">{planTitleEditor(false)}</div>
         </header>
       )}
 
-      {embedded ? (
-        <div className="border-b border-slate-200 bg-white px-4 py-3 sm:hidden">{planTitleEditor(false)}</div>
-      ) : null}
-
       {error ? (
-        <p className="dashboard-alert-error mx-4 mt-3 shrink-0 text-sm sm:mx-6">{error}</p>
+        <p className="dashboard-outreach-builder-error dashboard-alert-error shrink-0">{error}</p>
       ) : null}
 
       <div className="dashboard-outreach-builder-body">
@@ -928,66 +1170,52 @@ export function OutreachPlanEditor({
           <button
             type="button"
             onClick={addTouchpoint}
-            className="dashboard-outreach-builder-add-step"
+            disabled={editorLocked}
+            className="dashboard-outreach-builder-add-step disabled:opacity-55"
           >
             <MaterialIcon name="add" className="text-base" />
             Add step
           </button>
-          <div
-            className={`mt-auto rounded-md border px-2 py-2 ${
-              calendlyEnabled
-                ? "border-emerald-200 bg-emerald-50"
-                : "border-slate-200 bg-white"
-            }`}
-            role="button"
-            tabIndex={0}
-            aria-label="Choose Calendly meeting"
-            onClick={() => void handleCalendlyEnableClick({ forceOpenPicker: true })}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                void handleCalendlyEnableClick({ forceOpenPicker: true });
-              }
-            }}
-          >
-            <div className="flex items-center justify-between gap-2">
-              <div className="min-w-0">
-                <div className="flex items-center gap-1">
-                  <p className="truncate text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                    Auto Calendly
-                  </p>
-                  <button
-                    type="button"
-                    className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-slate-300 text-[9px] font-semibold leading-none text-slate-500 transition hover:border-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                    title="Huntlo will automatically share the Calendly link with the recipient if the candidate is interested."
-                    aria-label="Calendly auto-share info"
-                  >
-                    i
-                  </button>
-                </div>
-              </div>
+          <div className="dashboard-wa-outreach-calendly-card">
+            <div className="dashboard-wa-outreach-calendly-head">
+              <img
+                src="/integrations/calendly_logo.png"
+                alt="Calendly"
+                className="dashboard-wa-outreach-calendly-logo"
+              />
+              <p className="dashboard-wa-outreach-calendly-title">Calendly</p>
+            </div>
+            <p className="dashboard-wa-outreach-calendly-text">
+              {calendlyEnabled && selectedCalendlyMeeting
+                ? `“${selectedCalendlyMeeting.name}” will be shared automatically when a candidate shows interest.`
+                : "Connect Calendly to automatically share interview links when candidates are interested."}
+            </p>
+            {onGoToIntegrations ? (
               <button
                 type="button"
-                className={`relative inline-flex h-4 w-7 shrink-0 cursor-pointer items-center rounded-full transition ${
-                  calendlyEnabled ? "bg-emerald-500" : "bg-slate-300 hover:bg-slate-400"
-                }`}
-                aria-label={calendlyEnabled ? "Calendly enabled" : "Enable Calendly"}
-                aria-pressed={calendlyEnabled}
-                disabled={calendlyStatusLoading}
-                title={calendlyEnabled ? "Calendly enabled" : "Enable Calendly"}
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void handleCalendlyEnableClick();
-                }}
+                onClick={() => void openCalendlyPicker()}
+                className="dashboard-wa-outreach-calendly-btn"
+                disabled={calendlyLoading || calendlySaving || editorLocked}
+                title={
+                  editorLocked
+                    ? campaignOutreachStatus === "completed"
+                      ? "Campaign completed"
+                      : "Pause the campaign to edit the sequence"
+                    : undefined
+                }
               >
-                <span
-                  className={`inline-block h-3 w-3 rounded-full bg-white shadow transition ${
-                    calendlyEnabled ? "translate-x-3.5" : "translate-x-0.5"
-                  }`}
-                />
+                {calendlyLoading
+                  ? "Checking Calendly…"
+                  : calendlySaving
+                    ? "Saving…"
+                    : calendlyEnabled
+                      ? "Change interview link"
+                      : "Add interview link"}
               </button>
-            </div>
+            ) : null}
+            {calendlyError ? (
+              <p className="mt-2 text-[11px] text-rose-600">{calendlyError}</p>
+            ) : null}
           </div>
         </aside>
 
@@ -995,6 +1223,15 @@ export function OutreachPlanEditor({
           ref={canvasScrollRef}
           className="dashboard-outreach-builder-canvas dashboard-outreach-scroll"
         >
+          {editorLocked ? (
+            <div className="dashboard-wa-outreach-locked-banner dashboard-outreach-builder-locked-banner shrink-0">
+              <MaterialIcon name="lock" className="shrink-0 text-base text-amber-700" aria-hidden />
+              <p className="text-sm text-amber-950">
+                Campaign settings are read-only while the campaign is running or after it is
+                completed.
+              </p>
+            </div>
+          ) : null}
           <div className="dashboard-outreach-builder-stack">
             <div className="dashboard-outreach-main-flow-item dashboard-outreach-main-flow-item--start">
               <section
@@ -1013,7 +1250,7 @@ export function OutreachPlanEditor({
                   soonestAt={soonestAt}
                   sendTime={startSendTime}
                   timezone={startTimezone}
-                  locked={lockSchedule}
+                  locked={scheduleLocked}
                   sendTimeOptions={SEND_TIME_SELECT_OPTIONS}
                   timezoneOptions={TIMEZONE_SELECT_OPTIONS}
                   onModeChange={handleStartModeChange}
@@ -1051,16 +1288,16 @@ export function OutreachPlanEditor({
                       />
                       <div
                         className={`dashboard-outreach-wait-link-shell${
-                          lockSchedule ? " dashboard-outreach-wait-link-shell--locked" : ""
+                          scheduleLocked ? " dashboard-outreach-wait-link-shell--locked" : ""
                         }`}
                       >
                         <div
                           className={`dashboard-outreach-start-pill-bar${
-                            lockSchedule ? " dashboard-outreach-start-pill-bar--locked" : ""
+                            scheduleLocked ? " dashboard-outreach-start-pill-bar--locked" : ""
                           }`}
                         >
                           <span className="dashboard-outreach-start-prefix">Wait</span>
-                          {lockSchedule ? (
+                          {scheduleLocked ? (
                             <>
                               <ScheduleStaticChip
                                 label={String(
@@ -1151,17 +1388,19 @@ export function OutreachPlanEditor({
                       isActive ? " dashboard-outreach-builder-step-block--active" : ""
                     }`}
                   >
-                    <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-                      <span className="inline-flex items-center gap-2 rounded-lg border border-[#0050cb]/15 bg-[#0050cb]/10 px-2.5 py-1 text-sm font-semibold text-[#0050cb]">
+                    <div className="dashboard-outreach-builder-step-head">
+                      <span className="dashboard-outreach-builder-step-badge">
                         <MaterialIcon
                           name={tp.order === 1 ? "mail" : "reply"}
                           className="text-[18px]"
                           aria-hidden
                         />
                         {touchpointTypeLabel(tp.order)}
-                        <span className="font-normal text-[#0050cb]/70">· Step {tp.order}</span>
+                        <span className="dashboard-outreach-builder-step-badge-meta">
+                          Step {tp.order}
+                        </span>
                       </span>
-                      <div className="flex items-center gap-2">
+                      <div className="dashboard-outreach-builder-step-head-right">
                         <button
                           type="button"
                           className={`${dashboardBtnSecondaryClass} px-3 py-1.5 text-xs`}
@@ -1172,7 +1411,8 @@ export function OutreachPlanEditor({
                           <button
                             type="button"
                             onClick={() => requestRemoveTouchpoint(tp.order)}
-                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+                            disabled={editorLocked}
+                            className="dashboard-outreach-builder-delete rounded-lg border border-slate-200 p-2 transition hover:border-red-200 hover:bg-red-50 disabled:opacity-55"
                             aria-label="Delete step"
                           >
                             <MaterialIcon name="delete" className="text-lg" />
@@ -1205,6 +1445,7 @@ export function OutreachPlanEditor({
                             }}
                             type="text"
                             value={tp.subject}
+                            readOnly={editorLocked}
                             onChange={(e) =>
                               updateTouchpoint(tp.order, { subject: e.target.value })
                             }
@@ -1214,7 +1455,9 @@ export function OutreachPlanEditor({
                                 field: "subject",
                               };
                             }}
-                            className="dashboard-input dashboard-input-sm flex-1"
+                            className={`dashboard-input dashboard-input-sm flex-1${
+                              editorLocked ? " dashboard-input--readonly" : ""
+                            }`}
                             placeholder="{{FirstName}}, interested in a new opportunity?"
                           />
                           <span className="dashboard-outreach-builder-cc">Cc</span>
@@ -1270,6 +1513,7 @@ export function OutreachPlanEditor({
                             bodyTextareaRefs.current[tp.order] = node;
                           }}
                           value={tp.body}
+                          readOnly={editorLocked}
                           onChange={(e) => updateTouchpoint(tp.order, { body: e.target.value })}
                           onFocus={() => {
                             lastMergeFieldFocusRef.current = {
@@ -1278,7 +1522,9 @@ export function OutreachPlanEditor({
                             };
                           }}
                           rows={10}
-                          className="dashboard-outreach-builder-body-input"
+                          className={`dashboard-outreach-builder-body-input${
+                            editorLocked ? " dashboard-input--readonly" : ""
+                          }`}
                           placeholder="Hi {{FirstName}},"
                         />
                         <div className="dashboard-outreach-builder-tags-row dashboard-outreach-builder-tags-row--body">
@@ -1329,23 +1575,85 @@ export function OutreachPlanEditor({
           removeTouchpoint(order);
         }}
       />
-      <CalendlyMeetingPickerModal
-        open={calendlyModalOpen}
-        loading={calendlyMeetingsLoading}
-        options={calendlyMeetings}
-        selectedUri={selectedCalendlyMeeting?.uri || ""}
-        error={calendlyMeetingsError}
-        onRetry={() => {
-          void loadCalendlyMeetings();
-        }}
-        onClose={() => {
-          setCalendlyModalOpen(false);
-        }}
-        onSubmit={(meeting) => {
-          setSelectedCalendlyMeeting(meeting);
-          setCalendlyModalOpen(false);
-        }}
-      />
+      {calendlyPickerOpen ? (
+        <div
+          className="dashboard-modal-overlay py-6"
+          role="presentation"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setCalendlyPickerOpen(false);
+          }}
+        >
+          <div
+            className="dashboard-modal mx-auto w-full max-w-lg p-0"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="email-calendly-meeting-picker-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="border-b border-slate-200 px-6 py-4">
+              <h3
+                id="email-calendly-meeting-picker-title"
+                className="dashboard-section-title text-lg"
+              >
+                Select interview meeting link
+              </h3>
+              <p className="mt-1 text-sm text-slate-600">
+                Choose the Calendly meeting to use for automatic replies when candidates show
+                interest.
+              </p>
+            </div>
+            <div className="px-6 py-5">
+              {calendlyLoading ? (
+                <p className="text-sm text-slate-600">Loading meetings…</p>
+              ) : (
+                <div className="space-y-2">
+                  {calendlyMeetings.map((meeting) => (
+                    <label
+                      key={meeting.uri}
+                      className="flex items-start gap-2 rounded-md border border-slate-200 p-3"
+                    >
+                      <input
+                        type="radio"
+                        name="email-calendly-meeting"
+                        checked={calendlyPickerUri === meeting.uri}
+                        onChange={() => setCalendlyPickerUri(meeting.uri)}
+                        className="mt-1"
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium text-slate-900">
+                          {meeting.name}
+                        </span>
+                        {meeting.schedulingUrl ? (
+                          <span className="block break-all text-xs text-slate-500">
+                            {meeting.schedulingUrl}
+                          </span>
+                        ) : null}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 border-t border-slate-200 px-6 py-4">
+              <button
+                type="button"
+                className={dashboardBtnSecondaryClass}
+                onClick={() => setCalendlyPickerOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={dashboardBtnPrimaryClass}
+                onClick={() => void applyCalendlyMeeting()}
+                disabled={!calendlyPickerUri.trim() || calendlyLoading || calendlySaving}
+              >
+                Use this link
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

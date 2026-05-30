@@ -63,11 +63,36 @@ function formatContact(doc) {
   };
 }
 
+function normalizeCalendlyAutomation(raw) {
+  const o = raw && typeof raw === "object" ? raw : {};
+  const enabled = Boolean(o?.enabled);
+  if (!enabled) {
+    return {
+      enabled: false,
+      meetingUri: "",
+      meetingName: "",
+      schedulingUrl: "",
+      durationMinutes: 0,
+      kind: "",
+    };
+  }
+  return {
+    enabled: true,
+    meetingUri: String(o?.meetingUri || "").trim(),
+    meetingName: String(o?.meetingName || "").trim(),
+    schedulingUrl: String(o?.schedulingUrl || "").trim(),
+    durationMinutes: Math.max(0, Number(o?.durationMinutes) || 0),
+    kind: String(o?.kind || "").trim(),
+  };
+}
+
 function formatCampaign(doc) {
   const contacts = Array.isArray(doc.contacts) ? doc.contacts : [];
   return {
     id: String(doc._id),
     name: doc.name || "",
+    jobDescription: String(doc.jobDescription || "").trim(),
+    calendlyAutomation: normalizeCalendlyAutomation(doc.calendlyAutomation),
     outreachPlanId: doc.outreachPlanId ? String(doc.outreachPlanId) : "",
     outreachChannel:
       doc.outreachChannel === "whatsapp" ? "whatsapp" : "gmail",
@@ -105,18 +130,44 @@ async function listCampaigns(userId, options = {}) {
   const skip = (page - 1) * limit;
 
   const filter = { userId: userOid(userId) };
-  const [docs, total] = await Promise.all([
+  const ownerOid = userOid(userId);
+
+  const [docs, total, active, contactsAgg] = await Promise.all([
     Campaign.find(filter).sort({ updatedAt: -1 }).skip(skip).limit(limit).lean(),
     Campaign.countDocuments(filter),
+    Campaign.countDocuments({ ...filter, outreachStatus: "active" }),
+    Campaign.aggregate([
+      { $match: { userId: ownerOid } },
+      {
+        $project: {
+          contactCount: { $size: { $ifNull: ["$contacts", []] } },
+        },
+      },
+      { $group: { _id: null, total: { $sum: "$contactCount" } } },
+    ]),
   ]);
+
   const campaigns = docs.map(formatCampaign);
-  const hasMore = skip + campaigns.length < total;
+  const totalPages = Math.max(1, Math.ceil(total / limit) || 1);
+  const safePage = Math.min(page, totalPages);
+  const hasMore = safePage < totalPages;
+  const totalContacts =
+    contactsAgg && contactsAgg[0] && typeof contactsAgg[0].total === "number"
+      ? contactsAgg[0].total
+      : 0;
+
   return {
     campaigns,
+    summary: {
+      total,
+      active,
+      contacts: totalContacts,
+    },
     pagination: {
-      page,
+      page: safePage,
       limit,
       total,
+      totalPages,
       hasMore,
     },
   };
@@ -446,6 +497,32 @@ async function setCampaignOutreachPlan(
   return formatCampaign(doc.toObject());
 }
 
+async function updateCampaignJobDescription(userId, campaignId, jobDescription) {
+  const oid = assertValidCampaignId(campaignId);
+  const doc = await Campaign.findOne({ _id: oid, userId: userOid(userId) });
+  if (!doc) {
+    const err = new Error("Campaign not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  doc.jobDescription = String(jobDescription || "").trim();
+  await doc.save();
+  return formatCampaign(doc.toObject());
+}
+
+async function updateCampaignCalendlyAutomation(userId, campaignId, calendlyAutomation) {
+  const oid = assertValidCampaignId(campaignId);
+  const doc = await Campaign.findOne({ _id: oid, userId: userOid(userId) });
+  if (!doc) {
+    const err = new Error("Campaign not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  doc.calendlyAutomation = normalizeCalendlyAutomation(calendlyAutomation);
+  await doc.save();
+  return formatCampaign(doc.toObject());
+}
+
 async function deleteCampaign(userId, campaignId) {
   const oid = assertValidCampaignId(campaignId);
   const result = await Campaign.deleteOne({ _id: oid, userId: userOid(userId) });
@@ -466,6 +543,8 @@ module.exports = {
   addContactsToCampaign,
   removeContactFromCampaign,
   setCampaignOutreachPlan,
+  updateCampaignJobDescription,
+  updateCampaignCalendlyAutomation,
   syncCampaignContactsFromUserCache,
   deleteCampaign,
 };

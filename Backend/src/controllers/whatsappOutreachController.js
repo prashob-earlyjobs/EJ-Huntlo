@@ -48,6 +48,8 @@ const createWhatsAppPlanHandler = async (req, res) => {
     const plan = await createWhatsAppOutreachPlan(uid, {
       name: req.body?.name,
       touchpoints: req.body?.touchpoints,
+      jobDescription: req.body?.jobDescription,
+      calendlyAutomation: req.body?.calendlyAutomation,
     });
     return res.status(201).json({
       success: true,
@@ -66,6 +68,8 @@ const updateWhatsAppPlanHandler = async (req, res) => {
     const plan = await updateWhatsAppOutreachPlan(uid, req.params.id, {
       name: req.body?.name,
       touchpoints: req.body?.touchpoints,
+      jobDescription: req.body?.jobDescription,
+      calendlyAutomation: req.body?.calendlyAutomation,
     });
     return res.status(200).json({
       success: true,

@@ -2,8 +2,15 @@
  * Campaign workspace URL segments (under /dashboard/campaigns/…).
  */
 
+import {
+  reportMetricFromSlug,
+  slugForReportMetric,
+  type ReportMetricKey,
+} from "@/lib/campaignEmailReport";
+
 export type CampaignWorkspaceTab =
   | "Editor"
+  | "Job description"
   | "Contacts"
   | "Emails"
   | "WhatsApp"
@@ -13,6 +20,7 @@ export type CampaignWorkspaceTab =
 
 export const CAMPAIGN_WORKSPACE_TABS: CampaignWorkspaceTab[] = [
   "Editor",
+  "Job description",
   "Contacts",
   "Emails",
   "WhatsApp",
@@ -23,6 +31,7 @@ export const CAMPAIGN_WORKSPACE_TABS: CampaignWorkspaceTab[] = [
 
 const TAB_TO_SLUG: Record<CampaignWorkspaceTab, string> = {
   Editor: "editor",
+  "Job description": "job-description",
   Contacts: "contacts",
   Emails: "emails",
   WhatsApp: "whatsapp",
@@ -59,6 +68,48 @@ export function pathForCampaignWorkspace(
   const id = String(campaignId || "").trim();
   if (!id) return pathForCampaignsList();
   return `/dashboard/campaigns/${encodeURIComponent(id)}/${slugForCampaignWorkspaceTab(tab)}`;
+}
+
+/** Report outcome drill-down: /dashboard/campaigns/:id/report/:metric */
+export function pathForCampaignReportMetric(
+  campaignId: string,
+  metric: ReportMetricKey
+): string {
+  const id = String(campaignId || "").trim();
+  if (!id) return pathForCampaignsList();
+  return `/dashboard/campaigns/${encodeURIComponent(id)}/report/${slugForReportMetric(metric)}`;
+}
+
+/** Open WhatsApp tab with a specific contact thread selected. */
+export function pathForCampaignWhatsAppConversation(
+  campaignId: string,
+  candidateKey: string
+): string {
+  const id = String(campaignId || "").trim();
+  const key = String(candidateKey || "").trim();
+  if (!id) return pathForCampaignsList();
+  if (!key) return pathForCampaignWorkspace(id, "WhatsApp");
+  return `/dashboard/campaigns/${encodeURIComponent(id)}/whatsapp/${encodeURIComponent(key)}`;
+}
+
+export function parseCampaignWhatsAppContactKeyFromPathname(pathname: string): string | null {
+  const match = String(pathname || "").match(
+    /\/dashboard\/campaigns\/[^/]+\/whatsapp\/([^/?#]+)/i
+  );
+  if (!match?.[1]) return null;
+  try {
+    return decodeURIComponent(match[1]).trim() || null;
+  } catch {
+    return match[1].trim() || null;
+  }
+}
+
+export function parseCampaignReportMetricFromPathname(pathname: string): ReportMetricKey | null {
+  const match = String(pathname || "").match(
+    /\/dashboard\/campaigns\/[^/]+\/report\/([^/?#]+)/i
+  );
+  if (!match?.[1]) return null;
+  return reportMetricFromSlug(match[1]);
 }
 
 /** Read workspace tab from URL without a Next.js navigation (back/forward, replaceState). */

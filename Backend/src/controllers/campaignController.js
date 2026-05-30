@@ -9,6 +9,8 @@ const {
   deleteCampaign,
   syncCampaignContactsFromUserCache,
   setCampaignOutreachPlan,
+  updateCampaignJobDescription,
+  updateCampaignCalendlyAutomation,
 } = require("../services/campaignService");
 const {
   createAndStartCampaignRevealJob,
@@ -23,6 +25,7 @@ const {
   resumeCampaignSequence,
   getSequenceStatus,
   getEmailCampaignReport,
+  getEmailCampaignReportActivity,
 } = require("../services/campaignOutreachSendService");
 const {
   getCampaignWhatsAppConversations,
@@ -300,6 +303,44 @@ const setCampaignOutreachPlanHandler = async (req, res) => {
   }
 };
 
+const updateCampaignJobDescriptionHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
+    const campaign = await updateCampaignJobDescription(
+      uid,
+      req.params.id,
+      req.body?.jobDescription
+    );
+    return res.status(200).json({
+      success: true,
+      campaign,
+      message: "Job description saved",
+    });
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
+const updateCampaignCalendlyAutomationHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
+    const campaign = await updateCampaignCalendlyAutomation(
+      uid,
+      req.params.id,
+      req.body?.calendlyAutomation
+    );
+    return res.status(200).json({
+      success: true,
+      campaign,
+      message: "Interview link saved",
+    });
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
 const launchCampaignSequenceHandler = async (req, res) => {
   try {
     const uid = req.auth?.userId;
@@ -371,6 +412,20 @@ const getCampaignEmailReportHandler = async (req, res) => {
     if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
     const report = await getEmailCampaignReport(uid, req.params.id);
     return res.status(200).json({ success: true, report });
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
+const getCampaignEmailReportActivityHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
+    const data = await getEmailCampaignReportActivity(uid, req.params.id, {
+      page: req.query?.page,
+      limit: req.query?.limit,
+    });
+    return res.status(200).json({ success: true, ...data });
   } catch (error) {
     return handleError(res, error);
   }
@@ -517,11 +572,14 @@ module.exports = {
   startCampaignRevealJobHandler,
   syncCampaignContactsHandler,
   setCampaignOutreachPlanHandler,
+  updateCampaignJobDescriptionHandler,
+  updateCampaignCalendlyAutomationHandler,
   launchCampaignSequenceHandler,
   pauseCampaignSequenceHandler,
   resumeCampaignSequenceHandler,
   getCampaignSequenceStatusHandler,
   getCampaignEmailReportHandler,
+  getCampaignEmailReportActivityHandler,
   getCampaignWhatsAppConversationsHandler,
   getCampaignWhatsAppThreadMessagesHandler,
   sendCampaignWhatsAppSessionMessageHandler,

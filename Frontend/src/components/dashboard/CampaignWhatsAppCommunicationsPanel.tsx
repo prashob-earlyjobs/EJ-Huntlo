@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type UIEvent } from 
 
 import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
 import { CampaignContactsSkeleton } from "@/components/dashboard/CampaignContactsSkeleton";
+import { CampaignWorkspaceEmptyState } from "@/components/dashboard/CampaignWorkspaceEmptyState";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { getStoredAuth } from "@/lib/auth";
 import {
@@ -19,9 +20,13 @@ import {
 
 type Props = {
   campaignId: string;
+  /** Open this contact thread when set (URL deep link). */
+  initialContactKey?: string | null;
   /** Bump to refetch (e.g. after campaign launch). */
   refreshKey?: number;
   revealInProgress?: boolean;
+  /** Disable add/remove contacts (active or completed campaign). */
+  contactsLocked?: boolean;
   onAddFromSearchHistory?: () => void;
   onUploadCsv?: () => void;
   onRemoveCandidate?: (candidateKey: string) => Promise<void> | void;
@@ -132,8 +137,10 @@ function buildPageNumbers(currentPage: number, totalPages: number): number[] {
 
 export function CampaignWhatsAppCommunicationsPanel({
   campaignId,
+  initialContactKey = null,
   refreshKey = 0,
   revealInProgress = false,
+  contactsLocked = false,
   onAddFromSearchHistory,
   onUploadCsv,
   onRemoveCandidate,
@@ -240,6 +247,12 @@ export function CampaignWhatsAppCommunicationsPanel({
     void loadConversations(1, false, { soft: hasLoadedOnceRef.current });
   }, [loadConversations, refreshKey]);
 
+  useEffect(() => {
+    const key = String(initialContactKey || "").trim();
+    if (!key) return;
+    setSelectedKey(key);
+  }, [initialContactKey]);
+
   const filteredThreads = useMemo(() => {
     const q = search.trim().toLowerCase();
     return threads.filter((t) => {
@@ -317,6 +330,7 @@ export function CampaignWhatsAppCommunicationsPanel({
   }, [activeKey, activeThread, markThreadRead]);
 
   const canCompose =
+    outreachStatus !== "completed" &&
     Boolean(activeThread?.contact.phone.trim()) &&
     Boolean(activeThread?.sessionWindow.canReply);
 
@@ -463,55 +477,44 @@ export function CampaignWhatsAppCommunicationsPanel({
 
   if (error) {
     return (
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 py-12">
-        <p className="dashboard-campaign-workspace-placeholder dashboard-campaign-workspace-placeholder--error text-center">
-          {error}
-        </p>
-        <button
-          type="button"
-          className="dashboard-btn-secondary text-sm"
-          onClick={() => void loadConversations()}
-        >
-          Retry
-        </button>
-      </div>
+      <CampaignWorkspaceEmptyState
+        icon="error_outline"
+        title="Could not load conversations"
+        description={error}
+        actions={[
+          {
+            label: "Retry",
+            icon: "refresh",
+            variant: "primary",
+            onClick: () => void loadConversations(),
+          },
+        ]}
+      />
     );
   }
 
   if (threads.length === 0) {
     return (
-      <div className="flex flex-1 items-center justify-center px-4 py-10 sm:px-6">
-        <div className="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-          <div className="flex flex-col items-center text-center">
-            <span className="inline-flex h-14 w-14 items-center justify-center rounded-2xl border border-[#25d366]/20 bg-[#25d366]/10">
-              <IntegrationBrandLogo provider="whatsapp" title="WhatsApp" className="h-8 w-8" />
-            </span>
-            <h3 className="mt-4 text-xl font-semibold text-[#141b2b]">No contacts yet</h3>
-            <p className="mt-2 max-w-xl text-sm leading-6 text-[#5f6368]">
-              Add candidates to this campaign to view WhatsApp conversations and manage replies in
-              one place.
-            </p>
-          </div>
-          <div className="mt-7 flex flex-col gap-2 sm:flex-row sm:justify-center">
-            <button
-              type="button"
-              className="dashboard-btn-primary inline-flex min-h-10 items-center justify-center gap-1.5 px-4 text-sm"
-              onClick={onAddFromSearchHistory}
-            >
-              <MaterialIcon name="history" className="text-base" />
-              Add candidate from search history
-            </button>
-            <button
-              type="button"
-              className="dashboard-btn-secondary inline-flex min-h-10 items-center justify-center gap-1.5 px-4 text-sm"
-              onClick={onUploadCsv}
-            >
-              <MaterialIcon name="upload_file" className="text-base" />
-              Upload CSV
-            </button>
-          </div>
-        </div>
-      </div>
+      <CampaignWorkspaceEmptyState
+        brand="whatsapp"
+        title="No contacts yet"
+        description="Add candidates to this campaign to view WhatsApp conversations and manage replies in one place."
+        actions={[
+          {
+            label: "Add from search history",
+            icon: "history",
+            disabled: contactsLocked,
+            onClick: onAddFromSearchHistory,
+          },
+          {
+            label: "Upload CSV",
+            icon: "upload_file",
+            variant: "secondary",
+            disabled: contactsLocked,
+            onClick: onUploadCsv,
+          },
+        ]}
+      />
     );
   }
 
@@ -528,7 +531,8 @@ export function CampaignWhatsAppCommunicationsPanel({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              className="dashboard-btn-primary inline-flex min-h-9 items-center gap-1.5 px-3 text-xs"
+              className="dashboard-btn-primary inline-flex min-h-9 items-center gap-1.5 px-3 text-xs disabled:opacity-55"
+              disabled={contactsLocked}
               onClick={onAddFromSearchHistory}
             >
               <MaterialIcon name="person_add" className="text-base" />
@@ -536,7 +540,8 @@ export function CampaignWhatsAppCommunicationsPanel({
             </button>
             <button
               type="button"
-              className="dashboard-btn-secondary inline-flex min-h-9 items-center gap-1.5 px-3 text-xs"
+              className="dashboard-btn-secondary inline-flex min-h-9 items-center gap-1.5 px-3 text-xs disabled:opacity-55"
+              disabled={contactsLocked}
               onClick={onUploadCsv}
             >
               <MaterialIcon name="upload_file" className="text-base" />
@@ -651,6 +656,10 @@ export function CampaignWhatsAppCommunicationsPanel({
           {outreachStatus === "active" ? (
             <span className="dashboard-campaign-wa-comms-preview-pill dashboard-campaign-wa-comms-live-pill">
               Sequence active
+            </span>
+          ) : outreachStatus === "completed" ? (
+            <span className="dashboard-campaign-wa-comms-preview-pill bg-slate-100 text-slate-600">
+              Campaign completed
             </span>
           ) : null}
           <button

@@ -3,6 +3,29 @@ const WhatsAppOutreachPlan = require("../models/WhatsAppOutreachPlan");
 
 const MESSAGE_MAX_LENGTH = 4096;
 
+function normalizeCalendlyAutomation(raw) {
+  const o = raw && typeof raw === "object" ? raw : {};
+  const enabled = Boolean(o?.enabled);
+  if (!enabled) {
+    return {
+      enabled: false,
+      meetingUri: "",
+      meetingName: "",
+      schedulingUrl: "",
+      durationMinutes: 0,
+      kind: "",
+    };
+  }
+  return {
+    enabled: true,
+    meetingUri: String(o?.meetingUri || "").trim(),
+    meetingName: String(o?.meetingName || "").trim(),
+    schedulingUrl: String(o?.schedulingUrl || "").trim(),
+    durationMinutes: Math.max(0, Number(o?.durationMinutes) || 0),
+    kind: String(o?.kind || "").trim(),
+  };
+}
+
 function normalizeTouchpoints(raw) {
   if (!Array.isArray(raw)) return [];
   return raw
@@ -77,10 +100,13 @@ function validateTouchpoints(touchpoints) {
 
 function formatPlan(doc) {
   const touchpoints = Array.isArray(doc.touchpoints) ? doc.touchpoints : [];
+  const calendlyAutomation = normalizeCalendlyAutomation(doc.calendlyAutomation);
   return {
     id: String(doc._id),
     channel: "whatsapp",
     name: doc.name || "",
+    jobDescription: String(doc.jobDescription || "").trim(),
+    calendlyAutomation,
     touchpoints: touchpoints.map((tp) => ({
       id: tp._id ? String(tp._id) : "",
       order: tp.order,
@@ -124,7 +150,7 @@ async function getWhatsAppOutreachPlan(userId, planId) {
   return formatPlan(doc);
 }
 
-async function createWhatsAppOutreachPlan(userId, { name, touchpoints }) {
+async function createWhatsAppOutreachPlan(userId, { name, touchpoints, jobDescription, calendlyAutomation }) {
   const planName = String(name || "").trim();
   if (!planName) {
     const err = new Error("Plan name is required");
@@ -138,12 +164,14 @@ async function createWhatsAppOutreachPlan(userId, { name, touchpoints }) {
   const doc = await WhatsAppOutreachPlan.create({
     userId: userOid,
     name: planName,
+    jobDescription: String(jobDescription || "").trim(),
     touchpoints: tps,
+    calendlyAutomation: normalizeCalendlyAutomation(calendlyAutomation),
   });
   return formatPlan(doc.toObject());
 }
 
-async function updateWhatsAppOutreachPlan(userId, planId, { name, touchpoints }) {
+async function updateWhatsAppOutreachPlan(userId, planId, { name, touchpoints, jobDescription, calendlyAutomation }) {
   if (!mongoose.Types.ObjectId.isValid(planId)) {
     const err = new Error("Invalid WhatsApp outreach plan id");
     err.statusCode = 400;
@@ -174,6 +202,14 @@ async function updateWhatsAppOutreachPlan(userId, planId, { name, touchpoints })
     const tps = normalizeTouchpoints(touchpoints);
     validateTouchpoints(tps);
     doc.touchpoints = tps;
+  }
+
+  if (jobDescription !== undefined) {
+    doc.jobDescription = String(jobDescription || "").trim();
+  }
+
+  if (calendlyAutomation !== undefined) {
+    doc.calendlyAutomation = normalizeCalendlyAutomation(calendlyAutomation);
   }
 
   await doc.save();

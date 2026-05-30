@@ -157,6 +157,8 @@ function bodyForTab(tab: CampaignWorkspaceTab) {
       return <WhatsAppCommsSkeleton />;
     case "Editor":
       return <EditorSkeleton />;
+    case "Job description":
+      return <GenericTabSkeleton />;
     case "Contacts":
     case "Emails":
       return <ContactsListSkeleton />;

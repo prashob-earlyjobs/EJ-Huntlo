@@ -13,6 +13,18 @@ const whatsAppTouchpointSchema = new mongoose.Schema(
   { _id: true }
 );
 
+const calendlyAutomationSchema = new mongoose.Schema(
+  {
+    enabled: { type: Boolean, default: false },
+    meetingUri: { type: String, trim: true, default: "" },
+    meetingName: { type: String, trim: true, default: "" },
+    schedulingUrl: { type: String, trim: true, default: "" },
+    durationMinutes: { type: Number, default: 0, min: 0 },
+    kind: { type: String, trim: true, default: "" },
+  },
+  { _id: false }
+);
+
 const whatsAppOutreachPlanSchema = new mongoose.Schema(
   {
     userId: {
@@ -22,9 +34,15 @@ const whatsAppOutreachPlanSchema = new mongoose.Schema(
       index: true,
     },
     name: { type: String, trim: true, required: true },
+    /** Role context for AI replies (JD pasted when creating the sequence). */
+    jobDescription: { type: String, default: "" },
     touchpoints: {
       type: [whatsAppTouchpointSchema],
       default: [],
+    },
+    calendlyAutomation: {
+      type: calendlyAutomationSchema,
+      default: () => ({ enabled: false }),
     },
   },
   { timestamps: true }

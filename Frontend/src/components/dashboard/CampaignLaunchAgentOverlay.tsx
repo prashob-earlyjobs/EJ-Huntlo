@@ -1,16 +1,59 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 
-const LAUNCH_STEPS = [
-  { id: "save", label: "Saving WhatsApp sequence", icon: "save" as const },
-  { id: "link", label: "Linking sequence to campaign", icon: "link" as const },
-  { id: "enroll", label: "Enrolling campaign contacts", icon: "group_add" as const },
-  { id: "agent", label: "Launching AI outreach agent", icon: "smart_toy" as const },
-];
+type LaunchChannel = "whatsapp" | "gmail";
+
+type LaunchStep = {
+  id: string;
+  label: string;
+  icon: string;
+};
+
+const LAUNCH_CONFIG: Record<
+  LaunchChannel,
+  {
+    steps: LaunchStep[];
+    title: string;
+    subtitle: string;
+    successText: string;
+    launchedTitle: string;
+    provider: "whatsapp" | "gmail";
+    overlayClass: string;
+  }
+> = {
+  whatsapp: {
+    steps: [
+      { id: "save", label: "Saving WhatsApp sequence", icon: "save" },
+      { id: "link", label: "Linking sequence to campaign", icon: "link" },
+      { id: "enroll", label: "Enrolling campaign contacts", icon: "group_add" },
+      { id: "agent", label: "Launching AI outreach agent", icon: "smart_toy" },
+    ],
+    title: "Launching WhatsApp Outreach agent",
+    subtitle: "Your outreach agent is preparing WhatsApp messages for this campaign.",
+    successText: "WhatsApp Outreach agent launched",
+    launchedTitle: "WhatsApp Outreach agent launched",
+    provider: "whatsapp",
+    overlayClass: "",
+  },
+  gmail: {
+    steps: [
+      { id: "save", label: "Saving email sequence", icon: "save" },
+      { id: "link", label: "Linking sequence to campaign", icon: "link" },
+      { id: "enroll", label: "Enrolling campaign contacts", icon: "group_add" },
+      { id: "send", label: "Starting Gmail outreach", icon: "mail" },
+    ],
+    title: "Launching Email Outreach agent",
+    subtitle: "Your outreach agent is preparing Gmail messages for this campaign.",
+    successText: "Email Outreach agent launched",
+    launchedTitle: "Email Outreach agent launched",
+    provider: "gmail",
+    overlayClass: "dashboard-launch-agent-overlay--gmail",
+  },
+};
 
 /** Time each step stays active before advancing (ms). */
 export const LAUNCH_AGENT_STEP_MS = 1600;
@@ -18,15 +61,20 @@ export const LAUNCH_AGENT_STEP_MS = 1600;
 /** Hold all steps complete + full progress before closing (ms). */
 export const LAUNCH_AGENT_COMPLETE_HOLD_MS = 1200;
 
+const STEP_COUNT = LAUNCH_CONFIG.whatsapp.steps.length;
+
 /** Minimum overlay duration (all steps finish, then progress at 100%). */
 export const LAUNCH_AGENT_MIN_DURATION_MS =
-  LAUNCH_STEPS.length * LAUNCH_AGENT_STEP_MS + LAUNCH_AGENT_COMPLETE_HOLD_MS;
+  STEP_COUNT * LAUNCH_AGENT_STEP_MS + LAUNCH_AGENT_COMPLETE_HOLD_MS;
 
 type Props = {
   open: boolean;
+  channel?: LaunchChannel;
 };
 
-export function CampaignLaunchAgentOverlay({ open }: Props) {
+export function CampaignLaunchAgentOverlay({ open, channel = "whatsapp" }: Props) {
+  const config = LAUNCH_CONFIG[channel];
+  const steps = config.steps;
   const [activeStep, setActiveStep] = useState(0);
   const [allComplete, setAllComplete] = useState(false);
 
@@ -42,7 +90,7 @@ export function CampaignLaunchAgentOverlay({ open }: Props) {
 
     const timers: ReturnType<typeof window.setTimeout>[] = [];
 
-    for (let i = 1; i < LAUNCH_STEPS.length; i += 1) {
+    for (let i = 1; i < steps.length; i += 1) {
       timers.push(
         window.setTimeout(() => {
           setActiveStep(i);
@@ -53,27 +101,28 @@ export function CampaignLaunchAgentOverlay({ open }: Props) {
     timers.push(
       window.setTimeout(() => {
         setAllComplete(true);
-      }, LAUNCH_AGENT_STEP_MS * LAUNCH_STEPS.length)
+      }, LAUNCH_AGENT_STEP_MS * steps.length)
     );
 
     return () => {
       timers.forEach((id) => window.clearTimeout(id));
     };
-  }, [open]);
+  }, [open, steps.length]);
 
-  const progressPercent = allComplete
-    ? 100
-    : Math.round(
-        ((activeStep + 1) / LAUNCH_STEPS.length) *
-          100 *
-          (activeStep < LAUNCH_STEPS.length - 1 ? 1 : 0.75)
-      );
+  const progressPercent = useMemo(() => {
+    if (allComplete) return 100;
+    return Math.round(
+      ((activeStep + 1) / steps.length) *
+        100 *
+        (activeStep < steps.length - 1 ? 1 : 0.75)
+    );
+  }, [activeStep, allComplete, steps.length]);
 
   if (!open) return null;
 
   return (
     <div
-      className="dashboard-launch-agent-overlay"
+      className={`dashboard-launch-agent-overlay${config.overlayClass ? ` ${config.overlayClass}` : ""}`}
       role="dialog"
       aria-modal="true"
       aria-labelledby="launch-agent-title"
@@ -99,10 +148,10 @@ export function CampaignLaunchAgentOverlay({ open }: Props) {
               className="dashboard-launch-agent-core-icon"
             />
           </span>
-          <span className="dashboard-launch-agent-wa-badge">
+          <span className="dashboard-launch-agent-channel-badge">
             <IntegrationBrandLogo
-              provider="whatsapp"
-              title="WhatsApp"
+              provider={config.provider}
+              title={channel === "gmail" ? "Gmail" : "WhatsApp"}
               className="dashboard-integration-brand-logo--sm"
             />
           </span>
@@ -111,20 +160,18 @@ export function CampaignLaunchAgentOverlay({ open }: Props) {
         {!allComplete ? (
           <>
             <h3 id="launch-agent-title" className="dashboard-launch-agent-title">
-              Launching WhatsApp Outreach agent
+              {config.title}
             </h3>
-            <p className="dashboard-launch-agent-subtitle">
-              Your outreach agent is preparing WhatsApp messages for this campaign.
-            </p>
+            <p className="dashboard-launch-agent-subtitle">{config.subtitle}</p>
           </>
         ) : (
           <h3 id="launch-agent-title" className="sr-only">
-            WhatsApp Outreach agent launched
+            {config.launchedTitle}
           </h3>
         )}
 
         <ol className="dashboard-launch-agent-steps">
-          {LAUNCH_STEPS.map((step, index) => {
+          {steps.map((step, index) => {
             const done = allComplete || index < activeStep;
             const current = !allComplete && index === activeStep;
             return (
@@ -164,9 +211,7 @@ export function CampaignLaunchAgentOverlay({ open }: Props) {
             <span className="dashboard-launch-agent-success-icon" aria-hidden>
               <MaterialIcon name="rocket_launch" />
             </span>
-            <span className="dashboard-launch-agent-success-text">
-              WhatsApp Outreach agent launched
-            </span>
+            <span className="dashboard-launch-agent-success-text">{config.successText}</span>
           </div>
         ) : null}
       </div>

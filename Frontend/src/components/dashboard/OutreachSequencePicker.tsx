@@ -27,7 +27,7 @@ export type CreateOutreachChoice =
   | { type: "clone"; planId: string }
   | { type: "ai"; touchpoints: OutreachTouchpointDraft[]; planName: string };
 
-type Variant = "modal" | "embedded";
+type Variant = "modal" | "embedded" | "campaign";
 
 type Props = {
   variant?: Variant;
@@ -39,10 +39,37 @@ type Props = {
   /** False until the first templates/plans fetch has finished. */
   optionsReady?: boolean;
   lead?: string;
+  /** Disable all picker actions (e.g. active or completed campaign). */
+  readOnly?: boolean;
   onChoose: (choice: CreateOutreachChoice) => void;
 };
 
 function pickerStyles(variant: Variant) {
+  if (variant === "campaign") {
+    return {
+      root: "dashboard-campaign-sequence-picker",
+      lead: "dashboard-campaign-sequence-lead",
+      options: "dashboard-campaign-sequence-actions",
+      optionBtn: "dashboard-campaign-sequence-action",
+      iconBox: "dashboard-campaign-sequence-action-icon",
+      iconBoxAi:
+        "dashboard-campaign-sequence-action-icon dashboard-campaign-sequence-action-icon--ai",
+      iconSize: "text-[22px]",
+      label: "dashboard-campaign-sequence-action-label",
+      chevron: "dashboard-campaign-sequence-action-chevron",
+      hint: "dashboard-campaign-sequence-hint",
+      sectionGap: "dashboard-campaign-sequence-section",
+      sectionTitle: "dashboard-label-upper",
+      subheading: "dashboard-campaign-sequence-subheading",
+      templateList: "dashboard-table-wrap dashboard-campaign-sequence-template-list",
+      templateRow: "dashboard-create-outreach-template-row",
+      templateName: "dashboard-create-outreach-template-name",
+      templateMeta: "dashboard-create-outreach-template-meta",
+      actions: "dashboard-campaign-sequence-footer-actions",
+      subpanel: "dashboard-campaign-sequence-subpanel",
+    };
+  }
+
   const compact = variant === "embedded";
   return {
     root: compact ? "dashboard-campaign-sequence-picker w-full max-w-[18rem] mx-auto" : "w-full",
@@ -81,6 +108,7 @@ function pickerStyles(variant: Variant) {
     actions: compact
       ? "mt-2.5 flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-2.5"
       : "mt-6 flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-4",
+    subpanel: "",
   };
 }
 
@@ -102,25 +130,37 @@ function OptionRow({
   onClick: () => void;
 }) {
   const compact = s.iconBox.includes("h-6");
-  const brandLogoClass = compact
-    ? "dashboard-integration-brand-logo--sm"
-    : "dashboard-integration-brand-logo";
+  const isCampaign = s.optionBtn.includes("dashboard-campaign-sequence-action");
+  const brandLogoClass =
+    isCampaign || !compact
+      ? "dashboard-integration-brand-logo"
+      : "dashboard-integration-brand-logo--sm";
+
+  const iconEl = (
+    <span className={iconVariant === "ai" ? s.iconBoxAi : s.iconBox} aria-hidden>
+      {brandProvider ? (
+        <IntegrationBrandLogo provider={brandProvider} title={label} className={brandLogoClass} />
+      ) : icon ? (
+        <MaterialIcon name={icon} className={s.iconSize} />
+      ) : null}
+    </span>
+  );
 
   return (
     <button type="button" className={s.optionBtn} onClick={onClick} disabled={disabled}>
-      <span className={iconVariant === "ai" ? s.iconBoxAi : s.iconBox} aria-hidden>
-        {brandProvider ? (
-          <IntegrationBrandLogo
-            provider={brandProvider}
-            title={label}
-            className={brandLogoClass}
-          />
-        ) : icon ? (
-          <MaterialIcon name={icon} className={s.iconSize} />
-        ) : null}
-      </span>
-      <span className={s.label}>{label}</span>
-      <MaterialIcon name="chevron_right" className={s.chevron} aria-hidden />
+      {isCampaign ? (
+        <span className="dashboard-campaign-sequence-action-top">
+          {iconEl}
+          <span className={s.label}>{label}</span>
+          <MaterialIcon name="chevron_right" className={s.chevron} aria-hidden />
+        </span>
+      ) : (
+        <>
+          {iconEl}
+          <span className={s.label}>{label}</span>
+          <MaterialIcon name="chevron_right" className={s.chevron} aria-hidden />
+        </>
+      )}
     </button>
   );
 }
@@ -134,6 +174,7 @@ export function OutreachSequencePicker({
   templatesLoading = false,
   optionsReady,
   lead = "Choose how to build your sequence",
+  readOnly = false,
   onChoose,
 }: Props) {
   const [step, setStep] = useState<"choose" | "clone" | "scratchChannel" | "aiChannel">("choose");
@@ -145,6 +186,7 @@ export function OutreachSequencePicker({
   const s = pickerStyles(variant);
 
   const showLead = lead !== undefined && lead !== "";
+  const pickerDisabled = readOnly;
   const allowsGmail = allowedChannels.includes("gmail");
   const allowsWhatsApp = allowedChannels.includes("whatsapp");
 
@@ -162,30 +204,51 @@ export function OutreachSequencePicker({
     const normalizedJobDescription = jobDescription.trim();
     const canContinue = Boolean(normalizedJobDescription) && Boolean(scratchChannel);
     return (
-      <div className={`${s.root} dashboard-outreach-scroll`}>
+      <div className={`${s.root}${s.subpanel ? ` ${s.subpanel}` : ""}`}>
         <label className={`${dashboardLabelClass} mb-3 block`}>
           Job description <span className="text-red-600">*</span>
           <textarea
             value={jobDescription}
             onChange={(e) => setJobDescription(e.target.value)}
             rows={8}
+            disabled={pickerDisabled}
             placeholder="Paste the role context, requirements, and key candidate profile details..."
             className={`${dashboardInputClass} mt-2 w-full resize-y`}
           />
         </label>
         <p className={s.lead}>Choose a channel for your outreach sequence.</p>
-        <div className={s.options}>
+        <div
+          className={
+            variant === "campaign"
+              ? "dashboard-campaign-sequence-channel-options"
+              : s.options
+          }
+        >
           <button
             type="button"
-            className={`${s.optionBtn}${
-              scratchChannel === "gmail" ? " border-[#0050cb] bg-[#f3f7ff]" : ""
-            }`}
+            className={`${
+              variant === "campaign" ? "dashboard-create-outreach-option" : s.optionBtn
+            }${scratchChannel === "gmail" ? " border-[#0050cb] bg-[#f3f7ff]" : ""}`}
+            disabled={pickerDisabled}
             onClick={() => setScratchChannel("gmail")}
           >
-            <span className={s.iconBox} aria-hidden>
+            <span
+              className={
+                variant === "campaign"
+                  ? "dashboard-create-outreach-option-icon"
+                  : s.iconBox
+              }
+              aria-hidden
+            >
               <IntegrationBrandLogo provider="gmail" title="Gmail" className="dashboard-integration-brand-logo" />
             </span>
-            <span className={s.label}>Gmail</span>
+            <span
+              className={
+                variant === "campaign" ? "dashboard-create-outreach-option-label" : s.label
+              }
+            >
+              Gmail
+            </span>
             {scratchChannel === "gmail" ? (
               <MaterialIcon name="check_circle" className="shrink-0 text-xl text-[#0050cb]" aria-hidden />
             ) : (
@@ -194,15 +257,29 @@ export function OutreachSequencePicker({
           </button>
           <button
             type="button"
-            className={`${s.optionBtn}${
-              scratchChannel === "whatsapp" ? " border-[#0050cb] bg-[#f3f7ff]" : ""
-            }`}
+            className={`${
+              variant === "campaign" ? "dashboard-create-outreach-option" : s.optionBtn
+            }${scratchChannel === "whatsapp" ? " border-[#0050cb] bg-[#f3f7ff]" : ""}`}
+            disabled={pickerDisabled}
             onClick={() => setScratchChannel("whatsapp")}
           >
-            <span className={s.iconBox} aria-hidden>
+            <span
+              className={
+                variant === "campaign"
+                  ? "dashboard-create-outreach-option-icon"
+                  : s.iconBox
+              }
+              aria-hidden
+            >
               <IntegrationBrandLogo provider="whatsapp" title="WhatsApp" className="dashboard-integration-brand-logo" />
             </span>
-            <span className={s.label}>WhatsApp</span>
+            <span
+              className={
+                variant === "campaign" ? "dashboard-create-outreach-option-label" : s.label
+              }
+            >
+              WhatsApp
+            </span>
             {scratchChannel === "whatsapp" ? (
               <MaterialIcon name="check_circle" className="shrink-0 text-xl text-[#0050cb]" aria-hidden />
             ) : (
@@ -220,7 +297,7 @@ export function OutreachSequencePicker({
           </button>
           <button
             type="button"
-            disabled={!canContinue}
+            disabled={pickerDisabled || !canContinue}
             onClick={() =>
               onChoose({
                 type: "scratch",
@@ -239,7 +316,7 @@ export function OutreachSequencePicker({
 
   if (step === "aiChannel") {
     return (
-      <div className={`${s.root} dashboard-outreach-scroll`}>
+      <div className={`${s.root}${s.subpanel ? ` ${s.subpanel}` : ""}`}>
         <p className={s.lead}>Choose a channel for AI-generated outreach.</p>
         <div className={s.options}>
           {allowsGmail ? (
@@ -279,7 +356,7 @@ export function OutreachSequencePicker({
 
   if (step === "clone") {
     return (
-      <div className={`${s.root} dashboard-outreach-scroll`}>
+      <div className={`${s.root}${s.subpanel ? ` ${s.subpanel}` : ""}`}>
         <p className={s.lead}>Pick a plan to duplicate as your starting point.</p>
         {pickerLoading ? (
           <div className="mt-2 space-y-2" aria-busy="true" aria-label="Loading outreach plans">
@@ -293,7 +370,7 @@ export function OutreachSequencePicker({
               value={clonePlanId}
               onChange={(e) => setClonePlanId(e.target.value)}
               className={`${dashboardInputClass} mt-2 w-full`}
-              disabled={plansLoading}
+              disabled={pickerDisabled || plansLoading}
             >
               <option value="">{plansLoading ? "Loading plans…" : "Select a plan…"}</option>
               {existingPlans.map((p) => (
@@ -317,7 +394,7 @@ export function OutreachSequencePicker({
           </button>
           <button
             type="button"
-            disabled={!clonePlanId}
+            disabled={pickerDisabled || !clonePlanId}
             onClick={() => onChoose({ type: "clone", planId: clonePlanId })}
             className={`${dashboardBtnPrimaryClass} px-5 py-2.5 text-sm disabled:opacity-55`}
           >
@@ -337,28 +414,35 @@ export function OutreachSequencePicker({
   }
 
   return (
-    <div className={`${s.root} dashboard-outreach-scroll`}>
+    <div className={s.root}>
       {showLead ? <p className={s.lead}>{lead}</p> : null}
 
+      {variant === "campaign" ? (
+        <p className="dashboard-label-upper dashboard-campaign-sequence-actions-label">Get started</p>
+      ) : null}
       <div className={s.options}>
         <OptionRow
           styles={s}
           icon="auto_awesome"
           iconVariant="ai"
           label="Generate with AI"
+          disabled={pickerDisabled}
           onClick={() => setStep("aiChannel")}
         />
         <OptionRow
           styles={s}
           icon="add"
           label="Start from scratch"
+          disabled={pickerDisabled}
           onClick={() => setStep("scratchChannel")}
         />
         <OptionRow
           styles={s}
           icon="content_copy"
           label="Clone an existing outreach"
-          disabled={pickerLoading || (!plansLoading && existingPlans.length === 0)}
+          disabled={
+            pickerDisabled || pickerLoading || (!plansLoading && existingPlans.length === 0)
+          }
           onClick={() => {
             if (pickerLoading || (existingPlans.length === 0 && !plansLoading)) return;
             setStep("clone");
@@ -372,10 +456,12 @@ export function OutreachSequencePicker({
 
       <div className={s.sectionGap}>
         {pickerLoading ? (
-          <OutreachSequencePickerSkeleton rows={4} />
+          <OutreachSequencePickerSkeleton rows={4} variant={variant} />
         ) : (
           <>
-            <h3 className={s.sectionTitle}>Templates</h3>
+            <h3 className={s.sectionTitle}>
+              {variant === "campaign" ? "Templates & saved outreaches" : "Templates"}
+            </h3>
             {!hasTemplateList ? (
               <p className={s.hint}>No templates yet. Save an outreach plan to reuse it here.</p>
             ) : (
@@ -389,6 +475,7 @@ export function OutreachSequencePicker({
                       key={tpl.id}
                       type="button"
                       className={s.templateRow}
+                      disabled={pickerDisabled}
                       onClick={() => onChoose({ type: "template", templateId: tpl.id })}
                     >
                       <span
@@ -419,6 +506,7 @@ export function OutreachSequencePicker({
                       key={tpl.id}
                       type="button"
                       className={s.templateRow}
+                      disabled={pickerDisabled}
                       onClick={() => onChoose({ type: "template", templateId: tpl.id })}
                     >
                       <span className={s.iconBox} aria-hidden>
@@ -447,6 +535,7 @@ export function OutreachSequencePicker({
                       key={plan.id}
                       type="button"
                       className={s.templateRow}
+                      disabled={pickerDisabled}
                       onClick={() => onChoose({ type: "clone", planId: plan.id })}
                     >
                       <span
