@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 
 export type SearchHistoryRow = {
@@ -186,7 +187,7 @@ type Props = {
   loading: boolean;
   error: string;
   highlightSessionId: string | null;
-  actionLoading: boolean;
+  openingSessionId: string | null;
   onOpenSession: (row: SearchHistoryRow) => void;
   onGoToSearch: () => void;
 };
@@ -196,11 +197,13 @@ export function SearchHistoryTable({
   loading,
   error,
   highlightSessionId,
-  actionLoading,
+  openingSessionId,
   onOpenSession,
   onGoToSearch,
 }: Props) {
-  if (loading) {
+  const [unavailableRow, setUnavailableRow] = useState<SearchHistoryRow | null>(null);
+
+  if (loading && rows.length === 0) {
     return <HistoryTableSkeleton />;
   }
 
@@ -228,50 +231,72 @@ export function SearchHistoryTable({
   }
 
   return (
-    <div className="dashboard-thin-scrollbar mt-6 overflow-x-auto">
-      <div className="dashboard-table-wrap">
-      <table className="dashboard-table" role="grid">
-        <thead>
-          <tr>
-            <th scope="col">When</th>
-            <th scope="col">Search</th>
-            <th scope="col">Preview</th>
-            <th scope="col" className="tabular-nums">
-              Results
-            </th>
-            <th scope="col">Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => {
-            const when = formatWhen(row.createdAt);
-            const label = promptText(row);
-            const isHighlighted = highlightSessionId === row.id;
+    <>
+      <div
+        className={[
+          "dashboard-thin-scrollbar mt-6 overflow-x-auto",
+          loading && rows.length > 0 ? "dashboard-table-wrap--refreshing" : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
+        <div className="dashboard-table-wrap">
+        <table className="dashboard-table" role="grid">
+          <thead>
+            <tr>
+              <th scope="col">When</th>
+              <th scope="col">Search</th>
+              <th scope="col">Preview</th>
+              <th scope="col" className="tabular-nums">
+                Results
+              </th>
+              <th scope="col">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => {
+              const when = formatWhen(row.createdAt);
+              const label = promptText(row);
+              const isHighlighted = highlightSessionId === row.id;
+              const isOpening = Boolean(openingSessionId) && openingSessionId === row.id;
+              const hasPreviewCandidates = row.candidatePreview.length > 0;
 
-            return (
-              <tr
-                id={`history-session-${row.id}`}
-                key={row.id}
-                className={[
-                  "dashboard-table-row--clickable",
-                  isHighlighted ? "dashboard-table-row--highlight" : "",
-                  actionLoading ? "dashboard-table-row--disabled" : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                tabIndex={actionLoading ? -1 : 0}
-                onClick={() => {
-                  if (!actionLoading) onOpenSession(row);
-                }}
-                onKeyDown={(e) => {
-                  if (actionLoading) return;
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    onOpenSession(row);
+              const handleOpen = () => {
+                if (isOpening) return;
+                if (!hasPreviewCandidates) {
+                  setUnavailableRow(row);
+                  return;
+                }
+                onOpenSession(row);
+              };
+
+              return (
+                <tr
+                  id={`history-session-${row.id}`}
+                  key={row.id}
+                  className={[
+                    "dashboard-table-row--clickable",
+                    isHighlighted ? "dashboard-table-row--highlight" : "",
+                    isOpening ? "dashboard-table-row--disabled" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  tabIndex={isOpening ? -1 : 0}
+                  onClick={handleOpen}
+                  onKeyDown={(e) => {
+                    if (isOpening) return;
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      handleOpen();
+                    }
+                  }}
+                  aria-disabled={isOpening}
+                  aria-label={
+                    hasPreviewCandidates
+                      ? `Open search session: ${label}`
+                      : `View unavailable candidates message for search session: ${label}`
                   }
-                }}
-                aria-label={`Open search session: ${label}`}
-              >
+                >
                 <td title={when.title}>
                   <span className="dashboard-table-when-primary">{when.primary}</span>
                   {when.secondary ? (
@@ -316,12 +341,49 @@ export function SearchHistoryTable({
                     hasWarning={Boolean(row.profilesFetchError)}
                   />
                 </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        </div>
       </div>
-    </div>
+
+      {unavailableRow ? (
+        <div
+          className="dashboard-modal-overlay px-4 py-6"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="search-history-unavailable-title"
+        >
+          <div className="w-full max-w-[20rem] rounded-2xl border border-slate-200 bg-white p-4 shadow-xl">
+            <div className="flex items-center gap-3">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-50 text-amber-600">
+                <MaterialIcon name="info" className="text-lg" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <h3
+                  id="search-history-unavailable-title"
+                  className="text-sm font-semibold text-[#141b2b]"
+                >
+                  No candidates found
+                </h3>
+                <p className="mt-0.5 text-xs leading-5 text-[#5f667a]">
+                  This search has no saved candidates to open.
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className="mt-4 w-full cursor-pointer rounded-lg bg-[#0050cb] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#003f9f]"
+              onClick={() => setUnavailableRow(null)}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }

@@ -252,24 +252,24 @@ export function PeopleScoutPanel({
                 onClick={() => onOpenRecent(user)}
                 className="dashboard-people-scout-recent-card"
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <RecentAvatar name={user.name} thumbnailUrl={user.thumbnailUrl} />
-                    <div className="min-w-0 text-left">
-                      <span className="dashboard-table-candidate-name block truncate">
-                        {user.name}
-                      </span>
-                      <span className="dashboard-table-candidate-sub block truncate">
-                        {user.role || "—"}
-                      </span>
-                      <RecentCompanyLine
-                        company={user.company}
-                        domain={user.companyWebsiteDomain}
-                        website={user.companyWebsite}
-                      />
-                    </div>
+                <div className="flex min-w-0 items-start gap-3">
+                  <RecentAvatar name={user.name} thumbnailUrl={user.thumbnailUrl} />
+                  <div className="min-w-0 flex-1 text-left">
+                    <span className="dashboard-table-candidate-name block whitespace-normal break-words">
+                      {user.name}
+                    </span>
+                    <span className="dashboard-table-candidate-sub block truncate">
+                      {user.role || "—"}
+                    </span>
+                    <RecentCompanyLine
+                      company={user.company}
+                      domain={user.companyWebsiteDomain}
+                      website={user.companyWebsite}
+                    />
+                    <span className="dashboard-people-scout-recent-time tabular-nums">
+                      {user.lastSearchedAt}
+                    </span>
                   </div>
-                  <span className="dashboard-chip shrink-0 tabular-nums">{user.lastSearchedAt}</span>
                 </div>
                 {user.location && user.location !== "—" ? (
                   <p className="dashboard-people-scout-recent-meta line-clamp-1">

@@ -1,6 +1,41 @@
 const { getFutureJobsConfig } = require("./config");
 const { logOutbound, safeJsonPreview } = require("../../utils/logger");
 
+const inFlightFutureJobsRequests = new Map();
+
+function dedupeKey(method, url, body = "") {
+  return `${method.toUpperCase()} ${url} ${typeof body === "string" ? body : JSON.stringify(body || "")}`;
+}
+
+async function futureJobsFetch(url, options = {}, dedupe = false) {
+  const method = options.method || "GET";
+  const key = dedupe ? dedupeKey(method, url, options.body || "") : "";
+  if (key && inFlightFutureJobsRequests.has(key)) {
+    logOutbound("futurejobs", "deduped in-flight request", { method, url });
+    return inFlightFutureJobsRequests.get(key);
+  }
+
+  if (!key) return fetch(url, options);
+
+  const promise = fetch(url, options).then(async (res) => {
+    const text = await res.text();
+    return {
+      ok: res.ok,
+      status: res.status,
+      statusText: res.statusText,
+      headers: res.headers,
+      text: async () => text,
+    };
+  });
+
+  inFlightFutureJobsRequests.set(key, promise);
+  try {
+    return await promise;
+  } finally {
+    inFlightFutureJobsRequests.delete(key);
+  }
+}
+
 function assertFutureJobsApiKey(apiKey) {
   if (!apiKey) {
     const err = new Error(
@@ -244,13 +279,13 @@ const getSourcingSessionCandidateDetails = async (candidateId) => {
   });
 
   const started = Date.now();
-  const res = await fetch(url, {
+  const res = await futureJobsFetch(url, {
     method: "GET",
     headers: {
       "Content-Type": "application/json",
       ...authHeaders,
     },
-  });
+  }, true);
 
   const elapsedMs = Date.now() - started;
   const text = await res.text();
@@ -340,13 +375,13 @@ const getSourcingSessionProfiles = async (
 
   const started = Date.now();
 
-  const res = await fetch(url, {
+  const res = await futureJobsFetch(url, {
     method: "GET",
     headers: {
       "Content-Type": "application/json",
       ...authHeaders,
     },
-  });
+  }, true);
 
   const elapsedMs = Date.now() - started;
   const text = await res.text();
@@ -528,14 +563,14 @@ const fetchMoreSourcingSession = async (sessionId, body = {}) => {
 
   const started = Date.now();
 
-  const res = await fetch(url, {
+  const res = await futureJobsFetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...authHeaders,
     },
     body: JSON.stringify(payload),
-  });
+  }, true);
 
   const elapsedMs = Date.now() - started;
   const text = await res.text();
@@ -628,13 +663,13 @@ const revealSourcingSessionContact = async (
   });
 
   const started = Date.now();
-  const res = await fetch(url, {
+  const res = await futureJobsFetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...authHeaders,
     },
-  });
+  }, true);
 
   const elapsedMs = Date.now() - started;
   const text = await res.text();
@@ -646,7 +681,7 @@ const revealSourcingSessionContact = async (
   }
 
   if (!res.ok) {
-    logOutbound("futurejobs", "reveal contact response error",userId, {
+    logOutbound("futurejobs", "reveal contact response error", {
       httpStatus: res.status,
       elapsedMs,
       message: data.message || data.status || data.error,
@@ -722,14 +757,14 @@ const scoutPeopleLookup = async (body) => {
 
   const started = Date.now();
 
-  const res = await fetch(url, {
+  const res = await futureJobsFetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...authHeaders,
     },
     body: JSON.stringify(payload),
-  });
+  }, true);
 
   const elapsedMs = Date.now() - started;
   const text = await res.text();
@@ -821,14 +856,14 @@ const scoutPeopleRevealContact = async (linkedinProfileUrl, revealType) => {
   });
 
   const started = Date.now();
-  const res = await fetch(url, {
+  const res = await futureJobsFetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...authHeaders,
     },
     body,
-  });
+  }, true);
 
   const elapsedMs = Date.now() - started;
   const text = await res.text();
@@ -909,14 +944,14 @@ const getSourcingSessionAnnotation = async (body) => {
   });
 
   const started = Date.now();
-  const res = await fetch(url, {
+  const res = await futureJobsFetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...authHeaders,
     },
     body: JSON.stringify(payload),
-  });
+  }, true);
 
   const elapsedMs = Date.now() - started;
   const text = await res.text();

@@ -113,6 +113,9 @@ import {
   type CandidateFilterForm,
 } from "@/lib/sourcingFilters";
 
+const TEMPORARY_SEARCH_FAILURE_MESSAGE =
+  "We couldn’t complete the search right now. Please try again shortly.";
+
 type SourcingSessionRow = {
   id: string;
   futureJobsSessionId: string;
@@ -160,7 +163,7 @@ function isSidebarNavGroup(entry: UserSidebarNavEntry): entry is UserSidebarNavG
 const campaignsSidebarItem: UserSidebarNavItem = {
   label: "Campaigns",
   subtitle: "Group & run outreach",
-  icon: <MaterialIcon name="flag" className="text-[1.125rem]" />,
+  icon: <MaterialIcon name="flag" />,
 };
 
 const integrationsSidebarItem: UserSidebarNavItem = {
@@ -182,7 +185,7 @@ const integrationsSidebarItem: UserSidebarNavItem = {
 const engagementsSidebarGroup: UserSidebarNavGroup = {
   label: "Engagements",
   subtitle: "Outreach & connections",
-  icon: <MaterialIcon name="campaign" className="text-[1.125rem]" />,
+  icon: <MaterialIcon name="campaign" />,
   children: [campaignsSidebarItem, integrationsSidebarItem],
 };
 
@@ -190,17 +193,7 @@ const userSidebarNavEntries: UserSidebarNavEntry[] = [
   {
     label: "Dashboard",
     subtitle: "Your workspace overview",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
-        <path
-          d="M4 12L12 4L20 12M6 10V20H18V10"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    ),
+    icon: <MaterialIcon name="space_dashboard" />,
   },
   {
     label: "Search Candidates",
@@ -280,38 +273,7 @@ const userSidebarNavEntries: UserSidebarNavEntry[] = [
   {
     label: "People Scout",
     subtitle: "Search LinkedIn profiles",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
-        <path
-          d="M16 11C17.66 11 19 9.66 19 8C19 6.34 17.66 5 16 5C14.34 5 13 6.34 13 8C13 9.66 14.34 11 16 11Z"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <path
-          d="M8 11C9.66 11 11 9.66 11 8C11 6.34 9.66 5 8 5C6.34 5 5 6.34 5 8C5 9.66 6.34 11 8 11Z"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <path
-          d="M2 19C2 16.79 3.79 15 6 15H10"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <path
-          d="M14 15H18C20.21 15 22 16.79 22 19"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    ),
+    icon: <MaterialIcon name="travel_explore" />,
   },
   engagementsSidebarGroup,
   {
@@ -1299,6 +1261,7 @@ export default function UserDashboardPage() {
     []
   );
   const [sourcingSessionsLoading, setSourcingSessionsLoading] = useState(false);
+  const [sourcingSessionsHydrated, setSourcingSessionsHydrated] = useState(false);
   const [sourcingSessionsError, setSourcingSessionsError] = useState("");
   const [workspaceCandidates, setWorkspaceCandidates] = useState<CandidateRow[]>([]);
   const [workspaceCandidatesPage, setWorkspaceCandidatesPage] = useState(1);
@@ -1321,6 +1284,9 @@ export default function UserDashboardPage() {
   const [recentSearchesRefresh, setRecentSearchesRefresh] = useState(0);
   const [sourcingSessionsRefresh, setSourcingSessionsRefresh] = useState(0);
   const [highlightSessionId, setHighlightSessionId] = useState("");
+  const [openingHistorySessionId, setOpeningHistorySessionId] = useState<string | null>(
+    null
+  );
   const [peopleScoutLoading, setPeopleScoutLoading] = useState(false);
   const [peopleScoutError, setPeopleScoutError] = useState("");
   const [peopleScoutRecentList, setPeopleScoutRecentList] = useState<PeopleScoutRecentUser[]>([]);
@@ -1682,9 +1648,12 @@ export default function UserDashboardPage() {
   useEffect(() => {
     const onHistoryTab =
       activeTab === "Search history" || activeTab === "Candidates";
-    if (!onHistoryTab && sourcingSessionsRefresh === 0) return;
+    if (!onHistoryTab) return;
     const auth = getStoredAuth();
-    if (!auth?.token) return;
+    if (!auth?.token) {
+      setSourcingSessionsHydrated(true);
+      return;
+    }
     const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
     setSourcingSessionsLoading(true);
     setSourcingSessionsError("");
@@ -1707,6 +1676,7 @@ export default function UserDashboardPage() {
         setSourcingSessions([]);
       })
       .finally(() => {
+        setSourcingSessionsHydrated(true);
         setSourcingSessionsLoading(false);
       });
   }, [activeTab, sourcingSessionsRefresh]);
@@ -2322,6 +2292,13 @@ export default function UserDashboardPage() {
   };
 
   const revealPeopleScoutContactFromApi = async (revealType: RevealContactType) => {
+    if (
+      (revealType === "EMAIL" && peopleScoutRevealEmailBusy) ||
+      (revealType === "PHONE" && peopleScoutRevealPhoneBusy)
+    ) {
+      return;
+    }
+
     const auth = getStoredAuth();
     if (!auth?.token) {
       showRevealContactNotice("Please sign in again to reveal contacts.");
@@ -2751,6 +2728,8 @@ export default function UserDashboardPage() {
 
   useEffect(() => {
     if (tabFromRoute !== "Session Results" || !routeSessionId) return;
+    // History navigation hydrates via stored-candidates; avoid a parallel profiles fetch.
+    if (sessionResultsFromDb) return;
     if (searchSummary?.sessionId === routeSessionId && sessionResultDocs.length > 0) {
       return;
     }
@@ -2773,9 +2752,12 @@ export default function UserDashboardPage() {
     routeSessionId,
     searchSummary?.sessionId,
     sessionResultDocs.length,
+    sessionResultsFromDb,
   ]);
 
   const handleSearch = async () => {
+    if (annotateLoading || searchLoading || applyFiltersLoading) return;
+
     const prompt = aiPrompt.trim();
     setSearchError("");
     setSessionResultError("");
@@ -2862,6 +2844,8 @@ export default function UserDashboardPage() {
   };
 
   const requestApplySearchFilters = () => {
+    if (applyFiltersLoading || searchLoading || annotateLoading) return;
+
     const prompt = (filterSearchPrompt || aiPrompt).trim();
     const keywordSkills = String(candidateFilterForm.keywordSkills || "").trim();
     if (!prompt) {
@@ -2893,6 +2877,8 @@ export default function UserDashboardPage() {
   };
 
   const executeApplySearchFilters = async (mode: ApplyFiltersSessionMode) => {
+    if (applyFiltersLoading) return;
+
     const prompt = (filterSearchPrompt || aiPrompt).trim();
     const keywordSkills = String(candidateFilterForm.keywordSkills || "").trim();
     if (!prompt || !keywordSkills) return;
@@ -2945,6 +2931,9 @@ export default function UserDashboardPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
+        if ([502, 503, 504].includes(res.status)) {
+          throw new Error(TEMPORARY_SEARCH_FAILURE_MESSAGE);
+        }
         if (userActionAlert.fromApi(res, data, "Failed to load candidates")) return;
         throw new Error(userActionAlert.apiMessage(res, data, "Failed to load candidates"));
       }
@@ -3017,6 +3006,7 @@ export default function UserDashboardPage() {
       setWorkspaceCandidatesRefresh((n) => n + 1);
       setRecentSearchesRefresh((n) => n + 1);
       if (isBrandNewSession) {
+        setSourcingSessionsHydrated(false);
         setSourcingSessionsRefresh((n) => n + 1);
         if (typeof data.savedSessionId === "string" && data.savedSessionId.trim()) {
           setHighlightSessionId(data.savedSessionId.trim());
@@ -3111,6 +3101,7 @@ export default function UserDashboardPage() {
           : prev
       );
       setWorkspaceCandidatesRefresh((n) => n + 1);
+      setSourcingSessionsHydrated(false);
       setSourcingSessionsRefresh((n) => n + 1);
       setRecentSearchesRefresh((n) => n + 1);
     } catch (err) {
@@ -3124,6 +3115,45 @@ export default function UserDashboardPage() {
     }
   };
 
+  const beginHistorySessionNavigation = (
+    sessionId: string,
+    backTab: string,
+    options?: {
+      futureJobsStatus?: string | null;
+      prompt?: string;
+      sessionTitle?: string;
+      sourcingSessionRowId?: string | null;
+    }
+  ) => {
+    setOpeningHistorySessionId(options?.sourcingSessionRowId?.trim() || null);
+    setSessionResultsBackTab(backTab);
+    setSessionResultDocs([]);
+    setSessionResultSelectedKeys([]);
+    setSessionResultsFromDb(true);
+    setSessionResultError("");
+    setSearchError("");
+    setProfilesWarning("");
+    setSearchLoading(true);
+    setSearchSummary({
+      candidateCount: 0,
+      totalDocs: 0,
+      page: 1,
+      limit: 20,
+      totalPages: 1,
+      hasNextPage: false,
+      canFetchMore: false,
+      sessionId,
+      sourcingStatus: options?.futureJobsStatus ?? null,
+      profilesFetchError: null,
+    });
+    const prompt = options?.prompt?.trim() || options?.sessionTitle?.trim() || "";
+    if (prompt) {
+      setAiPrompt(prompt);
+      setFilterSearchPrompt(prompt);
+    }
+    navigateToTab("Session Results", { sessionId });
+  };
+
   const openSessionFromHistory = async (
     row: SourcingSessionRow,
     backTab = "Search history"
@@ -3133,11 +3163,12 @@ export default function UserDashboardPage() {
       setSearchError("Please sign in again.");
       return;
     }
-    setSessionResultsBackTab(backTab);
-    navigateToTab("Session Results", { sessionId: row.futureJobsSessionId });
-    setSearchLoading(true);
-    setProfilesWarning("");
-    setSearchError("");
+    beginHistorySessionNavigation(row.futureJobsSessionId, backTab, {
+      futureJobsStatus: row.futureJobsStatus || null,
+      prompt: row.prompt,
+      sessionTitle: row.sessionTitle,
+      sourcingSessionRowId: row.id,
+    });
     const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
     const limit = 20;
     try {
@@ -3203,13 +3234,14 @@ export default function UserDashboardPage() {
       setFilterSearchPrompt(row.prompt || row.sessionTitle || "");
       setSessionResultPage(1);
       setSessionResultTotalPages(1);
-      navigateToTab("Session Results", { sessionId: row.futureJobsSessionId });
     } catch (err) {
+      setSessionResultsFromDb(false);
       setSearchError(
         err instanceof Error ? err.message : "Could not open this session"
       );
     } finally {
       setSearchLoading(false);
+      setOpeningHistorySessionId(null);
     }
   };
 
@@ -3423,6 +3455,7 @@ export default function UserDashboardPage() {
   ) => {
     const key = candidateRowKey(candidate);
     const busyKey = revealContactBusyKey(candidate, revealType);
+    if (revealContactBusyKeys.includes(busyKey)) return;
 
     const cached = revealedContactValues[key];
     if (
@@ -3661,6 +3694,15 @@ export default function UserDashboardPage() {
   const clearSessionResultSelection = useCallback(() => {
     setSessionResultSelectedKeys([]);
   }, []);
+
+  const sessionResultsOutOfSync =
+    activeTab === "Session Results" &&
+    Boolean(routeSessionId) &&
+    searchSummary?.sessionId !== routeSessionId;
+  const showSessionResultsSkeleton =
+    sessionResultDocs.length === 0 && (searchLoading || sessionResultsOutOfSync);
+  const showSessionResultsGrid =
+    sessionResultDocs.length > 0 && !searchLoading && !sessionResultsOutOfSync;
 
   const applyRevealedLookupToCandidateRows = useCallback(async (rows: CandidateRow[]) => {
     const auth = getStoredAuth();
@@ -4391,7 +4433,7 @@ export default function UserDashboardPage() {
                     </div>
                   </div>
                   <div className="dashboard-results-toolbar-actions">
-                    {sessionResultDocs.length > 0 ? (
+                    {showSessionResultsGrid ? (
                       <div className="dashboard-results-toolbar-meta">
                         <span className="dashboard-results-toolbar-badge tabular-nums">
                           {sessionResultDocs.length.toLocaleString()} candidate
@@ -4405,7 +4447,7 @@ export default function UserDashboardPage() {
                       </div>
                     ) : null}
                     <div className="dashboard-results-toolbar-buttons">
-                      {sessionResultDocs.length > 0 ? (
+                      {showSessionResultsGrid ? (
                         <>
                           {sessionResultSelectedKeys.length > 0 ? (
                             <button
@@ -4467,7 +4509,7 @@ export default function UserDashboardPage() {
                   <p className="dashboard-alert-success mt-4">{sessionResultNotice}</p>
                 ) : null}
 
-                {searchLoading && sessionResultDocs.length === 0 ? (
+                {showSessionResultsSkeleton ? (
                   <SessionResultsSkeleton count={4} />
                 ) : null}
 
@@ -4484,15 +4526,11 @@ export default function UserDashboardPage() {
                   </div>
                 ) : null}
 
-                {!searchLoading &&
+                {!showSessionResultsSkeleton &&
                 !applyFiltersLoading &&
                 sessionResultDocs.length === 0 &&
                 !sessionResultError &&
-                !(
-                  tabFromRoute === "Session Results" &&
-                  Boolean(routeSessionId) &&
-                  searchSummary?.sessionId !== routeSessionId
-                ) ? (
+                !sessionResultsOutOfSync ? (
                   <div className="dashboard-empty-state">
                     <div className="dashboard-empty-state-icon">
                       <MaterialIcon name="person_off" className="text-[28px]" />
@@ -4514,7 +4552,7 @@ export default function UserDashboardPage() {
                   </div>
                 ) : null}
 
-                {sessionResultDocs.length > 0 ? (
+                {showSessionResultsGrid ? (
                   <>
                     <p className="dashboard-session-select-touch-hint">
                       Tap the circle on a card to select. Use Select all for faster multi-select.
@@ -4647,35 +4685,6 @@ export default function UserDashboardPage() {
                             >
                               <div className="dashboard-candidate-actions-bar">
                                 <div className="dashboard-candidate-actions-left">
-                                  <button
-                                    type="button"
-                                    title={
-                                      isSaveBusy
-                                        ? "Saving…"
-                                        : isSavedSessionCandidate
-                                          ? "Saved"
-                                          : "Save candidate"
-                                    }
-                                    aria-label={
-                                      isSaveBusy
-                                        ? "Saving candidate"
-                                        : isSavedSessionCandidate
-                                          ? "Candidate saved"
-                                          : "Save candidate"
-                                    }
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      void toggleSaveCandidate(revealCandidate);
-                                    }}
-                                    disabled={isSaveBusy}
-                                    className={`dashboard-candidate-action-icon-btn${
-                                      isSavedSessionCandidate
-                                        ? " dashboard-candidate-action-icon-btn--active"
-                                        : ""
-                                    }`}
-                                  >
-                                    <MaterialIcon name="bookmark_border" />
-                                  </button>
                                   <button
                                     type="button"
                                     title={emailRevealBusy ? "Revealing email…" : "Reveal email"}
@@ -4878,7 +4887,7 @@ export default function UserDashboardPage() {
                       candidates in Search Candidates.
                     </p>
                   </div>
-                  {!sourcingSessionsLoading && sourcingSessions.length > 0 ? (
+                  {sourcingSessionsHydrated && sourcingSessions.length > 0 ? (
                     <span className="dashboard-badge tabular-nums">
                       {sourcingSessions.length} session
                       {sourcingSessions.length === 1 ? "" : "s"}
@@ -4889,11 +4898,11 @@ export default function UserDashboardPage() {
 
                 <div className="dashboard-card-body-scroll">
                 <SearchHistoryTable
-                  rows={sourcingSessions}
-                  loading={sourcingSessionsLoading}
+                  rows={sourcingSessionsHydrated ? sourcingSessions : []}
+                  loading={sourcingSessionsLoading || !sourcingSessionsHydrated}
                   error={sourcingSessionsError}
                   highlightSessionId={highlightSessionId}
-                  actionLoading={searchLoading}
+                  openingSessionId={openingHistorySessionId}
                   onOpenSession={(row) => void openSessionFromHistory(row)}
                   onGoToSearch={() => navigateToTab("Search Candidates")}
                 />
