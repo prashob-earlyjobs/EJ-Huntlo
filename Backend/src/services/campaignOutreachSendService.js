@@ -30,17 +30,12 @@ function userOid(userId) {
   return new mongoose.Types.ObjectId(userId);
 }
 
-function addDays(baseDate, days) {
-  const d = new Date(baseDate);
-  d.setUTCDate(d.getUTCDate() + Math.max(0, Number(days) || 0));
-  return d;
-}
-
-function addHours(baseDate, hours) {
-  const d = new Date(baseDate);
-  d.setUTCHours(d.getUTCHours() + Math.max(0, Number(hours) || 0));
-  return d;
-}
+const {
+  computeFirstSendAt,
+  normalizeStartSchedule,
+  scheduledSendAt,
+} = require("../utils/outreachScheduleUtils");
+const { syncEnrollmentSchedulesForPlan } = require("./campaignEnrollmentScheduleSync");
 
 function sortTouchpoints(touchpoints) {
   return [...(touchpoints || [])].sort((a, b) => (a.order || 0) - (b.order || 0));
@@ -53,32 +48,26 @@ function getTouchpointByOrder(touchpoints, order) {
   );
 }
 
-function getTouchpointDelayHours(touchpoint) {
-  if (!touchpoint || typeof touchpoint !== "object") return 0;
-  if (touchpoint.waitHours != null && Number.isFinite(Number(touchpoint.waitHours))) {
-    return Math.max(0, Number(touchpoint.waitHours));
-  }
-  if (touchpoint.waitDays != null && Number.isFinite(Number(touchpoint.waitDays))) {
-    return Math.max(0, Number(touchpoint.waitDays)) * 24;
-  }
-  return 0;
-}
+/** Prevent duplicate sends when multiple scheduler ticks overlap. */
+async function claimEnrollmentForSend(enrollment) {
+  const now = new Date();
+  const stepOrder = enrollment.currentStepOrder || 1;
+  const sentCount = enrollment.sentCount || 0;
+  const processingUntil = new Date(now.getTime() + 10 * 60 * 1000);
 
-/**
- * Schedule next send using either:
- * - touchpoint object (`waitHours` or `waitDays`)
- * - numeric waitDays (legacy callers)
- */
-function scheduledSendAt(baseDate, touchpointOrWaitDays) {
-  if (
-    touchpointOrWaitDays &&
-    typeof touchpointOrWaitDays === "object" &&
-    !Array.isArray(touchpointOrWaitDays)
-  ) {
-    return addHours(baseDate, getTouchpointDelayHours(touchpointOrWaitDays));
-  }
-  const waitDays = Math.max(0, Number(touchpointOrWaitDays) || 0);
-  return addHours(baseDate, waitDays * 24);
+  const claimed = await CampaignSequenceEnrollment.findOneAndUpdate(
+    {
+      _id: enrollment._id,
+      status: "active",
+      currentStepOrder: stepOrder,
+      sentCount,
+      nextSendAt: { $lte: now },
+    },
+    { $set: { nextSendAt: processingUntil } },
+    { new: true }
+  ).lean();
+
+  return claimed;
 }
 
 async function getSenderFirstName(userId) {
@@ -278,11 +267,23 @@ async function launchCampaignSequence(actorUserId, campaignId) {
     }
   );
 
-  if (isWhatsApp && enrolled > 0) {
+  if (!isWhatsApp && enrolled > 0 && plan?._id) {
+    const sync = await syncEnrollmentSchedulesForPlan(String(plan._id), {
+      triggerSend: false,
+    });
+    const norm = normalizeStartSchedule(plan.startSchedule || {}, touchpoints[0]);
+    const firstTp = touchpoints[0];
+    const firstSendAt = computeFirstSendAt(now, plan.startSchedule, firstTp);
+    console.log(
+      `[outreach-send] launch plan=${plan._id} mode=${norm.mode} scheduledAt=${norm.scheduledAt || "(none)"} firstSendAt=${firstSendAt.toISOString()} enrollmentsSynced=${sync.updated}`
+    );
+  }
+
+  if (enrolled > 0) {
     setImmediate(() => {
       processDueEnrollments().catch((err) => {
         console.error(
-          "[outreach-send] immediate WhatsApp tick:",
+          "[outreach-send] post-launch send tick:",
           err?.message || err
         );
       });
@@ -338,7 +339,7 @@ async function upsertEnrollmentForContact({
   }
 
   const firstTouchpoint = touchpoints[0];
-  const firstSendAt = scheduledSendAt(now, firstTouchpoint);
+  const firstSendAt = computeFirstSendAt(now, plan.startSchedule, firstTouchpoint);
 
   await CampaignSequenceEnrollment.findOneAndUpdate(
     {
@@ -425,10 +426,10 @@ async function enrollAddedContactsIfCampaignActive(actorUserId, campaignId, cand
     else skipped += 1;
   }
 
-  if (isWhatsApp && enrolled > 0) {
+  if (enrolled > 0) {
     setImmediate(() => {
       processDueEnrollments().catch((err) => {
-        console.error("[outreach-send] immediate WhatsApp tick:", err?.message || err);
+        console.error("[outreach-send] post-enroll send tick:", err?.message || err);
       });
     });
   }
@@ -456,8 +457,12 @@ async function pauseCampaignSequence(actorUserId, campaignId) {
 }
 
 async function resumeCampaignSequence(actorUserId, campaignId) {
-  const { campaign, touchpoints, ownerUserId } = await loadCampaignAndPlan(actorUserId, campaignId);
+  const { campaign, plan, touchpoints, channel, ownerUserId } = await loadCampaignAndPlan(
+    actorUserId,
+    campaignId
+  );
   const now = new Date();
+  const isWhatsApp = channel === "whatsapp";
 
   const paused = await CampaignSequenceEnrollment.find({
     campaignId: campaign._id,
@@ -465,24 +470,44 @@ async function resumeCampaignSequence(actorUserId, campaignId) {
     status: "paused",
   }).lean();
 
+  let resumed = 0;
   for (const row of paused) {
-    const tp = getTouchpointByOrder(touchpoints, row.currentStepOrder || 1);
+    const stepOrder = row.currentStepOrder || 1;
+    const tp = getTouchpointByOrder(touchpoints, stepOrder);
+    let nextSendAt = scheduledSendAt(now, tp);
+    if (
+      !isWhatsApp &&
+      stepOrder === 1 &&
+      (row.sentCount || 0) === 0 &&
+      plan?.startSchedule
+    ) {
+      nextSendAt = computeFirstSendAt(now, plan.startSchedule, tp);
+    }
     await CampaignSequenceEnrollment.updateOne(
       { _id: row._id },
       {
         $set: {
           status: "active",
-          nextSendAt: scheduledSendAt(now, tp),
+          nextSendAt,
           lastError: "",
         },
       }
     );
+    resumed += 1;
   }
 
   await Campaign.updateOne(
     { _id: campaign._id },
     { $set: { outreachStatus: "active" } }
   );
+
+  if (resumed > 0) {
+    setImmediate(() => {
+      processDueEnrollments().catch((err) => {
+        console.error("[outreach-send] post-resume send tick:", err?.message || err);
+      });
+    });
+  }
 
   return { outreachStatus: "active" };
 }
@@ -493,11 +518,16 @@ async function processEnrollmentDoc(enrollment) {
     return;
   }
 
-  if (campaign.outreachChannel === "whatsapp") {
-    return processWhatsAppEnrollmentDoc(enrollment, campaign);
+  const claimed = await claimEnrollmentForSend(enrollment);
+  if (!claimed) {
+    return;
   }
 
-  return processGmailEnrollmentDoc(enrollment, campaign);
+  if (campaign.outreachChannel === "whatsapp") {
+    return processWhatsAppEnrollmentDoc(claimed, campaign);
+  }
+
+  return processGmailEnrollmentDoc(claimed, campaign);
 }
 
 async function processGmailEnrollmentDoc(enrollment, campaign) {
@@ -881,17 +911,34 @@ async function processDueEnrollments() {
     .limit(SEND_BATCH_SIZE)
     .lean();
 
+  if (due.length > 0) {
+    console.log(
+      `[outreach-scheduler] ${due.length} due enrollment(s), oldest nextSendAt ${due[0].nextSendAt?.toISOString?.() || due[0].nextSendAt}`
+    );
+  }
+
   let processed = 0;
   for (const enrollment of due) {
     try {
       await processEnrollmentDoc(enrollment);
       processed += 1;
     } catch (err) {
-      console.error(
-        `[outreach-send] enrollment ${enrollment._id}:`,
-        err?.message || err
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[outreach-send] enrollment ${enrollment._id}:`, message);
+      await CampaignSequenceEnrollment.updateOne(
+        { _id: enrollment._id },
+        {
+          $set: {
+            status: "failed",
+            lastError: message.slice(0, 500),
+          },
+        }
       );
     }
+  }
+
+  if (processed > 0) {
+    console.log(`[outreach-scheduler] sent ${processed} enrollment(s)`);
   }
 
   return processed;

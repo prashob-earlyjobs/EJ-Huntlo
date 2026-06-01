@@ -101,7 +101,7 @@ const createCampaignHandler = async (req, res) => {
     if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
     const contacts = Array.isArray(req.body?.contacts) ? req.body.contacts : [];
     const revealInBackground = req.body?.revealInBackground !== false;
-    const campaign = await createCampaign(uid, {
+    const { campaign, limitSkippedCount } = await createCampaign(uid, {
       name: req.body?.name,
       contacts,
     });
@@ -131,6 +131,7 @@ const createCampaignHandler = async (req, res) => {
     return res.status(201).json({
       success: true,
       campaign,
+      limitSkippedCount: limitSkippedCount || 0,
       revealJob,
       revealJobError,
       message: "Campaign created",
@@ -190,6 +191,7 @@ const addContactsHandler = async (req, res) => {
       campaign: result.campaign,
       addedCount: result.addedCount,
       skippedCount: result.skippedCount,
+      limitSkippedCount: result.limitSkippedCount || 0,
       sequenceEnroll,
       sequenceEnrollError,
       revealJob,

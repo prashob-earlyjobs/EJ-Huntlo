@@ -66,6 +66,7 @@ const createPlanHandler = async (req, res) => {
       name: req.body?.name,
       touchpoints: req.body?.touchpoints,
       calendlyAutomation: req.body?.calendlyAutomation,
+      startSchedule: req.body?.startSchedule,
     });
     return res.status(201).json({ success: true, plan, message: "Outreach plan created" });
   } catch (error) {
@@ -81,6 +82,7 @@ const updatePlanHandler = async (req, res) => {
       name: req.body?.name,
       touchpoints: req.body?.touchpoints,
       calendlyAutomation: req.body?.calendlyAutomation,
+      startSchedule: req.body?.startSchedule,
     });
     return res.status(200).json({ success: true, plan, message: "Outreach plan updated" });
   } catch (error) {

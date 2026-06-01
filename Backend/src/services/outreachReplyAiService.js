@@ -3,21 +3,31 @@ const {
   OUTREACH_AUTO_REPLY_RESPONSE_SCHEMA,
 } = require("./geminiService");
 
+const MAX_CONVERSATION_EXCHANGES = 3;
+
 const SYSTEM_INSTRUCTION = `You draft recruiter email replies for Huntlo campaign threads.
 Output valid JSON only.
 Write as the hiring team: use "we", "our", "us" — never "I", "me", "my".
 Keep replies under 120 words, professional and warm.
 
-Goals:
-1. Classify disposition: "interested" only if they clearly want to proceed (yes, open to chat, tell me more, sounds good, when can we talk).
-2. "not_interested" if they decline, ask to stop, unsubscribe, or clearly are not looking.
-3. "unknown" if still ambiguous — use reply to gently ask if they are open to learning more (yes/no is fine).
+Job description (JD):
+- The user prompt includes the campaign job description. Answer factual questions about the role (compensation, location, requirements, responsibilities, benefits, visa, team, etc.) ONLY when the answer is clearly stated in the JD.
+- Do not invent or guess JD facts. If the answer is not in the JD, say the team will follow up with those details soon.
 
-Reply rules:
-- Questions you cannot answer from the provided context (salary, benefits, visa, interview dates, etc.): say the team will follow up with details soon — do not invent facts.
+Conversation limit (max ${MAX_CONVERSATION_EXCHANGES} auto-reply exchanges per candidate):
+- Exchanges 1–2: answer JD questions when possible; stay helpful; disposition may stay "unknown" if interest is unclear.
+- On exchange ${MAX_CONVERSATION_EXCHANGES} (or when auto-reply turn >= ${MAX_CONVERSATION_EXCHANGES}): if they have not declined, set disposition to "interested", shouldSendReply true, thank them, and invite them to book an interview using the interview scheduling link from the prompt (include the full URL in replyBody).
+- If they clearly decline, ask to stop, or unsubscribe at any point: disposition "not_interested", short polite close, no scheduling link.
+
+Disposition rules:
+- "interested": clearly wants to proceed, or exchange ${MAX_CONVERSATION_EXCHANGES} reached without decline.
+- "not_interested": declines, not looking, or asks to stop.
+- "unknown": only on exchanges 1–2 when interest is still ambiguous — gently ask if they are open to learning more.
+
+Other rules:
 - Irrelevant, rude, or off-topic messages: reply briefly and redirect to the role, or politely close if abusive.
-- While disposition is unknown: keep trying to get a clear interested / not interested signal without being pushy.
-- When disposition becomes interested or not_interested: send a short closing reply (thank them and next step for interested; thank them and wish well for not interested).`;
+- When disposition is "not_interested": short thank-you and wish them well (no scheduling link).
+- When disposition is "interested" and a scheduling link is provided: include it in replyBody.`;
 
 function formatThreadForPrompt(messages) {
   return messages
@@ -29,24 +39,43 @@ function formatThreadForPrompt(messages) {
     .join("\n\n---\n\n");
 }
 
+function truncateForPrompt(text, maxLen = 12_000) {
+  const s = String(text || "").trim();
+  if (s.length <= maxLen) return s;
+  return `${s.slice(0, maxLen)}\n...(truncated)`;
+}
+
 function buildAutoReplyPrompt({
   campaignName,
   contactName,
   contactRole,
   contactCompany,
+  jobDescription,
   planSummary,
   threadMessages,
   latestCandidateMessage,
   currentDisposition,
   autoReplyTurn,
+  maxExchanges = MAX_CONVERSATION_EXCHANGES,
+  interviewSchedulingUrl = "",
 }) {
   const firstName = String(contactName || "").trim().split(/\s+/)[0] || "there";
+  const jd = truncateForPrompt(jobDescription);
+  const schedulingUrl = String(interviewSchedulingUrl || "").trim();
+  const onFinalExchange = autoReplyTurn >= maxExchanges;
 
   return `Campaign: ${campaignName || "Outreach"}
 Role context: ${contactRole || "n/a"} at ${contactCompany || "n/a"}
 Candidate first name: ${firstName}
 Current disposition: ${currentDisposition || "unknown"}
-Auto-reply turn: ${autoReplyTurn}
+Auto-reply turn: ${autoReplyTurn} of ${maxExchanges} maximum
+${onFinalExchange ? "This is the FINAL exchange — include the interview scheduling link and set disposition to interested unless they declined." : ""}
+Interview scheduling link: ${schedulingUrl || "(not configured — do not invent a URL)"}
+
+Job description (answer role questions from this only):
+"""
+${jd || "(not available — say the team will follow up with role details)"}
+"""
 
 Outreach sequence summary:
 ${planSummary || "(not available)"}
@@ -91,6 +120,7 @@ function normalizeDisposition(value) {
  */
 async function generateCampaignAutoReply(context) {
   const prompt = buildAutoReplyPrompt(context);
+  console.log("prompt<--", prompt);
   const raw = await generateJsonWithGemini({
     prompt,
     systemInstruction: SYSTEM_INSTRUCTION,
@@ -112,4 +142,5 @@ async function generateCampaignAutoReply(context) {
 module.exports = {
   generateCampaignAutoReply,
   buildAutoReplyPrompt,
+  MAX_CONVERSATION_EXCHANGES,
 };

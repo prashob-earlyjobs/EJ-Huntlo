@@ -18,6 +18,7 @@ import {
 type Props = {
   open: boolean;
   channel?: GenerateOutreachChannel;
+  initialJobDescription?: string;
   onClose: () => void;
   onBack?: () => void;
   onGenerated: (result: GenerateOutreachFromJdResult) => void;
@@ -26,12 +27,15 @@ type Props = {
 export function GenerateOutreachAiModal({
   open,
   channel = "gmail",
+  initialJobDescription = "",
   onClose,
   onBack,
   onGenerated,
 }: Props) {
   const [mounted, setMounted] = useState(false);
-  const [jobDescription, setJobDescription] = useState("");
+  const [jobDescription, setJobDescription] = useState(
+    () => initialJobDescription.trim()
+  );
   const [planName, setPlanName] = useState("");
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState("");
@@ -59,6 +63,13 @@ export function GenerateOutreachAiModal({
       setGenerating(false);
     }
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const next = initialJobDescription.trim();
+    if (!next) return;
+    setJobDescription((prev) => (prev.trim() ? prev : next));
+  }, [open, initialJobDescription]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

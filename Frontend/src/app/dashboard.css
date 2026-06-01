@@ -4787,6 +4787,12 @@
   color: #434654;
 }
 
+.dashboard-campaign-csv-header-chip--required {
+  border-color: color-mix(in srgb, #0050cb 35%, transparent);
+  background: color-mix(in srgb, #0050cb 8%, white);
+  color: #0050cb;
+}
+
 .dashboard-campaign-csv-upload-zone {
   display: flex;
   width: 100%;
@@ -8266,25 +8272,359 @@ select.dashboard-outreach-start-chip--select {
   -webkit-appearance: none;
 }
 
-.dashboard-outreach-start-chip--datetime {
+.dashboard-outreach-scheduled-picker {
   display: inline-block;
-  width: auto;
-  min-width: 10.5rem;
-  max-width: 100%;
-  padding: 0.125rem 0.625rem;
   vertical-align: middle;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  line-height: 1.625rem;
-  color: #111827;
-  background: #f3f4f6;
-  border: none;
-  border-radius: 999px;
 }
 
-.dashboard-outreach-start-chip--datetime:focus-visible {
+.dashboard-outreach-start-chip--scheduled-trigger {
+  min-width: 10.5rem;
+  max-width: 14rem;
+  padding-left: 0.625rem;
+  padding-right: 1.375rem;
+  cursor: pointer;
+  border: none;
+  font: inherit;
+  white-space: nowrap;
+}
+
+.dashboard-outreach-schedule-panel {
+  box-sizing: border-box;
+  padding: 0.75rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.75rem;
+  background: #fff;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, #9ca3af 55%, transparent) transparent;
+  box-shadow:
+    0 4px 6px -1px color-mix(in srgb, #141b2b 8%, transparent),
+    0 10px 24px -4px color-mix(in srgb, #141b2b 14%, transparent);
+}
+
+.dashboard-outreach-schedule-panel::-webkit-scrollbar {
+  width: 4px;
+}
+
+.dashboard-outreach-schedule-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dashboard-outreach-schedule-panel::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  background: color-mix(in srgb, #9ca3af 50%, transparent);
+}
+
+.dashboard-outreach-schedule-panel::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, #6b7280 65%, transparent);
+}
+
+.dashboard-outreach-schedule-panel-title {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #111827;
+}
+
+.dashboard-outreach-schedule-panel-hint {
+  margin: 0.125rem 0 0.625rem;
+  font-size: 0.6875rem;
+  color: #6b7280;
+}
+
+.dashboard-outreach-schedule-timezone {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+}
+
+.dashboard-outreach-schedule-timezone-select {
+  width: 100%;
+}
+
+.dashboard-outreach-schedule-calendar-wrap {
+  display: flex;
+  justify-content: center;
+  margin: 0 0 0.5rem;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.dashboard-outreach-schedule-calendar.react-datepicker {
+  font-family: inherit;
+  font-size: 0.8125rem;
+  width: 100%;
+  max-width: 17.5rem;
+  border: none;
+  border-radius: 0.5rem;
+  background: transparent;
+  box-shadow: none;
+}
+
+.dashboard-outreach-schedule-calendar .react-datepicker__month-container {
+  float: none;
+  width: 100%;
+}
+
+.dashboard-outreach-schedule-calendar .react-datepicker__header {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem 0.5rem 0 0;
+  padding-top: 0.5rem;
+}
+
+.dashboard-outreach-schedule-calendar .react-datepicker__current-month {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #111827;
+}
+
+.dashboard-outreach-schedule-calendar .react-datepicker__day-names,
+.dashboard-outreach-schedule-calendar .react-datepicker__week {
+  display: flex;
+  justify-content: space-between;
+  margin: 0;
+}
+
+.dashboard-outreach-schedule-calendar .react-datepicker__day-name {
+  width: 2.125rem;
+  line-height: 2.125rem;
+  margin: 0.0625rem;
+  color: #6b7280;
+  font-size: 0.6875rem;
+}
+
+.dashboard-outreach-schedule-calendar .react-datepicker__day {
+  width: 2.125rem;
+  line-height: 2.125rem;
+  margin: 0.0625rem;
+  border-radius: 0.375rem;
+}
+
+.dashboard-outreach-schedule-calendar .react-datepicker__day--selected {
+  background: #5b21b6 !important;
+  color: #fff !important;
+}
+
+.dashboard-outreach-schedule-calendar .react-datepicker__day--keyboard-selected:not(
+    .react-datepicker__day--selected
+  ) {
+  background: transparent;
+  color: inherit;
+}
+
+.dashboard-outreach-schedule-calendar .react-datepicker__day--today:not(
+    .react-datepicker__day--selected
+  ) {
+  font-weight: 600;
+  color: #5b21b6;
+  background: #f5f3ff;
+}
+
+.dashboard-outreach-schedule-calendar .react-datepicker__day:hover:not(
+    .react-datepicker__day--selected
+  ) {
+  background: #ede9fe;
+}
+
+.dashboard-outreach-schedule-calendar .react-datepicker__day--disabled {
+  color: #d1d5db !important;
+}
+
+.dashboard-outreach-schedule-calendar .react-datepicker__navigation {
+  top: 0.625rem;
+}
+
+.dashboard-outreach-schedule-time-label {
+  margin: 0 0 0.375rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #6b7280;
+}
+
+.dashboard-outreach-time-picker {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.dashboard-outreach-start-chip--time-trigger {
+  min-width: 5.75rem;
+  padding-left: 0.625rem;
+  padding-right: 1.375rem;
+  cursor: pointer;
+  border: none;
+  font: inherit;
+}
+
+.dashboard-outreach-start-chip--time-trigger:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+
+.dashboard-outreach-time-panel {
+  padding: 0.75rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.75rem;
+  background: #fff;
+  box-shadow:
+    0 4px 6px -1px color-mix(in srgb, #141b2b 8%, transparent),
+    0 10px 24px -4px color-mix(in srgb, #141b2b 14%, transparent);
+}
+
+.dashboard-outreach-time-panel-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.dashboard-outreach-schedule-panel .dashboard-outreach-time-panel-fields {
+  grid-template-columns: 1fr 1fr minmax(4.75rem, 0.9fr);
+}
+
+.outreach-time-period-select__control {
+  min-width: 0;
+}
+
+.outreach-time-period-select__value-container {
+  justify-content: center;
+}
+
+.outreach-time-period-select__single-value {
+  text-align: center;
+}
+
+.outreach-schedule-timezone-select__single-value {
+  white-space: nowrap;
+}
+
+.dashboard-outreach-time-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.dashboard-outreach-time-field-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #6b7280;
+}
+
+.dashboard-outreach-time-field-select {
+  width: 100%;
+  height: 2.25rem;
+  padding: 0 0.5rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #111827;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.5rem center;
+  background-size: 0.625rem;
+  padding-right: 1.5rem;
+}
+
+.dashboard-outreach-time-field-select:focus-visible {
   outline: 2px solid color-mix(in srgb, #0050cb 55%, transparent);
   outline-offset: 1px;
+}
+
+.dashboard-outreach-time-field-input {
+  width: 100%;
+  height: 2.25rem;
+  padding: 0 0.5rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #111827;
+  text-align: center;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+  box-sizing: border-box;
+}
+
+.dashboard-outreach-time-field-input:focus-visible {
+  outline: 2px solid color-mix(in srgb, #0050cb 55%, transparent);
+  outline-offset: 1px;
+  border-color: #c4b5fd;
+}
+
+.dashboard-outreach-time-field-input[aria-invalid="true"] {
+  border-color: #f87171;
+  background: #fef2f2;
+}
+
+.dashboard-outreach-schedule-time-error {
+  margin: 0.375rem 0 0;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: #b91c1c;
+  line-height: 1.35;
+}
+
+.dashboard-outreach-time-period {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.375rem;
+  margin-top: 0.625rem;
+}
+
+.dashboard-outreach-time-period-btn {
+  height: 2rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #374151;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.dashboard-outreach-time-period-btn:hover {
+  background: #e5e7eb;
+}
+
+.dashboard-outreach-time-period-btn--active {
+  color: #5b21b6;
+  background: #ede9fe;
+  border-color: #c4b5fd;
+}
+
+.dashboard-outreach-time-apply {
+  width: 100%;
+  margin-top: 0.625rem;
+  height: 2rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #fff;
+  background: #5b21b6;
+  border: none;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.dashboard-outreach-time-apply:hover {
+  background: #4c1d95;
+}
+
+.dashboard-outreach-time-apply:focus-visible {
+  outline: 2px solid color-mix(in srgb, #0050cb 55%, transparent);
+  outline-offset: 2px;
 }
 
 .dashboard-outreach-start-chip--tz {

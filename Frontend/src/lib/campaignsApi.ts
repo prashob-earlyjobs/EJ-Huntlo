@@ -438,7 +438,11 @@ export async function createCampaign(
   name: string,
   contacts: CampaignContact[] = [],
   options?: { revealInBackground?: boolean }
-): Promise<{ campaign: CampaignRecord; revealJobId: string | null }> {
+): Promise<{
+  campaign: CampaignRecord;
+  revealJobId: string | null;
+  limitSkippedCount: number;
+}> {
   const res = await fetch(`${apiBase()}/api/campaigns`, {
     method: "POST",
     headers: authHeaders(token),
@@ -458,7 +462,9 @@ export async function createCampaign(
     data.revealJob && typeof data.revealJob === "object" && typeof data.revealJob.id === "string"
       ? data.revealJob.id
       : null;
-  return { campaign, revealJobId };
+  const limitSkippedCount =
+    typeof data.limitSkippedCount === "number" ? data.limitSkippedCount : 0;
+  return { campaign, revealJobId, limitSkippedCount };
 }
 
 export async function addContactsToCampaignApi(
@@ -470,6 +476,7 @@ export async function addContactsToCampaignApi(
   campaign: CampaignRecord;
   addedCount: number;
   skippedCount: number;
+  limitSkippedCount: number;
   revealJobId: string | null;
 }> {
   const res = await fetch(`${apiBase()}/api/campaigns/${campaignId}/contacts`, {
@@ -488,11 +495,13 @@ export async function addContactsToCampaignApi(
   if (!campaign) throw new Error("Invalid campaign response");
   const addedCount = typeof data.addedCount === "number" ? data.addedCount : 0;
   const skippedCount = typeof data.skippedCount === "number" ? data.skippedCount : 0;
+  const limitSkippedCount =
+    typeof data.limitSkippedCount === "number" ? data.limitSkippedCount : 0;
   const revealJobId =
     data.revealJob && typeof data.revealJob === "object" && typeof data.revealJob.id === "string"
       ? data.revealJob.id
       : null;
-  return { campaign, addedCount, skippedCount, revealJobId };
+  return { campaign, addedCount, skippedCount, limitSkippedCount, revealJobId };
 }
 
 export async function removeContactFromCampaignApi(

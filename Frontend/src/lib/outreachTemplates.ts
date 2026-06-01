@@ -14,6 +14,13 @@ export type OutreachTouchpointDraft = {
   subject: string;
   body: string;
   waitDays: number;
+  /** Sub-day delays; takes precedence over `waitDays` when scheduling sends. */
+  waitHours?: number;
+  /** HH:mm in `timezone` (IST = India Standard Time, UTC). */
+  sendTime?: string;
+  /** `IST` (India) or `UTC`. */
+  timezone?: string;
+  waitUnit?: "days";
 };
 
 /** Outreach template from API (`GET /api/outreach/templates`). */

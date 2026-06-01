@@ -87,6 +87,11 @@ import {
 import { useUserActionAlert } from "@/lib/useUserActionAlert";
 import type { CampaignContact, CampaignRecord } from "@/lib/campaigns";
 import {
+  campaignContactLimitMessage,
+  formatContactLimitToast,
+  sliceContactsToFit,
+} from "@/lib/campaignContactLimits";
+import {
   addContactsToCampaignApi,
   createCampaign,
   fetchCampaignsPage,
@@ -3957,24 +3962,37 @@ export default function UserDashboardPage() {
 
       try {
         if ("newCampaignName" in payload) {
-          const { campaign: record, revealJobId } = await createCampaign(
+          const { allowed, rejectedCount: preRejected } = sliceContactsToFit(0, incoming);
+          if (allowed.length === 0) {
+            setDashboardToast({
+              message: campaignContactLimitMessage(),
+              variant: "warning",
+            });
+            return;
+          }
+          const { campaign: record, revealJobId, limitSkippedCount } = await createCampaign(
             auth.token,
             payload.newCampaignName,
-            incoming,
+            allowed,
             { revealInBackground: true }
           );
           setCampaigns((prev) => [record, ...prev]);
           setAddToCampaignOpen(false);
+          const limitRejected = preRejected + limitSkippedCount;
+          const limitToast = formatContactLimitToast(limitRejected, record.contacts.length);
+          if (limitToast) {
+            setDashboardToast({ message: limitToast, variant: "warning" });
+          }
           setSessionResultNotice(
-            `Added ${incoming.length} candidate${incoming.length === 1 ? "" : "s"} to "${record.name}". Revealing email and phone automatically…`
+            `Added ${record.contacts.length} candidate${record.contacts.length === 1 ? "" : "s"} to "${record.name}". Revealing email and phone automatically…`
           );
           let jobId = revealJobId;
-          if (!jobId && incoming.length > 0) {
+          if (!jobId && allowed.length > 0) {
             try {
               const job = await startCampaignReveal(
                 auth.token,
                 record.id,
-                incoming.map((c) => c.candidateKey)
+                allowed.map((c) => c.candidateKey)
               );
               jobId = job.id;
             } catch {
@@ -3987,8 +4005,22 @@ export default function UserDashboardPage() {
           return;
         }
 
-        const { campaign, addedCount, skippedCount, revealJobId } =
-          await addContactsToCampaignApi(auth.token, payload.campaignId, incoming, {
+        const existing = campaigns.find((c) => c.id === payload.campaignId);
+        const currentCount = existing?.contacts?.length ?? 0;
+        const { allowed, rejectedCount: preRejected } = sliceContactsToFit(
+          currentCount,
+          incoming
+        );
+        if (allowed.length === 0) {
+          setDashboardToast({
+            message: campaignContactLimitMessage(),
+            variant: "warning",
+          });
+          return;
+        }
+
+        const { campaign, addedCount, skippedCount, limitSkippedCount, revealJobId } =
+          await addContactsToCampaignApi(auth.token, payload.campaignId, allowed, {
             revealInBackground: true,
           });
         setCampaigns((prev) =>
@@ -3996,7 +4028,12 @@ export default function UserDashboardPage() {
         );
         const campaignName = campaign.name || "Campaign";
         setAddToCampaignOpen(false);
-        if (addedCount === 0 && skippedCount > 0) {
+        const limitRejected = preRejected + limitSkippedCount;
+        const limitToast = formatContactLimitToast(limitRejected, addedCount);
+        if (limitToast) {
+          setDashboardToast({ message: limitToast, variant: "warning" });
+        }
+        if (addedCount === 0 && skippedCount > 0 && limitRejected === 0) {
           setSessionResultNotice(`All selected candidates are already in "${campaignName}".`);
         } else if (skippedCount > 0) {
           setSessionResultNotice(
@@ -4013,7 +4050,7 @@ export default function UserDashboardPage() {
             const job = await startCampaignReveal(
               auth.token,
               campaign.id,
-              incoming.map((c) => c.candidateKey)
+              allowed.map((c) => c.candidateKey)
             );
             jobId = job.id;
           } catch {
@@ -4037,6 +4074,7 @@ export default function UserDashboardPage() {
     },
     [
       addToCampaignBusy,
+      campaigns,
       followCampaignRevealJob,
       resolveSelectedSessionContacts,
       userActionAlert,
