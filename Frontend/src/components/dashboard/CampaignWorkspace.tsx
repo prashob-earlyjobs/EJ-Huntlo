@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
 
@@ -28,10 +29,8 @@ import { ConfirmModal } from "@/components/dashboard/ConfirmModal";
 import { DashboardToast } from "@/components/dashboard/DashboardToast";
 import {
   CAMPAIGN_CONTACTS_LOCKED_MESSAGE,
-  campaignContactLimitMessage,
-  formatContactLimitToast,
   isCampaignLaunched,
-  sliceContactsToFit,
+  validateCampaignContactBatch,
 } from "@/lib/campaignContactLimits";
 import { WhatsAppOutreachEditor } from "@/components/dashboard/WhatsAppOutreachEditor";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
@@ -43,11 +42,6 @@ import {
   parseCsvContacts,
 } from "@/lib/campaignCsvImport";
 import type { ReportMetricKey } from "@/lib/campaignEmailReport";
-import {
-  getActiveCampaignRevealJob,
-  pollCampaignRevealJob,
-  startCampaignReveal,
-} from "@/lib/campaignRevealJob";
 import {
   addContactsToCampaignApi,
   fetchCampaign,
@@ -180,31 +174,90 @@ function contactInitial(name: string) {
   return trimmed.slice(0, 2).toUpperCase();
 }
 
-function emailEmptyLabel(contact: CampaignContact, revealInProgress: boolean) {
+function emailEmptyLabel(
+  contact: CampaignContact,
+  revealInProgress: boolean,
+  campaignLaunched: boolean
+) {
   if (revealInProgress) {
-    return "Revealing email and phone in background…";
+    return "Revealing email and phone…";
+  }
+  if (!campaignLaunched) {
+    return "Launch the campaign to reveal email.";
   }
   if (!contact.linkedinUrl.trim() || !contact.sourcingSessionId.trim()) {
     return "Missing LinkedIn — open this person in Session Results and use Reveal Email";
   }
-  return "Email not found yet. If you revealed it in Session Results, it will appear here shortly.";
+  return "Email not found for this contact.";
 }
 
-function phoneEmptyLabel(contact: CampaignContact, revealInProgress: boolean) {
-  if (revealInProgress) {
-    return "Revealing email and phone in background…";
+function launchBlockedModalFromError(err: unknown): { title: string; message: ReactNode } {
+  if (err instanceof CampaignLaunchBlockedError) {
+    if (err.code === "GMAIL_DAILY_LIMIT_EXCEEDED") {
+      const lim = err.gmailDailyLimit as
+        | (typeof err.gmailDailyLimit & { totalContacts?: number; enrollable?: number })
+        | null;
+      const limit = lim?.limit ?? 200;
+      const remaining = lim?.remaining ?? 0;
+      const requested = lim?.requested ?? lim?.enrollable ?? 0;
+      const reserved = lim?.reserved ?? 0;
+      const totalContacts = lim?.totalContacts;
+      const email = lim?.integrationEmail?.trim();
+      return {
+        title: "Gmail daily send limit",
+        message: (
+          <>
+            {email ? (
+              <p className="mb-2 text-sm text-slate-600">
+                Connected account: <strong className="text-[#141b2b]">{email}</strong>
+              </p>
+            ) : null}
+            {typeof totalContacts === "number" && totalContacts > limit ? (
+              <p>
+                This campaign has <strong className="text-[#141b2b]">{totalContacts}</strong>{" "}
+                contacts, which exceeds the{" "}
+                <strong className="text-[#141b2b]">{limit}</strong> emails-per-day limit for your
+                Gmail account.
+              </p>
+            ) : (
+              <p>
+                This Gmail integration can send up to{" "}
+                <strong className="text-[#141b2b]">{limit}</strong> emails per day across all
+                running email campaigns.
+              </p>
+            )}
+            <p className="mt-2">
+              Already reserved today: <strong className="text-[#141b2b]">{reserved}</strong>
+              {" · "}
+              Remaining: <strong className="text-[#141b2b]">{remaining}</strong>
+              {" · "}
+              This launch needs: <strong className="text-[#141b2b]">{requested}</strong>
+            </p>
+            <p className="mt-2 text-sm text-slate-600">
+              You can launch again after the daily limit resets at midnight, or reduce contacts in
+              this campaign.
+            </p>
+          </>
+        ),
+      };
+    }
+    if (err.activeCampaignName) {
+      return {
+        title: "One campaign at a time",
+        message: (
+          <>
+            <strong className="dashboard-confirm-modal-highlight">{err.activeCampaignName}</strong>{" "}
+            is still running. Pause it or wait until it completes before launching another campaign.
+          </>
+        ),
+      };
+    }
   }
-  if (!contact.linkedinUrl.trim() || !contact.sourcingSessionId.trim()) {
-    return "Missing LinkedIn — open this person in Session Results and use Reveal Phone";
-  }
-  return "Phone not found yet. If you revealed it in Session Results, it will appear here shortly.";
-}
-
-function campaignContactNeedsReveal(contact: CampaignContact) {
-  if (!contact.linkedinUrl.trim() || !contact.sourcingSessionId.trim()) {
-    return false;
-  }
-  return !contact.email.trim() || !contact.phone.trim();
+  return {
+    title: "Cannot launch campaign",
+    message:
+      err instanceof Error ? err.message : "Could not launch this campaign. Please try again.",
+  };
 }
 
 function formatAddedAt(iso: string) {
@@ -249,8 +302,9 @@ export function CampaignWorkspace({
 }: Props) {
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
   const [launchBusy, setLaunchBusy] = useState(false);
-  const [activeCampaignBlockedModal, setActiveCampaignBlockedModal] = useState<{
-    activeCampaignName: string;
+  const [launchBlockedModal, setLaunchBlockedModal] = useState<{
+    title: string;
+    message: ReactNode;
   } | null>(null);
   const [launchNotice, setLaunchNotice] = useState("");
   const [launchError, setLaunchError] = useState("");
@@ -314,7 +368,6 @@ export function CampaignWorkspace({
   const [revealInProgress, setRevealInProgress] = useState(false);
   const [waCommsRefreshKey, setWaCommsRefreshKey] = useState(0);
   const [contactViewsRevision, setContactViewsRevision] = useState(0);
-  const [revealStarting, setRevealStarting] = useState(false);
   const [csvImportBusy, setCsvImportBusy] = useState(false);
   const [csvModalOpen, setCsvModalOpen] = useState(false);
   const [csvFileName, setCsvFileName] = useState("");
@@ -325,7 +378,6 @@ export function CampaignWorkspace({
   onCampaignUpdatedRef.current = onCampaignUpdated;
 
   const contactsFetchKeyRef = useRef<string | null>(null);
-  const autoRevealAttemptedRef = useRef("");
 
   const contactsFromPropsKey = useMemo(
     () =>
@@ -341,7 +393,6 @@ export function CampaignWorkspace({
   useEffect(() => {
     setContacts(campaign.contacts);
     contactsFetchKeyRef.current = null;
-    autoRevealAttemptedRef.current = "";
     setContactsListPage(1);
     setEmailListPage(1);
   }, [campaign.id]);
@@ -385,118 +436,11 @@ export function CampaignWorkspace({
     }
   }, [campaign.id, contacts.length]);
 
-  const pollActiveRevealJob = useCallback(async () => {
-    const auth = getStoredAuth();
-    if (!auth?.token) return;
-
-    const active = await getActiveCampaignRevealJob(auth.token, campaign.id);
-    if (!active) {
-      setRevealInProgress(false);
-      return;
-    }
-
-    setRevealInProgress(true);
-    try {
-      const job = await pollCampaignRevealJob(auth.token, active.id, {
-        intervalMs: 2000,
-        maxAttempts: 120,
-      });
-      if (job.status === "completed" || job.status === "quota_exceeded") {
-        contactsFetchKeyRef.current = null;
-        await reloadContacts();
-      }
-    } finally {
-      setRevealInProgress(false);
-    }
-  }, [campaign.id, reloadContacts]);
-
-  const startRevealForContacts = useCallback(
-    async (candidateKeys: string[]) => {
-      const auth = getStoredAuth();
-      if (!auth?.token || candidateKeys.length === 0) return;
-      if (revealStarting || revealInProgress) return;
-
-      setRevealStarting(true);
-      setContactsError("");
-      try {
-        const existing = await getActiveCampaignRevealJob(auth.token, campaign.id);
-        if (!existing) {
-          await startCampaignReveal(auth.token, campaign.id, candidateKeys);
-        }
-        setRevealInProgress(true);
-        contactsFetchKeyRef.current = null;
-        await pollActiveRevealJob();
-      } catch (err) {
-        setContactsError(
-          err instanceof Error ? err.message : "Could not start contact reveal."
-        );
-      } finally {
-        setRevealStarting(false);
-      }
-    },
-    [campaign.id, pollActiveRevealJob, revealInProgress, revealStarting]
-  );
-
   useEffect(() => {
     if (contactsFetchKeyRef.current === campaign.id) return;
     contactsFetchKeyRef.current = campaign.id;
     void reloadContacts();
   }, [campaign.id, reloadContacts]);
-
-  useEffect(() => {
-    if (contactsLoading || revealStarting || revealInProgress) return;
-
-    const needing = contacts.filter(campaignContactNeedsReveal);
-    if (needing.length === 0) {
-      autoRevealAttemptedRef.current = "";
-      return;
-    }
-
-    const signature = needing
-      .map((c) => c.candidateKey)
-      .sort()
-      .join(",");
-    if (autoRevealAttemptedRef.current === signature) return;
-
-    void (async () => {
-      const auth = getStoredAuth();
-      if (!auth?.token) return;
-
-      const active = await getActiveCampaignRevealJob(auth.token, campaign.id);
-      if (active) {
-        autoRevealAttemptedRef.current = signature;
-        await pollActiveRevealJob();
-        return;
-      }
-
-      autoRevealAttemptedRef.current = signature;
-      await startRevealForContacts(needing.map((c) => c.candidateKey));
-    })();
-  }, [
-    contacts,
-    contactsLoading,
-    campaign.id,
-    pollActiveRevealJob,
-    revealInProgress,
-    revealStarting,
-    startRevealForContacts,
-  ]);
-
-  useEffect(() => {
-    const isContactTab =
-      activeTab === "Emails" || activeTab === "WhatsApp" || activeTab === "Contacts";
-    if (!isContactTab || contactsLoading) return;
-
-    const needing = contacts.filter(campaignContactNeedsReveal);
-    if (needing.length === 0 || revealInProgress) return;
-
-    const interval = window.setInterval(() => {
-      contactsFetchKeyRef.current = null;
-      void reloadContacts();
-    }, 5000);
-
-    return () => window.clearInterval(interval);
-  }, [activeTab, contacts, contactsLoading, revealInProgress, reloadContacts]);
 
   const loadSequenceOptions = useCallback(async (page = 1) => {
     const auth = getStoredAuth();
@@ -786,6 +730,8 @@ export function CampaignWorkspace({
 
         const launched = await launchCampaignSequence(auth.token, campaign.id);
         onCampaignUpdatedRef.current?.(launched.campaign);
+        setContacts(launched.campaign.contacts);
+        contactsFetchKeyRef.current = null;
         setLaunchNotice(
           launched.enrolled > 0
             ? `Sequence launched for ${launched.enrolled} contact${launched.enrolled === 1 ? "" : "s"}.`
@@ -794,9 +740,7 @@ export function CampaignWorkspace({
         setLaunchError("");
       } catch (err) {
         if (err instanceof CampaignLaunchBlockedError) {
-          setActiveCampaignBlockedModal({
-            activeCampaignName: err.activeCampaignName,
-          });
+          setLaunchBlockedModal(launchBlockedModalFromError(err));
           throw err;
         }
         setSaveToast({
@@ -1112,9 +1056,12 @@ export function CampaignWorkspace({
     setLaunchError("");
     setLaunchNotice("");
     setLaunchBusy(true);
+    setRevealInProgress(true);
     try {
       const result = await launchCampaignSequence(auth.token, campaign.id);
       onCampaignUpdatedRef.current?.(result.campaign);
+      setContacts(result.campaign.contacts);
+      contactsFetchKeyRef.current = null;
       setLaunchNotice(
         result.enrolled > 0
           ? `Sequence launched for ${result.enrolled} contact${result.enrolled === 1 ? "" : "s"}.`
@@ -1128,15 +1075,14 @@ export function CampaignWorkspace({
       }
     } catch (err) {
       if (err instanceof CampaignLaunchBlockedError) {
-        setActiveCampaignBlockedModal({
-          activeCampaignName: err.activeCampaignName,
-        });
+        setLaunchBlockedModal(launchBlockedModalFromError(err));
       } else {
         setLaunchError(
           err instanceof Error ? err.message : "Could not launch campaign sequence."
         );
       }
     } finally {
+      setRevealInProgress(false);
       setLaunchBusy(false);
     }
   }, [campaign.id, launchBusy]);
@@ -1170,9 +1116,7 @@ export function CampaignWorkspace({
       setLaunchNotice("Campaign sequence resumed.");
     } catch (err) {
       if (err instanceof CampaignLaunchBlockedError) {
-        setActiveCampaignBlockedModal({
-          activeCampaignName: err.activeCampaignName,
-        });
+        setLaunchBlockedModal(launchBlockedModalFromError(err));
       } else {
         setLaunchError(err instanceof Error ? err.message : "Could not resume sequence.");
       }
@@ -1324,23 +1268,22 @@ export function CampaignWorkspace({
         return;
       }
 
-      const { allowed, rejectedCount: preRejected } = sliceContactsToFit(
+      const batchCheck = validateCampaignContactBatch(
         contacts.length,
-        contactsToImport
+        contactsToImport.length
       );
-      if (allowed.length === 0) {
-        setSaveToast({
-          message: campaignContactLimitMessage(),
-          variant: "warning",
-        });
+      if (!batchCheck.ok) {
+        setSaveToast({ message: batchCheck.message, variant: "warning" });
         return;
       }
 
       setCsvImportBusy(true);
       try {
-        const result = await addContactsToCampaignApi(auth.token, campaign.id, allowed, {
-          revealInBackground: true,
-        });
+        const result = await addContactsToCampaignApi(
+          auth.token,
+          campaign.id,
+          contactsToImport
+        );
         onCampaignUpdatedRef.current?.(result.campaign);
         setContacts(result.campaign.contacts);
         refreshContactDependentViews();
@@ -1348,16 +1291,10 @@ export function CampaignWorkspace({
         setCsvFileName("");
         setCsvParsedContacts([]);
         setCsvValidationErrors([]);
-        const limitRejected = preRejected + (result.limitSkippedCount || 0);
-        const limitToast = formatContactLimitToast(limitRejected, result.addedCount);
-        if (limitToast) {
-          setSaveToast({ message: limitToast, variant: "warning" });
-        } else {
-          setSaveToast({
-            message: `Imported ${result.addedCount} contact${result.addedCount === 1 ? "" : "s"} from CSV.`,
-            variant: "success",
-          });
-        }
+        setSaveToast({
+          message: `Imported ${result.addedCount} contact${result.addedCount === 1 ? "" : "s"} from CSV.`,
+          variant: "success",
+        });
       } catch (err) {
         setSaveToast({
           message: err instanceof Error ? err.message : "Could not import contacts from CSV.",
@@ -1370,14 +1307,20 @@ export function CampaignWorkspace({
     [campaign.id, campaignContactsLocked, contacts.length, refreshContactDependentViews]
   );
 
-  const handleCsvFileSelected = useCallback(async (file: File) => {
+  const handleCsvFileSelected = useCallback(
+    async (file: File) => {
     if (!file) return;
     try {
       const raw = await file.text();
       const { contacts: parsed, errors } = parseCsvContacts(raw);
+      const limitErrors = [...errors];
+      const batchCheck = validateCampaignContactBatch(contacts.length, parsed.length);
+      if (!batchCheck.ok) {
+        limitErrors.push(batchCheck.message);
+      }
       setCsvFileName(file.name);
       setCsvParsedContacts(parsed);
-      setCsvValidationErrors(errors);
+      setCsvValidationErrors(limitErrors);
     } catch (err) {
       setCsvFileName(file.name);
       setCsvParsedContacts([]);
@@ -1385,7 +1328,9 @@ export function CampaignWorkspace({
         err instanceof Error ? err.message : "Could not read this CSV file.",
       ]);
     }
-  }, []);
+  },
+    [contacts.length]
+  );
 
   const downloadSampleCsv = useCallback(() => {
     const sample = buildSampleCampaignContactsCsv();
@@ -2089,7 +2034,11 @@ export function CampaignWorkspace({
                                   <p className="dashboard-campaign-emails-address">{email}</p>
                                 ) : (
                                   <p className="dashboard-campaign-emails-address dashboard-campaign-emails-address--empty">
-                                    {emailEmptyLabel(contact, revealInProgress)}
+                                    {emailEmptyLabel(
+                                      contact,
+                                      revealInProgress || launchBusy,
+                                      campaignContactsLocked
+                                    )}
                                   </p>
                                 )}
                               </div>
@@ -2572,27 +2521,15 @@ export function CampaignWorkspace({
         onImport={() => void importParsedCsvContacts(csvParsedContacts)}
       />
       <ConfirmModal
-        open={activeCampaignBlockedModal !== null}
+        open={launchBlockedModal !== null}
         variant="alert"
         tone="warning"
         iconName="campaign"
-        title="One campaign at a time"
-        message={
-          activeCampaignBlockedModal ? (
-            <>
-              <strong className="dashboard-confirm-modal-highlight">
-                {activeCampaignBlockedModal.activeCampaignName}
-              </strong>{" "}
-              is still running. Pause it or wait until it completes before launching another
-              campaign.
-            </>
-          ) : (
-            ""
-          )
-        }
+        title={launchBlockedModal?.title ?? "Cannot launch"}
+        message={launchBlockedModal?.message ?? ""}
         confirmLabel="Got it"
-        onConfirm={() => setActiveCampaignBlockedModal(null)}
-        onCancel={() => setActiveCampaignBlockedModal(null)}
+        onConfirm={() => setLaunchBlockedModal(null)}
+        onCancel={() => setLaunchBlockedModal(null)}
       />
     </section>
   );

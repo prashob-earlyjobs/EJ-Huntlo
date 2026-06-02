@@ -88,20 +88,14 @@ import { useUserActionAlert } from "@/lib/useUserActionAlert";
 import type { CampaignContact, CampaignRecord } from "@/lib/campaigns";
 import {
   CAMPAIGN_CONTACTS_LOCKED_MESSAGE,
-  campaignContactLimitMessage,
-  formatContactLimitToast,
   isCampaignLaunched,
-  sliceContactsToFit,
+  validateCampaignContactBatch,
 } from "@/lib/campaignContactLimits";
 import {
   addContactsToCampaignApi,
   createCampaign,
   fetchCampaignsPage,
 } from "@/lib/campaignsApi";
-import {
-  startCampaignReveal,
-  waitForCampaignRevealAndRefresh,
-} from "@/lib/campaignRevealJob";
 import {
   lookupRevealedContacts,
   mergeRevealedLookupIntoContacts,
@@ -3789,94 +3783,6 @@ export default function UserDashboardPage() {
     void applyRevealedLookupToCandidateRows(savedCandidatesList);
   }, [activeTab, savedCandidatesList, applyRevealedLookupToCandidateRows]);
 
-  const applyCampaignContactsToSessionReveals = useCallback(
-    (contacts: CampaignContact[]) => {
-      const sessionId = searchSummary?.sessionId ?? null;
-      const byLinkedin = new Map(
-        contacts.map((c) => [normalizeLinkedinUrl(c.linkedinUrl), c])
-      );
-
-      const emailKeys: string[] = [];
-      const phoneKeys: string[] = [];
-
-      setRevealedContactValues((prev) => {
-        const next = { ...prev };
-        for (let idx = 0; idx < sessionResultDocs.length; idx += 1) {
-          const row = sessionDocToCandidateRow(sessionResultDocs[idx], idx, sessionId);
-          const linkedin = normalizeLinkedinUrl(row.linkedin_profile_url || "");
-          const contact = byLinkedin.get(linkedin);
-          if (!contact) continue;
-          const key = candidateRowKey(row);
-          const email = contact.email?.trim() || "";
-          const phone = contact.phone?.trim() || "";
-          if (!email && !phone) continue;
-          next[key] = {
-            email: email || next[key]?.email,
-            phone: phone || next[key]?.phone,
-          };
-          if (email) emailKeys.push(key);
-          if (phone) phoneKeys.push(key);
-        }
-        return next;
-      });
-
-      if (emailKeys.length > 0) {
-        setRevealedEmail((prev) => [...new Set([...prev, ...emailKeys])]);
-      }
-      if (phoneKeys.length > 0) {
-        setRevealedPhone((prev) => [...new Set([...prev, ...phoneKeys])]);
-      }
-    },
-    [searchSummary?.sessionId, sessionResultDocs]
-  );
-
-  const followCampaignRevealJob = useCallback(
-    (jobId: string, campaignName: string) => {
-      const auth = getStoredAuth();
-      if (!auth?.token) return;
-
-      void (async () => {
-        try {
-          const { job, campaign } = await waitForCampaignRevealAndRefresh(
-            auth.token,
-            jobId,
-            (progressJob) => {
-              if (progressJob.status === "running" && progressJob.total > 0) {
-                setSessionResultNotice(
-                  `Revealing contacts for "${campaignName}" (${progressJob.processed}/${progressJob.total})…`
-                );
-              }
-            }
-          );
-
-          setCampaigns((prev) => prev.map((c) => (c.id === campaign.id ? campaign : c)));
-          applyCampaignContactsToSessionReveals(campaign.contacts);
-
-          if (job.status === "completed") {
-            setSessionResultNotice(
-              `Finished revealing contacts for "${campaignName}" (${job.revealedEmailCount} emails, ${job.revealedPhoneCount} phones).`
-            );
-          } else if (job.status === "quota_exceeded") {
-            setSessionResultNotice(
-              `Plan limit reached while revealing contacts for "${campaignName}". Partial results were saved.`
-            );
-          } else if (job.status === "failed") {
-            setSessionResultNotice(
-              job.errorMessage || `Could not finish revealing contacts for "${campaignName}".`
-            );
-          }
-        } catch (err) {
-          setSessionResultNotice(
-            err instanceof Error
-              ? err.message
-              : `Background reveal failed for "${campaignName}".`
-          );
-        }
-      })();
-    },
-    [applyCampaignContactsToSessionReveals]
-  );
-
   const resolveSelectedSessionContacts = useCallback((): CampaignContact[] => {
     const sessionId = searchSummary?.sessionId ?? null;
     const contacts: CampaignContact[] = [];
@@ -3964,46 +3870,21 @@ export default function UserDashboardPage() {
 
       try {
         if ("newCampaignName" in payload) {
-          const { allowed, rejectedCount: preRejected } = sliceContactsToFit(0, incoming);
-          if (allowed.length === 0) {
-            setDashboardToast({
-              message: campaignContactLimitMessage(),
-              variant: "warning",
-            });
-            return;
+          const batchCheck = validateCampaignContactBatch(0, incoming.length);
+          if (!batchCheck.ok) {
+            setDashboardToast({ message: batchCheck.message, variant: "warning" });
+            throw new Error(batchCheck.message);
           }
-          const { campaign: record, revealJobId, limitSkippedCount } = await createCampaign(
+          const { campaign: record } = await createCampaign(
             auth.token,
             payload.newCampaignName,
-            allowed,
-            { revealInBackground: true }
+            incoming
           );
           setCampaigns((prev) => [record, ...prev]);
           setAddToCampaignOpen(false);
-          const limitRejected = preRejected + limitSkippedCount;
-          const limitToast = formatContactLimitToast(limitRejected, record.contacts.length);
-          if (limitToast) {
-            setDashboardToast({ message: limitToast, variant: "warning" });
-          }
           setSessionResultNotice(
-            `Added ${record.contacts.length} candidate${record.contacts.length === 1 ? "" : "s"} to "${record.name}". Revealing email and phone automatically…`
+            `Added ${record.contacts.length} candidate${record.contacts.length === 1 ? "" : "s"} to "${record.name}". Email and phone will be revealed when you launch the campaign.`
           );
-          let jobId = revealJobId;
-          if (!jobId && allowed.length > 0) {
-            try {
-              const job = await startCampaignReveal(
-                auth.token,
-                record.id,
-                allowed.map((c) => c.candidateKey)
-              );
-              jobId = job.id;
-            } catch {
-              /* campaign workspace will auto-start reveal */
-            }
-          }
-          if (jobId) {
-            followCampaignRevealJob(jobId, record.name);
-          }
           return;
         }
 
@@ -4016,58 +3897,32 @@ export default function UserDashboardPage() {
           return;
         }
         const currentCount = existing?.contacts?.length ?? 0;
-        const { allowed, rejectedCount: preRejected } = sliceContactsToFit(
-          currentCount,
-          incoming
-        );
-        if (allowed.length === 0) {
-          setDashboardToast({
-            message: campaignContactLimitMessage(),
-            variant: "warning",
-          });
-          return;
+        const batchCheck = validateCampaignContactBatch(currentCount, incoming.length);
+        if (!batchCheck.ok) {
+          setDashboardToast({ message: batchCheck.message, variant: "warning" });
+          throw new Error(batchCheck.message);
         }
 
-        const { campaign, addedCount, skippedCount, limitSkippedCount, revealJobId } =
-          await addContactsToCampaignApi(auth.token, payload.campaignId, allowed, {
-            revealInBackground: true,
-          });
+        const { campaign, addedCount, skippedCount } = await addContactsToCampaignApi(
+          auth.token,
+          payload.campaignId,
+          incoming
+        );
         setCampaigns((prev) =>
           prev.map((c) => (c.id === campaign.id ? campaign : c))
         );
         const campaignName = campaign.name || "Campaign";
         setAddToCampaignOpen(false);
-        const limitRejected = preRejected + limitSkippedCount;
-        const limitToast = formatContactLimitToast(limitRejected, addedCount);
-        if (limitToast) {
-          setDashboardToast({ message: limitToast, variant: "warning" });
-        }
         if (addedCount === 0 && skippedCount > 0 && limitRejected === 0) {
           setSessionResultNotice(`All selected candidates are already in "${campaignName}".`);
         } else if (skippedCount > 0) {
           setSessionResultNotice(
-            `Added ${addedCount} to "${campaignName}". ${skippedCount} duplicate${skippedCount === 1 ? " was" : "s were"} skipped. Revealing contacts automatically…`
+            `Added ${addedCount} to "${campaignName}". ${skippedCount} duplicate${skippedCount === 1 ? " was" : "s were"} skipped. Email and phone will be revealed when you launch the campaign.`
           );
         } else {
           setSessionResultNotice(
-            `Added ${addedCount} candidate${addedCount === 1 ? "" : "s"} to "${campaignName}". Revealing email and phone automatically…`
+            `Added ${addedCount} candidate${addedCount === 1 ? "" : "s"} to "${campaignName}". Email and phone will be revealed when you launch the campaign.`
           );
-        }
-        let jobId = revealJobId;
-        if (!jobId && addedCount > 0) {
-          try {
-            const job = await startCampaignReveal(
-              auth.token,
-              campaign.id,
-              allowed.map((c) => c.candidateKey)
-            );
-            jobId = job.id;
-          } catch {
-            /* campaign workspace will auto-start reveal */
-          }
-        }
-        if (jobId && addedCount > 0) {
-          followCampaignRevealJob(jobId, campaignName);
         }
       } catch (err) {
         if (!userActionAlert.fromThrown(err)) {
@@ -4084,7 +3939,6 @@ export default function UserDashboardPage() {
     [
       addToCampaignBusy,
       campaigns,
-      followCampaignRevealJob,
       resolveSelectedSessionContacts,
       userActionAlert,
     ]

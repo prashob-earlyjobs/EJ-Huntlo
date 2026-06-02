@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const Campaign = require("../models/Campaign");
 const CampaignSequenceEnrollment = require("../models/CampaignSequenceEnrollment");
 const CampaignOutreachReply = require("../models/CampaignOutreachReply");
 const OutreachPlan = require("../models/OutreachPlan");
@@ -348,7 +349,15 @@ async function syncEnrollmentReplies(enrollment, integrationEmail) {
  * Poll Gmail threads for enrollments that have sent at least one outreach email.
  */
 async function syncDueEnrollmentReplies() {
+  const liveCampaignIds = await Campaign.find({
+    outreachStatus: { $in: ["active", "paused"] },
+  })
+    .distinct("_id")
+    .lean();
+  if (liveCampaignIds.length === 0) return { checked: 0, newReplies: 0 };
+
   const enrollments = await CampaignSequenceEnrollment.find({
+    campaignId: { $in: liveCampaignIds },
     sentCount: { $gt: 0 },
     $or: [
       { lastThreadId: { $exists: true, $ne: "" } },

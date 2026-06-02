@@ -51,6 +51,8 @@ function handleError(res, error) {
   };
   if (error.code) body.code = error.code;
   if (error.activeCampaign) body.activeCampaign = error.activeCampaign;
+  if (error.gmailDailyLimit) body.gmailDailyLimit = error.gmailDailyLimit;
+  if (error.campaignContactLimit) body.campaignContactLimit = error.campaignContactLimit;
   return res.status(status).json(body);
 }
 
@@ -103,7 +105,7 @@ const createCampaignHandler = async (req, res) => {
     const uid = req.auth?.userId;
     if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
     const contacts = Array.isArray(req.body?.contacts) ? req.body.contacts : [];
-    const revealInBackground = req.body?.revealInBackground !== false;
+    const revealInBackground = req.body?.revealInBackground === true;
     const { campaign, limitSkippedCount } = await createCampaign(uid, {
       name: req.body?.name,
       contacts,
@@ -149,7 +151,7 @@ const addContactsHandler = async (req, res) => {
     const uid = req.auth?.userId;
     if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
     const contacts = Array.isArray(req.body?.contacts) ? req.body.contacts : [];
-    const revealInBackground = req.body?.revealInBackground !== false;
+    const revealInBackground = req.body?.revealInBackground === true;
     const result = await addContactsToCampaign(uid, req.params.id, contacts);
     let sequenceEnroll = null;
     let sequenceEnrollError = null;
@@ -357,6 +359,7 @@ const launchCampaignSequenceHandler = async (req, res) => {
       success: true,
       ...result,
       campaign,
+      revealJob: result.revealJob || null,
       message: `Sequence launched for ${result.enrolled} contact${result.enrolled === 1 ? "" : "s"}`,
     });
   } catch (error) {

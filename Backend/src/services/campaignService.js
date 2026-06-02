@@ -13,7 +13,10 @@ const {
   findCampaignInScope,
   findCampaignDocumentInScope,
 } = require("../utils/campaignScope");
-const { CAMPAIGN_MAX_CONTACTS } = require("../constants/campaignLimits");
+const {
+  CAMPAIGN_MAX_CONTACTS,
+  CAMPAIGN_CONTACT_LIMIT_MESSAGE,
+} = require("../constants/campaignLimits");
 
 /** WhatsApp campaign testing — E.164 India. Replace/remove when using real contact phones. */
 const WHATSAPP_TEST_PHONE_E164 = "+918714500637";
@@ -129,14 +132,12 @@ function formatCampaign(doc, listStats) {
   };
 }
 
+/** Latest real outreach event (send, reply, disposition) — not doc/sync metadata. */
 function resolveLastActivityAt(doc, listStats) {
   const stamps = [
-    doc.updatedAt,
-    doc.createdAt,
     listStats?.maxLastSent,
     listStats?.maxLastReply,
     listStats?.maxDispositionAt,
-    listStats?.maxEnrollmentUpdated,
   ]
     .map((value) => {
       if (!value) return 0;
@@ -144,8 +145,13 @@ function resolveLastActivityAt(doc, listStats) {
       return Number.isFinite(time) ? time : 0;
     })
     .filter((time) => time > 0);
-  if (stamps.length === 0) return null;
-  return new Date(Math.max(...stamps)).toISOString();
+  if (stamps.length > 0) {
+    return new Date(Math.max(...stamps)).toISOString();
+  }
+  const fallback = doc.outreachStartedAt || doc.createdAt;
+  if (!fallback) return null;
+  const time = new Date(fallback).getTime();
+  return Number.isFinite(time) ? new Date(time).toISOString() : null;
 }
 
 async function loadCampaignListStats(actorUserId, campaignIds) {
@@ -175,7 +181,6 @@ async function loadCampaignListStats(actorUserId, campaignIds) {
         maxLastSent: { $max: "$lastSentAt" },
         maxLastReply: { $max: "$lastReplyAt" },
         maxDispositionAt: { $max: "$replyDispositionAt" },
-        maxEnrollmentUpdated: { $max: "$updatedAt" },
       },
     },
   ]);
@@ -239,7 +244,6 @@ async function listCampaigns(actorUserId, options = {}) {
     maxLastSent: null,
     maxLastReply: null,
     maxDispositionAt: null,
-    maxEnrollmentUpdated: null,
   };
   const campaigns = docs.map((doc) =>
     formatCampaign(doc, statsById.get(String(doc._id)) || emptyListStats)
@@ -399,8 +403,19 @@ async function createCampaign(userId, { name, contacts }) {
     throw err;
   }
   const normalized = normalizeContacts(contacts);
-  const limitSkippedCount = Math.max(0, normalized.length - CAMPAIGN_MAX_CONTACTS);
-  const contactsToSave = normalized.slice(0, CAMPAIGN_MAX_CONTACTS);
+  if (normalized.length > CAMPAIGN_MAX_CONTACTS) {
+    const err = new Error(CAMPAIGN_CONTACT_LIMIT_MESSAGE);
+    err.statusCode = 409;
+    err.code = "CAMPAIGN_CONTACT_LIMIT_EXCEEDED";
+    err.campaignContactLimit = {
+      max: CAMPAIGN_MAX_CONTACTS,
+      current: 0,
+      incoming: normalized.length,
+      remaining: CAMPAIGN_MAX_CONTACTS,
+    };
+    throw err;
+  }
+  const contactsToSave = normalized;
   const doc = await Campaign.create({
     userId: userOid(userId),
     name: campaignName,
@@ -408,7 +423,7 @@ async function createCampaign(userId, { name, contacts }) {
   });
   return {
     campaign: formatCampaign(doc.toObject()),
-    limitSkippedCount,
+    limitSkippedCount: 0,
   };
 }
 
@@ -432,17 +447,48 @@ async function addContactsToCampaign(actorUserId, campaignId, contacts) {
     (doc.contacts || []).map((c) => String(c.candidateKey || "").trim()).filter(Boolean)
   );
 
+  const currentCount = doc.contacts?.length || 0;
+  const remaining = Math.max(0, CAMPAIGN_MAX_CONTACTS - currentCount);
+  let newUniqueCount = 0;
+  for (const contact of incoming) {
+    if (!existingKeys.has(contact.candidateKey)) {
+      newUniqueCount += 1;
+    }
+  }
+
+  if (remaining <= 0 && newUniqueCount > 0) {
+    const err = new Error(CAMPAIGN_CONTACT_LIMIT_MESSAGE);
+    err.statusCode = 409;
+    err.code = "CAMPAIGN_CONTACT_LIMIT_EXCEEDED";
+    err.campaignContactLimit = {
+      max: CAMPAIGN_MAX_CONTACTS,
+      current: currentCount,
+      incoming: newUniqueCount,
+      remaining: 0,
+    };
+    throw err;
+  }
+
+  if (newUniqueCount > remaining) {
+    const err = new Error(CAMPAIGN_CONTACT_LIMIT_MESSAGE);
+    err.statusCode = 409;
+    err.code = "CAMPAIGN_CONTACT_LIMIT_EXCEEDED";
+    err.campaignContactLimit = {
+      max: CAMPAIGN_MAX_CONTACTS,
+      current: currentCount,
+      incoming: newUniqueCount,
+      remaining,
+    };
+    throw err;
+  }
+
   let addedCount = 0;
   let skippedCount = 0;
-  let limitSkippedCount = 0;
+  const limitSkippedCount = 0;
   const addedCandidateKeys = [];
   for (const contact of incoming) {
     if (existingKeys.has(contact.candidateKey)) {
       skippedCount += 1;
-      continue;
-    }
-    if ((doc.contacts?.length || 0) + addedCount >= CAMPAIGN_MAX_CONTACTS) {
-      limitSkippedCount += 1;
       continue;
     }
     existingKeys.add(contact.candidateKey);
