@@ -11,6 +11,11 @@ const {
   getHuntloWhatsAppCredentials,
   isHuntloWhatsAppConfigured,
 } = require("./metaWhatsAppConfig");
+const {
+  getWebhookVerifyToken,
+  getMetaWebhookSetupForClient,
+  getPublicApiBaseUrl,
+} = require("../utils/metaWebhookSetup");
 
 const { GMAIL_SCOPES } = require("./gmailClient");
 
@@ -254,6 +259,25 @@ async function verifyWhatsAppIntegrationCredentials(body) {
  * Connect WhatsApp via Meta Cloud API (Phone Number ID + access token).
  */
 async function connectWhatsAppMeta(userId, body) {
+  if (!getWebhookVerifyToken()) {
+    const err = new Error(
+      "WhatsApp inbound webhooks are not configured on this server (META_WEBHOOK_VERIFY_TOKEN). Contact your administrator before connecting your own Meta account."
+    );
+    err.statusCode = 503;
+    throw err;
+  }
+
+  const confirmedWebhook = Boolean(
+    body?.confirmWebhookSetup ?? body?.confirmWebhookConfigured
+  );
+  if (!confirmedWebhook) {
+    const err = new Error(
+      "Confirm that you configured the Meta webhook with Huntlo's callback URL and verify token."
+    );
+    err.statusCode = 400;
+    throw err;
+  }
+
   const verified = await verifyMetaWhatsAppCredentials(body);
   const phone = verified.phoneNumber;
   const userOid = new mongoose.Types.ObjectId(userId);
@@ -313,7 +337,16 @@ async function connectWhatsAppHuntlo(userId) {
   return formatIntegrationRow(doc.toObject ? doc.toObject() : doc);
 }
 
-async function getWhatsAppStatus(userId) {
+function attachMetaWebhookSetup(payload, req) {
+  const metaWebhookSetup = getMetaWebhookSetupForClient(getPublicApiBaseUrl(req));
+  return {
+    ...payload,
+    requiresMetaWebhookSetup: true,
+    metaWebhookSetup,
+  };
+}
+
+async function getWhatsAppStatus(userId, req) {
   const userOid = new mongoose.Types.ObjectId(userId);
   const doc = await UserIntegration.findOne({
     userId: userOid,
@@ -323,19 +356,22 @@ async function getWhatsAppStatus(userId) {
   const huntloAvailable = isHuntloWhatsAppConfigured();
 
   if (!doc) {
-    return {
-      connected: false,
-      configured: true,
-      huntloAvailable,
-      whatsappMode: "",
-    };
+    return attachMetaWebhookSetup(
+      {
+        connected: false,
+        configured: true,
+        huntloAvailable,
+        whatsappMode: "",
+      },
+      req
+    );
   }
 
   const waProvider = resolveWhatsappProvider(doc);
   const viaMeta = waProvider === "meta";
   const isHuntlo = doc.whatsappMode === "huntlo";
 
-  return {
+  const base = {
     connected: viaMeta,
     configured: true,
     huntloAvailable,
@@ -349,6 +385,19 @@ async function getWhatsAppStatus(userId) {
     providerLabel: isHuntlo ? "Huntlo" : viaMeta ? "Meta API" : "Reconnect required",
     connectedAt: doc.updatedAt || doc.createdAt,
   };
+
+  if (isHuntlo) {
+    return {
+      ...base,
+      requiresMetaWebhookSetup: false,
+    };
+  }
+
+  return attachMetaWebhookSetup(base, req);
+}
+
+async function getWhatsAppMetaWebhookSetup(req) {
+  return getMetaWebhookSetupForClient(getPublicApiBaseUrl(req));
 }
 
 /**
@@ -558,6 +607,7 @@ module.exports = {
   verifyCalendlyCredentials,
   getGmailStatus,
   getWhatsAppStatus,
+  getWhatsAppMetaWebhookSetup,
   getCalendlyStatus,
   getCalendlyMeetingLinks,
   listCalendlyEventTypesForUser,

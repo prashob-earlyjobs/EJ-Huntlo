@@ -25,6 +25,11 @@ import {
 } from "@/lib/outreachMergeFields";
 import {
   createEmptyTouchpoint,
+  EMAIL_WAIT_UNIT_OPTIONS,
+  emailWaitConnectorLabel,
+  emailWaitFromDisplay,
+  inferEmailWaitDisplay,
+  type EmailWaitUnit,
   type OutreachTouchpointDraft,
 } from "@/lib/outreachTemplates";
 import {
@@ -173,45 +178,12 @@ function touchpointTypeLabel(order: number): string {
   return order === 1 ? "Email" : "Reply";
 }
 
-function waitConnectorLabel(waitDays: number): string {
-  if (waitDays === 0) return "Next step";
-  if (waitDays === 1) return "1 day later";
-  return `${waitDays} days later`;
-}
-
-type WaitUnit = "days" | "business_days" | "weeks" | "months";
-
-const WAIT_UNIT_OPTIONS: { value: WaitUnit; label: string }[] = [
-  { value: "days", label: "days" },
-  { value: "business_days", label: "business days" },
-  { value: "weeks", label: "weeks" },
-  { value: "months", label: "months" },
-];
-
-function waitDaysFromAmount(amount: number, unit: WaitUnit): number {
-  const n = Math.max(0, Math.floor(amount) || 0);
-  if (unit === "weeks") return n * 7;
-  if (unit === "months") return n * 30;
-  return n;
-}
-
-function inferWaitDisplay(waitDays: number): { amount: number; unit: WaitUnit } {
-  if (waitDays <= 0) return { amount: 0, unit: "days" };
-  if (waitDays >= 30 && waitDays % 30 === 0) {
-    return { amount: waitDays / 30, unit: "months" };
-  }
-  if (waitDays >= 7 && waitDays % 7 === 0) {
-    return { amount: waitDays / 7, unit: "weeks" };
-  }
-  return { amount: waitDays, unit: "business_days" };
-}
-
 function buildWaitMetaFromTouchpoints(
   tps: OutreachTouchpointDraft[]
-): Record<number, { amount: number; unit: WaitUnit }> {
-  const meta: Record<number, { amount: number; unit: WaitUnit }> = {};
+): Record<number, { amount: number; unit: EmailWaitUnit }> {
+  const meta: Record<number, { amount: number; unit: EmailWaitUnit }> = {};
   for (const tp of tps) {
-    if (tp.order > 1) meta[tp.order] = inferWaitDisplay(tp.waitDays);
+    if (tp.order > 1) meta[tp.order] = inferEmailWaitDisplay(tp.waitDays, tp.waitHours);
   }
   return meta;
 }
@@ -286,7 +258,10 @@ export function OutreachPlanEditor({
   const [editingTitle, setEditingTitle] = useState(false);
   const [touchpoints, setTouchpoints] = useState<OutreachTouchpointDraft[]>(
     initialTouchpoints.length > 0
-      ? initialTouchpoints.map((tp) => ({ ...tp }))
+      ? initialTouchpoints.map((tp) => ({
+          ...tp,
+          waitHours: Math.max(0, Number(tp.waitHours) || 0),
+        }))
       : [createEmptyTouchpoint(1)]
   );
   const [activeIndex, setActiveIndex] = useState(0);
@@ -300,7 +275,7 @@ export function OutreachPlanEditor({
   );
   const [startSendTime, setStartSendTime] = useState("09:00");
   const [startTimezone, setStartTimezone] = useState<string>("IT");
-  const [waitMeta, setWaitMeta] = useState<Record<number, { amount: number; unit: WaitUnit }>>(
+  const [waitMeta, setWaitMeta] = useState<Record<number, { amount: number; unit: EmailWaitUnit }>>(
     () => buildWaitMetaFromTouchpoints(initialTouchpoints)
   );
   const [stepScheduleMeta, setStepScheduleMeta] = useState<
@@ -541,7 +516,7 @@ export function OutreachPlanEditor({
       let changed = false;
       for (const tp of touchpoints) {
         if (tp.order > 1 && !next[tp.order]) {
-          next[tp.order] = inferWaitDisplay(tp.waitDays);
+          next[tp.order] = inferEmailWaitDisplay(tp.waitDays, tp.waitHours);
           changed = true;
         }
       }
@@ -698,7 +673,7 @@ export function OutreachPlanEditor({
         const first = prev[0];
         if (!first) return prev;
         return prev.map((tp) =>
-          tp.order === first.order ? { ...tp, waitDays } : tp
+          tp.order === first.order ? { ...tp, waitDays, waitHours: 0 } : tp
         );
       });
     },
@@ -746,16 +721,15 @@ export function OutreachPlanEditor({
 
   const updateStepWait = (
     order: number,
-    patch: Partial<{ amount: number; unit: WaitUnit }>
+    patch: Partial<{ amount: number; unit: EmailWaitUnit }>
   ) => {
+    const tp = touchpoints.find((t) => t.order === order);
     const current =
-      waitMeta[order] ??
-      inferWaitDisplay(touchpoints.find((t) => t.order === order)?.waitDays ?? 0);
+      waitMeta[order] ?? inferEmailWaitDisplay(tp?.waitDays ?? 0, tp?.waitHours ?? 0);
     const nextMeta = { ...current, ...patch };
     setWaitMeta((prev) => ({ ...prev, [order]: nextMeta }));
-    updateTouchpoint(order, {
-      waitDays: waitDaysFromAmount(nextMeta.amount, nextMeta.unit),
-    });
+    const { waitDays, waitHours } = emailWaitFromDisplay(nextMeta.amount, nextMeta.unit);
+    updateTouchpoint(order, { waitDays, waitHours });
   };
 
   const updateStepSchedule = (
@@ -881,6 +855,7 @@ export function OutreachPlanEditor({
                     subject: tp.subject || "",
                     body: tp.body || "",
                     waitDays: tp.waitDays ?? 0,
+                    waitHours: tp.waitHours ?? 0,
                   }))
                 : touchpoints,
               calendlyAutomation: savedCalendly,
@@ -1160,7 +1135,7 @@ export function OutreachPlanEditor({
                         index + 2 === activeIndex ? " dashboard-outreach-flow-wait--active" : ""
                       }`}
                     >
-                      {waitConnectorLabel(nextTp.waitDays)}
+                      {emailWaitConnectorLabel(nextTp.waitDays, nextTp.waitHours)}
                     </p>
                   ) : null}
                 </li>
@@ -1302,17 +1277,17 @@ export function OutreachPlanEditor({
                               <ScheduleStaticChip
                                 label={String(
                                   waitMeta[tp.order]?.amount ??
-                                    inferWaitDisplay(tp.waitDays).amount
+                                    inferEmailWaitDisplay(tp.waitDays, tp.waitHours).amount
                                 )}
                               />
                               <ScheduleStaticChip
                                 label={
-                                  WAIT_UNIT_OPTIONS.find(
+                                  EMAIL_WAIT_UNIT_OPTIONS.find(
                                     (o) =>
                                       o.value ===
                                       (waitMeta[tp.order]?.unit ??
-                                        inferWaitDisplay(tp.waitDays).unit)
-                                  )?.label ?? "days"
+                                        inferEmailWaitDisplay(tp.waitDays, tp.waitHours).unit)
+                                  )?.label ?? "hours"
                                 }
                               />
                               <span className="dashboard-outreach-start-muted">Send @</span>
@@ -1335,7 +1310,7 @@ export function OutreachPlanEditor({
                                 min={0}
                                 value={
                                   waitMeta[tp.order]?.amount ??
-                                  inferWaitDisplay(tp.waitDays).amount
+                                  inferEmailWaitDisplay(tp.waitDays, tp.waitHours).amount
                                 }
                                 onChange={(e) =>
                                   updateStepWait(tp.order, {
@@ -1347,9 +1322,10 @@ export function OutreachPlanEditor({
                               />
                               <OutreachPillSelect
                                 value={
-                                  waitMeta[tp.order]?.unit ?? inferWaitDisplay(tp.waitDays).unit
+                                  waitMeta[tp.order]?.unit ??
+                                  inferEmailWaitDisplay(tp.waitDays, tp.waitHours).unit
                                 }
-                                options={WAIT_UNIT_OPTIONS}
+                                options={EMAIL_WAIT_UNIT_OPTIONS}
                                 onChange={(unit) => updateStepWait(tp.order, { unit })}
                                 ariaLabel="Wait unit"
                               />

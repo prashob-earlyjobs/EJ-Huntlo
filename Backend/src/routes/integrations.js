@@ -4,6 +4,7 @@ const {
   listIntegrationsHandler,
   getGmailStatusHandler,
   getWhatsAppStatusHandler,
+  getWhatsAppMetaWebhookSetupHandler,
   getCalendlyStatusHandler,
   getCalendlyMeetingLinksHandler,
   connectGmailWithAuthCode,
@@ -31,6 +32,11 @@ router.post("/whatsapp/meta/webhook", receiveMetaWebhookHandler);
 router.get("/", authenticate, listIntegrationsHandler);
 router.get("/gmail/status", authenticate, getGmailStatusHandler);
 router.get("/whatsapp/status", authenticate, getWhatsAppStatusHandler);
+router.get(
+  "/whatsapp/meta-webhook-setup",
+  authenticate,
+  getWhatsAppMetaWebhookSetupHandler
+);
 router.get("/calendly/status", authenticate, getCalendlyStatusHandler);
 router.get("/calendly/links", authenticate, getCalendlyMeetingLinksHandler);
 router.post("/gmail/callback", authenticate, connectGmailWithAuthCode);

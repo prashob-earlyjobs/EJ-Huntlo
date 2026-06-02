@@ -221,6 +221,7 @@ async function handleInboundMessage({ metadataPhoneNumberId, message }) {
 
   const sentAt = parseTimestampSeconds(message?.timestamp);
   const body = getMessageBody(message);
+  const normalizedFromPhone = normalizeToE164(from) || from;
 
   const exists = await CampaignWhatsAppMessage.findOne({
     provider: "meta",
@@ -242,7 +243,7 @@ async function handleInboundMessage({ metadataPhoneNumberId, message }) {
     campaignId: String(enrollment.campaignId),
     enrollmentId: String(enrollment._id),
     candidateKey: enrollment.candidateKey,
-    contactPhone: enrollment.contactPhone || from,
+    contactPhone: normalizedFromPhone || enrollment.contactPhone || from,
     direction: "inbound",
     body,
     sequenceStepOrder: null,
@@ -266,6 +267,7 @@ async function handleInboundMessage({ metadataPhoneNumberId, message }) {
         replyCount,
         lastReplyAt: sentAt,
         lastReplySyncedAt: new Date(),
+        contactPhone: normalizedFromPhone || enrollment.contactPhone || from,
         status: nextStatus,
         nextSendAt: nextStatus === "paused" ? null : enrollment.nextSendAt || null,
         lastError: nextStatus === "paused" ? "Candidate replied" : enrollment.lastError || "",

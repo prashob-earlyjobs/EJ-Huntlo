@@ -10,13 +10,15 @@ function normalizeTouchpoints(raw) {
       const body = typeof tp?.body === "string" ? tp.body.trim() : "";
       const label = typeof tp?.label === "string" ? tp.label.trim() : "";
       const waitDays = Math.max(0, Number(tp?.waitDays) || 0);
+      const waitHours = Math.max(0, Number(tp?.waitHours) || 0);
       if (!subject && !body) return null;
       return {
         order: Number.isFinite(order) && order > 0 ? order : index + 1,
         label,
         subject,
         body,
-        waitDays,
+        waitDays: waitHours > 0 ? 0 : waitDays,
+        waitHours: waitHours > 0 ? waitHours : 0,
       };
     })
     .filter(Boolean)
@@ -60,6 +62,7 @@ function formatPlan(doc) {
       subject: tp.subject || "",
       body: tp.body || "",
       waitDays: tp.waitDays ?? 0,
+      waitHours: tp.waitHours ?? 0,
     })),
     touchpointCount: touchpoints.length,
     calendlyAutomation,

@@ -13,17 +13,19 @@ const {
   findCampaignInScope,
   findCampaignDocumentInScope,
 } = require("../utils/campaignScope");
+const { normalizeToE164 } = require("./whatsappPhoneUtils");
 
-/** WhatsApp campaign testing — E.164 India. Replace/remove when using real contact phones. */
-const WHATSAPP_TEST_PHONE_E164 = "+918714500637";
+function normalizeContactPhone(raw) {
+  const trimmed = String(raw || "").trim();
+  if (!trimmed) return "";
+  return normalizeToE164(trimmed) || trimmed;
+}
 
 function normalizeContact(raw) {
   if (!raw || typeof raw !== "object") return null;
   const candidateKey = String(raw.candidateKey || "").trim();
   if (!candidateKey) return null;
-  // TODO(whatsapp-test): Restore phone from API payload (must be E.164, e.g. +91XXXXXXXXXX for India).
-  // const phoneFromPayload = String(raw.phone || "").trim();
-  const phone = WHATSAPP_TEST_PHONE_E164;
+  const phone = normalizeContactPhone(raw.phone);
   return {
     candidateKey,
     candidateId: String(raw.candidateId || "").trim(),

@@ -631,6 +631,7 @@ const createSearchSession = async (req, res) => {
  */
 const applySearchFilters = async (req, res) => {
   const userId = req.auth?.userId;
+  const fjTraceId = `fj-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   try {
     if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
       return res.status(401).json({
@@ -695,8 +696,10 @@ const applySearchFilters = async (req, res) => {
     });
 
     const futureJobs = isSessionUpdate
-      ? await updateSourcingSession(existingSessionId, payload)
-      : await createSourcingSession(payload);
+      ? await updateSourcingSession(existingSessionId, payload, {
+          traceId: fjTraceId,
+        })
+      : await createSourcingSession(payload, { traceId: fjTraceId });
     const sessionId = sessionIdFromFjCreateResponse(futureJobs, existingSessionId);
 
     if (isFjSessionPending(futureJobs)) {
@@ -859,6 +862,9 @@ const applySearchFilters = async (req, res) => {
       userId,
       status,
       message: error.message,
+      traceId: fjTraceId,
+      fjTraceHint:
+        "Search logs for [outbound:futurejobs] CALL SUMMARY with this traceId",
     });
     return res.status(status).json({
       success: false,

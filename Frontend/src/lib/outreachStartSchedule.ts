@@ -134,9 +134,13 @@ export function touchpointScheduleLabel(
 
   let cursor = computeFirstSendDate(start);
   for (let i = 1; i <= index; i++) {
-    const wait = touchpoints[i]?.waitDays ?? 0;
-    if (wait > 0) {
-      cursor = applySendTime(addCalendarDays(cursor, wait), start.sendTime);
+    const step = touchpoints[i];
+    const waitDays = step?.waitDays ?? 0;
+    const waitHours = step?.waitHours ?? 0;
+    if (waitHours > 0) {
+      cursor = new Date(cursor.getTime() + waitHours * 60 * 60 * 1000);
+    } else if (waitDays > 0) {
+      cursor = applySendTime(addCalendarDays(cursor, waitDays), start.sendTime);
     }
   }
   return formatScheduleDate(cursor);

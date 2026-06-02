@@ -1,12 +1,24 @@
 const { getMetaGraphBaseUrl } = require("./metaWhatsAppConfig");
 const { normalizeToMetaRecipient } = require("./whatsappPhoneUtils");
 
-/** Meta Cloud API test template (Graph API playground default). Restore plan templates later. */
+/** Dev-only override: META_WHATSAPP_FORCE_TEST_TEMPLATE=true */
 const META_TEST_TEMPLATE_NAME = "hello_world";
 const META_TEST_TEMPLATE_LANGUAGE = "en_US";
 
 function getTemplateLanguageCode() {
   return String(process.env.META_WHATSAPP_TEMPLATE_LANGUAGE || "en").trim() || "en";
+}
+
+function forceTestTemplate() {
+  return String(process.env.META_WHATSAPP_FORCE_TEST_TEMPLATE || "")
+    .trim()
+    .toLowerCase() === "true";
+}
+
+/** Meta template names: lowercase letters, numbers, underscores. */
+function isMetaTemplateName(value) {
+  const name = String(value || "").trim();
+  return /^[a-z][a-z0-9_]{0,511}$/i.test(name);
 }
 
 function parseMetaSendError(payload, status) {
@@ -99,7 +111,8 @@ async function sendMetaWhatsAppSessionText(creds, { to, body }) {
 }
 
 /**
- * Send WhatsApp message via Meta Cloud API (campaign templates / outreach).
+ * Campaign / sequence send: approved template (cold) or session text when allowed.
+ * templateId must match an approved template name in the user's Meta Business account.
  */
 async function sendMetaWhatsAppMessage(creds, { to, body, templateId }) {
   const recipient = normalizeToMetaRecipient(to);
@@ -109,14 +122,21 @@ async function sendMetaWhatsAppMessage(creds, { to, body, templateId }) {
     throw err;
   }
 
-  // TODO(meta-whatsapp-test): Restore dynamic template from outreach plan (templateId) or text body.
-  // const templateName = String(templateId || "").trim();
-  const templateName = META_TEST_TEMPLATE_NAME;
+  const text = String(body || "").trim();
+  const rawTemplate = String(templateId || "").trim();
+  const templateName = forceTestTemplate()
+    ? META_TEST_TEMPLATE_NAME
+    : isMetaTemplateName(rawTemplate)
+      ? rawTemplate
+      : "";
+
   let payload;
 
   if (templateName) {
-    // TODO(meta-whatsapp-test): Use getTemplateLanguageCode() from env / plan when not on hello_world.
-    // language: { code: getTemplateLanguageCode() },
+    const languageCode =
+      templateName === META_TEST_TEMPLATE_NAME
+        ? META_TEST_TEMPLATE_LANGUAGE
+        : getTemplateLanguageCode();
     payload = {
       messaging_product: "whatsapp",
       recipient_type: "individual",
@@ -124,16 +144,10 @@ async function sendMetaWhatsAppMessage(creds, { to, body, templateId }) {
       type: "template",
       template: {
         name: templateName,
-        language: { code: META_TEST_TEMPLATE_LANGUAGE },
+        language: { code: languageCode },
       },
     };
-  } else {
-    const text = String(body || "").trim();
-    if (!text) {
-      const err = new Error("Message body is empty.");
-      err.statusCode = 400;
-      throw err;
-    }
+  } else if (text) {
     payload = {
       messaging_product: "whatsapp",
       recipient_type: "individual",
@@ -141,6 +155,12 @@ async function sendMetaWhatsAppMessage(creds, { to, body, templateId }) {
       type: "text",
       text: { preview_url: false, body: text },
     };
+  } else {
+    const err = new Error(
+      "WhatsApp step needs an approved Meta template name (templateId) or message body."
+    );
+    err.statusCode = 400;
+    throw err;
   }
 
   return postMetaWhatsAppPayload(creds, payload);
@@ -149,4 +169,6 @@ async function sendMetaWhatsAppMessage(creds, { to, body, templateId }) {
 module.exports = {
   sendMetaWhatsAppMessage,
   sendMetaWhatsAppSessionText,
+  isMetaTemplateName,
+  forceTestTemplate,
 };

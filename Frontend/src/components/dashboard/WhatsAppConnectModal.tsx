@@ -3,8 +3,14 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
+import { WhatsAppMetaWebhookSetupCard } from "@/components/dashboard/WhatsAppMetaWebhookSetupCard";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { authHeaders, getStoredAuth } from "@/lib/auth";
+import type { MetaWebhookSetupPayload } from "@/lib/whatsappMetaWebhookSetup";
+import {
+  fallbackWebhookSetupFromApiBase,
+  fetchWhatsAppMetaWebhookSetup,
+} from "@/lib/whatsappMetaWebhookSetup";
 import {
   dashboardBtnPrimaryClass,
   dashboardBtnSecondaryClass,
@@ -20,6 +26,8 @@ export type WhatsAppConnectFormValues = {
   metaAccessToken: string;
   metaWabaId: string;
   confirmRegistered: boolean;
+  /** Own Meta: user configured webhook in Meta console with Huntlo URL + verify token. */
+  confirmWebhookSetup: boolean;
 };
 
 const EMPTY_FORM: WhatsAppConnectFormValues = {
@@ -28,6 +36,7 @@ const EMPTY_FORM: WhatsAppConnectFormValues = {
   metaAccessToken: "",
   metaWabaId: "",
   confirmRegistered: false,
+  confirmWebhookSetup: false,
 };
 
 type Props = {
@@ -50,6 +59,25 @@ export function WhatsAppConnectModal({ open, busy, onClose, onSubmit }: Props) {
   const [testing, setTesting] = useState(false);
   const [credsVerified, setCredsVerified] = useState(false);
   const [testSuccessMessage, setTestSuccessMessage] = useState("");
+  const [webhookSetup, setWebhookSetup] = useState<MetaWebhookSetupPayload | null>(null);
+  const [webhookSetupLoading, setWebhookSetupLoading] = useState(false);
+
+  const loadWebhookSetup = useCallback(async () => {
+    const auth = getStoredAuth();
+    if (!auth?.token) {
+      setWebhookSetup(fallbackWebhookSetupFromApiBase());
+      return;
+    }
+    setWebhookSetupLoading(true);
+    try {
+      const setup = await fetchWhatsAppMetaWebhookSetup(auth.token);
+      setWebhookSetup(setup ?? fallbackWebhookSetupFromApiBase());
+    } catch {
+      setWebhookSetup(fallbackWebhookSetupFromApiBase());
+    } finally {
+      setWebhookSetupLoading(false);
+    }
+  }, []);
 
   const loadStatus = useCallback(async () => {
     const auth = getStoredAuth();
@@ -63,6 +91,9 @@ export function WhatsAppConnectModal({ open, busy, onClose, onSubmit }: Props) {
       });
       const data = await res.json();
       setHuntloAvailable(Boolean(data.success && data.huntloAvailable));
+      if (data.success && data.metaWebhookSetup) {
+        setWebhookSetup(data.metaWebhookSetup as MetaWebhookSetupPayload);
+      }
     } catch {
       setHuntloAvailable(false);
     }
@@ -75,8 +106,10 @@ export function WhatsAppConnectModal({ open, busy, onClose, onSubmit }: Props) {
     setTesting(false);
     setCredsVerified(false);
     setTestSuccessMessage("");
+    setWebhookSetup(null);
     void loadStatus();
-  }, [open, loadStatus]);
+    void loadWebhookSetup();
+  }, [open, loadStatus, loadWebhookSetup]);
 
   const patch = useCallback((fields: Partial<WhatsAppConnectFormValues>) => {
     setForm((prev) => {
@@ -85,6 +118,9 @@ export function WhatsAppConnectModal({ open, busy, onClose, onSubmit }: Props) {
         setCredsVerified(false);
         setTestSuccessMessage("");
         setError("");
+        if (fields.mode === "own") {
+          next.confirmWebhookSetup = false;
+        }
       }
       return next;
     });
@@ -107,9 +143,13 @@ export function WhatsAppConnectModal({ open, busy, onClose, onSubmit }: Props) {
     (isHuntlo ? huntloAvailable === true : Boolean(form.metaPhoneNumberId.trim() && form.metaAccessToken.trim()));
 
   const canConnectHuntlo = isHuntlo && form.confirmRegistered && huntloAvailable === true;
+  const webhookReady = Boolean(webhookSetup?.verifyTokenConfigured && webhookSetup?.callbackUrl);
+
   const canConnectOwn =
     !isHuntlo &&
     form.confirmRegistered &&
+    form.confirmWebhookSetup &&
+    webhookReady &&
     credsVerified &&
     Boolean(form.metaPhoneNumberId.trim()) &&
     Boolean(form.metaAccessToken.trim());
@@ -195,6 +235,16 @@ export function WhatsAppConnectModal({ open, busy, onClose, onSubmit }: Props) {
       setError("Test your credentials before connecting WhatsApp.");
       return;
     }
+    if (!webhookReady) {
+      setError(
+        "Webhook is not ready on this server. Set META_WEBHOOK_VERIFY_TOKEN and PUBLIC_API_BASE_URL, or contact support."
+      );
+      return;
+    }
+    if (!form.confirmWebhookSetup) {
+      setError("Confirm that you configured the Meta webhook with Huntlo's callback URL and verify token.");
+      return;
+    }
     if (!form.confirmRegistered) {
       setError("Confirm that your Meta app has WhatsApp messaging permissions.");
       return;
@@ -206,6 +256,7 @@ export function WhatsAppConnectModal({ open, busy, onClose, onSubmit }: Props) {
       metaPhoneNumberId: form.metaPhoneNumberId.trim(),
       metaAccessToken: form.metaAccessToken.trim(),
       metaWabaId: form.metaWabaId.trim(),
+      confirmWebhookSetup: true,
     });
   };
 
@@ -303,7 +354,7 @@ export function WhatsAppConnectModal({ open, busy, onClose, onSubmit }: Props) {
                   <span className="text-sm font-semibold text-slate-900">Your Meta account</span>
                 </span>
                 <span className="mt-1 pl-6 text-xs leading-relaxed text-slate-600">
-                  Connect with your Phone Number ID and access token from Meta Business Manager.
+                  Your API credentials plus Meta webhook pointing at Huntlo (for inbound replies).
                 </span>
               </label>
             </div>
@@ -347,8 +398,13 @@ export function WhatsAppConnectModal({ open, busy, onClose, onSubmit }: Props) {
             </div>
           ) : (
             <div className="mt-5 space-y-4">
+              <WhatsAppMetaWebhookSetupCard
+                setup={webhookSetup}
+                loading={webhookSetupLoading}
+              />
+
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Meta Cloud API credentials
+                Meta Cloud API credentials (Huntlo takes these from you)
               </p>
               <label className={dashboardLabelClass}>
                 Phone Number ID
@@ -425,7 +481,27 @@ export function WhatsAppConnectModal({ open, busy, onClose, onSubmit }: Props) {
             </div>
           )}
 
-          <label className="mt-5 flex cursor-pointer items-start gap-2 text-sm text-[#434654]">
+          {!isHuntlo ? (
+            <label className="mt-5 flex cursor-pointer items-start gap-2 text-sm text-[#434654]">
+              <input
+                type="checkbox"
+                className="mt-0.5 rounded border-slate-300"
+                checked={form.confirmWebhookSetup}
+                onChange={(e) => patch({ confirmWebhookSetup: e.target.checked })}
+                disabled={!webhookReady}
+              />
+              <span>
+                I configured my Meta app webhook with the callback URL and verify token above, and
+                subscribed to <span className="font-medium">messages</span>.
+              </span>
+            </label>
+          ) : null}
+
+          <label
+            className={`flex cursor-pointer items-start gap-2 text-sm text-[#434654] ${
+              isHuntlo ? "mt-5" : "mt-3"
+            }`}
+          >
             <input
               type="checkbox"
               className="mt-0.5 rounded border-slate-300"
@@ -471,11 +547,15 @@ export function WhatsAppConnectModal({ open, busy, onClose, onSubmit }: Props) {
                     : !form.confirmRegistered
                       ? "Accept the confirmation to continue"
                       : undefined
-                  : !credsVerified
-                    ? "Test credentials first"
-                    : !form.confirmRegistered
-                      ? "Accept the confirmation to continue"
-                      : undefined
+                  : !webhookReady
+                    ? "Webhook not configured on server"
+                    : !credsVerified
+                      ? "Test credentials first"
+                      : !form.confirmWebhookSetup
+                        ? "Confirm Meta webhook setup"
+                        : !form.confirmRegistered
+                          ? "Accept the confirmation to continue"
+                          : undefined
               }
             >
               {busy ? (

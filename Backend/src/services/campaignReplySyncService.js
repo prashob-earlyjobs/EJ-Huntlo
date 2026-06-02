@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const Campaign = require("../models/Campaign");
 const CampaignSequenceEnrollment = require("../models/CampaignSequenceEnrollment");
 const CampaignOutreachReply = require("../models/CampaignOutreachReply");
 const OutreachPlan = require("../models/OutreachPlan");
@@ -25,6 +26,24 @@ function userOid(userId) {
   return new mongoose.Types.ObjectId(userId);
 }
 
+/** Gmail API message/thread ids — not Meta WhatsApp wamid.* values stored on WA enrollments. */
+function looksLikeGmailResourceId(id) {
+  const value = String(id || "").trim();
+  if (!value) return false;
+  if (/^wamid\./i.test(value)) return false;
+  return true;
+}
+
+function isEmailEnrollmentForGmailSync(enrollment) {
+  const email = String(enrollment?.contactEmail || "").trim();
+  if (!email.includes("@")) return false;
+  const threadId = String(enrollment?.lastThreadId || "").trim();
+  const messageId = String(enrollment?.lastMessageId || "").trim();
+  if (threadId && !looksLikeGmailResourceId(threadId)) return false;
+  if (messageId && !looksLikeGmailResourceId(messageId)) return false;
+  return Boolean(threadId || messageId);
+}
+
 function formatReply(doc) {
   const o = typeof doc.toObject === "function" ? doc.toObject() : doc;
   return {
@@ -47,9 +66,17 @@ function formatReply(doc) {
 }
 
 async function ensureThreadId(enrollment, userId) {
-  if (enrollment.lastThreadId) return String(enrollment.lastThreadId);
-  if (!enrollment.lastMessageId) return "";
-  const threadId = await resolveThreadIdFromMessage(userId, enrollment.lastMessageId);
+  if (!isEmailEnrollmentForGmailSync(enrollment)) return "";
+
+  const storedThreadId = String(enrollment.lastThreadId || "").trim();
+  if (storedThreadId && looksLikeGmailResourceId(storedThreadId)) {
+    return storedThreadId;
+  }
+
+  const messageId = String(enrollment.lastMessageId || "").trim();
+  if (!messageId || !looksLikeGmailResourceId(messageId)) return "";
+
+  const threadId = await resolveThreadIdFromMessage(userId, messageId);
   if (threadId) {
     await CampaignSequenceEnrollment.updateOne(
       { _id: enrollment._id },
@@ -314,19 +341,39 @@ async function syncEnrollmentReplies(enrollment, integrationEmail) {
 }
 
 /**
- * Poll Gmail threads for enrollments that have sent at least one outreach email.
+ * Poll Gmail threads for email-campaign enrollments that have sent at least one outreach email.
+ * Skips WhatsApp campaigns (their lastMessageId values are Meta ids, not Gmail ids).
  */
 async function syncDueEnrollmentReplies() {
-  const enrollments = await CampaignSequenceEnrollment.find({
-    sentCount: { $gt: 0 },
-    $or: [
-      { lastThreadId: { $exists: true, $ne: "" } },
-      { lastMessageId: { $exists: true, $ne: "" } },
-    ],
-  })
-    .sort({ lastReplySyncedAt: 1, updatedAt: 1 })
-    .limit(SYNC_BATCH_SIZE)
-    .lean();
+  const enrollments = await CampaignSequenceEnrollment.aggregate([
+    {
+      $match: {
+        sentCount: { $gt: 0 },
+        contactEmail: { $regex: /@/ },
+        $or: [
+          { lastThreadId: { $exists: true, $ne: "" } },
+          { lastMessageId: { $exists: true, $ne: "" } },
+        ],
+      },
+    },
+    {
+      $lookup: {
+        from: Campaign.collection.name,
+        localField: "campaignId",
+        foreignField: "_id",
+        as: "campaignRows",
+      },
+    },
+    {
+      $match: {
+        campaignRows: { $ne: [] },
+        "campaignRows.0.outreachChannel": { $ne: "whatsapp" },
+      },
+    },
+    { $sort: { lastReplySyncedAt: 1, updatedAt: 1 } },
+    { $limit: SYNC_BATCH_SIZE },
+    { $project: { campaignRows: 0 } },
+  ]);
 
   if (enrollments.length === 0) return { checked: 0, newReplies: 0 };
 
@@ -350,6 +397,7 @@ async function syncDueEnrollmentReplies() {
     }
 
     for (const enrollment of rows) {
+      if (!isEmailEnrollmentForGmailSync(enrollment)) continue;
       try {
         const result = await syncEnrollmentReplies(enrollment, integrationEmail);
         checked += 1;
@@ -479,7 +527,12 @@ async function syncCampaignReplies(actorUserId, campaignId) {
     throw err;
   }
 
-  const campaign = await findCampaignInScope(actorUserId, campaignId, { select: "userId" });
+  const campaign = await findCampaignInScope(actorUserId, campaignId, {
+    select: "userId outreachChannel",
+  });
+  if (campaign.outreachChannel === "whatsapp") {
+    return { synced: 0, newReplies: 0, replies: [] };
+  }
   const ownerUserId = campaignOwnerUserId(campaign);
 
   const integration = await getGmailIntegration(ownerUserId);
@@ -487,10 +540,12 @@ async function syncCampaignReplies(actorUserId, campaignId) {
     userId: userOid(ownerUserId),
     campaignId: new mongoose.Types.ObjectId(campaignId),
     sentCount: { $gt: 0 },
+    contactEmail: { $regex: /@/ },
   }).lean();
 
   let newReplies = 0;
   for (const enrollment of enrollments) {
+    if (!isEmailEnrollmentForGmailSync(enrollment)) continue;
     const result = await syncEnrollmentReplies(enrollment, integration.email || "");
     newReplies += result.newReplies;
   }
