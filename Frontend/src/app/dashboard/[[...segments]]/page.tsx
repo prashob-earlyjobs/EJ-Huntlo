@@ -87,8 +87,10 @@ import {
 import { useUserActionAlert } from "@/lib/useUserActionAlert";
 import type { CampaignContact, CampaignRecord } from "@/lib/campaigns";
 import {
+  CAMPAIGN_CONTACTS_LOCKED_MESSAGE,
   campaignContactLimitMessage,
   formatContactLimitToast,
+  isCampaignLaunched,
   sliceContactsToFit,
 } from "@/lib/campaignContactLimits";
 import {
@@ -4006,6 +4008,13 @@ export default function UserDashboardPage() {
         }
 
         const existing = campaigns.find((c) => c.id === payload.campaignId);
+        if (existing && isCampaignLaunched(existing.outreachStatus)) {
+          setDashboardToast({
+            message: CAMPAIGN_CONTACTS_LOCKED_MESSAGE,
+            variant: "warning",
+          });
+          return;
+        }
         const currentCount = existing?.contacts?.length ?? 0;
         const { allowed, rejectedCount: preRejected } = sliceContactsToFit(
           currentCount,

@@ -55,6 +55,7 @@ import {
   type OutreachTimezoneCode,
 } from "@/lib/outreachSchedule";
 import { OutreachStartScheduleBar } from "@/components/dashboard/OutreachStartScheduleBar";
+import { insertTextIntoField, OUTREACH_MERGE_FIELDS } from "@/lib/outreachMergeFields";
 
 type CalendlyMeetingOption = {
   uri: string;
@@ -98,8 +99,10 @@ type Props = {
   embedded?: boolean;
   /** Lock Start / Wait schedule pills when sequence came from template or saved plan. */
   lockSchedule?: boolean;
-  /** Read-only editor (active or completed campaign). */
+  /** Read-only editor (completed campaign only). */
   editorLocked?: boolean;
+  /** Active campaign: copy editable, schedule locked. */
+  sequenceLiveEditable?: boolean;
   /** Campaign workspace controls (embedded mode). */
   campaignOutreachStatus?: "idle" | "active" | "paused" | "completed";
   hasCampaignContacts?: boolean;
@@ -238,6 +241,7 @@ export function OutreachPlanEditor({
   embedded = false,
   lockSchedule = false,
   editorLocked = false,
+  sequenceLiveEditable = false,
   campaignOutreachStatus = "idle",
   hasCampaignContacts = true,
   hasSequence = true,
@@ -250,7 +254,7 @@ export function OutreachPlanEditor({
   saveCalendlyToCampaign,
   onSaved,
 }: Props) {
-  const scheduleLocked = lockSchedule || editorLocked;
+  const scheduleLocked = lockSchedule;
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
   const auth = getStoredAuth();
 
@@ -311,6 +315,8 @@ export function OutreachPlanEditor({
   const canvasScrollRef = useRef<HTMLDivElement>(null);
   const stepSectionRefs = useRef<(HTMLElement | null)[]>([]);
   const railStepRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const bodyInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const [bodyFocusOrder, setBodyFocusOrder] = useState<number | null>(null);
   const scrollSyncLock = useRef(false);
   const scrollSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveSuccessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -758,6 +764,31 @@ export function OutreachPlanEditor({
     updateTouchpoint(order, gmailWaitFromDisplay(nextMeta.amount, nextMeta.unit));
   };
 
+  const insertBodyMergeToken = useCallback(
+    (token: string) => {
+      if (editorLocked) return;
+      const order = bodyFocusOrder ?? touchpoints[activeIndex - 1]?.order;
+      if (!order) return;
+      const tp = touchpoints.find((t) => t.order === order);
+      if (!tp) return;
+      const insertText = `{{${token}}}`;
+      const { value, selectionStart, selectionEnd } = insertTextIntoField(
+        tp.body,
+        insertText,
+        bodyInputRef.current,
+        Boolean(bodyInputRef.current)
+      );
+      updateTouchpoint(order, { body: value });
+      requestAnimationFrame(() => {
+        const el = bodyInputRef.current;
+        if (!el) return;
+        el.focus();
+        el.setSelectionRange(selectionStart, selectionEnd);
+      });
+    },
+    [activeIndex, bodyFocusOrder, editorLocked, touchpoints]
+  );
+
   const updateStepSchedule = (
     order: number,
     patch: Partial<{ time: string; tz: string }>
@@ -786,7 +817,7 @@ export function OutreachPlanEditor({
       const missingBody = touchpoints.find((tp) => !tp.body.trim());
       if (missingBody) {
         throw new Error(
-          `Step ${missingBody.order} needs a message body (e.g. Hi {{FirstName}}, …).`
+          `Step ${missingBody.order} needs a message body (e.g. Hi {{candidate_name}}, …).`
         );
       }
       const isNew = planId === "new";
@@ -1218,12 +1249,20 @@ export function OutreachPlanEditor({
           ref={canvasScrollRef}
           className="dashboard-outreach-builder-canvas dashboard-outreach-scroll"
         >
+          {sequenceLiveEditable ? (
+            <div className="dashboard-outreach-builder-live-banner shrink-0">
+              <MaterialIcon name="info" className="shrink-0 text-base text-sky-700" aria-hidden />
+              <p className="text-sm text-sky-950">
+                Campaign is live. You can edit subject and body here; changes apply to emails not
+                sent yet. Start time and wait settings stay locked.
+              </p>
+            </div>
+          ) : null}
           {editorLocked ? (
             <div className="dashboard-wa-outreach-locked-banner dashboard-outreach-builder-locked-banner shrink-0">
               <MaterialIcon name="lock" className="shrink-0 text-base text-amber-700" aria-hidden />
               <p className="text-sm text-amber-950">
-                Campaign settings are read-only while the campaign is running or after it is
-                completed.
+                This campaign is completed. The sequence is read-only.
               </p>
             </div>
           ) : null}
@@ -1458,8 +1497,10 @@ export function OutreachPlanEditor({
 
                       <div className="dashboard-outreach-builder-editor-wrap">
                         <textarea
+                          ref={isActive ? bodyInputRef : undefined}
                           value={tp.body}
                           readOnly={editorLocked}
+                          onFocus={() => setBodyFocusOrder(tp.order)}
                           onChange={(e) => updateTouchpoint(tp.order, { body: e.target.value })}
                           rows={10}
                           className={`dashboard-outreach-builder-body-input${
@@ -1467,6 +1508,26 @@ export function OutreachPlanEditor({
                           }`}
                           placeholder="Write your email body…"
                         />
+                        {!editorLocked ? (
+                          <div className="dashboard-outreach-builder-merge-tags">
+                            <span className="dashboard-outreach-builder-field-label">
+                              Personalization
+                            </span>
+                            <div className="flex flex-wrap gap-1.5">
+                              {OUTREACH_MERGE_FIELDS.map((field) => (
+                                <button
+                                  key={field.token}
+                                  type="button"
+                                  onClick={() => insertBodyMergeToken(field.token)}
+                                  className="dashboard-wa-outreach-chip"
+                                  title={field.label}
+                                >
+                                  {`{{${field.token}}}`}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
                       </div>
                     </div>
                   </section>

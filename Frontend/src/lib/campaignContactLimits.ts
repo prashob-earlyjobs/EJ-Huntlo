@@ -1,4 +1,15 @@
+import type { CampaignOutreachStatus } from "@/lib/campaigns";
+
 export const CAMPAIGN_MAX_CONTACTS = 200;
+
+export const CAMPAIGN_CONTACTS_LOCKED_MESSAGE =
+  "This campaign has already been launched. Contacts cannot be added after launch.";
+
+export function isCampaignLaunched(
+  outreachStatus?: CampaignOutreachStatus | string
+): boolean {
+  return (outreachStatus ?? "idle") !== "idle";
+}
 
 export function campaignContactSlotsRemaining(currentCount: number): number {
   return Math.max(0, CAMPAIGN_MAX_CONTACTS - Math.max(0, currentCount));

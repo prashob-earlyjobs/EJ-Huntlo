@@ -11,7 +11,10 @@ type Props = {
   message: ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
-  tone?: "default" | "danger";
+  /** `confirm` = primary + secondary; `alert` = single dismiss button */
+  variant?: "confirm" | "alert";
+  tone?: "default" | "danger" | "warning";
+  iconName?: string;
   onConfirm: () => void;
   onCancel: () => void;
 };
@@ -22,7 +25,9 @@ export function ConfirmModal({
   message,
   confirmLabel = "Confirm",
   cancelLabel = "Cancel",
+  variant = "confirm",
   tone = "default",
+  iconName,
   onConfirm,
   onCancel,
 }: Props) {
@@ -49,6 +54,11 @@ export function ConfirmModal({
   if (!open || !mounted) return null;
 
   const isDanger = tone === "danger";
+  const isWarning = tone === "warning";
+  const isAlert = variant === "alert";
+  const resolvedIcon =
+    iconName ||
+    (isDanger ? "delete" : isWarning ? "hourglass_top" : "help_outline");
 
   return createPortal(
     <div
@@ -67,6 +77,8 @@ export function ConfirmModal({
       <div
         className={`dashboard-modal dashboard-confirm-modal-panel${
           isDanger ? " dashboard-confirm-modal-panel--danger" : ""
+        }${isWarning ? " dashboard-confirm-modal-panel--warning" : ""}${
+          isAlert ? " dashboard-confirm-modal-panel--alert" : ""
         }`}
         onClick={(e) => e.stopPropagation()}
       >
@@ -82,11 +94,11 @@ export function ConfirmModal({
           <span
             className={`dashboard-confirm-modal-icon${
               isDanger ? " dashboard-confirm-modal-icon--danger" : ""
-            }`}
+            }${isWarning ? " dashboard-confirm-modal-icon--warning" : ""}`}
             aria-hidden
           >
             <MaterialIcon
-              name={isDanger ? "delete" : "help_outline"}
+              name={resolvedIcon}
               className="dashboard-confirm-modal-icon-symbol"
             />
           </span>
@@ -99,10 +111,16 @@ export function ConfirmModal({
             </p>
           </div>
         </div>
-        <div className="dashboard-confirm-modal-footer">
-          <button type="button" onClick={onCancel} className="dashboard-btn-secondary">
-            {cancelLabel}
-          </button>
+        <div
+          className={`dashboard-confirm-modal-footer${
+            isAlert ? " dashboard-confirm-modal-footer--alert" : ""
+          }`}
+        >
+          {!isAlert ? (
+            <button type="button" onClick={onCancel} className="dashboard-btn-secondary">
+              {cancelLabel}
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={onConfirm}

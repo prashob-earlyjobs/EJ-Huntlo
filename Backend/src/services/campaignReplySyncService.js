@@ -139,6 +139,8 @@ async function backfillEmptyOutboundBodies(enrollment, senderFirstName = "") {
 
   const contact = {
     name: enrollment.contactName,
+    email: enrollment.contactEmail,
+    phone: enrollment.contactPhone,
     company: enrollment.contactCompany,
     role: enrollment.contactRole,
   };

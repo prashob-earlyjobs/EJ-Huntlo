@@ -127,6 +127,34 @@ export type LaunchCampaignSequenceResult = {
   outreachStatus: CampaignOutreachStatus;
 };
 
+export class CampaignLaunchBlockedError extends Error {
+  readonly code = "CAMPAIGN_ALREADY_ACTIVE" as const;
+  readonly activeCampaignName: string;
+
+  constructor(message: string, activeCampaignName: string) {
+    super(message);
+    this.name = "CampaignLaunchBlockedError";
+    this.activeCampaignName = activeCampaignName;
+  }
+}
+
+function throwIfCampaignLaunchBlocked(
+  res: Response,
+  data: { message?: unknown; code?: unknown; activeCampaign?: { name?: unknown } }
+): void {
+  if (res.status !== 409 || data.code !== "CAMPAIGN_ALREADY_ACTIVE") return;
+  const activeCampaignName =
+    typeof data.activeCampaign?.name === "string" && data.activeCampaign.name.trim()
+      ? data.activeCampaign.name.trim()
+      : "Another campaign";
+  throw new CampaignLaunchBlockedError(
+    typeof data.message === "string"
+      ? data.message
+      : "A campaign is already running. Wait for it to finish before launching another.",
+    activeCampaignName
+  );
+}
+
 export async function launchCampaignSequence(
   token: string,
   campaignId: string
@@ -137,6 +165,7 @@ export async function launchCampaignSequence(
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.success) {
+    throwIfCampaignLaunchBlocked(res, data);
     throw new Error(
       typeof data.message === "string" ? data.message : "Failed to launch campaign"
     );
@@ -182,6 +211,7 @@ export async function resumeCampaignSequence(
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.success) {
+    throwIfCampaignLaunchBlocked(res, data);
     throw new Error(
       typeof data.message === "string" ? data.message : "Failed to resume campaign"
     );

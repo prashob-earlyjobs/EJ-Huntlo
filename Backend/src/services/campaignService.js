@@ -412,8 +412,20 @@ async function createCampaign(userId, { name, contacts }) {
   };
 }
 
+function assertCampaignAcceptsNewContacts(campaignDoc) {
+  const status = String(campaignDoc?.outreachStatus || "idle").trim() || "idle";
+  if (status === "idle") return;
+  const err = new Error(
+    "This campaign has already been launched. Contacts cannot be added after launch."
+  );
+  err.statusCode = 409;
+  err.code = "CAMPAIGN_CONTACTS_LOCKED";
+  throw err;
+}
+
 async function addContactsToCampaign(actorUserId, campaignId, contacts) {
   const doc = await findCampaignDocumentInScope(actorUserId, campaignId);
+  assertCampaignAcceptsNewContacts(doc);
 
   const incoming = normalizeContacts(contacts);
   const existingKeys = new Set(

@@ -16,6 +16,7 @@ const {
   findCampaignInScope,
   findCampaignDocumentInScope,
   campaignOwnerUserId,
+  campaignAccessFilterForActor,
 } = require("../utils/campaignScope");
 
 const { notifyCampaignThreadUpdated } = require("../realtime/notify");
@@ -222,6 +223,25 @@ async function getSequenceStatus(actorUserId, campaignId) {
   };
 }
 
+async function assertNoOtherActiveOutreachCampaign(actorUserId, campaignId) {
+  const access = await campaignAccessFilterForActor(actorUserId);
+  if (!access) return;
+  const filter = { ...access, outreachStatus: "active" };
+  if (mongoose.Types.ObjectId.isValid(String(campaignId))) {
+    filter._id = { $ne: new mongoose.Types.ObjectId(String(campaignId)) };
+  }
+  const other = await Campaign.findOne(filter).select("name").lean();
+  if (!other) return;
+  const name = String(other.name || "").trim() || "Untitled campaign";
+  const err = new Error(
+    `"${name}" is still running. Wait for it to finish or pause it before starting another campaign.`
+  );
+  err.statusCode = 409;
+  err.code = "CAMPAIGN_ALREADY_ACTIVE";
+  err.activeCampaign = { id: String(other._id), name };
+  throw err;
+}
+
 /**
  * Enroll all campaign contacts with an email and start the sequence clock.
  */
@@ -230,6 +250,7 @@ async function launchCampaignSequence(actorUserId, campaignId) {
     actorUserId,
     campaignId
   );
+  await assertNoOtherActiveOutreachCampaign(actorUserId, campaign._id);
   const isWhatsApp = channel === "whatsapp";
   if (isWhatsApp) {
     await assertWhatsAppReadyForSend(ownerUserId);
@@ -461,6 +482,7 @@ async function resumeCampaignSequence(actorUserId, campaignId) {
     actorUserId,
     campaignId
   );
+  await assertNoOtherActiveOutreachCampaign(actorUserId, campaign._id);
   const now = new Date();
   const isWhatsApp = channel === "whatsapp";
 
@@ -567,6 +589,8 @@ async function processGmailEnrollmentDoc(enrollment, campaign) {
   const senderFirstName = await getSenderFirstName(userId);
   const contact = {
     name: enrollment.contactName,
+    email: enrollment.contactEmail,
+    phone: enrollment.contactPhone,
     company: enrollment.contactCompany,
     role: enrollment.contactRole,
   };
@@ -719,6 +743,8 @@ async function processWhatsAppEnrollmentDoc(enrollment, campaign) {
   const senderFirstName = await getWhatsAppSenderFirstName(userId);
   const contact = {
     name: enrollment.contactName,
+    email: enrollment.contactEmail,
+    phone: enrollment.contactPhone,
     company: enrollment.contactCompany,
     role: enrollment.contactRole,
   };

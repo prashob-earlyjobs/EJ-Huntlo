@@ -24,10 +24,13 @@ import { ImportCampaignContactsCsvModal } from "@/components/dashboard/ImportCam
 import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
 import { OutreachSequencePickerSkeleton } from "@/components/dashboard/OutreachSequencePickerSkeleton";
 import { OutreachPlanEditor } from "@/components/dashboard/OutreachPlanEditor";
+import { ConfirmModal } from "@/components/dashboard/ConfirmModal";
 import { DashboardToast } from "@/components/dashboard/DashboardToast";
 import {
+  CAMPAIGN_CONTACTS_LOCKED_MESSAGE,
   campaignContactLimitMessage,
   formatContactLimitToast,
+  isCampaignLaunched,
   sliceContactsToFit,
 } from "@/lib/campaignContactLimits";
 import { WhatsAppOutreachEditor } from "@/components/dashboard/WhatsAppOutreachEditor";
@@ -49,6 +52,7 @@ import {
   addContactsToCampaignApi,
   fetchCampaign,
   fetchCampaignContactsPage,
+  CampaignLaunchBlockedError,
   launchCampaignSequence,
   pauseCampaignSequence,
   removeContactFromCampaignApi,
@@ -245,6 +249,9 @@ export function CampaignWorkspace({
 }: Props) {
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
   const [launchBusy, setLaunchBusy] = useState(false);
+  const [activeCampaignBlockedModal, setActiveCampaignBlockedModal] = useState<{
+    activeCampaignName: string;
+  } | null>(null);
   const [launchNotice, setLaunchNotice] = useState("");
   const [launchError, setLaunchError] = useState("");
   const [selectedEmailContactKey, setSelectedEmailContactKey] = useState<string | null>(null);
@@ -786,6 +793,12 @@ export function CampaignWorkspace({
         );
         setLaunchError("");
       } catch (err) {
+        if (err instanceof CampaignLaunchBlockedError) {
+          setActiveCampaignBlockedModal({
+            activeCampaignName: err.activeCampaignName,
+          });
+          throw err;
+        }
         setSaveToast({
           message: err instanceof Error ? err.message : "Failed to launch campaign.",
           variant: "error",
@@ -888,8 +901,13 @@ export function CampaignWorkspace({
   );
 
   const outreachStatus = campaign.outreachStatus ?? "idle";
+  /** No new contacts after launch (active, paused, or completed). */
+  const campaignContactsLocked = isCampaignLaunched(outreachStatus);
+  /** JD and start schedule while live or done. */
   const campaignFieldsLocked =
     outreachStatus === "active" || outreachStatus === "completed";
+  /** Sequence email copy stays editable while active; only completed is read-only. */
+  const campaignSequenceReadOnly = outreachStatus === "completed";
   const hasLinkedPlan = Boolean(campaign.outreachPlanId?.trim());
   const channelLocked = hasLinkedPlan || Boolean(editor?.channel);
   const effectiveChannel: "gmail" | "whatsapp" | null =
@@ -1109,9 +1127,15 @@ export function CampaignWorkspace({
         );
       }
     } catch (err) {
-      setLaunchError(
-        err instanceof Error ? err.message : "Could not launch campaign sequence."
-      );
+      if (err instanceof CampaignLaunchBlockedError) {
+        setActiveCampaignBlockedModal({
+          activeCampaignName: err.activeCampaignName,
+        });
+      } else {
+        setLaunchError(
+          err instanceof Error ? err.message : "Could not launch campaign sequence."
+        );
+      }
     } finally {
       setLaunchBusy(false);
     }
@@ -1145,7 +1169,13 @@ export function CampaignWorkspace({
       onCampaignUpdatedRef.current?.(updated);
       setLaunchNotice("Campaign sequence resumed.");
     } catch (err) {
-      setLaunchError(err instanceof Error ? err.message : "Could not resume sequence.");
+      if (err instanceof CampaignLaunchBlockedError) {
+        setActiveCampaignBlockedModal({
+          activeCampaignName: err.activeCampaignName,
+        });
+      } else {
+        setLaunchError(err instanceof Error ? err.message : "Could not resume sequence.");
+      }
     } finally {
       setLaunchBusy(false);
     }
@@ -1289,6 +1319,10 @@ export function CampaignWorkspace({
     async (contactsToImport: CampaignContact[]) => {
       const auth = getStoredAuth();
       if (!auth?.token || contactsToImport.length === 0) return;
+      if (campaignContactsLocked) {
+        setSaveToast({ message: CAMPAIGN_CONTACTS_LOCKED_MESSAGE, variant: "warning" });
+        return;
+      }
 
       const { allowed, rejectedCount: preRejected } = sliceContactsToFit(
         contacts.length,
@@ -1333,7 +1367,7 @@ export function CampaignWorkspace({
         setCsvImportBusy(false);
       }
     },
-    [campaign.id, contacts.length, refreshContactDependentViews]
+    [campaign.id, campaignContactsLocked, contacts.length, refreshContactDependentViews]
   );
 
   const handleCsvFileSelected = useCallback(async (file: File) => {
@@ -1785,7 +1819,8 @@ export function CampaignWorkspace({
                 editor.state.calendlyAutomation
               )}
               lockSchedule={editor.state.lockSchedule || campaignFieldsLocked}
-              editorLocked={campaignFieldsLocked}
+              editorLocked={campaignSequenceReadOnly}
+              sequenceLiveEditable={outreachStatus === "active"}
               campaignOutreachStatus={outreachStatus}
               hasCampaignContacts={hasContacts}
               hasSequence={hasSequence}
@@ -1838,7 +1873,7 @@ export function CampaignWorkspace({
                 >
                   {outreachStatus === "completed"
                     ? "This campaign is completed. Sequence and campaign settings are read-only."
-                    : "Campaign is running. Pause the campaign to change the sequence or campaign settings."}
+                    : "Campaign is running. You can still edit email copy in the sequence editor; pause to change contacts or schedule."}
                 </p>
               ) : null}
               <div className="dashboard-campaign-report-toolbar shrink-0">
@@ -2007,12 +2042,14 @@ export function CampaignWorkspace({
                     {
                       label: "Add from search history",
                       icon: "history",
+                      disabled: campaignContactsLocked,
                       onClick: onAddFromSearchHistory,
                     },
                     {
                       label: "Upload CSV",
                       icon: "upload_file",
                       variant: "secondary",
+                      disabled: campaignContactsLocked,
                       onClick: openCsvModal,
                     },
                   ]}
@@ -2223,11 +2260,11 @@ export function CampaignWorkspace({
             initialContactKey={whatsappContactKey}
             refreshKey={waCommsRefreshKey}
             revealInProgress={revealInProgress}
-            contactsLocked={campaignFieldsLocked}
+            contactsLocked={campaignContactsLocked}
             onAddFromSearchHistory={
-              campaignFieldsLocked ? undefined : onAddFromSearchHistory
+              campaignContactsLocked ? undefined : onAddFromSearchHistory
             }
-            onUploadCsv={campaignFieldsLocked ? undefined : openCsvModal}
+            onUploadCsv={campaignContactsLocked ? undefined : openCsvModal}
             onRemoveCandidate={
               campaignFieldsLocked
                 ? undefined
@@ -2257,13 +2294,9 @@ export function CampaignWorkspace({
                 <button
                   type="button"
                   className={`${dashboardBtnSecondaryClass} cursor-pointer px-2.5 py-1 text-xs disabled:opacity-55`}
-                  disabled={campaignFieldsLocked}
+                  disabled={campaignContactsLocked}
                   title={
-                    campaignFieldsLocked
-                      ? outreachStatus === "completed"
-                        ? "Campaign completed"
-                        : "Pause the campaign to add contacts"
-                      : undefined
+                    campaignContactsLocked ? CAMPAIGN_CONTACTS_LOCKED_MESSAGE : undefined
                   }
                   onClick={() => {
                     window.location.href = "/dashboard/search/history";
@@ -2274,13 +2307,9 @@ export function CampaignWorkspace({
                 <button
                   type="button"
                   className={`${dashboardBtnSecondaryClass} cursor-pointer px-2.5 py-1 text-xs disabled:opacity-55`}
-                  disabled={csvImportBusy || campaignFieldsLocked}
+                  disabled={csvImportBusy || campaignContactsLocked}
                   title={
-                    campaignFieldsLocked
-                      ? outreachStatus === "completed"
-                        ? "Campaign completed"
-                        : "Pause the campaign to import contacts"
-                      : undefined
+                    campaignContactsLocked ? CAMPAIGN_CONTACTS_LOCKED_MESSAGE : undefined
                   }
                   onClick={openCsvModal}
                 >
@@ -2304,14 +2333,14 @@ export function CampaignWorkspace({
                     {
                       label: "Add from search history",
                       icon: "history",
-                      disabled: campaignFieldsLocked,
+                      disabled: campaignContactsLocked,
                       onClick: onAddFromSearchHistory,
                     },
                     {
                       label: "Upload CSV",
                       icon: "upload_file",
                       variant: "secondary",
-                      disabled: campaignFieldsLocked,
+                      disabled: campaignContactsLocked,
                       onClick: openCsvModal,
                     },
                   ]}
@@ -2541,6 +2570,29 @@ export function CampaignWorkspace({
         onFileSelect={handleCsvFileSelected}
         onDownloadSample={downloadSampleCsv}
         onImport={() => void importParsedCsvContacts(csvParsedContacts)}
+      />
+      <ConfirmModal
+        open={activeCampaignBlockedModal !== null}
+        variant="alert"
+        tone="warning"
+        iconName="campaign"
+        title="One campaign at a time"
+        message={
+          activeCampaignBlockedModal ? (
+            <>
+              <strong className="dashboard-confirm-modal-highlight">
+                {activeCampaignBlockedModal.activeCampaignName}
+              </strong>{" "}
+              is still running. Pause it or wait until it completes before launching another
+              campaign.
+            </>
+          ) : (
+            ""
+          )
+        }
+        confirmLabel="Got it"
+        onConfirm={() => setActiveCampaignBlockedModal(null)}
+        onCancel={() => setActiveCampaignBlockedModal(null)}
       />
     </section>
   );

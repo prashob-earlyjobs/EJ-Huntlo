@@ -45,10 +45,13 @@ function invalidSession(res) {
 
 function handleError(res, error) {
   const status = error.statusCode && Number.isFinite(error.statusCode) ? error.statusCode : 500;
-  return res.status(status).json({
+  const body = {
     success: false,
     message: error.message || "Request failed",
-  });
+  };
+  if (error.code) body.code = error.code;
+  if (error.activeCampaign) body.activeCampaign = error.activeCampaign;
+  return res.status(status).json(body);
 }
 
 const listCampaignsHandler = async (req, res) => {
