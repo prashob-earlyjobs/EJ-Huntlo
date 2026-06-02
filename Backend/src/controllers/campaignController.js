@@ -45,10 +45,13 @@ function invalidSession(res) {
 
 function handleError(res, error) {
   const status = error.statusCode && Number.isFinite(error.statusCode) ? error.statusCode : 500;
-  return res.status(status).json({
+  const body = {
     success: false,
     message: error.message || "Request failed",
-  });
+  };
+  if (error.code) body.code = error.code;
+  if (error.activeCampaign) body.activeCampaign = error.activeCampaign;
+  return res.status(status).json(body);
 }
 
 const listCampaignsHandler = async (req, res) => {
@@ -101,7 +104,7 @@ const createCampaignHandler = async (req, res) => {
     if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
     const contacts = Array.isArray(req.body?.contacts) ? req.body.contacts : [];
     const revealInBackground = req.body?.revealInBackground !== false;
-    const campaign = await createCampaign(uid, {
+    const { campaign, limitSkippedCount } = await createCampaign(uid, {
       name: req.body?.name,
       contacts,
     });
@@ -131,6 +134,7 @@ const createCampaignHandler = async (req, res) => {
     return res.status(201).json({
       success: true,
       campaign,
+      limitSkippedCount: limitSkippedCount || 0,
       revealJob,
       revealJobError,
       message: "Campaign created",
@@ -190,6 +194,7 @@ const addContactsHandler = async (req, res) => {
       campaign: result.campaign,
       addedCount: result.addedCount,
       skippedCount: result.skippedCount,
+      limitSkippedCount: result.limitSkippedCount || 0,
       sequenceEnroll,
       sequenceEnrollError,
       revealJob,

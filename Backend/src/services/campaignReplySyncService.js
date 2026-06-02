@@ -48,16 +48,25 @@ function formatReply(doc) {
 
 async function ensureThreadId(enrollment, userId) {
   if (enrollment.lastThreadId) return String(enrollment.lastThreadId);
-  if (!enrollment.lastMessageId) return "";
-  const threadId = await resolveThreadIdFromMessage(userId, enrollment.lastMessageId);
-  if (threadId) {
-    await CampaignSequenceEnrollment.updateOne(
-      { _id: enrollment._id },
-      { $set: { lastThreadId: threadId } }
+  const messageId = String(enrollment.lastMessageId || "").trim();
+  if (!messageId) return "";
+  try {
+    const threadId = await resolveThreadIdFromMessage(userId, messageId);
+    if (threadId) {
+      await CampaignSequenceEnrollment.updateOne(
+        { _id: enrollment._id },
+        { $set: { lastThreadId: threadId } }
+      );
+      enrollment.lastThreadId = threadId;
+    }
+    return threadId;
+  } catch (err) {
+    console.warn(
+      `[outreach-reply-sync] enrollment ${enrollment._id} could not resolve thread from message ${messageId}:`,
+      err?.message || err
     );
-    enrollment.lastThreadId = threadId;
+    return "";
   }
-  return threadId;
 }
 
 /**
@@ -120,13 +129,18 @@ async function backfillEmptyOutboundBodies(enrollment, senderFirstName = "") {
   }).lean();
   if (emptyDocs.length === 0) return 0;
 
-  const plan = await OutreachPlan.findById(enrollment.outreachPlanId)
-    .select("touchpoints")
-    .lean();
+  const planId = enrollment.outreachPlanId;
+  if (!planId || !mongoose.Types.ObjectId.isValid(String(planId))) {
+    return 0;
+  }
+
+  const plan = await OutreachPlan.findById(planId).select("touchpoints").lean();
   if (!plan?.touchpoints?.length) return 0;
 
   const contact = {
     name: enrollment.contactName,
+    email: enrollment.contactEmail,
+    phone: enrollment.contactPhone,
     company: enrollment.contactCompany,
     role: enrollment.contactRole,
   };
@@ -166,7 +180,16 @@ async function syncEnrollmentReplies(enrollment, integrationEmail) {
     return { newReplies: 0, candidateReplies: 0, threadId: "" };
   }
 
-  const messages = await fetchThreadMessages(userId, threadId);
+  let messages = [];
+  try {
+    messages = await fetchThreadMessages(userId, threadId);
+  } catch (err) {
+    console.warn(
+      `[outreach-reply-sync] enrollment ${enrollment._id} thread ${threadId} fetch failed:`,
+      err?.message || err
+    );
+    return { newReplies: 0, candidateReplies: 0, threadId };
+  }
   if (messages.length === 0) {
     return { newReplies: 0, candidateReplies: 0, threadId };
   }
@@ -282,7 +305,15 @@ async function syncEnrollmentReplies(enrollment, integrationEmail) {
     );
   }
 
-  const backfilled = await backfillEmptyOutboundBodies(enrollment);
+  let backfilled = 0;
+  try {
+    backfilled = await backfillEmptyOutboundBodies(enrollment);
+  } catch (err) {
+    console.warn(
+      `[outreach-reply-sync] enrollment ${enrollment._id} backfill skipped:`,
+      err?.message || err
+    );
+  }
 
   if (newReplies > 0 || backfilled > 0) {
     notifyCampaignThreadUpdated(userId, {

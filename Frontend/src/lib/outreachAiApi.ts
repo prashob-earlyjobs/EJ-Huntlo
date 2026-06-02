@@ -39,6 +39,7 @@ function parseGmailTouchpoint(raw: unknown, index: number): OutreachTouchpointDr
     subject,
     body,
     waitDays: typeof o.waitDays === "number" ? Math.max(0, o.waitDays) : 0,
+    waitHours: typeof o.waitHours === "number" ? Math.max(0, o.waitHours) : 0,
   };
 }
 

@@ -6,86 +6,75 @@ import Select, {
   type StylesConfig,
 } from "react-select";
 
-export type PillSelectOption<T extends string = string> = {
-  value: T;
-  label: string;
-};
+import type { PillSelectOption } from "@/components/dashboard/OutreachPillSelect";
 
 type Props<T extends string> = {
   value: T;
   options: readonly PillSelectOption<T>[];
   onChange: (value: T) => void;
   ariaLabel: string;
-  compact?: boolean;
+  inputId: string;
+  classNamePrefix: string;
   disabled?: boolean;
+  invalid?: boolean;
 };
 
-function buildChipStyles<T extends string>(
-  compact?: boolean
+function HiddenSelectInput<T extends string>(
+  _props: InputProps<PillSelectOption<T>, false>
+) {
+  return null;
+}
+
+function buildStyles<T extends string>(
+  invalid?: boolean
 ): StylesConfig<PillSelectOption<T>, false, GroupBase<PillSelectOption<T>>> {
   return {
     container: (base) => ({
       ...base,
-      display: "inline-block",
-      verticalAlign: "middle",
-      width: "auto",
-      minWidth: compact ? "2.75rem" : 0,
+      width: "100%",
     }),
     control: (base, state) => ({
       ...base,
-      minHeight: "1.625rem",
-      height: "1.625rem",
-      minWidth: compact ? "2.75rem" : "auto",
-      border: "none",
-      borderRadius: "999px",
-      backgroundColor: state.isDisabled
-        ? "#f3f4f6"
-        : state.isFocused
-          ? "#e5e7eb"
-          : "#f3f4f6",
+      minHeight: "2.25rem",
+      height: "2.25rem",
+      border: `1px solid ${invalid ? "#f87171" : "#e5e7eb"}`,
+      borderRadius: "0.5rem",
+      backgroundColor: invalid ? "#fef2f2" : "#f3f4f6",
       boxShadow: "none",
       cursor: state.isDisabled ? "default" : "pointer",
       opacity: state.isDisabled ? 0.85 : 1,
-      transition: "background-color 0.15s ease",
+      transition: "border-color 0.15s ease, background-color 0.15s ease",
       "&:hover": {
-        backgroundColor: state.isDisabled ? "#f3f4f6" : "#e5e7eb",
+        borderColor: invalid ? "#f87171" : "#d1d5db",
       },
     }),
     valueContainer: (base) => ({
       ...base,
-      height: "1.625rem",
-      padding: "0 0.25rem 0 0.625rem",
+      height: "2.25rem",
+      padding: "0 0.25rem 0 0.5rem",
     }),
     singleValue: (base) => ({
       ...base,
       margin: 0,
-      fontSize: "0.8125rem",
-      fontWeight: 500,
-      lineHeight: 1.2,
+      fontSize: "0.9375rem",
+      fontWeight: 600,
       color: "#111827",
     }),
     input: (base) => ({
       ...base,
       margin: 0,
       padding: 0,
-      fontSize: "0.8125rem",
-    }),
-    placeholder: (base) => ({
-      ...base,
-      margin: 0,
-      fontSize: "0.8125rem",
-      color: "#6b7280",
     }),
     indicatorsContainer: (base) => ({
       ...base,
-      height: "1.625rem",
+      height: "2.25rem",
     }),
     indicatorSeparator: () => ({
       display: "none",
     }),
     dropdownIndicator: (base, state) => ({
       ...base,
-      padding: "0 0.5rem 0 0.125rem",
+      padding: "0 0.375rem 0 0",
       color: state.isFocused ? "#4b5563" : "#6b7280",
       "&:hover": {
         color: "#374151",
@@ -93,18 +82,18 @@ function buildChipStyles<T extends string>(
     }),
     menuPortal: (base) => ({
       ...base,
-      zIndex: 9999,
+      zIndex: 100_001,
     }),
     menu: (base) => ({
       ...base,
       marginTop: "0.25rem",
-      borderRadius: "0.625rem",
+      borderRadius: "0.5rem",
       border: "1px solid #e5e7eb",
       backgroundColor: "#fff",
       boxShadow:
         "0 4px 6px -1px color-mix(in srgb, #141b2b 8%, transparent), 0 10px 24px -4px color-mix(in srgb, #141b2b 12%, transparent)",
       overflow: "hidden",
-      zIndex: 9999,
+      zIndex: 100_001,
     }),
     menuList: (base) => ({
       ...base,
@@ -114,9 +103,8 @@ function buildChipStyles<T extends string>(
       ...base,
       borderRadius: "0.375rem",
       padding: "0.5rem 0.625rem",
-      fontSize: "0.8125rem",
+      fontSize: "0.875rem",
       fontWeight: state.isSelected ? 600 : 500,
-      lineHeight: 1.3,
       color: state.isSelected ? "#5b21b6" : "#111827",
       backgroundColor: state.isSelected
         ? "#ede9fe"
@@ -131,33 +119,30 @@ function buildChipStyles<T extends string>(
   };
 }
 
-/** Dropdown-only: no typable inner input (selection via menu). */
-function HiddenSelectInput<T extends string>(_props: InputProps<PillSelectOption<T>, false>) {
-  return null;
-}
-
-export function OutreachPillSelect<T extends string>({
+export function OutreachScheduleFieldSelect<T extends string>({
   value,
   options,
   onChange,
   ariaLabel,
-  compact = false,
+  inputId,
+  classNamePrefix,
   disabled = false,
+  invalid = false,
 }: Props<T>) {
-  const selected = options.find((opt) => opt.value === value) ?? null;
+  const selected = options.find((opt) => opt.value === value) ?? options[0] ?? null;
   const menuPortalTarget = typeof document !== "undefined" ? document.body : null;
 
   return (
     <Select<PillSelectOption<T>, false>
-      inputId={`outreach-pill-${ariaLabel.replace(/\s+/g, "-").toLowerCase()}`}
+      inputId={inputId}
       aria-label={ariaLabel}
-      classNamePrefix="outreach-pill-select"
+      classNamePrefix={classNamePrefix}
       value={selected}
       options={[...options]}
       onChange={(opt) => {
         if (opt) onChange(opt.value);
       }}
-      styles={buildChipStyles<T>(compact)}
+      styles={buildStyles<T>(invalid)}
       isDisabled={disabled}
       isSearchable={false}
       components={{ Input: HiddenSelectInput }}
