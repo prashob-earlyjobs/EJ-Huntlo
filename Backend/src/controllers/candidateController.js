@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const crypto = require("crypto");
 const {
   createSourcingSession,
   updateSourcingSession,
@@ -40,6 +41,40 @@ const {
 
 /** Wait after POST /wl/sourcing-session before GET …/profiles (Search Candidates apply). */
 const POST_SESSION_CREATE_PROFILES_WAIT_MS = 20_000;
+
+const costlyFutureJobsActions = new Map();
+
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function requestHash(value) {
+  return crypto.createHash("sha256").update(stableJson(value)).digest("hex");
+}
+
+async function runCostlyFutureJobsAction(key, fn) {
+  if (costlyFutureJobsActions.has(key)) {
+    const err = new Error("This Future Jobs request is already in progress. Please wait.");
+    err.statusCode = 409;
+    err.code = "FUTURE_JOBS_REQUEST_IN_PROGRESS";
+    throw err;
+  }
+
+  const promise = Promise.resolve().then(fn);
+  costlyFutureJobsActions.set(key, promise);
+  try {
+    return await promise;
+  } finally {
+    costlyFutureJobsActions.delete(key);
+  }
+}
 
 function sessionIdFromFjCreateResponse(futureJobs, fallbackId = "") {
   const fallback = typeof fallbackId === "string" ? fallbackId.trim() : "";
@@ -453,10 +488,14 @@ const annotateSearchPrompt = async (req, res) => {
       userTextLength: userText.length,
     });
 
-    const futureJobs = await getSourcingSessionAnnotation({
-      userText,
-      linkedin_profile_url,
-    });
+    const futureJobs = await runCostlyFutureJobsAction(
+      `annotate:${userId || "anonymous"}:${requestHash({ userText, linkedin_profile_url })}`,
+      () =>
+        getSourcingSessionAnnotation({
+          userText,
+          linkedin_profile_url,
+        })
+    );
 
     const annotationData =
       futureJobs?.data && typeof futureJobs.data === "object" ? futureJobs.data : {};
@@ -537,7 +576,10 @@ const createSearchSession = async (req, res) => {
       payloadPreview: safeJsonPreview(payload),
     });
 
-    const futureJobs = await createSourcingSession(payload);
+    const futureJobs = await runCostlyFutureJobsAction(
+      `create:${userId || "anonymous"}:${requestHash({ prompt, payload })}`,
+      () => createSourcingSession(payload)
+    );
     const sessionId = sessionIdFromFjCreateResponse(futureJobs);
 
     if (isFjSessionPending(futureJobs)) {
@@ -695,11 +737,20 @@ const applySearchFilters = async (req, res) => {
       payloadPreview: safeJsonPreview(payload),
     });
 
-    const futureJobs = isSessionUpdate
-      ? await updateSourcingSession(existingSessionId, payload, {
-          traceId: fjTraceId,
-        })
-      : await createSourcingSession(payload, { traceId: fjTraceId });
+    const futureJobs = await runCostlyFutureJobsAction(
+      `apply:${userId}:${existingSessionId || "new"}:${requestHash({
+        prompt,
+        payload,
+        page,
+        limit,
+      })}`,
+      () =>
+        isSessionUpdate
+          ? updateSourcingSession(existingSessionId, payload, {
+              traceId: fjTraceId,
+            })
+          : createSourcingSession(payload, { traceId: fjTraceId })
+    );
     const sessionId = sessionIdFromFjCreateResponse(futureJobs, existingSessionId);
 
     if (isFjSessionPending(futureJobs)) {
@@ -922,7 +973,10 @@ const searchCandidates = async (req, res) => {
       }
     }
 
-    const futureJobs = await createSourcingSession(payload);
+    const futureJobs = await runCostlyFutureJobsAction(
+      `search:${userId || "anonymous"}:${requestHash({ prompt, payload, page, limit })}`,
+      () => createSourcingSession(payload)
+    );
 
     const sessionId = sessionIdFromFjCreateResponse(futureJobs);
     const candidates = [];
@@ -1504,32 +1558,40 @@ const fetchMoreSessionProfiles = async (req, res) => {
 
     logApi("candidates/session/fetch-more", "incoming", { userId, sessionId });
 
-    const fetchMoreResult = await fetchMoreSourcingSession(sessionId, {});
-    const sourcingMeta =
-      fetchMoreResult?.data?.sourcing &&
-      typeof fetchMoreResult.data.sourcing === "object"
-        ? fetchMoreResult.data.sourcing
-        : {};
-    const sessionMeta =
-      fetchMoreResult?.data?.session &&
-      typeof fetchMoreResult.data.session === "object"
-        ? fetchMoreResult.data.session
-        : {};
+    const { fetchMoreResult, mapped, sourcingMeta } = await runCostlyFutureJobsAction(
+      `fetch-more:${userId}:${sessionId}`,
+      async () => {
+        const result = await fetchMoreSourcingSession(sessionId, {});
+        const nextSourcingMeta =
+          result?.data?.sourcing && typeof result.data.sourcing === "object"
+            ? result.data.sourcing
+            : {};
+        const sessionMeta =
+          result?.data?.session && typeof result.data.session === "object"
+            ? result.data.session
+            : {};
+        const nextMapped = await fetchAllSessionProfilesFromFj(sessionId, {
+          expectedProfileCount:
+            typeof nextSourcingMeta.newProfilesCount === "number"
+              ? nextSourcingMeta.newProfilesCount
+              : typeof nextSourcingMeta.total_display_count === "number"
+                ? nextSourcingMeta.total_display_count
+                : null,
+          profileMatchingStatus:
+            typeof nextSourcingMeta.profileMatchingStatus === "string"
+              ? nextSourcingMeta.profileMatchingStatus
+              : typeof sessionMeta.profileMatchingStatus === "string"
+                ? sessionMeta.profileMatchingStatus
+                : "processing",
+        });
 
-    const mapped = await fetchAllSessionProfilesFromFj(sessionId, {
-      expectedProfileCount:
-        typeof sourcingMeta.newProfilesCount === "number"
-          ? sourcingMeta.newProfilesCount
-          : typeof sourcingMeta.total_display_count === "number"
-            ? sourcingMeta.total_display_count
-            : null,
-      profileMatchingStatus:
-        typeof sourcingMeta.profileMatchingStatus === "string"
-          ? sourcingMeta.profileMatchingStatus
-          : typeof sessionMeta.profileMatchingStatus === "string"
-            ? sessionMeta.profileMatchingStatus
-            : "processing",
-    });
+        return {
+          fetchMoreResult: result,
+          mapped: nextMapped,
+          sourcingMeta: nextSourcingMeta,
+        };
+      }
+    );
 
     await persistCandidateDetails({
       userId,

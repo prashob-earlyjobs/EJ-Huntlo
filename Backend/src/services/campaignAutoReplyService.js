@@ -5,14 +5,17 @@ const CampaignOutreachReply = require("../models/CampaignOutreachReply");
 const OutreachPlan = require("../models/OutreachPlan");
 const UserIntegration = require("../models/UserIntegration");
 const { sendGmailMessage, buildReplySubject } = require("./gmailSendService");
-const { generateCampaignAutoReply } = require("./outreachReplyAiService");
+const {
+  generateCampaignAutoReply,
+  MAX_CONVERSATION_EXCHANGES,
+} = require("./outreachReplyAiService");
 const { notifyCampaignThreadUpdated } = require("../realtime/notify");
 const { maybeCompleteCampaign } = require("./campaignOutreachSendService");
 const { getAiConfig } = require("../config/ai");
 
 const MAX_AUTO_REPLIES = Math.max(
   1,
-  Math.min(20, Number(process.env.OUTREACH_AUTO_REPLY_MAX) || 8)
+  Math.min(20, Number(process.env.OUTREACH_AUTO_REPLY_MAX) || MAX_CONVERSATION_EXCHANGES)
 );
 
 function isAutoReplyEnabled() {
@@ -77,7 +80,7 @@ function ensureCalendlyLinkInReply(replyBody, calendlyAutomation) {
 async function loadAutoReplyContext(enrollment) {
   const userId = String(enrollment.userId);
   const campaign = await Campaign.findById(enrollment.campaignId)
-    .select("name outreachPlanId calendlyAutomation")
+    .select("name outreachPlanId calendlyAutomation jobDescription")
     .lean();
 
   let planSummary = "";
@@ -117,6 +120,7 @@ async function loadAutoReplyContext(enrollment) {
   return {
     userId,
     campaignName: campaign?.name || "",
+    jobDescription: String(campaign?.jobDescription || "").trim(),
     contactName: enrollment.contactName || "",
     contactRole: enrollment.contactRole || "",
     contactCompany: enrollment.contactCompany || "",
@@ -171,11 +175,17 @@ async function maybeAutoReplyAfterCandidateMessage({
   const latestBody = String(
     candidateMessage?.bodyText || candidateMessage?.snippet || ""
   ).trim();
+  const autoReplyTurn = (enrollment.autoReplyCount || 0) + 1;
+  const schedulingUrl = String(context.calendlyAutomation?.schedulingUrl || "").trim();
+  const calendlyEnabled = Boolean(
+    context.calendlyAutomation?.enabled && schedulingUrl
+  );
 
   let ai;
   try {
     ai = await generateCampaignAutoReply({
       campaignName: context.campaignName,
+      jobDescription: context.jobDescription,
       contactName: context.contactName,
       contactRole: context.contactRole,
       contactCompany: context.contactCompany,
@@ -183,7 +193,9 @@ async function maybeAutoReplyAfterCandidateMessage({
       threadMessages: context.threadMessages,
       latestCandidateMessage: latestBody,
       currentDisposition: enrollment.replyDisposition || "unknown",
-      autoReplyTurn: (enrollment.autoReplyCount || 0) + 1,
+      autoReplyTurn,
+      maxExchanges: MAX_CONVERSATION_EXCHANGES,
+      interviewSchedulingUrl: calendlyEnabled ? schedulingUrl : "",
     });
   } catch (err) {
     console.error(
@@ -191,6 +203,17 @@ async function maybeAutoReplyAfterCandidateMessage({
       err?.message || err
     );
     return { sent: false, reason: "ai_error" };
+  }
+
+  const onFinalExchange = autoReplyTurn >= MAX_CONVERSATION_EXCHANGES;
+  if (onFinalExchange && ai.disposition !== "not_interested") {
+    ai.disposition = "interested";
+    ai.shouldSendReply = true;
+    if (!String(ai.replyBody || "").trim()) {
+      const firstName =
+        String(enrollment.contactName || "").trim().split(/\s+/)[0] || "there";
+      ai.replyBody = `Hi ${firstName}, thank you for your interest in the role. We would love to speak with you — please use the link below to pick a time that works for you.`;
+    }
   }
 
   if (!ai.shouldSendReply || !ai.replyBody) {
@@ -213,10 +236,14 @@ async function maybeAutoReplyAfterCandidateMessage({
     return { sent: false, reason: "no_reply_body", disposition: ai.disposition };
   }
 
-  const replyBody =
-    ai.disposition === "interested" && context.calendlyAutomation?.enabled
-      ? ensureCalendlyLinkInReply(ai.replyBody, context.calendlyAutomation)
-      : ai.replyBody;
+  let replyBody = ai.replyBody;
+  const shouldAttachCalendly =
+    calendlyEnabled &&
+    ai.disposition !== "not_interested" &&
+    (ai.disposition === "interested" || onFinalExchange);
+  if (shouldAttachCalendly) {
+    replyBody = ensureCalendlyLinkInReply(replyBody, context.calendlyAutomation);
+  }
 
   const subject = buildReplySubject(context.threadSubject);
   const inReplyTo = String(candidateMessage?.rfcMessageId || "").trim();
@@ -282,6 +309,10 @@ async function maybeAutoReplyAfterCandidateMessage({
       console.error("[outreach-auto-reply] maybeCompleteCampaign failed:", err?.message || err);
     });
   }
+
+  console.log(
+    `[outreach-auto-reply] sent enrollment ${enrollment._id} turn=${autoReplyTurn} disposition=${ai.disposition}`
+  );
 
   return {
     sent: true,

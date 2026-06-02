@@ -1,5 +1,12 @@
 const mongoose = require("mongoose");
 const OutreachPlan = require("../models/OutreachPlan");
+const { syncEnrollmentSchedulesForPlan } = require("./campaignEnrollmentScheduleSync");
+const {
+  normalizeTimezoneCode,
+  normalizeSendTime,
+  normalizeStartSchedule,
+  normalizeWaitUnit,
+} = require("../utils/outreachScheduleUtils");
 
 function normalizeTouchpoints(raw) {
   if (!Array.isArray(raw)) return [];
@@ -11,14 +18,18 @@ function normalizeTouchpoints(raw) {
       const label = typeof tp?.label === "string" ? tp.label.trim() : "";
       const waitDays = Math.max(0, Number(tp?.waitDays) || 0);
       const waitHours = Math.max(0, Number(tp?.waitHours) || 0);
+      const usesHourWait = waitHours > 0 && waitDays === 0;
       if (!subject && !body) return null;
       return {
         order: Number.isFinite(order) && order > 0 ? order : index + 1,
         label,
         subject,
         body,
-        waitDays: waitHours > 0 ? 0 : waitDays,
-        waitHours: waitHours > 0 ? waitHours : 0,
+        waitDays: usesHourWait ? 0 : waitDays,
+        waitHours: usesHourWait ? waitHours : 0,
+        sendTime: usesHourWait ? "09:00" : normalizeSendTime(tp?.sendTime),
+        timezone: usesHourWait ? "IST" : normalizeTimezoneCode(tp?.timezone),
+        waitUnit: usesHourWait ? "days" : normalizeWaitUnit(tp?.waitUnit),
       };
     })
     .filter(Boolean)
@@ -52,6 +63,7 @@ function normalizeCalendlyAutomation(raw) {
 function formatPlan(doc) {
   const touchpoints = Array.isArray(doc.touchpoints) ? doc.touchpoints : [];
   const calendlyAutomation = normalizeCalendlyAutomation(doc.calendlyAutomation);
+  const firstTouchpoint = touchpoints[0];
   return {
     id: String(doc._id),
     name: doc.name || "",
@@ -63,7 +75,11 @@ function formatPlan(doc) {
       body: tp.body || "",
       waitDays: tp.waitDays ?? 0,
       waitHours: tp.waitHours ?? 0,
+      sendTime: tp.sendTime || "09:00",
+      timezone: tp.timezone || "IST",
+      waitUnit: tp.waitUnit || "days",
     })),
+    startSchedule: normalizeStartSchedule(doc.startSchedule || {}, firstTouchpoint),
     touchpointCount: touchpoints.length,
     calendlyAutomation,
     createdAt: doc.createdAt,
@@ -96,7 +112,7 @@ async function getOutreachPlan(userId, planId) {
   return formatPlan(doc);
 }
 
-async function createOutreachPlan(userId, { name, touchpoints, calendlyAutomation }) {
+async function createOutreachPlan(userId, { name, touchpoints, calendlyAutomation, startSchedule }) {
   const planName = String(name || "").trim();
   if (!planName) {
     const err = new Error("Plan name is required");
@@ -129,12 +145,13 @@ async function createOutreachPlan(userId, { name, touchpoints, calendlyAutomatio
     userId: userOid,
     name: planName,
     touchpoints: tps,
+    startSchedule: normalizeStartSchedule(startSchedule, tps[0]),
     calendlyAutomation: normalizeCalendlyAutomation(calendlyAutomation),
   });
   return formatPlan(doc.toObject());
 }
 
-async function updateOutreachPlan(userId, planId, { name, touchpoints, calendlyAutomation }) {
+async function updateOutreachPlan(userId, planId, { name, touchpoints, calendlyAutomation, startSchedule }) {
   if (!mongoose.Types.ObjectId.isValid(planId)) {
     const err = new Error("Invalid outreach plan id");
     err.statusCode = 400;
@@ -183,6 +200,14 @@ async function updateOutreachPlan(userId, planId, { name, touchpoints, calendlyA
       throw err;
     }
     doc.touchpoints = tps;
+    if (startSchedule === undefined) {
+      doc.startSchedule = normalizeStartSchedule(doc.startSchedule, tps[0]);
+    }
+  }
+
+  if (startSchedule !== undefined) {
+    const tps = Array.isArray(doc.touchpoints) ? doc.touchpoints : [];
+    doc.startSchedule = normalizeStartSchedule(startSchedule, tps[0]);
   }
 
   if (calendlyAutomation !== undefined) {
@@ -190,7 +215,20 @@ async function updateOutreachPlan(userId, planId, { name, touchpoints, calendlyA
   }
 
   await doc.save();
-  return formatPlan(doc.toObject());
+
+  const planObject = doc.toObject();
+  if (startSchedule !== undefined || touchpoints !== undefined) {
+    try {
+      await syncEnrollmentSchedulesForPlan(String(planObject._id));
+    } catch (err) {
+      console.error(
+        "[outreach-plan] sync enrollment schedules:",
+        err?.message || err
+      );
+    }
+  }
+
+  return formatPlan(planObject);
 }
 
 async function deleteOutreachPlan(userId, planId) {

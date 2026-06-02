@@ -90,6 +90,8 @@ type Props = {
   lead?: string;
   /** Disable all picker actions (e.g. active or completed campaign). */
   readOnly?: boolean;
+  /** Pre-fill JD fields (e.g. from campaign Job description tab). */
+  initialJobDescription?: string;
   onChoose: (choice: CreateOutreachChoice) => void;
 };
 
@@ -278,14 +280,30 @@ export function OutreachSequencePicker({
   optionsReady,
   lead = "Choose how to build your sequence",
   readOnly = false,
+  initialJobDescription = "",
   onChoose,
 }: Props) {
   const [step, setStep] = useState<"choose" | "clone" | "scratchChannel" | "aiChannel">("choose");
   const [cloneSelection, setCloneSelection] = useState("");
   const [aiModalOpen, setAiModalOpen] = useState(false);
   const [aiChannel, setAiChannel] = useState<"gmail" | "whatsapp">("gmail");
-  const [jobDescription, setJobDescription] = useState("");
+  const [jobDescription, setJobDescription] = useState(
+    () => initialJobDescription.trim()
+  );
   const [scratchChannel, setScratchChannel] = useState<"gmail" | "whatsapp" | "">("");
+
+  useEffect(() => {
+    const next = initialJobDescription.trim();
+    if (!next) return;
+    setJobDescription((prev) => (prev.trim() ? prev : next));
+  }, [initialJobDescription]);
+
+  useEffect(() => {
+    if (step !== "scratchChannel") return;
+    const next = initialJobDescription.trim();
+    if (!next) return;
+    setJobDescription((prev) => (prev.trim() ? prev : next));
+  }, [step, initialJobDescription]);
 
   const handleAiGenerated = (result: GenerateOutreachFromJdResult) => {
     if (result.channel === "whatsapp") {
@@ -561,6 +579,7 @@ export function OutreachSequencePicker({
         <GenerateOutreachAiModal
           open={aiModalOpen}
           channel={aiChannel}
+          initialJobDescription={jobDescription || initialJobDescription}
           onClose={() => setAiModalOpen(false)}
           onGenerated={handleAiGenerated}
         />
@@ -756,6 +775,7 @@ export function OutreachSequencePicker({
       <GenerateOutreachAiModal
         open={aiModalOpen}
         channel={aiChannel}
+        initialJobDescription={jobDescription || initialJobDescription}
         onClose={() => setAiModalOpen(false)}
         onBack={() => {
           setAiModalOpen(false);

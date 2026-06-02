@@ -24,11 +24,24 @@ import { ImportCampaignContactsCsvModal } from "@/components/dashboard/ImportCam
 import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
 import { OutreachSequencePickerSkeleton } from "@/components/dashboard/OutreachSequencePickerSkeleton";
 import { OutreachPlanEditor } from "@/components/dashboard/OutreachPlanEditor";
+import { ConfirmModal } from "@/components/dashboard/ConfirmModal";
 import { DashboardToast } from "@/components/dashboard/DashboardToast";
+import {
+  CAMPAIGN_CONTACTS_LOCKED_MESSAGE,
+  campaignContactLimitMessage,
+  formatContactLimitToast,
+  isCampaignLaunched,
+  sliceContactsToFit,
+} from "@/lib/campaignContactLimits";
 import { WhatsAppOutreachEditor } from "@/components/dashboard/WhatsAppOutreachEditor";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { authHeaders, getStoredAuth } from "@/lib/auth";
 import type { CampaignContact, CampaignRecord } from "@/lib/campaigns";
+import {
+  buildSampleCampaignContactsCsv,
+  CSV_MANDATORY_HEADERS,
+  parseCsvContacts,
+} from "@/lib/campaignCsvImport";
 import type { ReportMetricKey } from "@/lib/campaignEmailReport";
 import {
   getActiveCampaignRevealJob,
@@ -39,6 +52,7 @@ import {
   addContactsToCampaignApi,
   fetchCampaign,
   fetchCampaignContactsPage,
+  CampaignLaunchBlockedError,
   launchCampaignSequence,
   pauseCampaignSequence,
   removeContactFromCampaignApi,
@@ -68,6 +82,7 @@ import {
   type OutreachTemplateListItem,
   type OutreachTouchpointDraft,
 } from "@/lib/outreachTemplates";
+import type { OutreachStartScheduleDraft } from "@/lib/outreachSchedule";
 import {
   createInitialWhatsAppSequence,
   type WhatsAppTouchpointDraft,
@@ -123,6 +138,7 @@ type GmailEditorState = {
   planId: string | "new";
   planName: string;
   touchpoints: OutreachTouchpointDraft[];
+  startSchedule?: OutreachStartScheduleDraft;
   lockSchedule: boolean;
   calendlyAutomation?: GmailCalendlyAutomationState;
 };
@@ -217,114 +233,6 @@ function formatThreadTime(iso: string) {
   }
 }
 
-function parseCsvLine(line: string): string[] {
-  const out: string[] = [];
-  let cur = "";
-  let inQuotes = false;
-  for (let i = 0; i < line.length; i += 1) {
-    const ch = line[i];
-    if (ch === '"') {
-      if (inQuotes && line[i + 1] === '"') {
-        cur += '"';
-        i += 1;
-      } else {
-        inQuotes = !inQuotes;
-      }
-      continue;
-    }
-    if (ch === "," && !inQuotes) {
-      out.push(cur.trim());
-      cur = "";
-      continue;
-    }
-    cur += ch;
-  }
-  out.push(cur.trim());
-  return out;
-}
-
-const CSV_MANDATORY_HEADERS = [
-  "name",
-  "email",
-  "phone",
-  "role",
-  "company",
-  "location",
-  "linkedinUrl",
-] as const;
-
-function parseCsvContacts(fileText: string): {
-  contacts: CampaignContact[];
-  errors: string[];
-} {
-  const rows = fileText
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  if (rows.length < 2) {
-    return {
-      contacts: [],
-      errors: ["CSV needs a header row and at least one contact row."],
-    };
-  }
-  const rawHeaders = parseCsvLine(rows[0]);
-  const headerMap = new Map<string, number>();
-  rawHeaders.forEach((h, i) => headerMap.set(String(h || "").trim().toLowerCase(), i));
-
-  const missingHeaders = CSV_MANDATORY_HEADERS.filter(
-    (h) => !headerMap.has(h.toLowerCase())
-  );
-  const errors: string[] = [];
-  if (missingHeaders.length > 0) {
-    errors.push(`Missing mandatory headers: ${missingHeaders.join(", ")}`);
-  }
-
-  const now = new Date().toISOString();
-  const contacts: CampaignContact[] = [];
-  rows.slice(1).forEach((row, rowIx) => {
-    const cols = parseCsvLine(row);
-    const get = (key: string) => {
-      const ix = headerMap.get(key.toLowerCase());
-      return ix == null ? "" : String(cols[ix] || "").trim();
-    };
-
-    const name = get("name");
-    const email = get("email");
-    const phone = get("phone");
-    const role = get("role");
-    const company = get("company");
-    const location = get("location");
-    const linkedinUrl = get("linkedinurl");
-    const lineNo = rowIx + 2;
-
-    if (!name) {
-      errors.push(`Row ${lineNo}: name is required.`);
-      return;
-    }
-    if (!email && !phone) {
-      errors.push(`Row ${lineNo}: either email or phone is required.`);
-      return;
-    }
-
-    const identity = email || phone || name || `row-${rowIx + 1}`;
-    contacts.push({
-      candidateKey: `csv-${Date.now()}-${rowIx}-${identity.toLowerCase().replace(/\s+/g, "-")}`,
-      candidateId: "",
-      name,
-      email,
-      phone,
-      role,
-      company,
-      location,
-      linkedinUrl,
-      sourcingSessionId: "",
-      addedAt: now,
-    });
-  });
-
-  return { contacts, errors };
-}
-
 export function CampaignWorkspace({
   campaign,
   workspaceTab: activeTab,
@@ -341,6 +249,9 @@ export function CampaignWorkspace({
 }: Props) {
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
   const [launchBusy, setLaunchBusy] = useState(false);
+  const [activeCampaignBlockedModal, setActiveCampaignBlockedModal] = useState<{
+    activeCampaignName: string;
+  } | null>(null);
   const [launchNotice, setLaunchNotice] = useState("");
   const [launchError, setLaunchError] = useState("");
   const [selectedEmailContactKey, setSelectedEmailContactKey] = useState<string | null>(null);
@@ -374,7 +285,7 @@ export function CampaignWorkspace({
   const [editorNotice, setEditorNotice] = useState("");
   const [saveToast, setSaveToast] = useState<{
     message: string;
-    variant: "success" | "error";
+    variant: "success" | "error" | "warning";
   } | null>(null);
 
   const [modalPlans, setModalPlans] = useState<ExistingOutreachPlanOption[]>([]);
@@ -740,6 +651,7 @@ export function CampaignWorkspace({
             id: string;
             name: string;
             touchpoints: OutreachTouchpointDraft[];
+            startSchedule?: OutreachStartScheduleDraft;
             calendlyAutomation?: GmailCalendlyAutomationState;
           };
           openGmailEditor({
@@ -749,6 +661,7 @@ export function CampaignWorkspace({
               Array.isArray(plan.touchpoints) && plan.touchpoints.length > 0
                 ? plan.touchpoints.map((tp) => ({ ...tp }))
                 : [createEmptyTouchpoint(1)],
+            startSchedule: plan.startSchedule,
             lockSchedule: true,
             calendlyAutomation: pickCampaignCalendly(campaign, plan.calendlyAutomation),
           });
@@ -880,6 +793,12 @@ export function CampaignWorkspace({
         );
         setLaunchError("");
       } catch (err) {
+        if (err instanceof CampaignLaunchBlockedError) {
+          setActiveCampaignBlockedModal({
+            activeCampaignName: err.activeCampaignName,
+          });
+          throw err;
+        }
         setSaveToast({
           message: err instanceof Error ? err.message : "Failed to launch campaign.",
           variant: "error",
@@ -928,6 +847,7 @@ export function CampaignWorkspace({
         id: string;
         name: string;
         touchpoints: OutreachTouchpointDraft[];
+        startSchedule?: OutreachStartScheduleDraft;
         calendlyAutomation?: GmailCalendlyAutomationState;
       }
     ) => {
@@ -940,6 +860,7 @@ export function CampaignWorkspace({
           planId: savedPlan.id,
           planName: savedPlan.name,
           touchpoints: savedPlan.touchpoints,
+          startSchedule: savedPlan.startSchedule,
           lockSchedule: true,
           calendlyAutomation: pickCampaignCalendly(campaign, planCalendly),
         },
@@ -980,8 +901,13 @@ export function CampaignWorkspace({
   );
 
   const outreachStatus = campaign.outreachStatus ?? "idle";
+  /** No new contacts after launch (active, paused, or completed). */
+  const campaignContactsLocked = isCampaignLaunched(outreachStatus);
+  /** JD and start schedule while live or done. */
   const campaignFieldsLocked =
     outreachStatus === "active" || outreachStatus === "completed";
+  /** Sequence email copy stays editable while active; only completed is read-only. */
+  const campaignSequenceReadOnly = outreachStatus === "completed";
   const hasLinkedPlan = Boolean(campaign.outreachPlanId?.trim());
   const channelLocked = hasLinkedPlan || Boolean(editor?.channel);
   const effectiveChannel: "gmail" | "whatsapp" | null =
@@ -1201,9 +1127,15 @@ export function CampaignWorkspace({
         );
       }
     } catch (err) {
-      setLaunchError(
-        err instanceof Error ? err.message : "Could not launch campaign sequence."
-      );
+      if (err instanceof CampaignLaunchBlockedError) {
+        setActiveCampaignBlockedModal({
+          activeCampaignName: err.activeCampaignName,
+        });
+      } else {
+        setLaunchError(
+          err instanceof Error ? err.message : "Could not launch campaign sequence."
+        );
+      }
     } finally {
       setLaunchBusy(false);
     }
@@ -1237,7 +1169,13 @@ export function CampaignWorkspace({
       onCampaignUpdatedRef.current?.(updated);
       setLaunchNotice("Campaign sequence resumed.");
     } catch (err) {
-      setLaunchError(err instanceof Error ? err.message : "Could not resume sequence.");
+      if (err instanceof CampaignLaunchBlockedError) {
+        setActiveCampaignBlockedModal({
+          activeCampaignName: err.activeCampaignName,
+        });
+      } else {
+        setLaunchError(err instanceof Error ? err.message : "Could not resume sequence.");
+      }
     } finally {
       setLaunchBusy(false);
     }
@@ -1381,9 +1319,26 @@ export function CampaignWorkspace({
     async (contactsToImport: CampaignContact[]) => {
       const auth = getStoredAuth();
       if (!auth?.token || contactsToImport.length === 0) return;
+      if (campaignContactsLocked) {
+        setSaveToast({ message: CAMPAIGN_CONTACTS_LOCKED_MESSAGE, variant: "warning" });
+        return;
+      }
+
+      const { allowed, rejectedCount: preRejected } = sliceContactsToFit(
+        contacts.length,
+        contactsToImport
+      );
+      if (allowed.length === 0) {
+        setSaveToast({
+          message: campaignContactLimitMessage(),
+          variant: "warning",
+        });
+        return;
+      }
+
       setCsvImportBusy(true);
       try {
-        const result = await addContactsToCampaignApi(auth.token, campaign.id, contactsToImport, {
+        const result = await addContactsToCampaignApi(auth.token, campaign.id, allowed, {
           revealInBackground: true,
         });
         onCampaignUpdatedRef.current?.(result.campaign);
@@ -1393,10 +1348,16 @@ export function CampaignWorkspace({
         setCsvFileName("");
         setCsvParsedContacts([]);
         setCsvValidationErrors([]);
-        setSaveToast({
-          message: `Imported ${result.addedCount} contact${result.addedCount === 1 ? "" : "s"} from CSV.`,
-          variant: "success",
-        });
+        const limitRejected = preRejected + (result.limitSkippedCount || 0);
+        const limitToast = formatContactLimitToast(limitRejected, result.addedCount);
+        if (limitToast) {
+          setSaveToast({ message: limitToast, variant: "warning" });
+        } else {
+          setSaveToast({
+            message: `Imported ${result.addedCount} contact${result.addedCount === 1 ? "" : "s"} from CSV.`,
+            variant: "success",
+          });
+        }
       } catch (err) {
         setSaveToast({
           message: err instanceof Error ? err.message : "Could not import contacts from CSV.",
@@ -1406,24 +1367,28 @@ export function CampaignWorkspace({
         setCsvImportBusy(false);
       }
     },
-    [campaign.id, refreshContactDependentViews]
+    [campaign.id, campaignContactsLocked, contacts.length, refreshContactDependentViews]
   );
 
   const handleCsvFileSelected = useCallback(async (file: File) => {
     if (!file) return;
-    const raw = await file.text();
-    const { contacts: parsed, errors } = parseCsvContacts(raw);
-    setCsvFileName(file.name);
-    setCsvParsedContacts(parsed);
-    setCsvValidationErrors(errors);
+    try {
+      const raw = await file.text();
+      const { contacts: parsed, errors } = parseCsvContacts(raw);
+      setCsvFileName(file.name);
+      setCsvParsedContacts(parsed);
+      setCsvValidationErrors(errors);
+    } catch (err) {
+      setCsvFileName(file.name);
+      setCsvParsedContacts([]);
+      setCsvValidationErrors([
+        err instanceof Error ? err.message : "Could not read this CSV file.",
+      ]);
+    }
   }, []);
 
   const downloadSampleCsv = useCallback(() => {
-    const sample = [
-      CSV_MANDATORY_HEADERS.join(","),
-      'John Doe,john@example.com,+919999999999,Software Engineer,Acme,Bangalore,https://www.linkedin.com/in/johndoe',
-      'Jane Smith,jane@example.com,,Product Manager,Globex,Mumbai,https://www.linkedin.com/in/janesmith',
-    ].join("\n");
+    const sample = buildSampleCampaignContactsCsv();
     const blob = new Blob([sample], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -1723,6 +1688,7 @@ export function CampaignWorkspace({
           const plan = data.plan as {
             name: string;
             touchpoints: OutreachTouchpointDraft[];
+            startSchedule?: OutreachStartScheduleDraft;
           };
           openGmailEditor({
             planId: "new",
@@ -1731,6 +1697,7 @@ export function CampaignWorkspace({
               plan.touchpoints.length > 0
                 ? plan.touchpoints.map((tp) => ({ ...tp }))
                 : [createEmptyTouchpoint(1)],
+            startSchedule: plan.startSchedule,
             lockSchedule: true,
             calendlyAutomation: campaign.calendlyAutomation,
           });
@@ -1841,16 +1808,19 @@ export function CampaignWorkspace({
         {activeTab === "Editor" ? (
           editorPhase === "editing" && editor?.channel === "gmail" ? (
             <OutreachPlanEditor
+              key={editor.state.planId}
               embedded
               planId={editor.state.planId}
               initialPlanName={editor.state.planName}
               initialTouchpoints={editor.state.touchpoints}
+              initialStartSchedule={editor.state.startSchedule}
               initialCalendlyAutomation={pickCampaignCalendly(
                 campaign,
                 editor.state.calendlyAutomation
               )}
               lockSchedule={editor.state.lockSchedule || campaignFieldsLocked}
-              editorLocked={campaignFieldsLocked}
+              editorLocked={campaignSequenceReadOnly}
+              sequenceLiveEditable={outreachStatus === "active"}
               campaignOutreachStatus={outreachStatus}
               hasCampaignContacts={hasContacts}
               hasSequence={hasSequence}
@@ -1903,7 +1873,7 @@ export function CampaignWorkspace({
                 >
                   {outreachStatus === "completed"
                     ? "This campaign is completed. Sequence and campaign settings are read-only."
-                    : "Campaign is running. Pause the campaign to change the sequence or campaign settings."}
+                    : "Campaign is running. You can still edit email copy in the sequence editor; pause to change contacts or schedule."}
                 </p>
               ) : null}
               <div className="dashboard-campaign-report-toolbar shrink-0">
@@ -1925,6 +1895,11 @@ export function CampaignWorkspace({
                 <div className="dashboard-campaign-editor-inner">
                   <OutreachSequencePicker
                     variant="campaign"
+                    initialJobDescription={
+                      campaign.jobDescription?.trim() ||
+                      standaloneJobDescription.trim() ||
+                      ""
+                    }
                     allowedChannels={allowedPickerChannels}
                     existingPlans={modalPlans}
                     plansLoading={modalPlansLoading}
@@ -2067,12 +2042,14 @@ export function CampaignWorkspace({
                     {
                       label: "Add from search history",
                       icon: "history",
+                      disabled: campaignContactsLocked,
                       onClick: onAddFromSearchHistory,
                     },
                     {
                       label: "Upload CSV",
                       icon: "upload_file",
                       variant: "secondary",
+                      disabled: campaignContactsLocked,
                       onClick: openCsvModal,
                     },
                   ]}
@@ -2283,11 +2260,11 @@ export function CampaignWorkspace({
             initialContactKey={whatsappContactKey}
             refreshKey={waCommsRefreshKey}
             revealInProgress={revealInProgress}
-            contactsLocked={campaignFieldsLocked}
+            contactsLocked={campaignContactsLocked}
             onAddFromSearchHistory={
-              campaignFieldsLocked ? undefined : onAddFromSearchHistory
+              campaignContactsLocked ? undefined : onAddFromSearchHistory
             }
-            onUploadCsv={campaignFieldsLocked ? undefined : openCsvModal}
+            onUploadCsv={campaignContactsLocked ? undefined : openCsvModal}
             onRemoveCandidate={
               campaignFieldsLocked
                 ? undefined
@@ -2317,13 +2294,9 @@ export function CampaignWorkspace({
                 <button
                   type="button"
                   className={`${dashboardBtnSecondaryClass} cursor-pointer px-2.5 py-1 text-xs disabled:opacity-55`}
-                  disabled={campaignFieldsLocked}
+                  disabled={campaignContactsLocked}
                   title={
-                    campaignFieldsLocked
-                      ? outreachStatus === "completed"
-                        ? "Campaign completed"
-                        : "Pause the campaign to add contacts"
-                      : undefined
+                    campaignContactsLocked ? CAMPAIGN_CONTACTS_LOCKED_MESSAGE : undefined
                   }
                   onClick={() => {
                     window.location.href = "/dashboard/search/history";
@@ -2334,15 +2307,11 @@ export function CampaignWorkspace({
                 <button
                   type="button"
                   className={`${dashboardBtnSecondaryClass} cursor-pointer px-2.5 py-1 text-xs disabled:opacity-55`}
-                  disabled={csvImportBusy || campaignFieldsLocked}
+                  disabled={csvImportBusy || campaignContactsLocked}
                   title={
-                    campaignFieldsLocked
-                      ? outreachStatus === "completed"
-                        ? "Campaign completed"
-                        : "Pause the campaign to import contacts"
-                      : undefined
+                    campaignContactsLocked ? CAMPAIGN_CONTACTS_LOCKED_MESSAGE : undefined
                   }
-                  onClick={() => setCsvModalOpen(true)}
+                  onClick={openCsvModal}
                 >
                   {csvImportBusy ? "Importing…" : "Import CSV"}
                 </button>
@@ -2364,14 +2333,14 @@ export function CampaignWorkspace({
                     {
                       label: "Add from search history",
                       icon: "history",
-                      disabled: campaignFieldsLocked,
+                      disabled: campaignContactsLocked,
                       onClick: onAddFromSearchHistory,
                     },
                     {
                       label: "Upload CSV",
                       icon: "upload_file",
                       variant: "secondary",
-                      disabled: campaignFieldsLocked,
+                      disabled: campaignContactsLocked,
                       onClick: openCsvModal,
                     },
                   ]}
@@ -2601,6 +2570,29 @@ export function CampaignWorkspace({
         onFileSelect={handleCsvFileSelected}
         onDownloadSample={downloadSampleCsv}
         onImport={() => void importParsedCsvContacts(csvParsedContacts)}
+      />
+      <ConfirmModal
+        open={activeCampaignBlockedModal !== null}
+        variant="alert"
+        tone="warning"
+        iconName="campaign"
+        title="One campaign at a time"
+        message={
+          activeCampaignBlockedModal ? (
+            <>
+              <strong className="dashboard-confirm-modal-highlight">
+                {activeCampaignBlockedModal.activeCampaignName}
+              </strong>{" "}
+              is still running. Pause it or wait until it completes before launching another
+              campaign.
+            </>
+          ) : (
+            ""
+          )
+        }
+        confirmLabel="Got it"
+        onConfirm={() => setActiveCampaignBlockedModal(null)}
+        onCancel={() => setActiveCampaignBlockedModal(null)}
       />
     </section>
   );

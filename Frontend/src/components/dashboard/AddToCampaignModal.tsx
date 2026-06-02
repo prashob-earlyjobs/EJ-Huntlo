@@ -11,6 +11,7 @@ import {
   dashboardLabelClass,
 } from "@/lib/dashboardStyles";
 import type { CampaignRecord } from "@/lib/campaigns";
+import { isCampaignLaunched } from "@/lib/campaignContactLimits";
 
 const NEW_CAMPAIGN_VALUE = "__new__";
 
@@ -100,14 +101,18 @@ export function AddToCampaignModal({
       return;
     }
     if (!wasOpenRef.current) {
+      const openCampaigns = campaigns.filter((c) => !isCampaignLaunched(c.outreachStatus));
       setChoice(
-        campaigns.length === 0 ? NEW_CAMPAIGN_VALUE : (campaigns[0]?.id ?? NEW_CAMPAIGN_VALUE)
+        campaigns.length === 0
+          ? NEW_CAMPAIGN_VALUE
+          : (openCampaigns[0]?.id ?? NEW_CAMPAIGN_VALUE)
       );
       wasOpenRef.current = true;
       return;
     }
     if (!choice && campaigns.length > 0) {
-      setChoice(campaigns[0]?.id ?? NEW_CAMPAIGN_VALUE);
+      const openCampaigns = campaigns.filter((c) => !isCampaignLaunched(c.outreachStatus));
+      setChoice(openCampaigns[0]?.id ?? NEW_CAMPAIGN_VALUE);
     }
   }, [open, campaigns, choice]);
 
@@ -129,7 +134,11 @@ export function AddToCampaignModal({
 
   const isNew = choice === NEW_CAMPAIGN_VALUE;
   const trimmedNew = newName.trim();
-  const canSubmit = (isNew ? Boolean(trimmedNew) : Boolean(choice)) && !submitting;
+  const selectedCampaign = campaigns.find((c) => c.id === choice);
+  const selectedCampaignLaunched =
+    Boolean(selectedCampaign) && isCampaignLaunched(selectedCampaign?.outreachStatus);
+  const canSubmit =
+    (isNew ? Boolean(trimmedNew) : Boolean(choice) && !selectedCampaignLaunched) && !submitting;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -189,19 +198,26 @@ export function AddToCampaignModal({
         >
           {campaigns.length > 0 ? (
             <div className="flex flex-col gap-2" role="radiogroup" aria-label="Campaigns">
-              {campaigns.map((campaign) => (
-                <CampaignOption
-                  key={campaign.id}
-                  active={choice === campaign.id}
-                  icon="flag"
-                  name={campaign.name}
-                  meta={`${campaign.contacts.length} contact${campaign.contacts.length === 1 ? "" : "s"}`}
-                  value={campaign.id}
-                  nameAttr="campaign-target"
-                  onSelect={() => setChoice(campaign.id)}
-                  disabled={submitting}
-                />
-              ))}
+              {campaigns.map((campaign) => {
+                const launched = isCampaignLaunched(campaign.outreachStatus);
+                return (
+                  <CampaignOption
+                    key={campaign.id}
+                    active={choice === campaign.id}
+                    icon="flag"
+                    name={campaign.name}
+                    meta={
+                      launched
+                        ? "Launched — cannot add contacts"
+                        : `${campaign.contacts.length} contact${campaign.contacts.length === 1 ? "" : "s"}`
+                    }
+                    value={campaign.id}
+                    nameAttr="campaign-target"
+                    onSelect={() => setChoice(campaign.id)}
+                    disabled={submitting || launched}
+                  />
+                );
+              })}
             </div>
           ) : (
             <p className="text-sm text-slate-500">No campaigns yet. Create one below.</p>

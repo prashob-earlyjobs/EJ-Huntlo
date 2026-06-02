@@ -127,6 +127,34 @@ export type LaunchCampaignSequenceResult = {
   outreachStatus: CampaignOutreachStatus;
 };
 
+export class CampaignLaunchBlockedError extends Error {
+  readonly code = "CAMPAIGN_ALREADY_ACTIVE" as const;
+  readonly activeCampaignName: string;
+
+  constructor(message: string, activeCampaignName: string) {
+    super(message);
+    this.name = "CampaignLaunchBlockedError";
+    this.activeCampaignName = activeCampaignName;
+  }
+}
+
+function throwIfCampaignLaunchBlocked(
+  res: Response,
+  data: { message?: unknown; code?: unknown; activeCampaign?: { name?: unknown } }
+): void {
+  if (res.status !== 409 || data.code !== "CAMPAIGN_ALREADY_ACTIVE") return;
+  const activeCampaignName =
+    typeof data.activeCampaign?.name === "string" && data.activeCampaign.name.trim()
+      ? data.activeCampaign.name.trim()
+      : "Another campaign";
+  throw new CampaignLaunchBlockedError(
+    typeof data.message === "string"
+      ? data.message
+      : "A campaign is already running. Wait for it to finish before launching another.",
+    activeCampaignName
+  );
+}
+
 export async function launchCampaignSequence(
   token: string,
   campaignId: string
@@ -137,6 +165,7 @@ export async function launchCampaignSequence(
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.success) {
+    throwIfCampaignLaunchBlocked(res, data);
     throw new Error(
       typeof data.message === "string" ? data.message : "Failed to launch campaign"
     );
@@ -182,6 +211,7 @@ export async function resumeCampaignSequence(
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.success) {
+    throwIfCampaignLaunchBlocked(res, data);
     throw new Error(
       typeof data.message === "string" ? data.message : "Failed to resume campaign"
     );
@@ -438,7 +468,11 @@ export async function createCampaign(
   name: string,
   contacts: CampaignContact[] = [],
   options?: { revealInBackground?: boolean }
-): Promise<{ campaign: CampaignRecord; revealJobId: string | null }> {
+): Promise<{
+  campaign: CampaignRecord;
+  revealJobId: string | null;
+  limitSkippedCount: number;
+}> {
   const res = await fetch(`${apiBase()}/api/campaigns`, {
     method: "POST",
     headers: authHeaders(token),
@@ -458,7 +492,9 @@ export async function createCampaign(
     data.revealJob && typeof data.revealJob === "object" && typeof data.revealJob.id === "string"
       ? data.revealJob.id
       : null;
-  return { campaign, revealJobId };
+  const limitSkippedCount =
+    typeof data.limitSkippedCount === "number" ? data.limitSkippedCount : 0;
+  return { campaign, revealJobId, limitSkippedCount };
 }
 
 export async function addContactsToCampaignApi(
@@ -470,6 +506,7 @@ export async function addContactsToCampaignApi(
   campaign: CampaignRecord;
   addedCount: number;
   skippedCount: number;
+  limitSkippedCount: number;
   revealJobId: string | null;
 }> {
   const res = await fetch(`${apiBase()}/api/campaigns/${campaignId}/contacts`, {
@@ -488,11 +525,13 @@ export async function addContactsToCampaignApi(
   if (!campaign) throw new Error("Invalid campaign response");
   const addedCount = typeof data.addedCount === "number" ? data.addedCount : 0;
   const skippedCount = typeof data.skippedCount === "number" ? data.skippedCount : 0;
+  const limitSkippedCount =
+    typeof data.limitSkippedCount === "number" ? data.limitSkippedCount : 0;
   const revealJobId =
     data.revealJob && typeof data.revealJob === "object" && typeof data.revealJob.id === "string"
       ? data.revealJob.id
       : null;
-  return { campaign, addedCount, skippedCount, revealJobId };
+  return { campaign, addedCount, skippedCount, limitSkippedCount, revealJobId };
 }
 
 export async function removeContactFromCampaignApi(

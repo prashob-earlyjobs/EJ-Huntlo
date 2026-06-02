@@ -14,6 +14,12 @@ const {
   findCampaignDocumentInScope,
 } = require("../utils/campaignScope");
 const { normalizeToE164 } = require("./whatsappPhoneUtils");
+const { CAMPAIGN_MAX_CONTACTS } = require("../constants/campaignLimits");
+
+/** WhatsApp campaign testing — E.164. Override via WHATSAPP_TEST_PHONE_E164 env. */
+const WHATSAPP_TEST_PHONE_E164 = String(
+  process.env.WHATSAPP_TEST_PHONE_E164 || "+918714500637"
+).trim();
 
 function normalizeContactPhone(raw) {
   const trimmed = String(raw || "").trim();
@@ -25,7 +31,9 @@ function normalizeContact(raw) {
   if (!raw || typeof raw !== "object") return null;
   const candidateKey = String(raw.candidateKey || "").trim();
   if (!candidateKey) return null;
-  const phone = normalizeContactPhone(raw.phone);
+  const phone =
+    normalizeContactPhone(raw.phone) ||
+    (process.env.WHATSAPP_USE_TEST_PHONE === "1" ? WHATSAPP_TEST_PHONE_E164 : "");
   return {
     candidateKey,
     candidateId: String(raw.candidateId || "").trim(),
@@ -398,16 +406,34 @@ async function createCampaign(userId, { name, contacts }) {
     err.statusCode = 400;
     throw err;
   }
+  const normalized = normalizeContacts(contacts);
+  const limitSkippedCount = Math.max(0, normalized.length - CAMPAIGN_MAX_CONTACTS);
+  const contactsToSave = normalized.slice(0, CAMPAIGN_MAX_CONTACTS);
   const doc = await Campaign.create({
     userId: userOid(userId),
     name: campaignName,
-    contacts: normalizeContacts(contacts),
+    contacts: contactsToSave,
   });
-  return formatCampaign(doc.toObject());
+  return {
+    campaign: formatCampaign(doc.toObject()),
+    limitSkippedCount,
+  };
+}
+
+function assertCampaignAcceptsNewContacts(campaignDoc) {
+  const status = String(campaignDoc?.outreachStatus || "idle").trim() || "idle";
+  if (status === "idle") return;
+  const err = new Error(
+    "This campaign has already been launched. Contacts cannot be added after launch."
+  );
+  err.statusCode = 409;
+  err.code = "CAMPAIGN_CONTACTS_LOCKED";
+  throw err;
 }
 
 async function addContactsToCampaign(actorUserId, campaignId, contacts) {
   const doc = await findCampaignDocumentInScope(actorUserId, campaignId);
+  assertCampaignAcceptsNewContacts(doc);
 
   const incoming = normalizeContacts(contacts);
   const existingKeys = new Set(
@@ -415,9 +441,18 @@ async function addContactsToCampaign(actorUserId, campaignId, contacts) {
   );
 
   let addedCount = 0;
+  let skippedCount = 0;
+  let limitSkippedCount = 0;
   const addedCandidateKeys = [];
   for (const contact of incoming) {
-    if (existingKeys.has(contact.candidateKey)) continue;
+    if (existingKeys.has(contact.candidateKey)) {
+      skippedCount += 1;
+      continue;
+    }
+    if ((doc.contacts?.length || 0) + addedCount >= CAMPAIGN_MAX_CONTACTS) {
+      limitSkippedCount += 1;
+      continue;
+    }
     existingKeys.add(contact.candidateKey);
     doc.contacts.push(contact);
     addedCandidateKeys.push(contact.candidateKey);
@@ -428,11 +463,11 @@ async function addContactsToCampaign(actorUserId, campaignId, contacts) {
     await doc.save();
   }
 
-  const skippedCount = incoming.length - addedCount;
   return {
     campaign: formatCampaign(doc.toObject()),
     addedCount,
     skippedCount,
+    limitSkippedCount,
     addedCandidateKeys,
   };
 }

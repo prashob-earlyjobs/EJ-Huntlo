@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { getStoredAuth } from "@/lib/auth";
 import {
   createTeamMember,
@@ -25,6 +25,10 @@ import {
 function utilisationSummary(u: TeamMember["utilisation"]) {
   const searches = u.candidateSearches + u.linkedinLookups;
   return `Searches ${searches} · Unlocks ${u.candidateUnveils} · Emails ${u.emailUnveils} · Phones ${u.mobileUnveils}`;
+}
+
+function isGenericUserLabel(value: string) {
+  return ["subuser", "sub-user", "team member", "user"].includes(value.trim().toLowerCase());
 }
 
 export function TeamManagementPanel() {
@@ -151,17 +155,34 @@ export function TeamManagementPanel() {
     }
   };
 
-  if (loading) {
-    return <TeamManagementSkeleton />;
-  }
-
   const subMembers = (team?.members || []).filter((m) => m.accountRole === "member");
+  const memberById = useMemo(
+    () => new Map((team?.members || []).map((member) => [member.id, member])),
+    [team?.members]
+  );
+  const actorDisplayName = useCallback(
+    (row: { userId: string; userName?: string; userEmail?: string }) => {
+      const member = memberById.get(row.userId);
+      const memberName = member?.fullName?.trim() || "";
+      if (memberName && !isGenericUserLabel(memberName)) return memberName;
+
+      const rowName = row.userName?.trim() || "";
+      if (rowName && !isGenericUserLabel(rowName)) return rowName;
+
+      return member?.email?.trim() || row.userEmail?.trim() || rowName || "Team member";
+    },
+    [memberById]
+  );
   const plan = team?.plan;
   const maxSubUsers =
     team?.maxSubUsers ?? plan?.limits?.maxSubUsers ?? null;
   const canAddSubUser =
     team?.canAddSubUser ?? (maxSubUsers === null || subMembers.length < maxSubUsers);
   const atSubUserLimit = !canAddSubUser;
+
+  if (loading) {
+    return <TeamManagementSkeleton />;
+  }
 
   return (
     <div className="space-y-6">
@@ -455,7 +476,7 @@ export function TeamManagementPanel() {
               utilisation.map((row) => (
                 <li key={row.id} className="flex justify-between gap-2 border-b border-slate-100 py-2">
                   <span>
-                    <span className="font-medium">{row.userName || row.userEmail}</span>
+                    <span className="font-medium">{actorDisplayName(row)}</span>
                     <span className="text-slate-500"> · {row.action}</span>
                   </span>
                   <span className="shrink-0 text-slate-500">
@@ -476,7 +497,7 @@ export function TeamManagementPanel() {
               activity.map((row) => (
                 <li key={row.id} className="border-b border-slate-100 py-2">
                   <p className="font-medium text-slate-900">
-                    {row.userName || row.userEmail}
+                    {actorDisplayName(row)}
                   </p>
                   <p className="text-slate-600 line-clamp-2">
                     {row.prompt || row.sessionTitle || "Search session"}

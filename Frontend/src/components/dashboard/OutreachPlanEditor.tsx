@@ -11,6 +11,7 @@ import { DashboardToast } from "@/components/dashboard/DashboardToast";
 import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
 import { OutreachFieldSelect } from "@/components/dashboard/OutreachFieldSelect";
 import { OutreachPillSelect } from "@/components/dashboard/OutreachPillSelect";
+import { OutreachTimePicker } from "@/components/dashboard/OutreachTimePicker";
 import { OutreachTestEmailModal } from "@/components/dashboard/OutreachTestEmailModal";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { authHeaders, getStoredAuth } from "@/lib/auth";
@@ -20,29 +21,41 @@ import {
   dashboardInputClass,
 } from "@/lib/dashboardStyles";
 import {
-  insertTextIntoField,
-  OUTREACH_MERGE_FIELDS,
-} from "@/lib/outreachMergeFields";
-import {
   createEmptyTouchpoint,
-  EMAIL_WAIT_UNIT_OPTIONS,
-  emailWaitConnectorLabel,
-  emailWaitFromDisplay,
-  inferEmailWaitDisplay,
-  type EmailWaitUnit,
   type OutreachTouchpointDraft,
 } from "@/lib/outreachTemplates";
 import {
-  defaultSoonestAtLocal,
-  inferAfterDays,
+  formatGmailWaitConnectorLabel,
+  GMAIL_WAIT_UNIT_OPTIONS,
+  gmailWaitFromDisplay,
+  clampWaitAmount,
+  inferGmailWaitDisplay,
+  maxWaitAmountForUnit,
+  type GmailWaitUnit,
+} from "@/lib/outreachWait";
+import {
+  defaultScheduledAtLocal,
   inferStartMode,
-  mergeSendTimeIntoSoonestAt,
-  soonestAtFromWaitDays,
-  touchpointScheduleLabel,
+  clampScheduledAtLocal,
+  mergeSendTimeIntoScheduledAt,
+  scheduledAtFromWaitDays,
   waitDaysForStartMode,
   type StartScheduleMode,
 } from "@/lib/outreachStartSchedule";
+import {
+  DEFAULT_OUTREACH_TIMEZONE,
+  formatSendTimeLabel,
+  formatTouchpointScheduleLabel,
+  normalizeOutreachTimezone,
+  normalizeStartSchedule,
+  OUTREACH_TIMEZONE_OPTIONS,
+  stepScheduleFromTouchpoints,
+  touchpointsWithScheduleForSave,
+  type OutreachStartScheduleDraft,
+  type OutreachTimezoneCode,
+} from "@/lib/outreachSchedule";
 import { OutreachStartScheduleBar } from "@/components/dashboard/OutreachStartScheduleBar";
+import { insertTextIntoField, OUTREACH_MERGE_FIELDS } from "@/lib/outreachMergeFields";
 
 type CalendlyMeetingOption = {
   uri: string;
@@ -80,13 +93,16 @@ type Props = {
   planId?: string | "new";
   initialPlanName: string;
   initialTouchpoints: OutreachTouchpointDraft[];
+  initialStartSchedule?: OutreachStartScheduleDraft | null;
   initialCalendlyAutomation?: CalendlyAutomationDraft;
   /** Hide standalone header when nested under campaign workspace. */
   embedded?: boolean;
   /** Lock Start / Wait schedule pills when sequence came from template or saved plan. */
   lockSchedule?: boolean;
-  /** Read-only editor (active or completed campaign). */
+  /** Read-only editor (completed campaign only). */
   editorLocked?: boolean;
+  /** Active campaign: copy editable, schedule locked. */
+  sequenceLiveEditable?: boolean;
   /** Campaign workspace controls (embedded mode). */
   campaignOutreachStatus?: "idle" | "active" | "paused" | "completed";
   hasCampaignContacts?: boolean;
@@ -105,6 +121,7 @@ type Props = {
       id: string;
       name: string;
       touchpoints: OutreachTouchpointDraft[];
+      startSchedule?: OutreachStartScheduleDraft;
       calendlyAutomation?: CalendlyAutomationDraft;
     }
   ) => void;
@@ -180,64 +197,51 @@ function touchpointTypeLabel(order: number): string {
 
 function buildWaitMetaFromTouchpoints(
   tps: OutreachTouchpointDraft[]
-): Record<number, { amount: number; unit: EmailWaitUnit }> {
-  const meta: Record<number, { amount: number; unit: EmailWaitUnit }> = {};
+): Record<number, { amount: number; unit: GmailWaitUnit }> {
+  const meta: Record<number, { amount: number; unit: GmailWaitUnit }> = {};
   for (const tp of tps) {
-    if (tp.order > 1) meta[tp.order] = inferEmailWaitDisplay(tp.waitDays, tp.waitHours);
+    if (tp.order > 1) meta[tp.order] = inferGmailWaitDisplay(tp);
   }
   return meta;
 }
 
-function buildStepScheduleMeta(
-  tps: OutreachTouchpointDraft[]
-): Record<number, { time: string; tz: string }> {
-  const meta: Record<number, { time: string; tz: string }> = {};
-  for (const tp of tps) {
-    if (tp.order > 1) meta[tp.order] = { time: "09:00", tz: "IT" };
-  }
-  return meta;
+function resolveEditorStartSchedule(
+  initialStartSchedule: OutreachStartScheduleDraft | null | undefined,
+  initialTouchpoints: OutreachTouchpointDraft[]
+): OutreachStartScheduleDraft {
+  const firstWaitDays = Math.max(0, Number(initialTouchpoints[0]?.waitDays) || 0);
+  return normalizeStartSchedule(
+    initialStartSchedule ?? {
+      mode: inferStartMode(initialTouchpoints[0]?.waitDays ?? 0),
+      scheduledAt:
+        firstWaitDays > 0
+          ? scheduledAtFromWaitDays(
+              firstWaitDays,
+              initialTouchpoints[0]?.sendTime ?? "09:00"
+            )
+          : defaultScheduledAtLocal(),
+      sendTime: initialTouchpoints[0]?.sendTime,
+      timezone: normalizeOutreachTimezone(initialTouchpoints[0]?.timezone),
+    },
+    firstWaitDays
+  );
 }
 
-const SEND_TIME_OPTIONS = (() => {
-  const opts: string[] = [];
-  for (let h = 6; h <= 20; h++) {
-    for (const m of [0, 30]) {
-      opts.push(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
-    }
-  }
-  return opts;
-})();
-
-const TIMEZONE_OPTIONS = ["IT", "ET", "PT", "UTC", "CET"] as const;
-
-function formatSendTimeLabel(hhmm: string): string {
-  const [hStr, mStr] = hhmm.split(":");
-  let h = Number.parseInt(hStr ?? "9", 10);
-  const m = Number.parseInt(mStr ?? "0", 10);
-  const ampm = h >= 12 ? "PM" : "AM";
-  if (h === 0) h = 12;
-  else if (h > 12) h -= 12;
-  return `${h}:${String(m).padStart(2, "0")}${ampm}`;
-}
-
-const SEND_TIME_SELECT_OPTIONS = SEND_TIME_OPTIONS.map((t) => ({
-  value: t,
-  label: formatSendTimeLabel(t),
-}));
-
-const TIMEZONE_SELECT_OPTIONS = TIMEZONE_OPTIONS.map((tz) => ({
+const TIMEZONE_SELECT_OPTIONS = OUTREACH_TIMEZONE_OPTIONS.map((tz) => ({
   value: tz,
-  label: tz,
+  label: tz === "IST" ? "IST (India)" : "UTC",
 }));
 
 export function OutreachPlanEditor({
   planId = "new",
   initialPlanName,
   initialTouchpoints,
+  initialStartSchedule,
   initialCalendlyAutomation,
   embedded = false,
   lockSchedule = false,
   editorLocked = false,
+  sequenceLiveEditable = false,
   campaignOutreachStatus = "idle",
   hasCampaignContacts = true,
   hasSequence = true,
@@ -250,7 +254,7 @@ export function OutreachPlanEditor({
   saveCalendlyToCampaign,
   onSaved,
 }: Props) {
-  const scheduleLocked = lockSchedule || editorLocked;
+  const scheduleLocked = lockSchedule;
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
   const auth = getStoredAuth();
 
@@ -265,28 +269,25 @@ export function OutreachPlanEditor({
       : [createEmptyTouchpoint(1)]
   );
   const [activeIndex, setActiveIndex] = useState(0);
-  const initialWait = initialTouchpoints[0]?.waitDays ?? 0;
-  const [startMode, setStartMode] = useState<StartScheduleMode>(() =>
-    inferStartMode(initialWait)
+  const resolvedStartSchedule = useMemo(
+    () => resolveEditorStartSchedule(initialStartSchedule, initialTouchpoints),
+    [initialStartSchedule, initialTouchpoints]
   );
-  const [afterDays, setAfterDays] = useState(() => inferAfterDays(initialWait));
-  const [soonestAt, setSoonestAt] = useState(() =>
-    initialWait > 1 ? soonestAtFromWaitDays(initialWait, "09:00") : defaultSoonestAtLocal()
+  const [startMode, setStartMode] = useState<StartScheduleMode>(
+    () => resolvedStartSchedule.mode
   );
-  const [startSendTime, setStartSendTime] = useState("09:00");
-  const [startTimezone, setStartTimezone] = useState<string>("IT");
-  const [waitMeta, setWaitMeta] = useState<Record<number, { amount: number; unit: EmailWaitUnit }>>(
+  const [scheduledAt, setScheduledAt] = useState(() =>
+    clampScheduledAtLocal(resolvedStartSchedule.scheduledAt)
+  );
+  const [startSendTime, setStartSendTime] = useState(() => resolvedStartSchedule.sendTime);
+  const [startTimezone, setStartTimezone] = useState(() => resolvedStartSchedule.timezone);
+  const [waitMeta, setWaitMeta] = useState<Record<number, { amount: number; unit: GmailWaitUnit }>>(
     () => buildWaitMetaFromTouchpoints(initialTouchpoints)
   );
   const [stepScheduleMeta, setStepScheduleMeta] = useState<
     Record<number, { time: string; tz: string }>
-  >(() => buildStepScheduleMeta(initialTouchpoints));
+  >(() => stepScheduleFromTouchpoints(initialTouchpoints));
 
-  const subjectInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
-  const bodyTextareaRefs = useRef<Record<number, HTMLTextAreaElement | null>>({});
-  const lastMergeFieldFocusRef = useRef<{ order: number; field: "subject" | "body" } | null>(
-    null
-  );
   const [gmailEmail, setGmailEmail] = useState("");
   const [gmailConnected, setGmailConnected] = useState(false);
   const [calendlyConnected, setCalendlyConnected] = useState(false);
@@ -317,6 +318,8 @@ export function OutreachPlanEditor({
   const canvasScrollRef = useRef<HTMLDivElement>(null);
   const stepSectionRefs = useRef<(HTMLElement | null)[]>([]);
   const railStepRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const bodyInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const [bodyFocusOrder, setBodyFocusOrder] = useState<number | null>(null);
   const scrollSyncLock = useRef(false);
   const scrollSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveSuccessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -340,6 +343,14 @@ export function OutreachPlanEditor({
     },
     []
   );
+
+  useEffect(() => {
+    const resolved = resolveEditorStartSchedule(initialStartSchedule, initialTouchpoints);
+    setStartMode(resolved.mode);
+    setScheduledAt(clampScheduledAtLocal(resolved.scheduledAt));
+    setStartSendTime(resolved.sendTime);
+    setStartTimezone(resolved.timezone);
+  }, [planId, initialStartSchedule, initialTouchpoints]);
 
   const createdMeta = useMemo(() => {
     const name = auth?.fullName?.trim() || auth?.email?.split("@")[0] || "You";
@@ -516,7 +527,7 @@ export function OutreachPlanEditor({
       let changed = false;
       for (const tp of touchpoints) {
         if (tp.order > 1 && !next[tp.order]) {
-          next[tp.order] = inferEmailWaitDisplay(tp.waitDays, tp.waitHours);
+          next[tp.order] = inferGmailWaitDisplay(tp);
           changed = true;
         }
       }
@@ -534,7 +545,7 @@ export function OutreachPlanEditor({
       let changed = false;
       for (const tp of touchpoints) {
         if (tp.order > 1 && !next[tp.order]) {
-          next[tp.order] = { time: "09:00", tz: "IT" };
+          next[tp.order] = { time: "09:00", tz: DEFAULT_OUTREACH_TIMEZONE };
           changed = true;
         }
       }
@@ -663,112 +674,136 @@ export function OutreachPlanEditor({
   };
 
   const applyStartSchedule = useCallback(
-    (
-      mode: StartScheduleMode,
-      nextAfterDays = afterDays,
-      nextSoonestAt = soonestAt
-    ) => {
-      const waitDays = waitDaysForStartMode(mode, nextAfterDays, nextSoonestAt);
+    (mode: StartScheduleMode, nextScheduledAt = scheduledAt) => {
+      const waitDays = waitDaysForStartMode(mode, nextScheduledAt);
       setTouchpoints((prev) => {
         const first = prev[0];
         if (!first) return prev;
         return prev.map((tp) =>
-          tp.order === first.order ? { ...tp, waitDays, waitHours: 0 } : tp
+          tp.order === first.order
+            ? {
+                ...tp,
+                waitDays,
+                waitHours: 0,
+                sendTime: startSendTime,
+                timezone: startTimezone,
+              }
+            : tp
         );
       });
     },
-    [afterDays, soonestAt]
+    [scheduledAt, startSendTime, startTimezone]
   );
 
   const handleStartModeChange = (mode: StartScheduleMode) => {
     setStartMode(mode);
-    if (mode === "soonest_at") {
-      const merged = mergeSendTimeIntoSoonestAt(soonestAt, startSendTime);
-      setSoonestAt(merged);
-      applyStartSchedule(mode, afterDays, merged);
+    if (mode === "scheduled") {
+      const merged = clampScheduledAtLocal(
+        mergeSendTimeIntoScheduledAt(scheduledAt, startSendTime)
+      );
+      setScheduledAt(merged);
+      applyStartSchedule(mode, merged);
       return;
     }
     applyStartSchedule(mode);
   };
 
-  const handleAfterDaysChange = (days: number) => {
-    setAfterDays(days);
-    applyStartSchedule("after", days);
+  const handleScheduledAtChange = (value: string) => {
+    const clamped = clampScheduledAtLocal(value);
+    setScheduledAt(clamped);
+    applyStartSchedule("scheduled", clamped);
   };
 
-  const handleSoonestAtChange = (value: string) => {
-    setSoonestAt(value);
-    applyStartSchedule("soonest_at", afterDays, value);
+  const handleStartTimezoneChange = (tz: OutreachTimezoneCode) => {
+    const normalized = normalizeOutreachTimezone(tz);
+    setStartTimezone(normalized);
+    if (startMode !== "scheduled") return;
+    const waitDays = waitDaysForStartMode("scheduled", scheduledAt);
+    setTouchpoints((prev) => {
+      const first = prev[0];
+      if (!first) return prev;
+      return prev.map((tp) =>
+        tp.order === first.order
+          ? {
+              ...tp,
+              waitDays,
+              waitHours: 0,
+              sendTime: startSendTime,
+              timezone: normalized,
+            }
+          : tp
+      );
+    });
   };
 
-  const handleStartSendTimeChange = (time: string) => {
-    setStartSendTime(time);
-    if (startMode === "next_business_day" || startMode === "after") {
-      applyStartSchedule(startMode);
-    }
-  };
-
-  const startSchedule = useMemo(
-    () => ({
-      mode: startMode,
-      afterDays,
-      soonestAt,
-      sendTime: startSendTime,
-      timezone: startTimezone,
-    }),
-    [startMode, afterDays, soonestAt, startSendTime, startTimezone]
-  );
+  const startSchedule = useMemo((): OutreachStartScheduleDraft => {
+    const firstWaitDays = Math.max(0, Number(touchpoints[0]?.waitDays) || 0);
+    return normalizeStartSchedule(
+      {
+        mode: startMode,
+        scheduledAt,
+        sendTime: startSendTime,
+        timezone: startTimezone,
+      },
+      firstWaitDays
+    );
+  }, [startMode, scheduledAt, startSendTime, startTimezone, touchpoints]);
 
   const updateStepWait = (
     order: number,
-    patch: Partial<{ amount: number; unit: EmailWaitUnit }>
+    patch: Partial<{ amount: number; unit: GmailWaitUnit }>
   ) => {
     const tp = touchpoints.find((t) => t.order === order);
-    const current =
-      waitMeta[order] ?? inferEmailWaitDisplay(tp?.waitDays ?? 0, tp?.waitHours ?? 0);
-    const nextMeta = { ...current, ...patch };
+    const current = waitMeta[order] ?? inferGmailWaitDisplay(tp ?? { waitDays: 0 });
+    const nextMeta = {
+      ...current,
+      ...patch,
+      amount: clampWaitAmount(
+        patch.amount ?? current.amount,
+        patch.unit ?? current.unit
+      ),
+    };
     setWaitMeta((prev) => ({ ...prev, [order]: nextMeta }));
-    const { waitDays, waitHours } = emailWaitFromDisplay(nextMeta.amount, nextMeta.unit);
-    updateTouchpoint(order, { waitDays, waitHours });
+    updateTouchpoint(order, gmailWaitFromDisplay(nextMeta.amount, nextMeta.unit));
   };
+
+  const insertBodyMergeToken = useCallback(
+    (token: string) => {
+      if (editorLocked) return;
+      const order = bodyFocusOrder ?? touchpoints[activeIndex - 1]?.order;
+      if (!order) return;
+      const tp = touchpoints.find((t) => t.order === order);
+      if (!tp) return;
+      const insertText = `{{${token}}}`;
+      const { value, selectionStart, selectionEnd } = insertTextIntoField(
+        tp.body,
+        insertText,
+        bodyInputRef.current,
+        Boolean(bodyInputRef.current)
+      );
+      updateTouchpoint(order, { body: value });
+      requestAnimationFrame(() => {
+        const el = bodyInputRef.current;
+        if (!el) return;
+        el.focus();
+        el.setSelectionRange(selectionStart, selectionEnd);
+      });
+    },
+    [activeIndex, bodyFocusOrder, editorLocked, touchpoints]
+  );
 
   const updateStepSchedule = (
     order: number,
     patch: Partial<{ time: string; tz: string }>
   ) => {
-    const current = stepScheduleMeta[order] ?? { time: "09:00", tz: "IT" };
+    const current = stepScheduleMeta[order] ?? {
+      time: "09:00",
+      tz: DEFAULT_OUTREACH_TIMEZONE,
+    };
     setStepScheduleMeta((prev) => ({
       ...prev,
       [order]: { ...current, ...patch },
     }));
-  };
-
-  const insertMergeTag = (order: number, field: "subject" | "body", token: string) => {
-    if (editorLocked) return;
-    const tp = touchpoints.find((t) => t.order === order);
-    if (!tp) return;
-    const mergeToken = `{{${token}}}`;
-    const current = field === "subject" ? tp.subject : tp.body;
-    const element =
-      field === "subject" ? subjectInputRefs.current[order] : bodyTextareaRefs.current[order];
-    const insertAtCursor =
-      lastMergeFieldFocusRef.current?.order === order &&
-      lastMergeFieldFocusRef.current?.field === field &&
-      element != null;
-    const { value, selectionStart, selectionEnd } = insertTextIntoField(
-      current,
-      mergeToken,
-      element,
-      insertAtCursor
-    );
-    updateTouchpoint(order, { [field]: value });
-    requestAnimationFrame(() => {
-      const target =
-        field === "subject" ? subjectInputRefs.current[order] : bodyTextareaRefs.current[order];
-      if (!target) return;
-      target.focus();
-      target.setSelectionRange(selectionStart, selectionEnd);
-    });
   };
 
   const savePlan = async () => {
@@ -785,7 +820,7 @@ export function OutreachPlanEditor({
       const missingBody = touchpoints.find((tp) => !tp.body.trim());
       if (missingBody) {
         throw new Error(
-          `Step ${missingBody.order} needs a message body (e.g. Hi {{FirstName}}, …).`
+          `Step ${missingBody.order} needs a message body (e.g. Hi {{candidate_name}}, …).`
         );
       }
       const isNew = planId === "new";
@@ -797,7 +832,12 @@ export function OutreachPlanEditor({
         headers: authHeaders(auth.token),
         body: JSON.stringify({
           name: planName.trim() || "Untitled outreach",
-          touchpoints,
+          touchpoints: touchpointsWithScheduleForSave(
+            touchpoints,
+            startSchedule,
+            stepScheduleMeta
+          ),
+          startSchedule,
           calendlyAutomation: selectedCalendlyMeeting
             ? {
                 enabled: true,
@@ -819,6 +859,7 @@ export function OutreachPlanEditor({
             id: string;
             name: string;
             touchpoints: OutreachTouchpointDraft[];
+            startSchedule?: OutreachStartScheduleDraft;
             calendlyAutomation?: {
               enabled?: boolean;
               meetingUri?: string;
@@ -829,6 +870,13 @@ export function OutreachPlanEditor({
             };
           }
         | undefined;
+      if (saved?.startSchedule) {
+        const resolved = normalizeStartSchedule(saved.startSchedule);
+        setStartMode(resolved.mode);
+        setScheduledAt(clampScheduledAtLocal(resolved.scheduledAt));
+        setStartSendTime(resolved.sendTime);
+        setStartTimezone(resolved.timezone);
+      }
       const savedCalendly = saved?.calendlyAutomation;
       if (savedCalendly?.enabled && savedCalendly.meetingUri && savedCalendly.meetingName) {
         setSelectedCalendlyMeeting({
@@ -856,8 +904,14 @@ export function OutreachPlanEditor({
                     body: tp.body || "",
                     waitDays: tp.waitDays ?? 0,
                     waitHours: tp.waitHours ?? 0,
+                    sendTime: tp.sendTime,
+                    timezone: tp.timezone,
+                    waitUnit: tp.waitUnit,
                   }))
                 : touchpoints,
+              startSchedule: saved.startSchedule
+                ? normalizeStartSchedule(saved.startSchedule)
+                : startSchedule,
               calendlyAutomation: savedCalendly,
             }
           : undefined
@@ -1119,7 +1173,7 @@ export function OutreachPlanEditor({
                         {touchpointTypeLabel(tp.order)}
                       </span>
                       <span className="dashboard-outreach-flow-node-time">
-                        {touchpointScheduleLabel(touchpoints, index, startSchedule)}
+                        {formatTouchpointScheduleLabel(touchpoints, index, startSchedule)}
                       </span>
                       {tp.order > 1 ? (
                         <span className="dashboard-outreach-flow-node-sub">Same thread</span>
@@ -1135,7 +1189,7 @@ export function OutreachPlanEditor({
                         index + 2 === activeIndex ? " dashboard-outreach-flow-wait--active" : ""
                       }`}
                     >
-                      {emailWaitConnectorLabel(nextTp.waitDays, nextTp.waitHours)}
+                      {formatGmailWaitConnectorLabel(nextTp)}
                     </p>
                   ) : null}
                 </li>
@@ -1198,12 +1252,20 @@ export function OutreachPlanEditor({
           ref={canvasScrollRef}
           className="dashboard-outreach-builder-canvas dashboard-outreach-scroll"
         >
+          {sequenceLiveEditable ? (
+            <div className="dashboard-outreach-builder-live-banner shrink-0">
+              <MaterialIcon name="info" className="shrink-0 text-base text-sky-700" aria-hidden />
+              <p className="text-sm text-sky-950">
+                Campaign is live. You can edit subject and body here; changes apply to emails not
+                sent yet. Start time and wait settings stay locked.
+              </p>
+            </div>
+          ) : null}
           {editorLocked ? (
             <div className="dashboard-wa-outreach-locked-banner dashboard-outreach-builder-locked-banner shrink-0">
               <MaterialIcon name="lock" className="shrink-0 text-base text-amber-700" aria-hidden />
               <p className="text-sm text-amber-950">
-                Campaign settings are read-only while the campaign is running or after it is
-                completed.
+                This campaign is completed. The sequence is read-only.
               </p>
             </div>
           ) : null}
@@ -1221,18 +1283,12 @@ export function OutreachPlanEditor({
               >
                 <OutreachStartScheduleBar
                   mode={startMode}
-                  afterDays={afterDays}
-                  soonestAt={soonestAt}
-                  sendTime={startSendTime}
+                  scheduledAt={scheduledAt}
                   timezone={startTimezone}
                   locked={scheduleLocked}
-                  sendTimeOptions={SEND_TIME_SELECT_OPTIONS}
-                  timezoneOptions={TIMEZONE_SELECT_OPTIONS}
                   onModeChange={handleStartModeChange}
-                  onAfterDaysChange={handleAfterDaysChange}
-                  onSoonestAtChange={handleSoonestAtChange}
-                  onSendTimeChange={handleStartSendTimeChange}
-                  onTimezoneChange={setStartTimezone}
+                  onScheduledAtChange={handleScheduledAtChange}
+                  onTimezoneChange={handleStartTimezoneChange}
                 />
               </section>
               <span
@@ -1246,6 +1302,9 @@ export function OutreachPlanEditor({
             {touchpoints.map((tp, index) => {
               const canvasIndex = index + 1;
               const isActive = canvasIndex === activeIndex;
+              const stepWaitUnit =
+                waitMeta[tp.order]?.unit ?? inferGmailWaitDisplay(tp).unit;
+              const stepWaitUsesSendAt = stepWaitUnit !== "hours";
               return (
                 <div key={`wrap-${tp.order}-${index}`} className="dashboard-outreach-main-flow-item">
                   {index > 0 ? (
@@ -1277,72 +1336,74 @@ export function OutreachPlanEditor({
                               <ScheduleStaticChip
                                 label={String(
                                   waitMeta[tp.order]?.amount ??
-                                    inferEmailWaitDisplay(tp.waitDays, tp.waitHours).amount
+                                    inferGmailWaitDisplay(tp).amount
                                 )}
                               />
                               <ScheduleStaticChip
                                 label={
-                                  EMAIL_WAIT_UNIT_OPTIONS.find(
-                                    (o) =>
-                                      o.value ===
-                                      (waitMeta[tp.order]?.unit ??
-                                        inferEmailWaitDisplay(tp.waitDays, tp.waitHours).unit)
-                                  )?.label ?? "hours"
+                                  GMAIL_WAIT_UNIT_OPTIONS.find(
+                                    (o) => o.value === stepWaitUnit
+                                  )?.label ?? "days"
                                 }
                               />
-                              <span className="dashboard-outreach-start-muted">Send @</span>
-                              <ScheduleStaticChip
-                                label={
-                                  SEND_TIME_SELECT_OPTIONS.find(
-                                    (o) =>
-                                      o.value === (stepScheduleMeta[tp.order]?.time ?? "09:00")
-                                  )?.label ?? "9:00AM"
-                                }
-                              />
-                              <ScheduleStaticChip
-                                label={stepScheduleMeta[tp.order]?.tz ?? "IT"}
-                              />
+                              {stepWaitUsesSendAt ? (
+                                <>
+                                  <span className="dashboard-outreach-start-muted">Send @</span>
+                                  <ScheduleStaticChip
+                                    label={formatSendTimeLabel(
+                                      stepScheduleMeta[tp.order]?.time ?? "09:00"
+                                    )}
+                                  />
+                                  <ScheduleStaticChip
+                                    label={stepScheduleMeta[tp.order]?.tz ?? DEFAULT_OUTREACH_TIMEZONE}
+                                  />
+                                </>
+                              ) : null}
                             </>
                           ) : (
                             <>
                               <input
                                 type="number"
                                 min={0}
+                                max={maxWaitAmountForUnit(stepWaitUnit)}
                                 value={
                                   waitMeta[tp.order]?.amount ??
-                                  inferEmailWaitDisplay(tp.waitDays, tp.waitHours).amount
+                                  inferGmailWaitDisplay(tp).amount
                                 }
                                 onChange={(e) =>
                                   updateStepWait(tp.order, {
-                                    amount: Math.max(0, Number(e.target.value) || 0),
+                                    amount: clampWaitAmount(
+                                      Number(e.target.value) || 0,
+                                      stepWaitUnit
+                                    ),
                                   })
                                 }
                                 className="dashboard-outreach-start-chip dashboard-outreach-start-chip--input"
                                 aria-label="Wait amount"
                               />
                               <OutreachPillSelect
-                                value={
-                                  waitMeta[tp.order]?.unit ??
-                                  inferEmailWaitDisplay(tp.waitDays, tp.waitHours).unit
-                                }
-                                options={EMAIL_WAIT_UNIT_OPTIONS}
+                                value={stepWaitUnit}
+                                options={GMAIL_WAIT_UNIT_OPTIONS}
                                 onChange={(unit) => updateStepWait(tp.order, { unit })}
                                 ariaLabel="Wait unit"
                               />
-                              <span className="dashboard-outreach-start-muted">Send @</span>
-                              <OutreachPillSelect
-                                value={stepScheduleMeta[tp.order]?.time ?? "09:00"}
-                                options={SEND_TIME_SELECT_OPTIONS}
-                                onChange={(time) => updateStepSchedule(tp.order, { time })}
-                                ariaLabel="Send time"
-                              />
-                              <OutreachPillSelect
-                                value={stepScheduleMeta[tp.order]?.tz ?? "IT"}
-                                options={TIMEZONE_SELECT_OPTIONS}
-                                onChange={(tz) => updateStepSchedule(tp.order, { tz })}
-                                ariaLabel="Timezone"
-                                compact
-                              />
+                              {stepWaitUsesSendAt ? (
+                                <>
+                                  <span className="dashboard-outreach-start-muted">Send @</span>
+                                  <OutreachTimePicker
+                                    value={stepScheduleMeta[tp.order]?.time ?? "09:00"}
+                                    onChange={(time) => updateStepSchedule(tp.order, { time })}
+                                    ariaLabel="Send time"
+                                  />
+                                  <OutreachPillSelect
+                                    value={stepScheduleMeta[tp.order]?.tz ?? DEFAULT_OUTREACH_TIMEZONE}
+                                    options={TIMEZONE_SELECT_OPTIONS}
+                                    onChange={(tz) => updateStepSchedule(tp.order, { tz })}
+                                    ariaLabel="Timezone"
+                                    compact
+                                  />
+                                </>
+                              ) : null}
                             </>
                           )}
                         </div>
@@ -1423,87 +1484,53 @@ export function OutreachPlanEditor({
                         <span className="dashboard-outreach-builder-field-label">Subject</span>
                         <div className="dashboard-outreach-builder-subject-row">
                           <input
-                            ref={(node) => {
-                              subjectInputRefs.current[tp.order] = node;
-                            }}
                             type="text"
                             value={tp.subject}
                             readOnly={editorLocked}
                             onChange={(e) =>
                               updateTouchpoint(tp.order, { subject: e.target.value })
                             }
-                            onFocus={() => {
-                              lastMergeFieldFocusRef.current = {
-                                order: tp.order,
-                                field: "subject",
-                              };
-                            }}
                             className={`dashboard-input dashboard-input-sm flex-1${
                               editorLocked ? " dashboard-input--readonly" : ""
                             }`}
-                            placeholder="{{FirstName}}, interested in a new opportunity?"
+                            placeholder="Email subject"
                           />
                         </div>
                       </label>
 
-                      <div className="dashboard-outreach-builder-tags-row">
-                        <button
-                          type="button"
-                          className="dashboard-outreach-builder-chip dashboard-outreach-builder-chip--ai"
-                        >
-                          <MaterialIcon name="auto_awesome" className="text-sm" />
-                          AI Command
-                        </button>
-                        <button type="button" className="dashboard-outreach-builder-chip">
-                          Snippets
-                        </button>
-                        {OUTREACH_MERGE_FIELDS.map((field) => (
-                          <button
-                            key={`${tp.order}-subject-${field.token}`}
-                            type="button"
-                            className="dashboard-outreach-builder-chip"
-                            onClick={() => insertMergeTag(tp.order, "subject", field.token)}
-                          >
-                            {field.label}
-                          </button>
-                        ))}
-                        <button type="button" className="dashboard-outreach-builder-chip">
-                          More…
-                        </button>
-                      </div>
-
                       <div className="dashboard-outreach-builder-editor-wrap">
                         <textarea
-                          ref={(node) => {
-                            bodyTextareaRefs.current[tp.order] = node;
-                          }}
+                          ref={isActive ? bodyInputRef : undefined}
                           value={tp.body}
                           readOnly={editorLocked}
+                          onFocus={() => setBodyFocusOrder(tp.order)}
                           onChange={(e) => updateTouchpoint(tp.order, { body: e.target.value })}
-                          onFocus={() => {
-                            lastMergeFieldFocusRef.current = {
-                              order: tp.order,
-                              field: "body",
-                            };
-                          }}
                           rows={10}
                           className={`dashboard-outreach-builder-body-input${
                             editorLocked ? " dashboard-input--readonly" : ""
                           }`}
-                          placeholder="Hi {{FirstName}},"
+                          placeholder="Write your email body…"
                         />
-                        <div className="dashboard-outreach-builder-tags-row dashboard-outreach-builder-tags-row--body">
-                          {OUTREACH_MERGE_FIELDS.map((field) => (
-                            <button
-                              key={`${tp.order}-body-${field.token}`}
-                              type="button"
-                              className="dashboard-outreach-builder-chip"
-                              onClick={() => insertMergeTag(tp.order, "body", field.token)}
-                            >
-                              {field.label}
-                            </button>
-                          ))}
-                        </div>
+                        {!editorLocked ? (
+                          <div className="dashboard-outreach-builder-merge-tags">
+                            <span className="dashboard-outreach-builder-field-label">
+                              Personalization
+                            </span>
+                            <div className="flex flex-wrap gap-1.5">
+                              {OUTREACH_MERGE_FIELDS.map((field) => (
+                                <button
+                                  key={field.token}
+                                  type="button"
+                                  onClick={() => insertBodyMergeToken(field.token)}
+                                  className="dashboard-wa-outreach-chip"
+                                  title={field.label}
+                                >
+                                  {`{{${field.token}}}`}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
                       </div>
                     </div>
                   </section>
