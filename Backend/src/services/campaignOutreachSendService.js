@@ -37,6 +37,13 @@ const {
   scheduledSendAt,
 } = require("../utils/outreachScheduleUtils");
 const { syncEnrollmentSchedulesForPlan } = require("./campaignEnrollmentScheduleSync");
+const { revealCampaignContactsForLaunch } = require("./campaignRevealJobService");
+const {
+  assertGmailLaunchCapacity,
+  reserveGmailDailySends,
+  assertCanSendGmailToday,
+  recordGmailSend,
+} = require("./gmailDailySendLimitService");
 
 function sortTouchpoints(touchpoints) {
   return [...(touchpoints || [])].sort((a, b) => (a.order || 0) - (b.order || 0));
@@ -223,40 +230,39 @@ async function getSequenceStatus(actorUserId, campaignId) {
   };
 }
 
-async function assertNoOtherActiveOutreachCampaign(actorUserId, campaignId) {
-  const access = await campaignAccessFilterForActor(actorUserId);
-  if (!access) return;
-  const filter = { ...access, outreachStatus: "active" };
-  if (mongoose.Types.ObjectId.isValid(String(campaignId))) {
-    filter._id = { $ne: new mongoose.Types.ObjectId(String(campaignId)) };
-  }
-  const other = await Campaign.findOne(filter).select("name").lean();
-  if (!other) return;
-  const name = String(other.name || "").trim() || "Untitled campaign";
-  const err = new Error(
-    `"${name}" is still running. Wait for it to finish or pause it before starting another campaign.`
-  );
-  err.statusCode = 409;
-  err.code = "CAMPAIGN_ALREADY_ACTIVE";
-  err.activeCampaign = { id: String(other._id), name };
-  throw err;
-}
-
 /**
  * Enroll all campaign contacts with an email and start the sequence clock.
  */
 async function launchCampaignSequence(actorUserId, campaignId) {
-  const { campaign, plan, touchpoints, channel, ownerUserId } = await loadCampaignAndPlan(
+  let { campaign, plan, touchpoints, channel, ownerUserId } = await loadCampaignAndPlan(
     actorUserId,
     campaignId
   );
-  await assertNoOtherActiveOutreachCampaign(actorUserId, campaign._id);
   const isWhatsApp = channel === "whatsapp";
   if (isWhatsApp) {
     await assertWhatsAppReadyForSend(ownerUserId);
   }
+
+  let revealJob = null;
+  if (!isWhatsApp) {
+    try {
+      revealJob = await revealCampaignContactsForLaunch(actorUserId, campaignId);
+    } catch (revealErr) {
+      console.error(
+        "[outreach-send] pre-launch contact reveal failed:",
+        revealErr?.message || revealErr
+      );
+    }
+    campaign = await findCampaignInScope(actorUserId, campaignId);
+  }
+
   const now = new Date();
   const contacts = Array.isArray(campaign.contacts) ? campaign.contacts : [];
+
+  if (!isWhatsApp) {
+    await assertGmailLaunchCapacity(ownerUserId, contacts);
+  }
+
   const firstReplyFollowUpOrder = isWhatsApp
     ? (touchpoints.find((tp) => tp && tp.isReplyFollowUp)?.order || 0)
     : 0;
@@ -288,6 +294,10 @@ async function launchCampaignSequence(actorUserId, campaignId) {
     }
   );
 
+  if (!isWhatsApp && enrolled > 0) {
+    await reserveGmailDailySends(ownerUserId, enrolled);
+  }
+
   if (!isWhatsApp && enrolled > 0 && plan?._id) {
     const sync = await syncEnrollmentSchedulesForPlan(String(plan._id), {
       triggerSend: false,
@@ -316,6 +326,7 @@ async function launchCampaignSequence(actorUserId, campaignId) {
     skipped,
     touchpointCount: touchpoints.length,
     outreachStatus: "active",
+    revealJob,
   };
 }
 
@@ -482,7 +493,6 @@ async function resumeCampaignSequence(actorUserId, campaignId) {
     actorUserId,
     campaignId
   );
-  await assertNoOtherActiveOutreachCampaign(actorUserId, campaign._id);
   const now = new Date();
   const isWhatsApp = channel === "whatsapp";
 
@@ -618,11 +628,13 @@ async function processGmailEnrollmentDoc(enrollment, campaign) {
 
   let sendResult;
   try {
+    await assertCanSendGmailToday(userId);
     sendResult = await sendGmailMessage(userId, {
       to: email,
       subject,
       body,
     });
+    await recordGmailSend(userId);
   } catch (err) {
     await CampaignSequenceEnrollment.updateOne(
       { _id: enrollmentId },

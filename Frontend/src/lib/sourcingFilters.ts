@@ -115,6 +115,36 @@ export function normalizeSelectRegions(value: unknown): string[] {
   return [];
 }
 
+/** Number inputs in CandidateFilterDrawer — must be strings for controlled inputs. */
+export const FILTER_FORM_RANGE_KEYS = [
+  "yearsExpMin",
+  "yearsExpMax",
+  "headcountGrowthMin",
+  "headcountGrowthMax",
+  "companyHeadcountMin",
+  "companyHeadcountMax",
+  "yearFoundedMin",
+  "yearFoundedMax",
+] as const;
+
+function coerceRangeFields(form: CandidateFilterForm): CandidateFilterForm {
+  const next = { ...form };
+  for (const key of FILTER_FORM_RANGE_KEYS) {
+    const v = next[key];
+    if (v != null && v !== "") {
+      next[key] = String(v);
+    }
+  }
+  return next;
+}
+
+export function normalizeFilterForm(
+  form: Partial<CandidateFilterForm> | Record<string, unknown> | null | undefined
+): CandidateFilterForm | null {
+  if (!form || typeof form !== "object") return null;
+  return coerceRangeFields(mergeFilterForm(DEFAULT_CANDIDATE_FILTER_FORM, form));
+}
+
 export function mergeFilterForm(
   base: CandidateFilterForm,
   patch: Partial<CandidateFilterForm> | Record<string, unknown> | null | undefined
@@ -126,6 +156,42 @@ export function mergeFilterForm(
   }
   if ("openToWork" in patch) {
     merged.openToWork = Boolean(patch.openToWork);
+  }
+  return coerceRangeFields(merged);
+}
+
+/** After apply, API may return empty range fields — keep values the user had in the drawer. */
+export function mergeFilterFormPreserveFilled(
+  base: CandidateFilterForm,
+  patch: Partial<CandidateFilterForm> | Record<string, unknown> | null | undefined
+): CandidateFilterForm {
+  if (!patch || typeof patch !== "object") return base;
+  const merged = mergeFilterForm(mergeFilterForm(DEFAULT_CANDIDATE_FILTER_FORM, base), patch);
+  for (const key of FILTER_FORM_RANGE_KEYS) {
+    const patchVal = (patch as Partial<CandidateFilterForm>)[key];
+    const baseVal = base[key];
+    const patchEmpty = patchVal === "" || patchVal == null;
+    const baseFilled = baseVal !== "" && baseVal != null;
+    if (patchEmpty && baseFilled) {
+      merged[key] = String(baseVal);
+    }
+  }
+  const textKeys = [
+    "keywordSkills",
+    "currentTitle",
+    "seniorityLevel",
+    "location",
+    "functionCategory",
+    "industry",
+  ] as const;
+  for (const key of textKeys) {
+    const patchVal = (patch as Partial<CandidateFilterForm>)[key];
+    const baseVal = base[key];
+    const patchEmpty = typeof patchVal !== "string" || !patchVal.trim();
+    const baseFilled = typeof baseVal === "string" && baseVal.trim();
+    if (patchEmpty && baseFilled) {
+      merged[key] = baseVal;
+    }
   }
   return merged;
 }

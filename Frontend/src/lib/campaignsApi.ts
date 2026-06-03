@@ -127,21 +127,82 @@ export type LaunchCampaignSequenceResult = {
   outreachStatus: CampaignOutreachStatus;
 };
 
-export class CampaignLaunchBlockedError extends Error {
-  readonly code = "CAMPAIGN_ALREADY_ACTIVE" as const;
-  readonly activeCampaignName: string;
+export type GmailDailyLimitSnapshot = {
+  limit: number;
+  reserved: number;
+  sent: number;
+  remaining: number;
+  requested: number;
+  usageDate?: string;
+  integrationEmail?: string;
+};
 
-  constructor(message: string, activeCampaignName: string) {
+export class CampaignLaunchBlockedError extends Error {
+  readonly code: "CAMPAIGN_ALREADY_ACTIVE" | "GMAIL_DAILY_LIMIT_EXCEEDED";
+  readonly activeCampaignName: string;
+  readonly gmailDailyLimit: GmailDailyLimitSnapshot | null;
+
+  constructor(
+    message: string,
+    options: {
+      code?: "CAMPAIGN_ALREADY_ACTIVE" | "GMAIL_DAILY_LIMIT_EXCEEDED";
+      activeCampaignName?: string;
+      gmailDailyLimit?: GmailDailyLimitSnapshot | null;
+    } = {}
+  ) {
     super(message);
     this.name = "CampaignLaunchBlockedError";
-    this.activeCampaignName = activeCampaignName;
+    this.code = options.code ?? "CAMPAIGN_ALREADY_ACTIVE";
+    this.activeCampaignName = options.activeCampaignName ?? "";
+    this.gmailDailyLimit = options.gmailDailyLimit ?? null;
   }
+}
+
+function parseGmailDailyLimit(raw: unknown): GmailDailyLimitSnapshot | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const limit = typeof o.limit === "number" ? o.limit : 0;
+  const reserved = typeof o.reserved === "number" ? o.reserved : 0;
+  const sent = typeof o.sent === "number" ? o.sent : 0;
+  const remaining = typeof o.remaining === "number" ? o.remaining : 0;
+  const requested = typeof o.requested === "number" ? o.requested : 0;
+  if (!limit) return null;
+  return {
+    limit,
+    reserved,
+    sent,
+    remaining,
+    requested,
+    usageDate: typeof o.usageDate === "string" ? o.usageDate : undefined,
+    integrationEmail:
+      typeof o.integrationEmail === "string" ? o.integrationEmail : undefined,
+  };
 }
 
 function throwIfCampaignLaunchBlocked(
   res: Response,
-  data: { message?: unknown; code?: unknown; activeCampaign?: { name?: unknown } }
+  data: {
+    message?: unknown;
+    code?: unknown;
+    activeCampaign?: { name?: unknown };
+    gmailDailyLimit?: unknown;
+  }
 ): void {
+  if (res.status !== 409 && res.status !== 429) return;
+
+  if (data.code === "GMAIL_DAILY_LIMIT_EXCEEDED") {
+    const gmailDailyLimit = parseGmailDailyLimit(data.gmailDailyLimit);
+    throw new CampaignLaunchBlockedError(
+      typeof data.message === "string"
+        ? data.message
+        : "Gmail daily send limit reached for this account.",
+      {
+        code: "GMAIL_DAILY_LIMIT_EXCEEDED",
+        gmailDailyLimit,
+      }
+    );
+  }
+
   if (res.status !== 409 || data.code !== "CAMPAIGN_ALREADY_ACTIVE") return;
   const activeCampaignName =
     typeof data.activeCampaign?.name === "string" && data.activeCampaign.name.trim()
@@ -151,7 +212,10 @@ function throwIfCampaignLaunchBlocked(
     typeof data.message === "string"
       ? data.message
       : "A campaign is already running. Wait for it to finish before launching another.",
-    activeCampaignName
+    {
+      code: "CAMPAIGN_ALREADY_ACTIVE",
+      activeCampaignName,
+    }
   );
 }
 
@@ -479,7 +543,7 @@ export async function createCampaign(
     body: JSON.stringify({
       name,
       contacts,
-      revealInBackground: options?.revealInBackground !== false,
+      revealInBackground: options?.revealInBackground === true,
     }),
   });
   const data = await res.json().catch(() => ({}));
@@ -514,7 +578,7 @@ export async function addContactsToCampaignApi(
     headers: authHeaders(token),
     body: JSON.stringify({
       contacts,
-      revealInBackground: options?.revealInBackground !== false,
+      revealInBackground: options?.revealInBackground === true,
     }),
   });
   const data = await res.json().catch(() => ({}));

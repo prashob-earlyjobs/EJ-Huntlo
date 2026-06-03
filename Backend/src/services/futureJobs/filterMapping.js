@@ -94,13 +94,90 @@ function queryValues(queries, key) {
 
 function queryRange(queries, key) {
   const q = queries?.[key];
-  if (!q || !Array.isArray(q.value) || q.value.length < 2) {
+  if (!q || q.value == null) {
     return { min: "", max: "" };
   }
-  return {
-    min: q.value[0] != null ? String(q.value[0]) : "",
-    max: q.value[1] != null ? String(q.value[1]) : "",
-  };
+  const val = q.value;
+  if (Array.isArray(val)) {
+    if (val.length >= 2) {
+      return {
+        min: val[0] != null ? String(val[0]) : "",
+        max: val[1] != null ? String(val[1]) : "",
+      };
+    }
+    if (val.length === 1 && val[0] != null && val[0] !== "") {
+      const single = String(val[0]);
+      return { min: single, max: single };
+    }
+    return { min: "", max: "" };
+  }
+  const single = String(val).trim();
+  return single ? { min: single, max: single } : { min: "", max: "" };
+}
+
+/** Numeric range inputs in the filter drawer — stored as strings for controlled inputs. */
+const FILTER_FORM_RANGE_KEYS = [
+  "yearsExpMin",
+  "yearsExpMax",
+  "headcountGrowthMin",
+  "headcountGrowthMax",
+  "companyHeadcountMin",
+  "companyHeadcountMax",
+  "yearFoundedMin",
+  "yearFoundedMax",
+];
+
+/**
+ * Normalize flat filter form for API responses and Mongo (string ranges, array regions).
+ * @param {object} [form]
+ * @returns {object|null}
+ */
+function normalizeFilterFormForUi(form) {
+  if (!form || typeof form !== "object" || Array.isArray(form)) {
+    return null;
+  }
+
+  const out = { ...DEFAULT_FILTER_FORM };
+
+  for (const key of Object.keys(DEFAULT_FILTER_FORM)) {
+    if (!(key in form)) continue;
+    const val = form[key];
+
+    if (key === "selectRegion") {
+      if (Array.isArray(val)) {
+        out.selectRegion = val
+          .map((v) => String(v ?? "").trim())
+          .filter(Boolean)
+          .filter(
+            (s, i, arr) =>
+              arr.findIndex((x) => x.toLowerCase() === s.toLowerCase()) === i
+          );
+      } else if (typeof val === "string" && val.trim()) {
+        out.selectRegion = val
+          .split(/[,;|]/)
+          .map((s) => s.trim())
+          .filter(Boolean);
+      }
+      continue;
+    }
+
+    if (typeof DEFAULT_FILTER_FORM[key] === "boolean") {
+      out[key] = Boolean(val);
+      continue;
+    }
+
+    if (FILTER_FORM_RANGE_KEYS.includes(key)) {
+      out[key] =
+        val == null || val === "" ? "" : String(val).trim();
+      continue;
+    }
+
+    if (typeof DEFAULT_FILTER_FORM[key] === "string") {
+      out[key] = val == null ? "" : String(val);
+    }
+  }
+
+  return out;
 }
 
 function normalizeSkillsValue(raw) {
@@ -973,6 +1050,8 @@ module.exports = {
   enrichFilterFormSkillsFromPrompt,
   filterFormFromCreateResponse,
   filterFormFromAnnotation,
+  normalizeFilterFormForUi,
+  FILTER_FORM_RANGE_KEYS,
   mergeFilterFormIntoSession,
   buildSessionPayloadForApply,
   baseSessionFromPrompt,
