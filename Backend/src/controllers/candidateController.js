@@ -17,6 +17,7 @@ const {
   getSourcingSessionAnnotation,
   getSourcingSessionCandidateDetails,
   filterFormFromAnnotation,
+  normalizeFilterFormForUi,
   enrichFilterFormSkillsFromPrompt,
   mapFjDocToCandidate,
 } = require("../services/futureJobs");
@@ -118,6 +119,55 @@ function parseQueryBool(value, defaultValue = false) {
 
 function escapeRegexLiteral(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** User-submitted drawer form wins; FJ round-trip may drop RANGE fields (e.g. years of experience). */
+function mergePersistedFilterForm(userForm, responseForm) {
+  const userNorm = normalizeFilterFormForUi(userForm);
+  const responseNorm = normalizeFilterFormForUi(responseForm);
+  if (!userNorm) return responseNorm;
+  if (!responseNorm) return userNorm;
+
+  const merged = { ...responseNorm, ...userNorm };
+
+  for (const key of [
+    "yearsExpMin",
+    "yearsExpMax",
+    "headcountGrowthMin",
+    "headcountGrowthMax",
+    "companyHeadcountMin",
+    "companyHeadcountMax",
+    "yearFoundedMin",
+    "yearFoundedMax",
+    "keywordSkills",
+    "currentTitle",
+    "seniorityLevel",
+    "location",
+    "functionCategory",
+    "industry",
+  ]) {
+    const userVal =
+      typeof userNorm[key] === "string" ? userNorm[key].trim() : userNorm[key];
+    const responseVal =
+      typeof merged[key] === "string" ? String(merged[key]).trim() : merged[key];
+    if (userVal !== "" && userVal != null) {
+      merged[key] = userNorm[key];
+    } else if (responseVal !== "" && responseVal != null) {
+      merged[key] = merged[key];
+    }
+  }
+
+  if (Array.isArray(userNorm.selectRegion) && userNorm.selectRegion.length > 0) {
+    merged.selectRegion = userNorm.selectRegion;
+  }
+  merged.openToWork = userNorm.openToWork;
+
+  return normalizeFilterFormForUi(merged);
+}
+
+function filterFormForApi(form) {
+  const normalized = normalizeFilterFormForUi(form);
+  return normalized || undefined;
 }
 
 /** Case-insensitive match on stored candidate fields (name, role, company, skills, etc.). */
@@ -224,9 +274,13 @@ async function fetchAllSessionProfilesFromFj(sessionId, pollOptions = {}) {
     if (Array.isArray(docs)) {
       for (const doc of docs) {
         const id = doc?._id != null ? String(doc._id) : "";
-        if (id) {
-          if (seen.has(id)) continue;
-          seen.add(id);
+        const linkedin = String(doc?.profile?.linkedin_profile_url || "")
+          .trim()
+          .toLowerCase();
+        const dedupeKey = id || (linkedin ? `li:${linkedin}` : "");
+        if (dedupeKey) {
+          if (seen.has(dedupeKey)) continue;
+          seen.add(dedupeKey);
         }
         allDocs.push(doc);
       }
@@ -748,6 +802,8 @@ const applySearchFilters = async (req, res) => {
           ? updateSourcingSession(existingSessionId, payload)
           : createSourcingSession(payload)
     );
+
+    console.log("futureJobs-apply-", futureJobs);
     const sessionId = sessionIdFromFjCreateResponse(futureJobs, existingSessionId);
 
     if (isFjSessionPending(futureJobs)) {
@@ -760,6 +816,10 @@ const applySearchFilters = async (req, res) => {
       });
 
       const responseFilterForm = filterFormFromCreateResponse(futureJobs, payload);
+      const savedFilterFormPending = mergePersistedFilterForm(
+        filterForm,
+        responseFilterForm
+      );
       if (sessionId) {
         try {
           await persistSourcingSessionRow({
@@ -772,7 +832,7 @@ const applySearchFilters = async (req, res) => {
             profilesPagination: null,
             candidates: [],
             profilesFetchError: message,
-            filterForm: responseFilterForm,
+            filterForm: savedFilterFormPending,
           });
         } catch (persistErr) {
           logApi("candidates/search/apply", "persist failed (207)", {
@@ -788,7 +848,7 @@ const applySearchFilters = async (req, res) => {
         fjStatusCode: 207,
         sessionId: sessionId || undefined,
         sessionUpdated: isSessionUpdate,
-        filterForm: responseFilterForm,
+        filterForm: savedFilterFormPending,
         futureJobs,
       });
     }
@@ -804,6 +864,7 @@ const applySearchFilters = async (req, res) => {
     const sourcingMeta = futureJobs?.data?.sourcing;
     const sessionMeta = futureJobs?.data?.session;
     const responseFilterForm = filterFormFromCreateResponse(futureJobs, payload);
+    const savedFilterForm = mergePersistedFilterForm(filterForm, responseFilterForm);
 
     let profilesFetchError = null;
     let candidates = [];
@@ -846,7 +907,7 @@ const applySearchFilters = async (req, res) => {
         profilesPagination,
         candidates,
         profilesFetchError,
-        filterForm: responseFilterForm,
+        filterForm: savedFilterForm,
       });
     } catch (persistErr) {
       logApi("candidates/search/apply", "persist failed", {
@@ -894,7 +955,7 @@ const applySearchFilters = async (req, res) => {
       page: 1,
       limit: displayedCount || limit,
       canFetchMore: canFetchMoreFromFjSourcing(sourcingMeta),
-      filterForm: responseFilterForm,
+      filterForm: savedFilterForm,
       sessionPayload: sessionMeta ?? null,
       candidates,
       profilesPagination: profilesPaginationAligned,
@@ -1475,6 +1536,7 @@ const loadSessionProfiles = async (req, res) => {
     return res.status(200).json({
       success: true,
       sessionId,
+      prompt: typeof owned.prompt === "string" ? owned.prompt : "",
       page: 1,
       limit: displayedCount,
       canFetchMore: true,
@@ -1489,6 +1551,7 @@ const loadSessionProfiles = async (req, res) => {
         nextPage: null,
         prevPage: null,
       },
+      filterForm: filterFormForApi(owned?.filterForm),
       futureJobsProfiles: mapped.futureJobsProfiles,
     });
   } catch (error) {
@@ -1676,6 +1739,16 @@ const loadStoredSessionCandidates = async (req, res) => {
       });
     }
 
+    if (parseQueryBool(req.query.metaOnly, false)) {
+      return res.status(200).json({
+        success: true,
+        sessionId,
+        prompt: typeof owned.prompt === "string" ? owned.prompt : "",
+        sessionTitle: typeof owned.sessionTitle === "string" ? owned.sessionTitle : "",
+        filterForm: filterFormForApi(owned?.filterForm),
+      });
+    }
+
     const loadAll = parseQueryBool(req.query.all, false);
     const page = clampInt(req.query.page, 1, 100000, 1);
     const limit = loadAll
@@ -1745,12 +1818,7 @@ const loadStoredSessionCandidates = async (req, res) => {
         nextPage: null,
         prevPage: null,
       },
-      filterForm:
-        owned?.filterForm &&
-        typeof owned.filterForm === "object" &&
-        !Array.isArray(owned.filterForm)
-          ? owned.filterForm
-          : undefined,
+      filterForm: filterFormForApi(owned?.filterForm),
     });
   } catch (error) {
     const status = error.statusCode || 500;
@@ -2159,10 +2227,7 @@ const listSourcingSessions = async (req, res) => {
             }))
           : [],
         profilesFetchError: d.profilesFetchError,
-        filterForm:
-          d.filterForm && typeof d.filterForm === "object" && !Array.isArray(d.filterForm)
-            ? d.filterForm
-            : null,
+        filterForm: filterFormForApi(d.filterForm) ?? null,
         createdAt: d.createdAt,
         updatedAt: d.updatedAt,
         };

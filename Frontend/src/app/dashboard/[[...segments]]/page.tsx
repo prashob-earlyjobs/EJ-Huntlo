@@ -101,16 +101,23 @@ import {
   mergeRevealedLookupIntoContacts,
   normalizeLinkedinUrl,
 } from "@/lib/revealContactsApi";
+import type { CampaignWorkspaceTab } from "@/lib/campaignRoutes";
 import {
   pathForDashboardTab,
   tabFromPathSegments,
   tabKeyFromSidebarLabel,
   type DashboardTabKey,
 } from "@/lib/dashboardRoutes";
-import { candidateScoreBadgeClass, formatCandidateScore } from "@/lib/sessionResultUi";
+import {
+  candidateScoreBadgeClass,
+  dedupeSessionResultDocs,
+  formatCandidateScore,
+} from "@/lib/sessionResultUi";
 import {
   DEFAULT_CANDIDATE_FILTER_FORM,
   mergeFilterForm,
+  mergeFilterFormPreserveFilled,
+  normalizeFilterForm,
   type CandidateFilterForm,
 } from "@/lib/sourcingFilters";
 
@@ -1222,16 +1229,30 @@ export default function UserDashboardPage() {
   }, [urlSearchParams]);
 
   const navigateToTab = useCallback(
-    (tab: string, options?: { sessionId?: string; replace?: boolean }) => {
+    (
+      tab: string,
+      options?: {
+        sessionId?: string;
+        campaignId?: string;
+        campaignWorkspaceTab?: CampaignWorkspaceTab;
+        replace?: boolean;
+      }
+    ) => {
       const tabKey = tabKeyFromSidebarLabel(tab) as DashboardTabKey;
       const sid =
         options?.sessionId?.trim() ||
         (tabKey === "Session Results" ? searchSummary?.sessionId?.trim() : "") ||
         "";
-      const path = pathForDashboardTab(
-        tabKey,
-        sid ? { sessionId: sid } : undefined
-      );
+      const campaignId = options?.campaignId?.trim() || "";
+      const path = pathForDashboardTab(tabKey, {
+        ...(sid ? { sessionId: sid } : {}),
+        ...(tabKey === "Campaigns" && campaignId
+          ? {
+              campaignId,
+              campaignWorkspaceTab: options?.campaignWorkspaceTab ?? "Editor",
+            }
+          : {}),
+      });
       if (options?.replace) {
         router.replace(path);
       } else {
@@ -1250,6 +1271,7 @@ export default function UserDashboardPage() {
   const [applyFiltersLoading, setApplyFiltersLoading] = useState(false);
   const [applySessionChoiceOpen, setApplySessionChoiceOpen] = useState(false);
   const [annotateLoading, setAnnotateLoading] = useState(false);
+  const [filterFormRestoreLoading, setFilterFormRestoreLoading] = useState(false);
   const [filterSkillsError, setFilterSkillsError] = useState("");
   const [applyStatusStepIndex, setApplyStatusStepIndex] = useState(0);
   const [isPeopleScoutDrawerOpen, setIsPeopleScoutDrawerOpen] = useState(false);
@@ -2135,21 +2157,24 @@ export default function UserDashboardPage() {
 
   const openRecentAiSearch = (item: RecentSearchItem) => {
     if (item.futureJobsSessionId) {
+      const cached = sourcingSessions.find(
+        (s) => s.futureJobsSessionId.trim() === item.futureJobsSessionId.trim()
+      );
       void openSessionFromHistory(
         {
           id: item.id,
           futureJobsSessionId: item.futureJobsSessionId,
-          prompt: item.text,
-          sessionTitle: "",
+          prompt: item.text || cached?.prompt || "",
+          sessionTitle: cached?.sessionTitle || "",
           usingSessionOverride: false,
-          futureJobsStatus: "",
-          totalDocs: item.totalDocs,
-          candidateCountFirstPage: 0,
-          candidatePreview: [],
-          profilesFetchError: null,
-          filterForm: null,
-          createdAt: item.createdAt || "",
-          updatedAt: item.createdAt || "",
+          futureJobsStatus: cached?.futureJobsStatus || "",
+          totalDocs: item.totalDocs ?? cached?.totalDocs ?? null,
+          candidateCountFirstPage: cached?.candidateCountFirstPage ?? 0,
+          candidatePreview: cached?.candidatePreview ?? [],
+          profilesFetchError: cached?.profilesFetchError ?? null,
+          filterForm: cached?.filterForm ?? null,
+          createdAt: item.createdAt || cached?.createdAt || "",
+          updatedAt: item.createdAt || cached?.updatedAt || "",
         },
         "Search Candidates"
       );
@@ -2603,15 +2628,10 @@ export default function UserDashboardPage() {
     incoming: SessionResultDoc[],
     append: boolean
   ) => {
-    if (!append || prev.length === 0) return incoming;
-    const seen = new Set(incoming.map((doc) => doc._id).filter(Boolean));
-    const merged = [...incoming];
-    for (const doc of prev) {
-      if (!doc._id || seen.has(doc._id)) continue;
-      seen.add(doc._id);
-      merged.push(doc);
+    if (!append || prev.length === 0) {
+      return dedupeSessionResultDocs(incoming);
     }
-    return merged;
+    return dedupeSessionResultDocs([...prev, ...incoming]);
   };
 
   const syncSessionResultsSummary = (
@@ -2645,6 +2665,83 @@ export default function UserDashboardPage() {
       profilesFetchError: warn || prevSummary?.profilesFetchError || null,
     });
     if (warn) setProfilesWarning(warn);
+  };
+
+  const applyFilterFormFromSession = (
+    patch: Partial<CandidateFilterForm> | Record<string, unknown> | null | undefined,
+    options?: { prompt?: string }
+  ) => {
+    const normalized = normalizeFilterForm(patch);
+    if (normalized) {
+      setCandidateFilterForm((prev) =>
+        mergeFilterForm(DEFAULT_CANDIDATE_FILTER_FORM, mergeFilterForm(prev, normalized))
+      );
+    }
+    const prompt = options?.prompt?.trim();
+    if (prompt) {
+      setFilterSearchPrompt(prompt);
+      setAiPrompt(prompt);
+    }
+  };
+
+  const restoreSessionFilterForm = async (sessionId: string) => {
+    const sid = sessionId.trim();
+    if (!sid) return;
+
+    const cached = sourcingSessions.find((s) => s.futureJobsSessionId.trim() === sid);
+    if (cached?.filterForm && typeof cached.filterForm === "object") {
+      applyFilterFormFromSession(cached.filterForm, {
+        prompt: cached.prompt || cached.sessionTitle,
+      });
+      return;
+    }
+
+    const auth = getStoredAuth();
+    if (!auth?.token) return;
+
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+    setFilterFormRestoreLoading(true);
+    try {
+      const url = `${apiBase}/api/candidates/session/${encodeURIComponent(sid)}/stored-candidates?metaOnly=1`;
+      const res = await fetch(url, { headers: authHeaders(auth.token) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) return;
+      applyFilterFormFromSession(
+        data.filterForm && typeof data.filterForm === "object"
+          ? (data.filterForm as Partial<CandidateFilterForm>)
+          : null,
+        {
+          prompt:
+            typeof data.prompt === "string"
+              ? data.prompt
+              : typeof data.sessionTitle === "string"
+                ? data.sessionTitle
+                : "",
+        }
+      );
+    } catch {
+      /* keep in-memory form if restore fails */
+    } finally {
+      setFilterFormRestoreLoading(false);
+    }
+  };
+
+  const openEditFiltersDrawer = () => {
+    const sessionId =
+      searchSummary?.sessionId?.trim() || routeSessionId?.trim() || "";
+    if (sessionId) {
+      if (!(filterSearchPrompt || aiPrompt).trim()) {
+        const cached = sourcingSessions.find(
+          (s) => s.futureJobsSessionId.trim() === sessionId
+        );
+        if (cached?.prompt?.trim()) {
+          setFilterSearchPrompt(cached.prompt.trim());
+          setAiPrompt(cached.prompt.trim());
+        }
+      }
+      void restoreSessionFilterForm(sessionId);
+    }
+    setIsFilterDrawerOpen(true);
   };
 
   const applySessionProfilesFromSearchResponse = (
@@ -2692,6 +2789,14 @@ export default function UserDashboardPage() {
       data,
       appendDocs ? searchSummary : null
     );
+    applyFilterFormFromSession(
+      data.filterForm && typeof data.filterForm === "object"
+        ? (data.filterForm as Partial<CandidateFilterForm>)
+        : null,
+      {
+        prompt: typeof data.prompt === "string" ? data.prompt : undefined,
+      }
+    );
     setHasSearched(true);
     setSessionResultsBackTab(backTab);
     const sessionIdFromData =
@@ -2727,34 +2832,38 @@ export default function UserDashboardPage() {
     applySessionProfilesFromSearchResponse(data as Record<string, unknown>, backTab, options);
   };
 
+  const sessionProfilesAutoLoadRef = useRef<string | null>(null);
+
   useEffect(() => {
-    if (tabFromRoute !== "Session Results" || !routeSessionId) return;
+    if (tabFromRoute !== "Session Results" || !routeSessionId) {
+      sessionProfilesAutoLoadRef.current = null;
+      return;
+    }
     // History navigation hydrates via stored-candidates; avoid a parallel profiles fetch.
     if (sessionResultsFromDb) return;
     if (searchSummary?.sessionId === routeSessionId && sessionResultDocs.length > 0) {
+      sessionProfilesAutoLoadRef.current = routeSessionId;
       return;
     }
+    if (sessionProfilesAutoLoadRef.current === routeSessionId) return;
+
     const auth = getStoredAuth();
     if (!auth?.token) return;
+
+    sessionProfilesAutoLoadRef.current = routeSessionId;
     setSearchLoading(true);
 
     void loadSessionProfilesFirstPage(routeSessionId, 20, auth.token, "Search history")
       .catch((err) => {
+        sessionProfilesAutoLoadRef.current = null;
         setSessionResultError(
           err instanceof Error ? err.message : "Could not load session results"
         );
       })
       .finally(() => {
         setSearchLoading(false);
-      }
-    );
-  }, [
-    tabFromRoute,
-    routeSessionId,
-    searchSummary?.sessionId,
-    sessionResultDocs.length,
-    sessionResultsFromDb,
-  ]);
+      });
+  }, [tabFromRoute, routeSessionId, searchSummary?.sessionId, sessionResultsFromDb]);
 
   const handleSearch = async () => {
     if (annotateLoading || searchLoading || applyFiltersLoading) return;
@@ -2960,11 +3069,8 @@ export default function UserDashboardPage() {
         setPendingSessionPayload(data.sessionPayload as Record<string, unknown>);
       }
       if (data.filterForm && typeof data.filterForm === "object") {
-        setCandidateFilterForm(
-          mergeFilterForm(
-            DEFAULT_CANDIDATE_FILTER_FORM,
-            data.filterForm as Partial<CandidateFilterForm>
-          )
+        setCandidateFilterForm((prev) =>
+          mergeFilterFormPreserveFilled(prev, data.filterForm as Partial<CandidateFilterForm>)
         );
       }
 
@@ -3067,23 +3173,17 @@ export default function UserDashboardPage() {
         ? (fjProfiles.data.docs as SessionResultDoc[])
         : [];
 
-      const seenDocIds = new Set(sessionResultDocs.map((d) => d._id).filter(Boolean));
-      const newDocs = incomingDocs.filter((d) => d._id && !seenDocIds.has(d._id));
-      const nextDocs = [...sessionResultDocs, ...newDocs];
+      // API returns the full session snapshot after fetch-more — replace, do not append by _id only.
+      const nextDocs = dedupeSessionResultDocs(incomingDocs);
       setSessionResultDocs(nextDocs);
       setSessionResultsFromDb(false);
 
       const incomingCandidates = Array.isArray(data.candidates)
         ? (data.candidates as CandidateRow[])
         : [];
-      setSearchedCandidates((prev) => {
-        const seen = new Set(prev.map((c) => candidateIdentityKey(c)).filter(Boolean));
-        const added = incomingCandidates.filter((c) => {
-          const key = candidateIdentityKey(c);
-          return key && !seen.has(key);
-        });
-        return [...prev, ...added];
-      });
+      if (incomingCandidates.length > 0) {
+        setSearchedCandidates(incomingCandidates);
+      }
 
       const canFetchMore = data.canFetchMore !== false;
       const storedProfileCount =
@@ -3200,13 +3300,18 @@ export default function UserDashboardPage() {
             ? row.filterForm
             : null;
       if (restoredFilterForm) {
-        setCandidateFilterForm(
-          mergeFilterForm(DEFAULT_CANDIDATE_FILTER_FORM, restoredFilterForm)
-        );
+        applyFilterFormFromSession(restoredFilterForm, {
+          prompt: row.prompt || row.sessionTitle,
+        });
       } else {
         setCandidateFilterForm(DEFAULT_CANDIDATE_FILTER_FORM);
+        const historyPrompt = (row.prompt || row.sessionTitle || "").trim();
+        if (historyPrompt) {
+          setFilterSearchPrompt(historyPrompt);
+          setAiPrompt(historyPrompt);
+        }
       }
-      setSessionResultDocs(detailedDocs);
+      setSessionResultDocs(dedupeSessionResultDocs(detailedDocs));
       setSessionResultSelectedKeys([]);
       setSessionResultsFromDb(true);
       const pg = data.profilesPagination;
@@ -3885,6 +3990,10 @@ export default function UserDashboardPage() {
           setSessionResultNotice(
             `Added ${record.contacts.length} candidate${record.contacts.length === 1 ? "" : "s"} to "${record.name}". Email and phone will be revealed when you launch the campaign.`
           );
+          navigateToTab("Campaigns", {
+            campaignId: record.id,
+            campaignWorkspaceTab: "Contacts",
+          });
           return;
         }
 
@@ -3903,17 +4012,14 @@ export default function UserDashboardPage() {
           throw new Error(batchCheck.message);
         }
 
-        const { campaign, addedCount, skippedCount } = await addContactsToCampaignApi(
-          auth.token,
-          payload.campaignId,
-          incoming
-        );
+        const { campaign, addedCount, skippedCount, limitSkippedCount } =
+          await addContactsToCampaignApi(auth.token, payload.campaignId, incoming);
         setCampaigns((prev) =>
           prev.map((c) => (c.id === campaign.id ? campaign : c))
         );
         const campaignName = campaign.name || "Campaign";
         setAddToCampaignOpen(false);
-        if (addedCount === 0 && skippedCount > 0 && limitRejected === 0) {
+        if (addedCount === 0 && skippedCount > 0 && limitSkippedCount === 0) {
           setSessionResultNotice(`All selected candidates are already in "${campaignName}".`);
         } else if (skippedCount > 0) {
           setSessionResultNotice(
@@ -3924,6 +4030,10 @@ export default function UserDashboardPage() {
             `Added ${addedCount} candidate${addedCount === 1 ? "" : "s"} to "${campaignName}". Email and phone will be revealed when you launch the campaign.`
           );
         }
+        navigateToTab("Campaigns", {
+          campaignId: campaign.id,
+          campaignWorkspaceTab: "Contacts",
+        });
       } catch (err) {
         if (!userActionAlert.fromThrown(err)) {
           const message =
@@ -3939,6 +4049,7 @@ export default function UserDashboardPage() {
     [
       addToCampaignBusy,
       campaigns,
+      navigateToTab,
       resolveSelectedSessionContacts,
       userActionAlert,
     ]
@@ -4388,7 +4499,7 @@ export default function UserDashboardPage() {
                       ) : null}
                       <button
                         type="button"
-                        onClick={() => setIsFilterDrawerOpen(true)}
+                        onClick={() => openEditFiltersDrawer()}
                         className="dashboard-btn-secondary"
                       >
                         <MaterialIcon name="tune" aria-hidden />
@@ -4547,9 +4658,14 @@ export default function UserDashboardPage() {
                               />
                               <div className="min-w-0 flex-1">
                                 <div className="min-w-0">
-                                  <h4 className="text-base font-semibold text-slate-900">
-                                    {candidateName}
-                                  </h4>
+                                  <div className="dashboard-candidate-name-row">
+                                    <h4 className="text-base font-semibold text-slate-900">
+                                      {candidateName}
+                                    </h4>
+                                    {isOpenToWork(doc.profile?.open_to_cards) ? (
+                                      <OpenToWorkBadge compact />
+                                    ) : null}
+                                  </div>
                                   <p className="mt-1 text-xs text-slate-600">
                                     {current?.job_title || "Role unavailable"}
                                     {current?.company_name ? ` · ${current.company_name}` : ""}
@@ -5004,7 +5120,7 @@ export default function UserDashboardPage() {
         }}
         onApply={() => requestApplySearchFilters()}
         applyLoading={applyFiltersLoading}
-        annotateLoading={annotateLoading}
+        annotateLoading={annotateLoading || filterFormRestoreLoading}
         title={
           activeTab === "Session Results" ? "Edit search filters" : "Set search filters"
         }
