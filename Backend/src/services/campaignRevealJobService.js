@@ -99,6 +99,38 @@ async function startCampaignRevealJob(actorUserId, campaignId, candidateKeys = n
   return createAndStartCampaignRevealJob(actorUserId, campaignId, candidateKeys || []);
 }
 
+/**
+ * Reveal missing email/phone for campaign contacts before launch (awaits completion).
+ */
+async function revealCampaignContactsForLaunch(actorUserId, campaignId) {
+  if (
+    !mongoose.Types.ObjectId.isValid(actorUserId) ||
+    !mongoose.Types.ObjectId.isValid(campaignId)
+  ) {
+    const err = new Error("Invalid user or campaign id");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const campaign = await findCampaignInScope(actorUserId, campaignId, { select: "userId" });
+  const ownerUserId = campaignOwnerUserId(campaign);
+
+  const job = await CampaignRevealJob.create({
+    userId: new mongoose.Types.ObjectId(ownerUserId),
+    campaignId: new mongoose.Types.ObjectId(campaignId),
+    status: "pending",
+    candidateKeys: [],
+    total: 0,
+    processed: 0,
+  });
+
+  const jobId = String(job._id);
+  await runCampaignRevealJob(jobId);
+
+  const finished = await CampaignRevealJob.findById(jobId).lean();
+  return formatJob(finished);
+}
+
 async function getCampaignRevealJob(actorUserId, jobId) {
   if (!mongoose.Types.ObjectId.isValid(jobId)) {
     const err = new Error("Invalid job id");
@@ -120,6 +152,7 @@ async function getCampaignRevealJob(actorUserId, jobId) {
 
 module.exports = {
   createAndStartCampaignRevealJob,
+  revealCampaignContactsForLaunch,
   getActiveRevealJobForCampaign,
   startCampaignRevealJob,
   getCampaignRevealJob,

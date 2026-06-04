@@ -38,6 +38,12 @@ const userIntegrationSchema = new mongoose.Schema(
     metaPhoneNumberId: { type: String, trim: true, default: "" },
     /** Optional WhatsApp Business Account ID (WABA). */
     metaWabaId: { type: String, trim: true, default: "" },
+    /** Calendar date (YYYY-MM-DD) for daily Gmail send counters. */
+    gmailUsageDate: { type: String, trim: true, default: "" },
+    /** Emails actually sent today via this Gmail integration. */
+    gmailDailySentCount: { type: Number, default: 0, min: 0 },
+    /** Emails reserved at campaign launch today (parallel campaigns share this cap). */
+    gmailDailyReservedCount: { type: Number, default: 0, min: 0 },
   },
   { timestamps: true }
 );

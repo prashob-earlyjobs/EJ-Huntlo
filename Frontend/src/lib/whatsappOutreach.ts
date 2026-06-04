@@ -24,14 +24,14 @@ export type WhatsAppOpeningTemplate = WhatsAppMessageTemplate;
 
 export const WHATSAPP_OPENING_TEMPLATES: WhatsAppMessageTemplate[] = [
   {
-    id: "professional_intro",
+    id: "opening_message_01",
     name: "Professional introduction",
-    description: "Formal outreach highlighting the role and a quick call to action.",
-    body: `Hi {{FirstName}},
+    description: "Shortlisted candidate invite to review the role and reply for next steps.",
+    body: `Hi {{1}},
 
-I'm {{SenderFirstName}}, and I came across your profile while hiring for a {{JobTitle}} opportunity. Your experience stood out to us.
+Your profile has been shortlisted through our candidate matching process for the {{2}} position.
 
-Would you be open to a brief chat?`,
+To review the opportunity details and next steps, please reply to this message.`,
   },
   {
     id: "role_opportunity",

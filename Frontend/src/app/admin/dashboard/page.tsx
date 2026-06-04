@@ -5,12 +5,20 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import {
+  AdminMessagingChannelSettings,
+  type AdminMessagingChannel,
+} from "@/components/admin/AdminMessagingChannelSettings";
+import {
   CandidatePoolPanel,
   type PoolCandidateRow,
   type PoolSessionOption,
 } from "@/components/dashboard/CandidatePoolPanel";
 import { LandingLogo } from "@/components/landing/LandingLogo";
 import { authHeaders, getStoredAuth, type StoredAuth } from "@/lib/auth";
+import {
+  fetchPlatformSettings,
+  updatePlatformSettings,
+} from "@/lib/platformSettingsApi";
 import {
   candidateIdentityKey,
   candidateRowKey,
@@ -104,7 +112,7 @@ const sidebarItems = [
   },
   {
     label: "Settings",
-    subtitle: "Workspace preferences",
+    subtitle: "Messaging channel",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
         <path
@@ -121,6 +129,7 @@ const sidebarItems = [
 
 const ADMIN_POOL_TAB = "Candidate pool";
 const ADMIN_ANALYTICS_TAB = "Analytics";
+const ADMIN_SETTINGS_TAB = "Settings";
 const ADMIN_POOL_LIMIT = 12;
 
 type TeamUserRow = {
@@ -589,6 +598,13 @@ export default function AdminDashboardPage() {
   const router = useRouter();
   const [auth, setAuth] = useState<StoredAuth | null>(null);
   const [activeTab, setActiveTab] = useState("Users");
+  const [adminMessagingChannel, setAdminMessagingChannel] =
+    useState<AdminMessagingChannel>("huntlo_meta");
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsError, setSettingsError] = useState("");
+  const [settingsSuccess, setSettingsSuccess] = useState("");
+  const [settingsUpdatedAt, setSettingsUpdatedAt] = useState<string | null>(null);
   const [isCreateUserModalOpen, setIsCreateUserModalOpen] = useState(false);
   const [teamUsers, setTeamUsers] = useState<TeamUserRow[]>([]);
   const [usersLoading, setUsersLoading] = useState(true);
@@ -1028,6 +1044,53 @@ export default function AdminDashboardPage() {
       cancelled = true;
     };
   }, [activeTab, apiBase]);
+
+  useEffect(() => {
+    if (activeTab !== ADMIN_SETTINGS_TAB || !auth) return;
+    let cancelled = false;
+    setSettingsError("");
+    setSettingsSuccess("");
+    setSettingsLoading(true);
+    fetchPlatformSettings(apiBase, auth.token)
+      .then((settings) => {
+        if (cancelled) return;
+        setAdminMessagingChannel(settings.messagingChannel);
+        setSettingsUpdatedAt(settings.updatedAt);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setSettingsError(err instanceof Error ? err.message : "Load failed");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setSettingsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, apiBase, auth]);
+
+  const handleSavePlatformSettings = async () => {
+    if (!auth) return;
+    setSettingsError("");
+    setSettingsSuccess("");
+    setSettingsSaving(true);
+    try {
+      const settings = await updatePlatformSettings(
+        apiBase,
+        auth.token,
+        adminMessagingChannel
+      );
+      setAdminMessagingChannel(settings.messagingChannel);
+      setSettingsUpdatedAt(settings.updatedAt);
+      setSettingsSuccess("Saved.");
+      window.setTimeout(() => setSettingsSuccess(""), 2500);
+    } catch (e) {
+      setSettingsError(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setSettingsSaving(false);
+    }
+  };
 
   const handleLogout = async () => {
     try {
@@ -1525,6 +1588,46 @@ export default function AdminDashboardPage() {
                 getDisplayedPhone={() => ""}
                 readOnly
               />
+            ) : activeTab === ADMIN_SETTINGS_TAB ? (
+              <article className="dashboard-card p-6">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="dashboard-section-title">Settings</h3>
+                    <p className="mt-1 dashboard-text-body">
+                      Choose which provider Huntlo should use for WhatsApp campaign messaging.
+                      Stored in the database for the whole platform.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleSavePlatformSettings()}
+                    disabled={settingsSaving || settingsLoading}
+                    className="dashboard-btn-primary disabled:opacity-50"
+                  >
+                    {settingsSaving ? "Saving…" : "Save"}
+                  </button>
+                </div>
+                {settingsError ? (
+                  <p className="mt-4 text-sm text-red-600" role="alert">
+                    {settingsError}
+                  </p>
+                ) : null}
+                {settingsSuccess ? (
+                  <p className="mt-4 text-sm text-emerald-700">{settingsSuccess}</p>
+                ) : null}
+                <div className="mt-6">
+                  {settingsLoading ? (
+                    <p className="text-sm text-slate-500">Loading settings…</p>
+                  ) : (
+                    <AdminMessagingChannelSettings
+                      value={adminMessagingChannel}
+                      onChange={setAdminMessagingChannel}
+                      disabled={settingsSaving}
+                      updatedAt={settingsUpdatedAt}
+                    />
+                  )}
+                </div>
+              </article>
             ) : activeTab === "Plans & pricing" ? (
               <article className="dashboard-card p-6">
                 <div className="flex flex-wrap items-center justify-between gap-3">

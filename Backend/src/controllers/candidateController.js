@@ -734,8 +734,19 @@ const applySearchFilters = async (req, res) => {
       promptLength: prompt.length,
       sessionId: existingSessionId || undefined,
       sessionUpdated: isSessionUpdate,
+      traceId: fjTraceId,
       payloadPreview: safeJsonPreview(payload),
     });
+
+    try {
+      console.log(
+        `[${new Date().toISOString()}] [api:candidates/search/apply] FJ payload exact JSON (traceId=${fjTraceId}):\n${JSON.stringify(payload, null, 2)}`
+      );
+    } catch {
+      console.log(
+        `[${new Date().toISOString()}] [api:candidates/search/apply] FJ payload unserializable (traceId=${fjTraceId})`
+      );
+    }
 
     const futureJobs = await runCostlyFutureJobsAction(
       `apply:${userId}:${existingSessionId || "new"}:${requestHash({

@@ -35,9 +35,15 @@ async function assertWhatsAppReadyForSend(userId) {
 /**
  * Send one WhatsApp message via Meta Cloud API.
  */
-async function sendWhatsAppMessage(userId, { to, body, templateId }) {
+async function sendWhatsAppMessage(userId, { to, body, templateId, contact, senderFirstName }) {
   const creds = await getMetaCredentialsForUser(userId);
-  return sendMetaWhatsAppMessage(creds, { to, body, templateId });
+  return sendMetaWhatsAppMessage(creds, {
+    to,
+    body,
+    templateId,
+    contact,
+    senderFirstName,
+  });
 }
 
 /** Free-form reply within Meta's 24-hour session window (after candidate message). */

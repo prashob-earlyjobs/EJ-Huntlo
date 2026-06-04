@@ -46,12 +46,56 @@ const logApi = (handler, event, meta = {}) => {
   console.log(`[${ts()}] [api:${handler}] ${event}`, meta);
 };
 
+function stringifyForFjLog(obj) {
+  if (obj === undefined) return "";
+  try {
+    return JSON.stringify(obj, null, 2);
+  } catch {
+    return "[unserializable]";
+  }
+}
+
 /**
- * One line per Future Jobs HTTP call: method, URL, request body, response, timing.
- * Copy this log when reporting issues to Future Jobs.
+ * One log block per Future Jobs HTTP call with full JSON bodies (no nested [Object]).
+ * Copy REQUEST BODY / CURL lines when reporting issues to Future Jobs.
  */
 const logFutureJobsExchange = (meta = {}) => {
-  logOutbound("futurejobs", "CALL SUMMARY (request + response — share with Future Jobs)", meta);
+  const { requestBody, responseBody, method, url, ...summary } = meta;
+
+  logOutbound("futurejobs", "CALL SUMMARY (request + response — share with Future Jobs)", {
+    ...summary,
+    method,
+    url,
+    requestBodyJsonLength:
+      requestBody !== undefined ? stringifyForFjLog(requestBody).length : 0,
+    responseBodyJsonLength:
+      responseBody !== undefined ? stringifyForFjLog(responseBody).length : 0,
+  });
+
+  if (requestBody !== undefined) {
+    const requestJson = stringifyForFjLog(requestBody);
+    console.log(
+      `[${ts()}] [outbound:futurejobs] REQUEST BODY (exact JSON — copy for curl -d):\n${requestJson}`
+    );
+
+    const m = String(method || "POST").toUpperCase();
+    const targetUrl = String(url || "").trim();
+    if (targetUrl && (m === "POST" || m === "PATCH" || m === "PUT")) {
+      console.log(
+        `[${ts()}] [outbound:futurejobs] CURL TEMPLATE (set FUTURE_JOBS_API_KEY, or use FUTURE_JOBS_AUTH_STYLE=bearer):\n` +
+          `curl -sS -X ${m} '${targetUrl}' \\\n` +
+          `  -H 'Content-Type: application/json' \\\n` +
+          `  -H 'x-fj-api-key: $FUTURE_JOBS_API_KEY' \\\n` +
+          `  --data-binary @- <<'FJ_JSON'\n${requestJson}\nFJ_JSON`
+      );
+    }
+  }
+
+  if (responseBody !== undefined) {
+    console.log(
+      `[${ts()}] [outbound:futurejobs] RESPONSE BODY (exact JSON):\n${stringifyForFjLog(responseBody)}`
+    );
+  }
 };
 
 module.exports = {

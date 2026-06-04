@@ -107,6 +107,10 @@ export function ImportCampaignContactsCsvModal({
               Download the sample CSV and use the same headers.
             </p>
             <p className="dashboard-campaign-csv-modal-hint mt-1">
+              Each campaign holds at most 200 contacts. If the CSV has more rows than you have slots
+              left, import is blocked.
+            </p>
+            <p className="dashboard-campaign-csv-modal-hint mt-1">
               Every column must have a value in each row — no empty cells.
             </p>
             <div className="dashboard-campaign-csv-header-chips">
@@ -172,7 +176,7 @@ export function ImportCampaignContactsCsvModal({
               {hasErrors ? (
                 <div className="dashboard-campaign-csv-status dashboard-campaign-csv-status--error">
                   <MaterialIcon name="error_outline" className="shrink-0 text-lg" />
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1 text-left">
                     <p className="dashboard-campaign-csv-status-title">Fix these issues</p>
                     <ul className="dashboard-campaign-csv-status-list">
                       {validationErrors.map((err, i) => (
@@ -184,7 +188,7 @@ export function ImportCampaignContactsCsvModal({
               ) : (
                 <div className="dashboard-campaign-csv-status dashboard-campaign-csv-status--success">
                   <MaterialIcon name="check_circle" className="shrink-0 text-lg" />
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1 text-left">
                     <p className="dashboard-campaign-csv-status-title">Ready to import</p>
                     <p className="dashboard-campaign-csv-status-text">
                       {readyCount} contact{readyCount === 1 ? "" : "s"} validated and ready to add.

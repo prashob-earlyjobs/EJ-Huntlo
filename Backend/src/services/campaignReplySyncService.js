@@ -375,35 +375,24 @@ async function syncEnrollmentReplies(enrollment, integrationEmail) {
  * Skips WhatsApp campaigns (their lastMessageId values are Meta ids, not Gmail ids).
  */
 async function syncDueEnrollmentReplies() {
-  const enrollments = await CampaignSequenceEnrollment.aggregate([
-    {
-      $match: {
-        sentCount: { $gt: 0 },
-        contactEmail: { $regex: /@/ },
-        $or: [
-          { lastThreadId: { $exists: true, $ne: "" } },
-          { lastMessageId: { $exists: true, $ne: "" } },
-        ],
-      },
-    },
-    {
-      $lookup: {
-        from: Campaign.collection.name,
-        localField: "campaignId",
-        foreignField: "_id",
-        as: "campaignRows",
-      },
-    },
-    {
-      $match: {
-        campaignRows: { $ne: [] },
-        "campaignRows.0.outreachChannel": { $ne: "whatsapp" },
-      },
-    },
-    { $sort: { lastReplySyncedAt: 1, updatedAt: 1 } },
-    { $limit: SYNC_BATCH_SIZE },
-    { $project: { campaignRows: 0 } },
-  ]);
+  const liveCampaignIds = await Campaign.find({
+    outreachStatus: { $in: ["active", "paused"] },
+  })
+    .distinct("_id")
+    .lean();
+  if (liveCampaignIds.length === 0) return { checked: 0, newReplies: 0 };
+
+  const enrollments = await CampaignSequenceEnrollment.find({
+    campaignId: { $in: liveCampaignIds },
+    sentCount: { $gt: 0 },
+    $or: [
+      { lastThreadId: { $exists: true, $ne: "" } },
+      { lastMessageId: { $exists: true, $ne: "" } },
+    ],
+  })
+    .sort({ lastReplySyncedAt: 1, updatedAt: 1 })
+    .limit(SYNC_BATCH_SIZE)
+    .lean();
 
   if (enrollments.length === 0) return { checked: 0, newReplies: 0 };
 

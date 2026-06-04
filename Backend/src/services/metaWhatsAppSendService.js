@@ -1,12 +1,44 @@
 const { getMetaGraphBaseUrl } = require("./metaWhatsAppConfig");
 const { normalizeToMetaRecipient } = require("./whatsappPhoneUtils");
+const {
+  getWhatsAppMetaTemplateBodyFields,
+  resolveMetaTemplateName,
+} = require("../constants/whatsappMetaTemplates");
+const { buildReplacementMap } = require("./outreachMergeService");
 
 /** Dev-only override: META_WHATSAPP_FORCE_TEST_TEMPLATE=true */
 const META_TEST_TEMPLATE_NAME = "hello_world";
-const META_TEST_TEMPLATE_LANGUAGE = "en_US";
+const META_TEST_TEMPLATE_LANGUAGE = "en";
 
 function getTemplateLanguageCode() {
-  return String(process.env.META_WHATSAPP_TEMPLATE_LANGUAGE || "en").trim() || "en";
+  const raw = String(process.env.META_WHATSAPP_TEMPLATE_LANGUAGE || "en").trim();
+  return raw || "en";
+}
+
+function lookupReplacementValue(key, replacements) {
+  const normalized = String(key || "").replace(/\s+/g, "");
+  if (!normalized) return "";
+  if (Object.prototype.hasOwnProperty.call(replacements, normalized)) {
+    return replacements[normalized];
+  }
+  const lower = normalized.toLowerCase();
+  if (Object.prototype.hasOwnProperty.call(replacements, lower)) {
+    return replacements[lower];
+  }
+  return "";
+}
+
+function buildTemplateBodyComponents(templateName, { contact, senderFirstName } = {}) {
+  const fieldKeys = getWhatsAppMetaTemplateBodyFields(templateName);
+  if (!fieldKeys?.length) return null;
+
+  const replacements = buildReplacementMap(contact, senderFirstName);
+  const parameters = fieldKeys.map((key) => {
+    const value = String(lookupReplacementValue(key, replacements) ?? "").trim() || "—";
+    return { type: "text", text: value.slice(0, 1024) };
+  });
+
+  return [{ type: "body", parameters }];
 }
 
 function forceTestTemplate() {
@@ -23,6 +55,18 @@ function isMetaTemplateName(value) {
 
 function parseMetaSendError(payload, status) {
   const err = payload?.error;
+  const code = err?.code;
+  const details = String(err?.error_data?.details || err?.message || "");
+
+  if (code === 132001) {
+    const lang = getTemplateLanguageCode();
+    return (
+      `WhatsApp template not found for language "${lang}". In Meta Business Manager, open the template ` +
+      `and confirm its exact name and language code (often en_US, not en), then set ` +
+      `META_WHATSAPP_TEMPLATE_LANGUAGE in Backend/.env to match. ${details}`.trim()
+    );
+  }
+
   if (err?.message) return String(err.message);
   if (err?.error_user_msg) return String(err.error_user_msg);
   if (status === 401 || status === 403) return "Invalid Meta access token or permissions.";
@@ -114,7 +158,7 @@ async function sendMetaWhatsAppSessionText(creds, { to, body }) {
  * Campaign / sequence send: approved template (cold) or session text when allowed.
  * templateId must match an approved template name in the user's Meta Business account.
  */
-async function sendMetaWhatsAppMessage(creds, { to, body, templateId }) {
+async function sendMetaWhatsAppMessage(creds, { to, body, templateId, contact, senderFirstName }) {
   const recipient = normalizeToMetaRecipient(to);
   if (!recipient || recipient.length < 10) {
     const err = new Error("Invalid recipient phone for Meta API.");
@@ -123,7 +167,7 @@ async function sendMetaWhatsAppMessage(creds, { to, body, templateId }) {
   }
 
   const text = String(body || "").trim();
-  const rawTemplate = String(templateId || "").trim();
+  const rawTemplate = resolveMetaTemplateName(templateId);
   const templateName = forceTestTemplate()
     ? META_TEST_TEMPLATE_NAME
     : isMetaTemplateName(rawTemplate)
@@ -137,15 +181,23 @@ async function sendMetaWhatsAppMessage(creds, { to, body, templateId }) {
       templateName === META_TEST_TEMPLATE_NAME
         ? META_TEST_TEMPLATE_LANGUAGE
         : getTemplateLanguageCode();
+    const components =
+      templateName === META_TEST_TEMPLATE_NAME
+        ? undefined
+        : buildTemplateBodyComponents(templateName, { contact, senderFirstName });
+    const template = {
+      name: templateName,
+      language: { code: languageCode },
+    };
+    if (components?.length) {
+      template.components = components;
+    }
     payload = {
       messaging_product: "whatsapp",
       recipient_type: "individual",
       to: recipient,
       type: "template",
-      template: {
-        name: templateName,
-        language: { code: languageCode },
-      },
+      template,
     };
   } else if (text) {
     payload = {
