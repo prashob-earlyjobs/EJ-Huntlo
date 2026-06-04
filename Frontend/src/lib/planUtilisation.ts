@@ -52,11 +52,28 @@ export function parseUtilisationHistoryPagination(
   return { page, limit, totalDocs, totalPages };
 }
 
+export type OutreachThreadStats = {
+  email: number;
+  whatsapp: number;
+};
+
 export type MePlanSnapshot = {
   planId: string;
   planName: string;
   utilisation: UserUtilisationStats | null;
+  outreachThreads: OutreachThreadStats | null;
 };
+
+export function parseOutreachThreadsPayload(raw: unknown): OutreachThreadStats {
+  const empty: OutreachThreadStats = { email: 0, whatsapp: 0 };
+  if (!raw || typeof raw !== "object") return empty;
+  const o = raw as Record<string, unknown>;
+  const n = (key: keyof OutreachThreadStats) => {
+    const v = o[key];
+    return typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0;
+  };
+  return { email: n("email"), whatsapp: n("whatsapp") };
+}
 
 /** Reads plan + utilisation from GET /api/users/me (or equivalent) response. */
 export function parsePlanFromMeResponse(raw: unknown): MePlanSnapshot | null {
@@ -80,11 +97,15 @@ export function parsePlanFromMeResponse(raw: unknown): MePlanSnapshot | null {
   const planName =
     typeof planObj?.planName === "string" ? planObj.planName : planId;
 
+  const outreachRaw = planObj?.outreachThreads;
+
   return {
     planId,
     planName,
     utilisation:
       meData.utilisation != null ? parseUtilisationPayload(meData.utilisation) : null,
+    outreachThreads:
+      outreachRaw != null ? parseOutreachThreadsPayload(outreachRaw) : null,
   };
 }
 
@@ -168,6 +189,10 @@ export function utilisationQuotaActionLabel(action: string): string {
       return "Mobile unveil";
     case "linkedinLookups":
       return "LinkedIn search";
+    case "emailOutreaches":
+      return "Email outreach";
+    case "whatsappOutreaches":
+      return "WhatsApp outreach";
     default:
       return action ? action.replace(/([A-Z])/g, " $1").trim() : "Activity";
   }

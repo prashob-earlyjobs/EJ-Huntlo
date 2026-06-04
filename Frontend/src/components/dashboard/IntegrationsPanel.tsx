@@ -15,10 +15,10 @@ import {
 import { IntegrationsPanelSkeleton } from "@/components/dashboard/IntegrationsPanelSkeleton";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { authHeaders, getStoredAuth } from "@/lib/auth";
-
-const ENTERPRISE_PLAN_ID = "enterprise";
-const ENTERPRISE_LOCKED_MESSAGE =
-  "Integrations are available on the Enterprise plan only. Upgrade to connect Gmail, WhatsApp, Calendly, and LinkedIn.";
+import {
+  hasCampaignsAndIntegrationsAccess,
+  INTEGRATIONS_LOCKED_MESSAGE,
+} from "@/lib/planAccess";
 
 type IntegrationRow = {
   id: string;
@@ -128,7 +128,7 @@ function ConnectOptionCard({
           {locked ? (
             <>
               <MaterialIcon name="workspace_premium" className="text-sm" aria-hidden />
-              Enterprise
+              Growth+
             </>
           ) : connected ? (
             "Connected"
@@ -158,7 +158,7 @@ function ConnectOptionCard({
           {locked ? (
             <>
               <MaterialIcon name="lock" className="text-base" />
-              Enterprise plan required
+              Growth plan or higher
             </>
           ) : busy ? (
             <>
@@ -188,7 +188,7 @@ export function IntegrationsPanel({
   planResolved = false,
   onViewPlans,
 }: Props) {
-  const isEnterprise = currentPlanId === ENTERPRISE_PLAN_ID;
+  const hasIntegrationsAccess = hasCampaignsAndIntegrationsAccess(currentPlanId);
   const [integrations, setIntegrations] = useState<IntegrationRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [listReady, setListReady] = useState(false);
@@ -203,13 +203,13 @@ export function IntegrationsPanel({
     connectedProviders.has(option.id)
   ).length;
 
-  const showEnterpriseNotice = useCallback(() => {
-    setNotice(ENTERPRISE_LOCKED_MESSAGE);
+  const showPlanLockedNotice = useCallback(() => {
+    setNotice(INTEGRATIONS_LOCKED_MESSAGE);
   }, []);
 
   const loadIntegrations = useCallback(async () => {
     const auth = getStoredAuth();
-    if (!auth?.token || !isEnterprise) {
+    if (!auth?.token || !hasIntegrationsAccess) {
       setIntegrations([]);
       setLoading(false);
       return;
@@ -230,11 +230,11 @@ export function IntegrationsPanel({
     } finally {
       setLoading(false);
     }
-  }, [apiBase, isEnterprise]);
+  }, [apiBase, hasIntegrationsAccess]);
 
   useEffect(() => {
     if (!planResolved) return;
-    if (!isEnterprise) {
+    if (!hasIntegrationsAccess) {
       setIntegrations([]);
       setLoading(false);
       setListReady(true);
@@ -242,16 +242,16 @@ export function IntegrationsPanel({
     }
     setListReady(false);
     void loadIntegrations();
-  }, [planResolved, isEnterprise, loadIntegrations]);
+  }, [planResolved, hasIntegrationsAccess, loadIntegrations]);
 
   useEffect(() => {
     if (!loading) setListReady(true);
   }, [loading]);
 
   const showShimmer =
-    !planResolved || (isEnterprise && (!listReady || loading));
+    !planResolved || (hasIntegrationsAccess && (!listReady || loading));
 
-  const showEnterpriseLocked = planResolved && !isEnterprise;
+  const showPlanLocked = planResolved && !hasIntegrationsAccess;
 
   const gmailLogin = useGoogleLogin({
     flow: "auth-code",
@@ -304,32 +304,32 @@ export function IntegrationsPanel({
   });
 
   const handleConnectGmail = useCallback(() => {
-    if (!isEnterprise) {
-      showEnterpriseNotice();
+    if (!hasIntegrationsAccess) {
+      showPlanLockedNotice();
       return;
     }
     setNotice("");
     setBusyProvider("gmail");
     gmailLogin();
-  }, [isEnterprise, showEnterpriseNotice, gmailLogin]);
+  }, [hasIntegrationsAccess, showPlanLockedNotice, gmailLogin]);
 
   const handleConnectWhatsApp = useCallback(() => {
-    if (!isEnterprise) {
-      showEnterpriseNotice();
+    if (!hasIntegrationsAccess) {
+      showPlanLockedNotice();
       return;
     }
     setNotice("");
     setWhatsappModalOpen(true);
-  }, [isEnterprise, showEnterpriseNotice]);
+  }, [hasIntegrationsAccess, showPlanLockedNotice]);
 
   const handleConnectCalendly = useCallback(() => {
-    if (!isEnterprise) {
-      showEnterpriseNotice();
+    if (!hasIntegrationsAccess) {
+      showPlanLockedNotice();
       return;
     }
     setNotice("");
     setCalendlyModalOpen(true);
-  }, [isEnterprise, showEnterpriseNotice]);
+  }, [hasIntegrationsAccess, showPlanLockedNotice]);
 
   const handleWhatsAppSubmit = useCallback(
     async (values: WhatsAppConnectFormValues) => {
@@ -438,7 +438,7 @@ export function IntegrationsPanel({
 
   const handleDisconnect = useCallback(
     async (provider: string) => {
-      if (!isEnterprise) return;
+      if (!hasIntegrationsAccess) return;
       setNotice("");
       setBusyProvider(provider);
       const auth = getStoredAuth();
@@ -466,7 +466,7 @@ export function IntegrationsPanel({
       }
       setBusyProvider(null);
     },
-    [apiBase, isEnterprise]
+    [apiBase, hasIntegrationsAccess]
   );
 
   return (
@@ -484,10 +484,10 @@ export function IntegrationsPanel({
             </p>
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
-            {showEnterpriseLocked ? (
+            {showPlanLocked ? (
               <span className="dashboard-integration-enterprise-pill">
                 <MaterialIcon name="lock" className="text-sm" aria-hidden />
-                Enterprise
+                Growth+
               </span>
             ) : null}
           </div>
@@ -506,10 +506,10 @@ export function IntegrationsPanel({
               <ConnectOptionCard
                 key={option.id}
                 option={option}
-                locked={showEnterpriseLocked}
-                connected={isEnterprise && connectedProviders.has(option.id)}
+                locked={showPlanLocked}
+                connected={hasIntegrationsAccess && connectedProviders.has(option.id)}
                 busy={busyProvider === option.id}
-                onLocked={showEnterpriseNotice}
+                onLocked={showPlanLockedNotice}
                 onConnect={
                   option.id === "gmail"
                     ? handleConnectGmail
@@ -524,13 +524,13 @@ export function IntegrationsPanel({
           </div>
         </div>
 
-        {!isEnterprise ? (
+        {!hasIntegrationsAccess ? (
           <div className="dashboard-integration-summary">
             <span className="dashboard-integration-summary-stat">
-              Available on Enterprise plan
+              Available on Growth and Enterprise plans
             </span>
             <p className="dashboard-text-body">
-              Upgrade to unlock Gmail, WhatsApp, Calendly, and LinkedIn integrations.
+              Upgrade to Growth or Enterprise to connect Gmail, WhatsApp, Calendly, and LinkedIn.
             </p>
           </div>
         ) : null}
@@ -538,14 +538,14 @@ export function IntegrationsPanel({
         {notice ? (
           <div className="dashboard-integration-notice-wrap">
             <p className="dashboard-alert-notice">{notice}</p>
-            {showEnterpriseLocked && notice === ENTERPRISE_LOCKED_MESSAGE ? (
+            {showPlanLocked && notice === INTEGRATIONS_LOCKED_MESSAGE ? (
               <button
                 type="button"
                 onClick={onViewPlans}
                 className="dashboard-btn-primary mt-3 px-4 py-2 text-sm"
               >
                 <MaterialIcon name="workspace_premium" className="text-base" />
-                View Enterprise plan
+                View plans
               </button>
             ) : null}
           </div>
@@ -565,10 +565,10 @@ export function IntegrationsPanel({
               </tr>
             </thead>
             <tbody>
-              {showEnterpriseLocked ? (
+              {showPlanLocked ? (
                 <tr>
                   <td colSpan={6} className="dashboard-pricing-table-empty">
-                    Upgrade to Enterprise to connect integrations.
+                    Upgrade to Growth or Enterprise to connect integrations.
                   </td>
                 </tr>
               ) : integrations.length === 0 ? (

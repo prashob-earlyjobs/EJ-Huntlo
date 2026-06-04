@@ -28,10 +28,10 @@ import {
   type CampaignWorkspaceTab,
 } from "@/lib/campaignRoutes";
 import { dashboardBtnSecondaryClass } from "@/lib/dashboardStyles";
-
-const ENTERPRISE_PLAN_ID = "enterprise";
-const ENTERPRISE_LOCKED_MESSAGE =
-  "Campaigns are available on the Enterprise plan. Upgrade to organize and run outreach campaigns.";
+import {
+  CAMPAIGNS_LOCKED_MESSAGE,
+  hasCampaignsAndIntegrationsAccess,
+} from "@/lib/planAccess";
 
 type Props = {
   currentPlanId: string;
@@ -76,7 +76,7 @@ export function CampaignsPanel({
   onAddFromSearchHistory,
 }: Props) {
   const router = useRouter();
-  const isEnterprise = currentPlanId === ENTERPRISE_PLAN_ID;
+  const hasCampaignsAccess = hasCampaignsAndIntegrationsAccess(currentPlanId);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [createBusy, setCreateBusy] = useState(false);
@@ -167,12 +167,12 @@ export function CampaignsPanel({
 
   /** Full skeleton only on first load (no campaigns yet). */
   const showListShimmer =
-    !planResolved || (campaignsLoading && campaignsTotal === 0 && isEnterprise);
+    !planResolved || (campaignsLoading && campaignsTotal === 0 && hasCampaignsAccess);
 
-  const showEnterpriseLocked =
-    planResolved && !isEnterprise && !campaignsLoading && campaignsTotal === 0;
+  const showPlanLocked =
+    planResolved && !hasCampaignsAccess && !campaignsLoading && campaignsTotal === 0;
   const showEmptyList =
-    planResolved && isEnterprise && !campaignsLoading && campaignsTotal === 0;
+    planResolved && hasCampaignsAccess && !campaignsLoading && campaignsTotal === 0;
   const showPagination = campaignsTotalPages > 1;
 
   useEffect(() => {
@@ -242,7 +242,7 @@ export function CampaignsPanel({
   );
 
   const openCreateModal = () => {
-    if (!isEnterprise) {
+    if (!hasCampaignsAccess) {
       onViewPlans();
       return;
     }
@@ -349,7 +349,7 @@ export function CampaignsPanel({
               ) : null}
               <button
                 type="button"
-                disabled={!planResolved || !isEnterprise}
+                disabled={!planResolved || !hasCampaignsAccess}
                 onClick={openCreateModal}
                 className="dashboard-btn-primary shrink-0 px-3 py-1.5 text-xs disabled:opacity-55"
               >
@@ -366,16 +366,16 @@ export function CampaignsPanel({
         >
           {showListShimmer ? (
             <CampaignsListSkeleton count={5} />
-          ) : showEnterpriseLocked ? (
+          ) : showPlanLocked ? (
             <div className="dashboard-integration-notice-wrap">
-              <p className="dashboard-alert-notice">{ENTERPRISE_LOCKED_MESSAGE}</p>
+              <p className="dashboard-alert-notice">{CAMPAIGNS_LOCKED_MESSAGE}</p>
               <button
                 type="button"
                 onClick={onViewPlans}
                 className="dashboard-btn-primary mt-3 px-4 py-2 text-sm"
               >
                 <MaterialIcon name="workspace_premium" className="text-base" />
-                View Enterprise plan
+                View plans
               </button>
             </div>
           ) : showEmptyList ? (
@@ -388,7 +388,7 @@ export function CampaignsPanel({
                 Create a campaign to group outreach plans, contacts, and performance across your
                 pipeline.
               </p>
-              {isEnterprise ? (
+              {hasCampaignsAccess ? (
                 <button
                   type="button"
                   onClick={openCreateModal}
@@ -400,7 +400,7 @@ export function CampaignsPanel({
               ) : (
                 <button type="button" onClick={onViewPlans} className="dashboard-btn-primary mt-6">
                   <MaterialIcon name="workspace_premium" className="text-base" />
-                  View Enterprise plan
+                  View plans
                 </button>
               )}
             </div>
@@ -414,7 +414,7 @@ export function CampaignsPanel({
           )}
         </div>
 
-        {showPagination && !showListShimmer && !showEmptyList && !showEnterpriseLocked ? (
+        {showPagination && !showListShimmer && !showEmptyList && !showPlanLocked ? (
           <div className="dashboard-campaigns-pagination dashboard-pagination shrink-0">
             <p className="dashboard-pagination-label tabular-nums">
               Page {campaignsPage} of {campaignsTotalPages}

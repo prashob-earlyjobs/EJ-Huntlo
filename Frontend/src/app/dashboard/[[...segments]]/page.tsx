@@ -70,6 +70,7 @@ import {
   parseUtilisationHistoryPayload,
   parseUtilisationPayload,
   UTILISATION_HISTORY_PAGE_SIZE,
+  type OutreachThreadStats,
   type UserUtilisationStats,
   type UtilisationHistoryRow,
 } from "@/lib/planUtilisation";
@@ -77,6 +78,7 @@ import {
   parsePricingPlansFromApi,
   type PricingPlansPayload,
 } from "@/lib/pricingPlans";
+import { hasCampaignsAndIntegrationsAccess } from "@/lib/planAccess";
 import { mergeStoredAuthUser, postAuthPath } from "@/lib/onboarding";
 import { isBlockedAccountResponse, isBlockedMemberStatus } from "@/lib/sessionLogout";
 import {
@@ -1323,6 +1325,10 @@ export default function UserDashboardPage() {
     mobileUnveils: 0,
     linkedinLookups: 0,
   }));
+  const [planOutreachThreads, setPlanOutreachThreads] = useState<OutreachThreadStats>({
+    email: 0,
+    whatsapp: 0,
+  });
   const [userPlanId, setUserPlanId] = useState("trial");
   const [userPlanName, setUserPlanName] = useState("Trial");
   const [userPlanReady, setUserPlanReady] = useState(false);
@@ -1446,6 +1452,7 @@ export default function UserDashboardPage() {
           setUserPlanId(snapshot.planId);
           setUserPlanName(snapshot.planName);
           if (snapshot.utilisation) setPlanUtilisation(snapshot.utilisation);
+          if (snapshot.outreachThreads) setPlanOutreachThreads(snapshot.outreachThreads);
         }
         setUserPlanReady(true);
       })
@@ -1456,7 +1463,7 @@ export default function UserDashboardPage() {
 
   const loadCampaignsList = useCallback(async (opts?: { page?: number }) => {
     const auth = getStoredAuth();
-    if (!auth?.token || userPlanId !== "enterprise") {
+    if (!auth?.token || !hasCampaignsAndIntegrationsAccess(userPlanId)) {
       setCampaigns([]);
       setCampaignsLoading(false);
       setCampaignsPage(1);
@@ -1492,12 +1499,12 @@ export default function UserDashboardPage() {
   );
 
   useEffect(() => {
-    if (userPlanId !== "enterprise") return;
+    if (!hasCampaignsAndIntegrationsAccess(userPlanId)) return;
     void loadCampaignsList({ page: 1 });
   }, [userPlanId, loadCampaignsList]);
 
   useEffect(() => {
-    if (userPlanId !== "enterprise") return;
+    if (!hasCampaignsAndIntegrationsAccess(userPlanId)) return;
     if (activeTab !== "Campaigns" && !addToCampaignOpen && !routeCampaignId) return;
     setCampaignsLoading(true);
     void loadCampaignsList({ page: 1 });
@@ -1870,6 +1877,7 @@ export default function UserDashboardPage() {
             setUserPlanId(snapshot.planId);
             setUserPlanName(snapshot.planName);
             if (snapshot.utilisation) setPlanUtilisation(snapshot.utilisation);
+            if (snapshot.outreachThreads) setPlanOutreachThreads(snapshot.outreachThreads);
           }
         }
       })
@@ -4056,7 +4064,7 @@ export default function UserDashboardPage() {
   );
 
   const openAddToCampaignModal = () => {
-    if (userPlanId !== "enterprise") {
+    if (!hasCampaignsAndIntegrationsAccess(userPlanId)) {
       navigateToTab("Plans and pricing");
       return;
     }
@@ -5084,6 +5092,7 @@ export default function UserDashboardPage() {
                 currentPlanId={userPlanId}
                 currentPlanName={userPlanName}
                 utilisation={planUtilisation}
+                outreachThreads={planOutreachThreads}
                 history={utilisationHistory}
                 historyLoading={utilisationHistoryLoading}
                 historyPage={utilisationHistoryPage}

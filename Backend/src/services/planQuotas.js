@@ -142,7 +142,18 @@ async function assertCanAddTeamMember(owner, currentSubMemberCount) {
 
 async function getUserPlanSummary(user) {
   const { planId, tier, tiers, billingUser } = await resolveTierForUser(user);
-  const utilisation = utilisationFromUser(billingUser || user);
+  const billable = billingUser || user;
+  const billingUserId = billable?._id ? String(billable._id) : "";
+  const utilisation = utilisationFromUser(billable);
+  let emailThreadsUsed = 0;
+  let whatsappThreadsUsed = 0;
+  if (billingUserId) {
+    const { countOutreachThreadsUsed } = require("./outreachCreditsService");
+    [emailThreadsUsed, whatsappThreadsUsed] = await Promise.all([
+      countOutreachThreadsUsed("email", { billingUserId }),
+      countOutreachThreadsUsed("whatsapp", { billingUserId }),
+    ]);
+  }
   return {
     planId,
     planName: tier?.name || planId,
@@ -151,9 +162,15 @@ async function getUserPlanSummary(user) {
       candidateUnlocks: tier?.candidateUnlocks ?? null,
       verifiedEmails: tier?.verifiedEmails ?? null,
       phoneNumbers: tier?.phoneNumbers ?? null,
+      emailOutreaches: tier?.emailOutreaches ?? null,
+      whatsappOutreaches: tier?.whatsappOutreaches ?? null,
       maxSubUsers: getMaxSubUsersForTier(tier),
     },
     utilisation,
+    outreachThreads: {
+      email: emailThreadsUsed,
+      whatsapp: whatsappThreadsUsed,
+    },
     availablePlanIds: tiers.map((t) => t.id).filter(Boolean),
   };
 }

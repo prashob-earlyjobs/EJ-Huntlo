@@ -8,6 +8,8 @@ export type PricingTier = {
   candidateUnlocks?: number | null;
   verifiedEmails?: number | null;
   phoneNumbers?: number | null;
+  emailOutreaches?: number | null;
+  whatsappOutreaches?: number | null;
   /** null = unlimited sub-users */
   maxSubUsers?: number | null;
   features: string[];
@@ -41,14 +43,16 @@ export function subUsersDisplayLabel(n: number | null | undefined): string | nul
 
 export function pricingQuotaDisplayLabel(
   n: number | null | undefined,
-  kind: "searches" | "unlocks" | "emails" | "phones"
+  kind: "searches" | "unlocks" | "emails" | "phones" | "emailOutreaches" | "whatsappOutreaches"
 ): string | null {
   if (typeof n !== "number" || !Number.isFinite(n) || n < 0) return null;
   const q = Math.floor(n);
   if (kind === "searches") return `${q.toLocaleString()} searches`;
   if (kind === "unlocks") return `${q.toLocaleString()} candidate unlocks`;
   if (kind === "emails") return `${q.toLocaleString()} verified emails`;
-  return `${q.toLocaleString()} phone numbers`;
+  if (kind === "phones") return `${q.toLocaleString()} phone numbers`;
+  if (kind === "emailOutreaches") return `${q.toLocaleString()} email outreaches`;
+  return `${q.toLocaleString()} WhatsApp outreaches`;
 }
 
 export function tierFeatureLines(tier: PricingTier): string[] {
@@ -57,6 +61,8 @@ export function tierFeatureLines(tier: PricingTier): string[] {
     pricingQuotaDisplayLabel(tier.candidateUnlocks, "unlocks"),
     pricingQuotaDisplayLabel(tier.verifiedEmails, "emails"),
     pricingQuotaDisplayLabel(tier.phoneNumbers, "phones"),
+    pricingQuotaDisplayLabel(tier.emailOutreaches, "emailOutreaches"),
+    pricingQuotaDisplayLabel(tier.whatsappOutreaches, "whatsappOutreaches"),
     subUsersDisplayLabel(tier.maxSubUsers),
   ].filter((line): line is string => line !== null);
 
@@ -87,6 +93,8 @@ export function parsePricingPlansFromApi(plans: unknown): PricingPlansPayload | 
       candidateUnlocks: parsePricingQuotaFromApi(t.candidateUnlocks),
       verifiedEmails: parsePricingQuotaFromApi(t.verifiedEmails),
       phoneNumbers: parsePricingQuotaFromApi(t.phoneNumbers),
+      emailOutreaches: parsePricingQuotaFromApi(t.emailOutreaches),
+      whatsappOutreaches: parsePricingQuotaFromApi(t.whatsappOutreaches),
       maxSubUsers:
         t.maxSubUsers === null
           ? null
