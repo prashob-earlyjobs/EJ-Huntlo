@@ -20,6 +20,7 @@ const {
   buildSessionPayloadForApply,
   buildSessionPayloadFromPromptAndFilter,
   filterFormFromAnnotation,
+  normalizeFilterFormForUi,
   enrichFilterFormSkillsFromPrompt,
 } = require("./filterMapping");
 const { getFutureJobsConfig } = require("./config");
@@ -45,6 +46,7 @@ module.exports = {
   buildSessionPayloadForApply,
   buildSessionPayloadFromPromptAndFilter,
   filterFormFromAnnotation,
+  normalizeFilterFormForUi,
   enrichFilterFormSkillsFromPrompt,
   getFutureJobsConfig,
   mapFjDocToCandidate,

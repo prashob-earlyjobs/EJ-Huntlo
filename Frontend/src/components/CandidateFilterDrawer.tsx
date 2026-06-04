@@ -146,14 +146,14 @@ export function CandidateFilterDrawer({
                   <input
                     type="number"
                     className={smallInputClass}
-                    value={form.yearsExpMin}
+                    value={form.yearsExpMin ?? ""}
                     onChange={(e) => set({ yearsExpMin: e.target.value })}
                   />
                   <span className="text-slate-500">to</span>
                   <input
                     type="number"
                     className={smallInputClass}
-                    value={form.yearsExpMax}
+                    value={form.yearsExpMax ?? ""}
                     onChange={(e) => set({ yearsExpMax: e.target.value })}
                   />
                 </div>
@@ -381,7 +381,7 @@ export function CandidateFilterDrawer({
                     type="number"
                     placeholder="Min"
                     className={smallInputClass}
-                    value={form.headcountGrowthMin}
+                    value={form.headcountGrowthMin ?? ""}
                     onChange={(e) => set({ headcountGrowthMin: e.target.value })}
                   />
                   <span className="text-slate-500">to</span>
@@ -389,7 +389,7 @@ export function CandidateFilterDrawer({
                     type="number"
                     placeholder="Max"
                     className={smallInputClass}
-                    value={form.headcountGrowthMax}
+                    value={form.headcountGrowthMax ?? ""}
                     onChange={(e) => set({ headcountGrowthMax: e.target.value })}
                   />
                 </div>
@@ -401,7 +401,7 @@ export function CandidateFilterDrawer({
                     type="number"
                     placeholder="Min"
                     className={smallInputClass}
-                    value={form.companyHeadcountMin}
+                    value={form.companyHeadcountMin ?? ""}
                     onChange={(e) => set({ companyHeadcountMin: e.target.value })}
                   />
                   <span className="text-slate-500">to</span>
@@ -409,7 +409,7 @@ export function CandidateFilterDrawer({
                     type="number"
                     placeholder="Max"
                     className={smallInputClass}
-                    value={form.companyHeadcountMax}
+                    value={form.companyHeadcountMax ?? ""}
                     onChange={(e) => set({ companyHeadcountMax: e.target.value })}
                   />
                 </div>
@@ -435,7 +435,7 @@ export function CandidateFilterDrawer({
                     type="number"
                     placeholder="Min"
                     className={smallInputClass}
-                    value={form.yearFoundedMin}
+                    value={form.yearFoundedMin ?? ""}
                     onChange={(e) => set({ yearFoundedMin: e.target.value })}
                   />
                   <span className="text-slate-500">to</span>
@@ -443,7 +443,7 @@ export function CandidateFilterDrawer({
                     type="number"
                     placeholder="Max"
                     className={smallInputClass}
-                    value={form.yearFoundedMax}
+                    value={form.yearFoundedMax ?? ""}
                     onChange={(e) => set({ yearFoundedMax: e.target.value })}
                   />
                 </div>
