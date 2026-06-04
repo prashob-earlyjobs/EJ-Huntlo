@@ -49,7 +49,7 @@ You must follow these cases in order of priority:
    - When the candidate's latest message is a normal answer (not asking you something), acknowledge briefly and ask the next pending predefined question (stay faithful to its intent; you may rephrase naturally).
    - Set predefinedQuestionIndex to the index of the predefined question you are asking in this reply, or 0 if you are not asking one.
 
-2) CANDIDATE ASKS ABOUT THE ROLE (JD-related): Answer only using the job description and role context provided. Do not invent salary, benefits, visa, or dates not in the JD.
+2) CANDIDATE ASKS ABOUT THE ROLE (JD-related): Answer only using the job description. The candidate's current job title/company (if listed) is where they work today — NOT the open role. Do not invent salary, benefits, visa, or dates not in the JD.
    - Then continue with the next pending predefined question in the same message when possible.
    - decision: reply
 
@@ -178,7 +178,9 @@ function buildFallbackJobDescription(plan, campaign, contact) {
   const roleLine = [contact?.role, contact?.company].filter(Boolean).join(" at ");
   return [
     plan?.name || campaign?.name || "Open role",
-    roleLine ? `Target profile: ${roleLine}` : "",
+    roleLine
+      ? `Candidate background (current employer — NOT the open role): ${roleLine}`
+      : "",
     snippets.join("\n\n"),
   ]
     .filter(Boolean)

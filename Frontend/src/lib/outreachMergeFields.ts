@@ -14,8 +14,16 @@ export const OUTREACH_MERGE_FIELDS = [
   { label: "Candidate email", token: "candidate_email" },
   { label: "Candidate phone", token: "candidate_phone" },
   { label: "First Name", token: "FirstName", exampleFallback: "there" },
-  { label: "Current Company", token: "CurrentCompany", exampleFallback: "your company" },
-  { label: "Job Title", token: "JobTitle", exampleFallback: "your role" },
+  {
+    label: "Candidate current company",
+    token: "CurrentCompany",
+    exampleFallback: "your company",
+  },
+  {
+    label: "Candidate current job title",
+    token: "JobTitle",
+    exampleFallback: "your role",
+  },
   { label: "Sender First Name", token: "SenderFirstName" },
 ] as const;
 

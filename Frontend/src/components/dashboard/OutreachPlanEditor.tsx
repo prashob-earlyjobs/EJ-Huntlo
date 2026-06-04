@@ -952,16 +952,16 @@ export function OutreachPlanEditor({
       ) : (
         <button
           type="button"
-          className={`inline-flex max-w-full items-center gap-1.5 text-left hover:text-[#0050cb] ${
+          className={`flex w-full min-w-0 max-w-full items-center gap-1.5 text-left hover:text-[#0050cb] ${
             centered ? "justify-center" : ""
           }`}
           onClick={() => setEditingTitle(true)}
         >
-          <span className="dashboard-section-title truncate text-base">{planName}</span>
+          <span className="dashboard-section-title min-w-0 truncate text-base">{planName}</span>
           <MaterialIcon name="edit" className="shrink-0 text-base text-slate-400" aria-hidden />
         </button>
       )}
-      <p className="mt-0.5 text-xs text-slate-500">
+      <p className="mt-0.5 truncate text-xs text-slate-500">
         Created by {createdMeta.name} · {createdMeta.date}
       </p>
     </div>
@@ -998,21 +998,21 @@ export function OutreachPlanEditor({
       {embedded ? (
         <>
           <div className="dashboard-outreach-gmail-bar shrink-0">
-            <div className="flex min-w-0 flex-1 items-center gap-2.5">
+            <div className="dashboard-outreach-gmail-bar-heading flex min-w-0 items-center gap-2.5">
               <span className="dashboard-campaign-sequence-toolbar-icon shrink-0" aria-hidden>
                 <IntegrationBrandLogo provider="gmail" title="Gmail" className="h-[22px] w-[22px]" />
               </span>
               <div className="min-w-0">
-                <h2 className="dashboard-campaign-report-title">Email sequence</h2>
-                <p className="dashboard-campaign-report-subtitle">
+                <h2 className="dashboard-campaign-report-title truncate">Email sequence</h2>
+                <p className="dashboard-campaign-report-subtitle truncate">
                   Edit steps, schedule, and message content
                 </p>
               </div>
             </div>
-            <div className="dashboard-outreach-gmail-plan-meta hidden min-w-0 max-w-[min(100%,18rem)] sm:block">
+            <div className="dashboard-outreach-gmail-bar-meta dashboard-outreach-gmail-plan-meta min-w-0">
               {planTitleEditor(false)}
             </div>
-            <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <div className="dashboard-outreach-gmail-bar-actions flex shrink-0 flex-wrap items-center justify-end gap-2">
               <SaveSequenceButton
                 compact
                 saving={saving}
@@ -1094,9 +1094,6 @@ export function OutreachPlanEditor({
                 </button>
               )}
             </div>
-          </div>
-          <div className="dashboard-outreach-gmail-plan-meta dashboard-outreach-gmail-plan-meta--mobile shrink-0 sm:hidden">
-            {planTitleEditor(false)}
           </div>
         </>
       ) : (

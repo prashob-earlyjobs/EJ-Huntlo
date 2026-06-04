@@ -29,6 +29,72 @@ export const CAMPAIGN_WORKSPACE_TABS: CampaignWorkspaceTab[] = [
   "Settings",
 ];
 
+export type CampaignOutreachChannel = "gmail" | "whatsapp";
+
+/** Known channel from campaign record, or inferred from the active workspace tab URL. */
+export function inferCampaignWorkspaceChannel(
+  workspaceTab: CampaignWorkspaceTab,
+  outreachChannel?: CampaignOutreachChannel | null
+): CampaignOutreachChannel | null {
+  if (outreachChannel === "gmail" || outreachChannel === "whatsapp") {
+    return outreachChannel;
+  }
+  if (workspaceTab === "WhatsApp") return "whatsapp";
+  if (workspaceTab === "Emails") return "gmail";
+  return null;
+}
+
+/** Whether the Job description workspace tab should appear (matches CampaignWorkspace rules). */
+export function inferShowJobDescriptionTab(
+  workspaceTab: CampaignWorkspaceTab,
+  opts: {
+    outreachChannel?: CampaignOutreachChannel | null;
+    hasJobDescription?: boolean;
+  } = {}
+): boolean {
+  if (workspaceTab === "Job description") return true;
+  if (opts.hasJobDescription) return true;
+  if (opts.outreachChannel === "whatsapp") return true;
+  return false;
+}
+
+/** Tabs shown in the workspace nav (email vs WhatsApp modes hide the other channel's tab). */
+export function getVisibleCampaignWorkspaceTabs(opts: {
+  outreachChannel?: CampaignOutreachChannel | null;
+  /** When false, show all tabs (channel picker on Editor). Defaults to true if channel is set. */
+  channelLocked?: boolean;
+  showJobDescriptionTab?: boolean;
+  workspaceTab?: CampaignWorkspaceTab;
+  hasJobDescription?: boolean;
+}): CampaignWorkspaceTab[] {
+  const effectiveChannel =
+    opts.outreachChannel === "whatsapp"
+      ? "whatsapp"
+      : opts.outreachChannel === "gmail"
+        ? "gmail"
+        : null;
+  const channelLocked =
+    opts.channelLocked ??
+    (effectiveChannel === "gmail" || effectiveChannel === "whatsapp");
+  const showJobDescriptionTab =
+    opts.showJobDescriptionTab !== undefined
+      ? opts.showJobDescriptionTab
+      : inferShowJobDescriptionTab(opts.workspaceTab ?? "Editor", {
+          outreachChannel: effectiveChannel,
+          hasJobDescription: opts.hasJobDescription,
+        });
+
+  return CAMPAIGN_WORKSPACE_TABS.filter((tab) => {
+    if (tab === "Job description" && !showJobDescriptionTab) return false;
+    if (!channelLocked || !effectiveChannel) return true;
+    if (effectiveChannel === "gmail") {
+      if (tab === "WhatsApp") return false;
+      return true;
+    }
+    return tab !== "Emails";
+  });
+}
+
 const TAB_TO_SLUG: Record<CampaignWorkspaceTab, string> = {
   Editor: "editor",
   "Job description": "job-description",
