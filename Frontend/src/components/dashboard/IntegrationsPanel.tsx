@@ -12,6 +12,7 @@ import {
   WhatsAppConnectModal,
   type WhatsAppConnectFormValues,
 } from "@/components/dashboard/WhatsAppConnectModal";
+import { WhatsAppMetaWebhookSetupCard } from "@/components/dashboard/WhatsAppMetaWebhookSetupCard";
 import { IntegrationsPanelSkeleton } from "@/components/dashboard/IntegrationsPanelSkeleton";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { authHeaders, getStoredAuth } from "@/lib/auth";
@@ -19,6 +20,8 @@ import {
   hasCampaignsAndIntegrationsAccess,
   INTEGRATIONS_LOCKED_MESSAGE,
 } from "@/lib/planAccess";
+import type { MetaWebhookSetupPayload } from "@/lib/whatsappMetaWebhookSetup";
+import { fetchWhatsAppMetaWebhookSetup } from "@/lib/whatsappMetaWebhookSetup";
 
 type IntegrationRow = {
   id: string;
@@ -28,6 +31,8 @@ type IntegrationRow = {
   senderName: string;
   email: string;
   status: string;
+  whatsappMode?: string;
+  whatsappProvider?: string;
 };
 
 type ConnectOption = {
@@ -194,6 +199,10 @@ export function IntegrationsPanel({
   const [listReady, setListReady] = useState(false);
   const [busyProvider, setBusyProvider] = useState<string | null>(null);
   const [whatsappModalOpen, setWhatsappModalOpen] = useState(false);
+  const [ownMetaWebhookSetup, setOwnMetaWebhookSetup] = useState<MetaWebhookSetupPayload | null>(
+    null
+  );
+  const [ownMetaWebhookLoading, setOwnMetaWebhookLoading] = useState(false);
   const [calendlyModalOpen, setCalendlyModalOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
@@ -247,6 +256,31 @@ export function IntegrationsPanel({
   useEffect(() => {
     if (!loading) setListReady(true);
   }, [loading]);
+
+  const hasOwnMetaWhatsApp = integrations.some(
+    (row) => row.provider === "whatsapp" && row.whatsappMode === "own"
+  );
+
+  useEffect(() => {
+    if (!hasIntegrationsAccess || !hasOwnMetaWhatsApp) {
+      setOwnMetaWebhookSetup(null);
+      return;
+    }
+    const auth = getStoredAuth();
+    if (!auth?.token) return;
+
+    let cancelled = false;
+    setOwnMetaWebhookLoading(true);
+    void fetchWhatsAppMetaWebhookSetup(auth.token).then((setup) => {
+      if (!cancelled) {
+        setOwnMetaWebhookSetup(setup);
+        setOwnMetaWebhookLoading(false);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [hasIntegrationsAccess, hasOwnMetaWhatsApp, integrations]);
 
   const showShimmer =
     !planResolved || (hasIntegrationsAccess && (!listReady || loading));
@@ -353,6 +387,7 @@ export function IntegrationsPanel({
                   phoneNumberId: values.metaPhoneNumberId,
                   accessToken: values.metaAccessToken,
                   wabaId: values.metaWabaId,
+                  confirmWebhookSetup: values.confirmWebhookSetup,
                 }
           ),
         });
@@ -373,7 +408,11 @@ export function IntegrationsPanel({
         }
         setWhatsappModalOpen(false);
         if (isHuntlo) {
-          setNotice("Huntlo WhatsApp connected. You can launch WhatsApp campaigns from your workspace.");
+          setNotice(
+            values.mode === "huntlo" && row?.providerLabel === "Gupshup"
+              ? "Gupshup WhatsApp connected. You can launch WhatsApp campaigns from your workspace."
+              : "Huntlo WhatsApp connected. You can launch WhatsApp campaigns from your workspace."
+          );
         } else {
           const label =
             typeof row?.senderName === "string" && row.senderName
@@ -548,6 +587,20 @@ export function IntegrationsPanel({
                 View plans
               </button>
             ) : null}
+          </div>
+        ) : null}
+
+        {hasOwnMetaWhatsApp ? (
+          <div className="mt-4">
+            <h4 className="dashboard-integration-section-label">Your Meta webhook settings</h4>
+            <p className="dashboard-text-body mt-1 mb-3 text-sm">
+              Use these values in your Meta Developer app so Huntlo can receive candidate replies.
+            </p>
+            <WhatsAppMetaWebhookSetupCard
+              setup={ownMetaWebhookSetup}
+              loading={ownMetaWebhookLoading}
+              compact
+            />
           </div>
         ) : null}
 

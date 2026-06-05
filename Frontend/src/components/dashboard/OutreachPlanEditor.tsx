@@ -262,7 +262,10 @@ export function OutreachPlanEditor({
   const [editingTitle, setEditingTitle] = useState(false);
   const [touchpoints, setTouchpoints] = useState<OutreachTouchpointDraft[]>(
     initialTouchpoints.length > 0
-      ? initialTouchpoints.map((tp) => ({ ...tp }))
+      ? initialTouchpoints.map((tp) => ({
+          ...tp,
+          waitHours: Math.max(0, Number(tp.waitHours) || 0),
+        }))
       : [createEmptyTouchpoint(1)]
   );
   const [activeIndex, setActiveIndex] = useState(0);

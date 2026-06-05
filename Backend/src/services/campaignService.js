@@ -13,6 +13,7 @@ const {
   findCampaignInScope,
   findCampaignDocumentInScope,
 } = require("../utils/campaignScope");
+const { normalizeToE164 } = require("./whatsappPhoneUtils");
 const {
   CAMPAIGN_MAX_CONTACTS,
   CAMPAIGN_CONTACT_LIMIT_MESSAGE,
@@ -23,16 +24,23 @@ const {
   outreachChannelToCreditChannel,
 } = require("./outreachCreditsService");
 
-/** WhatsApp campaign testing — E.164 India. Replace/remove when using real contact phones. */
-const WHATSAPP_TEST_PHONE_E164 = "+918714500637";
+/** WhatsApp campaign testing — E.164. Override via WHATSAPP_TEST_PHONE_E164 env. */
+const WHATSAPP_TEST_PHONE_E164 = String(
+  process.env.WHATSAPP_TEST_PHONE_E164 || "+918714500637"
+).trim();
+
+function normalizeContactPhone(raw) {
+  const trimmed = String(raw || "").trim();
+  if (!trimmed) return "";
+  return normalizeToE164(trimmed) || trimmed;
+}
 
 function normalizeContact(raw) {
   if (!raw || typeof raw !== "object") return null;
   const candidateKey = String(raw.candidateKey || "").trim();
   if (!candidateKey) return null;
-  const phoneFromPayload = String(raw.phone || "").trim();
   const phone =
-    phoneFromPayload ||
+    normalizeContactPhone(raw.phone) ||
     (process.env.WHATSAPP_USE_TEST_PHONE === "1" ? WHATSAPP_TEST_PHONE_E164 : "");
   return {
     candidateKey,

@@ -7,6 +7,7 @@ const touchpointSchema = new mongoose.Schema(
     subject: { type: String, trim: true, required: true },
     body: { type: String, default: "" },
     waitDays: { type: Number, default: 0, min: 0 },
+    waitHours: { type: Number, default: 0, min: 0 },
   },
   { _id: false }
 );

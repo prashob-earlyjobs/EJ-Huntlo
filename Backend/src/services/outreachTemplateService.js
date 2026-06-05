@@ -15,6 +15,7 @@ function normalizeTouchpoints(raw) {
         subject,
         body: typeof tp?.body === "string" ? tp.body : "",
         waitDays: Math.max(0, Number(tp?.waitDays) || 0),
+        waitHours: Math.max(0, Number(tp?.waitHours) || 0),
       };
     })
     .filter(Boolean)
@@ -46,6 +47,7 @@ function formatTemplate(doc) {
       subject: tp.subject || "",
       body: tp.body || "",
       waitDays: tp.waitDays ?? 0,
+      waitHours: tp.waitHours ?? 0,
     })),
     touchpointCount: touchpoints.length,
     isGlobal: Boolean(doc.isGlobal),

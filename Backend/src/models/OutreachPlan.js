@@ -7,6 +7,7 @@ const touchpointSchema = new mongoose.Schema(
     subject: { type: String, trim: true, required: true },
     body: { type: String, default: "" },
     waitDays: { type: Number, default: 0, min: 0 },
+    /** When set (>0), delays the next step by hours instead of waitDays. */
     waitHours: { type: Number, default: 0, min: 0 },
     sendTime: { type: String, trim: true, default: "09:00" },
     timezone: { type: String, enum: ["IST", "UTC"], default: "IST" },

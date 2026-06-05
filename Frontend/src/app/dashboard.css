@@ -9820,6 +9820,312 @@ select.dashboard-outreach-start-chip--select {
   color: var(--dash-primary);
 }
 
+.dashboard-pricing-billing-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.dashboard-pricing-billing-label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--dash-on-surface-variant);
+}
+
+.dashboard-pricing-billing-toggle {
+  display: inline-flex;
+  border-radius: 9999px;
+  border: 1px solid color-mix(in srgb, var(--dash-outline) 55%, transparent);
+  background: color-mix(in srgb, var(--dash-surface-variant) 35%, white);
+  padding: 0.1875rem;
+}
+
+.dashboard-pricing-billing-option {
+  border: none;
+  border-radius: 9999px;
+  padding: 0.375rem 0.875rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--dash-on-surface-variant);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.dashboard-pricing-billing-option--active {
+  background: var(--dash-primary);
+  color: var(--dash-on-primary);
+  box-shadow: 0 2px 8px rgba(0, 80, 203, 0.22);
+}
+
+.dashboard-pricing-card-actions {
+  margin-top: 1.25rem;
+  padding-top: 0.25rem;
+}
+
+.dashboard-pricing-card-btn {
+  display: inline-flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  border-radius: 9999px;
+  padding: 0.625rem 1rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.25;
+  text-decoration: none;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.dashboard-pricing-card-btn--primary {
+  border: 1px solid var(--dash-primary);
+  background: var(--dash-primary);
+  color: var(--dash-on-primary);
+  box-shadow: 0 4px 14px rgba(0, 80, 203, 0.2);
+}
+
+.dashboard-pricing-card-btn--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--dash-primary) 88%, #003080);
+}
+
+.dashboard-pricing-card-btn--outline {
+  border: 1px solid color-mix(in srgb, var(--dash-primary) 35%, var(--dash-outline));
+  background: white;
+  color: var(--dash-primary);
+}
+
+.dashboard-pricing-card-btn--outline:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--dash-primary) 6%, white);
+}
+
+.dashboard-pricing-card-btn--on-featured.dashboard-pricing-card-btn--primary {
+  border-color: #ffffff;
+  background: #ffffff;
+  color: var(--dash-primary);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+
+.dashboard-pricing-card-btn--on-featured.dashboard-pricing-card-btn--outline {
+  border-color: rgba(255, 255, 255, 0.55);
+  background: transparent;
+  color: #ffffff;
+}
+
+.dashboard-pricing-card-btn--on-featured.dashboard-pricing-card-btn--outline:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.dashboard-pricing-card-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.dashboard-plan-pay-modal {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  max-height: min(90vh, 640px);
+}
+
+.dashboard-plan-pay-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--dash-outline) 40%, transparent);
+  padding: 1.25rem 1.5rem 1rem;
+}
+
+.dashboard-plan-pay-modal-eyebrow {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dash-primary);
+}
+
+.dashboard-plan-pay-modal-title {
+  margin-top: 0.25rem;
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--dash-on-surface);
+}
+
+.dashboard-plan-pay-modal-summary {
+  margin-top: 0.375rem;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.dashboard-plan-pay-modal-close {
+  display: flex;
+  height: 2rem;
+  width: 2rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--dash-surface-variant) 50%, white);
+  color: var(--dash-on-surface-variant);
+  cursor: pointer;
+}
+
+.dashboard-plan-pay-modal-close:hover {
+  background: color-mix(in srgb, var(--dash-outline) 35%, white);
+}
+
+.dashboard-plan-pay-modal-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 1rem 1.5rem 1.25rem;
+}
+
+.dashboard-plan-pay-modal-hint {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--dash-on-surface-variant);
+}
+
+.dashboard-plan-pay-provider-list {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  list-style: none;
+  padding: 0;
+}
+
+.dashboard-plan-pay-provider-card {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.875rem;
+  border-radius: 0.875rem;
+  border: 1px solid color-mix(in srgb, var(--dash-outline) 50%, transparent);
+  background: white;
+  padding: 0.875rem 1rem;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease;
+}
+
+.dashboard-plan-pay-provider-card:hover {
+  border-color: color-mix(in srgb, var(--dash-primary) 35%, var(--dash-outline));
+  background: color-mix(in srgb, var(--dash-primary) 3%, white);
+}
+
+.dashboard-plan-pay-provider-card--selected {
+  border-color: var(--dash-primary);
+  background: color-mix(in srgb, var(--dash-primary) 6%, white);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--dash-primary) 16%, transparent);
+}
+
+.dashboard-plan-pay-provider-mark {
+  width: 2.75rem;
+  height: 2.75rem;
+  flex-shrink: 0;
+}
+
+.dashboard-plan-pay-provider-text {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.dashboard-plan-pay-provider-name {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--dash-on-surface);
+}
+
+.dashboard-plan-pay-provider-desc {
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--dash-on-surface-variant);
+}
+
+.dashboard-plan-pay-provider-hint {
+  margin-top: 0.125rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--dash-primary);
+}
+
+.dashboard-plan-pay-provider-check {
+  flex-shrink: 0;
+  color: color-mix(in srgb, var(--dash-on-surface-variant) 55%, transparent);
+}
+
+.dashboard-plan-pay-provider-check--on {
+  color: var(--dash-primary);
+}
+
+.dashboard-plan-pay-modal-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  border-radius: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--dash-primary) 22%, transparent);
+  background: color-mix(in srgb, var(--dash-primary) 6%, white);
+  padding: 0.75rem 0.875rem;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--dash-on-surface);
+}
+
+.dashboard-plan-pay-modal-notice--error {
+  border-color: color-mix(in srgb, var(--dash-error-text) 28%, transparent);
+  background: color-mix(in srgb, var(--dash-error-text) 8%, white);
+  color: var(--dash-error-text);
+}
+
+.dashboard-plan-pay-modal-notice--success {
+  border-color: color-mix(in srgb, #059669 35%, transparent);
+  background: color-mix(in srgb, #059669 8%, white);
+  color: #047857;
+}
+
+.dashboard-pricing-payment-toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  border-radius: 0.75rem;
+  border: 1px solid color-mix(in srgb, #059669 35%, transparent);
+  background: color-mix(in srgb, #059669 8%, white);
+  padding: 0.75rem 1rem;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: #047857;
+}
+
+.dashboard-plan-pay-modal-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  border-top: 1px solid color-mix(in srgb, var(--dash-outline) 40%, transparent);
+  padding: 1rem 1.5rem 1.25rem;
+}
+
 .dashboard-pricing-section {
   border-radius: 1rem;
   border: 1px solid color-mix(in srgb, var(--dash-outline) 40%, transparent);
@@ -12053,10 +12359,6 @@ select.dashboard-outreach-start-chip--select {
   color: #128c7e;
 }
 
-.dashboard-wa-opening-template-preview--compact {
-  margin-top: 0.75rem;
-}
-
 .dashboard-wa-opening-templates-grid {
   display: flex;
   flex-direction: column;
@@ -12127,42 +12429,15 @@ select.dashboard-outreach-start-chip--select {
   color: var(--dash-on-surface-variant);
 }
 
-.dashboard-wa-opening-template-snippet {
+.dashboard-wa-opening-template-body {
   display: block;
-  margin-left: 1.875rem;
+  margin: 0 0 0 1.875rem;
+  font-family: inherit;
   font-size: 0.75rem;
-  line-height: 1.4;
-  color: color-mix(in srgb, var(--dash-on-surface-variant) 90%, transparent);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.dashboard-wa-opening-template-preview {
-  margin-top: 1.25rem;
-  border-radius: 0.625rem;
-  border: 1px solid color-mix(in srgb, #128c7e 25%, var(--dash-outline));
-  background: color-mix(in srgb, #128c7e 5%, white);
-  padding: 0.875rem 1rem;
-}
-
-.dashboard-wa-opening-template-preview-label {
-  margin: 0 0 0.5rem;
-  font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: #128c7e;
-}
-
-.dashboard-wa-opening-template-preview-body {
-  margin: 0;
+  line-height: 1.5;
+  color: color-mix(in srgb, var(--dash-on-surface) 88%, transparent);
   white-space: pre-wrap;
   word-break: break-word;
-  font-family: inherit;
-  font-size: 0.8125rem;
-  line-height: 1.55;
-  color: var(--dash-on-surface);
 }
 
 .dashboard-wa-no-reply-section {

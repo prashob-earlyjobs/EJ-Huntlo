@@ -7,6 +7,7 @@ const {
   verifyCalendlyCredentials,
   getGmailStatus,
   getWhatsAppStatus,
+  getWhatsAppMetaWebhookSetup,
   getCalendlyStatus,
   getCalendlyMeetingLinks,
   listCalendlyEventTypesForUser,
@@ -86,12 +87,33 @@ const getWhatsAppStatusHandler = async (req, res) => {
     if (!uid || !mongoose.Types.ObjectId.isValid(uid)) {
       return invalidSession(res);
     }
-    const status = await getWhatsAppStatus(uid);
+    const status = await getWhatsAppStatus(uid, req);
     return res.status(200).json({ success: true, ...status });
   } catch (error) {
     return res.status(500).json({
       success: false,
       message: error.message || "Failed to load WhatsApp status",
+    });
+  }
+};
+
+/** GET /api/integrations/whatsapp/meta-webhook-setup — callback URL + verify token for own Meta */
+const getWhatsAppMetaWebhookSetupHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) {
+      return invalidSession(res);
+    }
+    const metaWebhookSetup = await getWhatsAppMetaWebhookSetup(req);
+    return res.status(200).json({
+      success: true,
+      requiresMetaWebhookSetup: true,
+      metaWebhookSetup,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to load WhatsApp webhook setup",
     });
   }
 };
@@ -308,6 +330,7 @@ module.exports = {
   listIntegrationsHandler,
   getGmailStatusHandler,
   getWhatsAppStatusHandler,
+  getWhatsAppMetaWebhookSetupHandler,
   getCalendlyStatusHandler,
   getCalendlyMeetingLinksHandler,
   connectGmailWithAuthCode,

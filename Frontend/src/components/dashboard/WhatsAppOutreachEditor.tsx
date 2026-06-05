@@ -113,59 +113,47 @@ function WhatsAppTemplateSelector({
   selectedId,
   onSelect,
   ariaLabel,
-  previewLabel = "Message preview",
   disabled = false,
 }: {
   templates: WhatsAppMessageTemplate[];
   selectedId?: string;
   onSelect: (template: WhatsAppMessageTemplate) => void;
   ariaLabel: string;
-  previewLabel?: string;
   disabled?: boolean;
 }) {
   return (
-    <>
-      <div
-        className="dashboard-wa-opening-templates-grid"
-        role="radiogroup"
-        aria-label={ariaLabel}
-      >
-        {templates.map((tpl) => {
-          const active = selectedId === tpl.id;
-          return (
-            <button
-              key={tpl.id}
-              type="button"
-              role="radio"
-              aria-checked={active}
-              disabled={disabled}
-              className={`dashboard-wa-opening-template-card${active ? " dashboard-wa-opening-template-card--active" : ""}`}
-              onClick={() => onSelect(tpl)}
-            >
-              <span className="dashboard-wa-opening-template-card-head">
-                <span
-                  className={`dashboard-wa-opening-template-radio${active ? " dashboard-wa-opening-template-radio--active" : ""}`}
-                  aria-hidden
-                />
-                <span className="min-w-0 flex-1 text-left">
-                  <span className="dashboard-wa-opening-template-name">{tpl.name}</span>
-                  <span className="dashboard-wa-opening-template-desc">{tpl.description}</span>
-                </span>
+    <div
+      className="dashboard-wa-opening-templates-grid"
+      role="radiogroup"
+      aria-label={ariaLabel}
+    >
+      {templates.map((tpl) => {
+        const active = selectedId === tpl.id;
+        return (
+          <button
+            key={tpl.id}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            disabled={disabled}
+            className={`dashboard-wa-opening-template-card${active ? " dashboard-wa-opening-template-card--active" : ""}`}
+            onClick={() => onSelect(tpl)}
+          >
+            <span className="dashboard-wa-opening-template-card-head">
+              <span
+                className={`dashboard-wa-opening-template-radio${active ? " dashboard-wa-opening-template-radio--active" : ""}`}
+                aria-hidden
+              />
+              <span className="min-w-0 flex-1 text-left">
+                <span className="dashboard-wa-opening-template-name">{tpl.name}</span>
+                <span className="dashboard-wa-opening-template-desc">{tpl.description}</span>
               </span>
-              <span className="dashboard-wa-opening-template-snippet">{tpl.body.split("\n")[0]}…</span>
-            </button>
-          );
-        })}
-      </div>
-      {selectedId ? (
-        <div className="dashboard-wa-opening-template-preview dashboard-wa-opening-template-preview--compact">
-          <p className="dashboard-wa-opening-template-preview-label">{previewLabel}</p>
-          <pre className="dashboard-wa-opening-template-preview-body">
-            {templates.find((t) => t.id === selectedId)?.body}
-          </pre>
-        </div>
-      ) : null}
-    </>
+            </span>
+            <pre className="dashboard-wa-opening-template-body">{tpl.body}</pre>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -220,7 +208,6 @@ function NoReplyFallbackField({
           selectedId={touchpoint.templateId}
           onSelect={onSelectTemplate}
           ariaLabel={`No-reply follow-up ${slot} template`}
-          previewLabel={`Follow-up ${slot} preview`}
           disabled={disabled}
         />
       </div>
@@ -248,7 +235,6 @@ function OpeningMessageSection({
         selectedId={selectedTemplateId}
         onSelect={onSelectTemplate}
         ariaLabel="Opening message template"
-        previewLabel="Opening message preview"
         disabled={disabled}
       />
     </div>

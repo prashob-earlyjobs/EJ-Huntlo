@@ -2,25 +2,14 @@ import Link from "next/link";
 import type { PricingPlansPayload } from "@/lib/pricingPlans";
 
 import { BookDemoLink } from "./BookDemoLink";
-import { LandingDemoVideo } from "./LandingDemoVideo";
 import { LandingProductSourcingSection } from "./LandingProductSourcingSection";
 import { LandingWorkflowSteps } from "./LandingWorkflowSteps";
 import { HeroSearchTyping } from "./HeroSearchTyping";
 import { LandingLogo } from "./LandingLogo";
 import { LandingNav } from "./LandingNav";
 import { LandingPricingSection } from "./LandingPricingSection";
-import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
+import { FOOTER_PLATFORM_PARTNERS } from "@/lib/footerPlatformPartners";
 import { MaterialIcon } from "./MaterialIcon";
-
-const ENGAGE_CHANNEL_LOGOS: Array<
-  | { label: string; provider: "gmail" | "whatsapp" }
-  | { label: string; icon: string }
-> = [
-  { label: "Email", provider: "gmail" },
-  { label: "WhatsApp", provider: "whatsapp" },
-  { label: "AI voice", icon: "graphic_eq" },
-  { label: "Workflows", icon: "account_tree" },
-];
 
 const ADVANTAGE_METRICS = [
   {
@@ -53,31 +42,34 @@ const SUITE_COLUMNS = [
   {
     title: "Source",
     icon: "travel_explore",
+    description: "Discover high-intent talent faster.",
     items: [
-      "AI semantic search",
-      "LinkedIn & profile enrichment",
-      "Candidate pool & history",
-      "Session-based sourcing",
+      "AI-powered candidate discovery",
+      "Deep profile enrichment and signals",
+      "Unified sourcing workflows",
+      "Natural-language talent search",
     ],
   },
   {
     title: "Engage",
     icon: "campaign",
+    description: "Run recruiting workflows across every channel.",
     items: [
-      "Automated email sequences",
-      "WhatsApp-ready workflows",
-      "Hyper-personalized messaging",
-      "Multi-touch follow-ups",
+      "Email and WhatsApp automation",
+      "AI-generated personalization",
+      "Multi-touch outreach sequences",
+      "Candidate engagement tracking",
     ],
   },
   {
     title: "Analyze",
     icon: "insights",
+    description: "Optimize hiring with real operational insights.",
     items: [
-      "Pipeline performance reports",
-      "Reply & conversion tracking",
-      "Team utilisation analytics",
-      "ROI dashboards",
+      "Pipeline and reply analytics",
+      "Conversion and performance tracking",
+      "Recruiter productivity insights",
+      "AI-powered hiring intelligence",
     ],
   },
 ];
@@ -97,8 +89,12 @@ const ENTERPRISE_BADGES = [
 
 const FOOTER_COLUMNS = [
   {
+    title: "Hiring OS",
+    links: ["Sourcing", "Screening", "Assessments", "Interview"],
+  },
+  {
     title: "Product",
-    links: ["Search Candidates", "People Scout", "Candidate Pool", "Integrations"],
+    links: ["Source Candidates", "People Scout", "Candidate Pool", "Integrations"],
   },
   {
     title: "Company",
@@ -108,11 +104,9 @@ const FOOTER_COLUMNS = [
     title: "Resources",
     links: ["Documentation", "Help Center", "API", "Status"],
   },
-  {
-    title: "Legal",
-    links: ["Privacy", "Terms", "Security", "Cookies"],
-  },
 ];
+
+const FOOTER_LEGAL_LINKS = ["Privacy", "Terms", "Security", "Cookies"] as const;
 
 type LandingPageProps = {
   pricingPlans?: PricingPlansPayload | null;
@@ -271,7 +265,7 @@ export function LandingPage({ pricingPlans = null }: LandingPageProps) {
               </p>
               <div className="mt-6 overflow-hidden rounded-xl border border-[#c3c6d6]/25 bg-white shadow-sm">
                 <video
-                  className="aspect-video w-full object-cover object-top"
+                  className="aspect-video w-full object-cover object-center"
                   src="/vi%202.mp4"
                   autoPlay
                   muted
@@ -292,8 +286,8 @@ export function LandingPage({ pricingPlans = null }: LandingPageProps) {
               </p>
               <div className="mt-6 overflow-hidden rounded-xl border border-white/20 bg-white/10 shadow-sm">
                 <video
-                  className="aspect-video w-full object-cover object-top"
-                  src="/video_4.mp4"
+                  className="aspect-[16/9.9] w-full object-cover object-center"
+                  src="/1_1.mp4"
                   autoPlay
                   muted
                   loop
@@ -313,7 +307,7 @@ export function LandingPage({ pricingPlans = null }: LandingPageProps) {
               </p>
               <div className="mt-6 overflow-hidden rounded-xl border border-[#c3c6d6]/25 bg-[#f1f3ff] shadow-sm">
                 <video
-                  className="aspect-video w-full object-cover object-top"
+                  className="aspect-[16/9.9] w-full object-cover object-center"
                   src="/vi%203.mp4"
                   autoPlay
                   muted
@@ -329,41 +323,23 @@ export function LandingPage({ pricingPlans = null }: LandingPageProps) {
                 <MaterialIcon name="hub" />
               </div>
               <h3 className="text-xl font-bold text-[#141b2b]">Engage Across Every Channel</h3>
-              <p className="mt-3 text-base leading-relaxed text-[#434654] md:text-lg">
+              <p className="mt-2 text-sm text-[#434654]">
                 Reach talent through Email, WhatsApp, AI voice, and workflows from one system.
               </p>
-              <div className="landing-channel-strip" aria-label="Outreach channels">
-                {ENGAGE_CHANNEL_LOGOS.map((channel) => (
-                  <div key={channel.label} className="landing-channel-strip__item">
-                    <span className="landing-channel-strip__icon">
-                      {"provider" in channel ? (
-                        <IntegrationBrandLogo
-                          provider={channel.provider}
-                          title={channel.label}
-                        />
-                      ) : (
-                        <MaterialIcon name={channel.icon} />
-                      )}
-                    </span>
-                    <span className="landing-channel-strip__label">{channel.label}</span>
-                  </div>
-                ))}
+              <div className="mt-6 overflow-hidden rounded-xl border border-[#c3c6d6]/25 bg-white shadow-sm">
+                <video
+                  className="aspect-video w-full object-cover object-center"
+                  src="/video_5.mp4"
+                  autoPlay
+                  muted
+                  loop
+                  playsInline
+                  preload="metadata"
+                  aria-label="Multi-channel outreach demo"
+                />
               </div>
             </div>
           </div>
-        </div>
-      </section>
-
-      {/* Video placeholder */}
-      <section className="bg-[#faf9ff] px-4 py-20 md:px-8 lg:px-12">
-        <div className="mx-auto max-w-4xl text-center">
-          <h2 className="text-3xl font-bold tracking-tight text-[#141b2b] md:text-4xl">
-            Experience The Huntlo Advantage
-          </h2>
-          <p className="mt-2 text-[#434654]">
-            See how Huntlo transforms your hiring process in under two minutes.
-          </p>
-          <LandingDemoVideo />
         </div>
       </section>
 
@@ -386,6 +362,7 @@ export function LandingPage({ pricingPlans = null }: LandingPageProps) {
                   <MaterialIcon name={col.icon} className="text-[28px]" />
                 </div>
                 <h3 className="text-xl font-bold text-[#141b2b]">{col.title}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-[#434654]">{col.description}</p>
                 <ul className="mt-6 space-y-3">
                   {col.items.map((item) => (
                     <li key={item} className="flex items-start gap-2 text-sm text-[#434654]">
@@ -472,39 +449,82 @@ export function LandingPage({ pricingPlans = null }: LandingPageProps) {
       </section>
 
       {/* Footer */}
-      <footer className="border-t border-[#c3c6d6]/25 bg-white py-16">
-        <div className="mx-auto grid max-w-7xl grid-cols-1 gap-10 px-4 md:grid-cols-5 md:px-8 lg:px-12">
-          <div className="md:col-span-1">
-            <Link href="/" className="inline-block">
+      <footer className="border-t border-[#c3c6d6]/25 bg-white">
+        <div className="relative overflow-hidden bg-[#141b2b] px-4 py-10 md:px-8 lg:px-12">
+          <div className="pointer-events-none absolute inset-0 opacity-30">
+            <div className="absolute right-0 top-1/2 h-[280px] w-[420px] -translate-y-1/2 rounded-full bg-[#0050cb] blur-[100px]" />
+          </div>
+          <div className="relative z-10 mx-auto flex max-w-7xl flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+            <Link href="/" className="inline-block shrink-0">
               <LandingLogo className="h-10 w-auto" />
             </Link>
-            <p className="mt-4 text-sm leading-relaxed text-[#434654]">
-              AI-powered outbound recruiting. Find, engage, and hire top talent—faster.
-            </p>
-            <p className="mt-2 text-xs text-[#434654]/70">by EarlyJobs</p>
-          </div>
-          {FOOTER_COLUMNS.map((col) => (
-            <div key={col.title}>
-              <h4 className="text-xs font-bold uppercase tracking-widest text-[#141b2b]">
-                {col.title}
-              </h4>
-              <ul className="mt-4 space-y-2">
-                {col.links.map((label) => (
-                  <li key={label}>
-                    <a
-                      href="#"
-                      className="text-sm text-[#434654] transition-colors hover:text-[#0050cb]"
-                    >
-                      {label}
-                    </a>
-                  </li>
-                ))}
-              </ul>
+            <div
+              className="flex flex-wrap items-center gap-5 sm:justify-end"
+              aria-label="Supported AI platforms"
+            >
+              {FOOTER_PLATFORM_PARTNERS.map((partner) => (
+                <a
+                  key={partner.name}
+                  href={partner.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={partner.description}
+                  className="rounded-md opacity-90 transition-opacity hover:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/80"
+                >
+                  <img
+                    src={partner.logoSrc}
+                    alt={partner.name}
+                    className="h-8 w-auto max-w-[5.5rem] object-contain brightness-0 invert"
+                  />
+                </a>
+              ))}
             </div>
-          ))}
+          </div>
         </div>
-        <div className="mx-auto mt-12 max-w-7xl border-t border-[#c3c6d6]/20 px-4 pt-8 text-center text-xs text-[#434654] md:px-8 lg:px-12">
-          © {new Date().getFullYear()} Huntlo. All rights reserved.
+        <div className="mx-auto max-w-7xl px-4 py-12 md:px-8 md:py-14 lg:px-12">
+          <nav
+            className="grid w-full grid-cols-2 gap-x-8 gap-y-10 sm:gap-x-10 md:grid-cols-4 md:gap-x-8 md:gap-y-0 lg:gap-x-12"
+            aria-label="Footer"
+          >
+            {FOOTER_COLUMNS.map((col) => (
+              <div key={col.title} className="min-w-0">
+                <h4 className="text-xs font-bold uppercase tracking-widest text-[#141b2b]">
+                  {col.title}
+                </h4>
+                <ul className="mt-3 space-y-2.5">
+                  {col.links.map((label) => (
+                    <li key={label}>
+                      <a
+                        href="#"
+                        className="text-sm leading-snug text-[#434654] transition-colors hover:text-[#0050cb]"
+                      >
+                        {label}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </nav>
+        </div>
+        <div className="mx-auto max-w-7xl border-t border-[#c3c6d6]/20 px-4 pb-10 pt-8 md:px-8 lg:px-12">
+          <div className="flex flex-col items-center justify-center gap-3 text-center text-xs text-[#434654] md:flex-row md:flex-wrap md:gap-x-6 md:gap-y-2">
+            <p>© {new Date().getFullYear()} Huntlo. All rights reserved.</p>
+            <nav
+              className="flex flex-wrap items-center justify-center gap-x-5 gap-y-1"
+              aria-label="Legal"
+            >
+              {FOOTER_LEGAL_LINKS.map((label) => (
+                <a
+                  key={label}
+                  href="#"
+                  className="text-[#434654] transition-colors hover:text-[#0050cb]"
+                >
+                  {label}
+                </a>
+              ))}
+            </nav>
+          </div>
         </div>
       </footer>
     </div>

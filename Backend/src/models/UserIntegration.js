@@ -22,10 +22,10 @@ const userIntegrationSchema = new mongoose.Schema(
     refreshToken: { type: String, default: "" },
     tokenExpiry: { type: Date, default: null },
     scopes: { type: [String], default: [] },
-    /** WhatsApp send provider (Meta Cloud API only). */
+    /** WhatsApp send provider (platform channel: meta or gupshup). */
     whatsappProvider: {
       type: String,
-      enum: ["", "meta"],
+      enum: ["", "meta", "gupshup"],
       default: "",
     },
     /** own = user's Meta credentials; huntlo = platform-managed number (no token stored). */
