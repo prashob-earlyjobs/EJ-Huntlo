@@ -6,7 +6,7 @@ import { FormEvent, useEffect, useState } from "react";
 
 import { BlockedAccountModal } from "@/components/dashboard/BlockedAccountModal";
 import { getStoredAuth } from "@/lib/auth";
-import { postAuthPath } from "@/lib/onboarding";
+import { resolveAuthRedirect } from "@/lib/claimPublicSearch";
 import { isBlockedAccountResponse, isBlockedMemberStatus } from "@/lib/sessionLogout";
 
 export default function LoginPage() {
@@ -24,7 +24,7 @@ export default function LoginPage() {
       return;
     }
     if (auth) {
-      router.replace(postAuthPath(auth));
+      void resolveAuthRedirect(auth, auth.token).then((path) => router.replace(path));
     }
   }, [router]);
 
@@ -65,16 +65,18 @@ export default function LoginPage() {
         "authUser",
         JSON.stringify({ ...data.user, token: data.token })
       );
-      router.push(
-        postAuthPath({
+      const redirectPath = await resolveAuthRedirect(
+        {
           role: data.user.role === "admin" ? "admin" : "user",
           onboardingCompleted: Boolean(data.user.onboardingCompleted),
           accountRole:
             data.user.accountRole === "owner" || data.user.accountRole === "member"
               ? data.user.accountRole
               : null,
-        })
+        },
+        data.token
       );
+      router.push(redirectPath);
     } catch (error) {
       setErrorMessage(
         error instanceof Error ? error.message : "Something went wrong"

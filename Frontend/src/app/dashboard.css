@@ -2572,6 +2572,27 @@
   box-shadow: none;
 }
 
+.dashboard-candidate-card--cta {
+  cursor: pointer;
+}
+
+.dashboard-candidate-card--cta:hover {
+  border-color: var(--dash-primary);
+  box-shadow: 0 8px 28px rgba(0, 80, 203, 0.14);
+}
+
+.dashboard-candidate-card-overlay-link {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+}
+
+.dashboard-candidate-card--cta .dashboard-candidate-actions {
+  position: relative;
+  z-index: 2;
+}
+
 .dashboard-candidate-card--compact {
   padding: 0.9375rem;
 }

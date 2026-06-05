@@ -8,6 +8,10 @@ import { LandingLogo } from "@/components/landing/LandingLogo";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { authHeaders, getStoredAuth } from "@/lib/auth";
 import {
+  clearClaimedPublicSessionId,
+  pathForClaimedPublicSession,
+} from "@/lib/pendingPublicSearch";
+import {
   COMPANY_TYPE_OPTIONS,
   EMPTY_ONBOARDING,
   HIRING_CHALLENGE_OPTIONS,
@@ -223,7 +227,9 @@ export function OnboardingFlow() {
         ...(data.user && typeof data.user === "object" ? data.user : {}),
         onboardingCompleted: true,
       });
-      router.replace("/dashboard");
+      const sessionPath = pathForClaimedPublicSession();
+      clearClaimedPublicSessionId();
+      router.replace(sessionPath || "/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {

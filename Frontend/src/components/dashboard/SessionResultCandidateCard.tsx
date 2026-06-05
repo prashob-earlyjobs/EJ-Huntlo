@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { CompanyLogo } from "@/components/dashboard/CompanyLogo";
@@ -50,6 +51,8 @@ type Props = {
   interactive?: boolean;
   variant?: "default" | "compact";
   onSelect?: () => void;
+  /** Whole card links here (e.g. public preview → signup). Footer stays clickable above overlay. */
+  href?: string;
   footer?: React.ReactNode;
 };
 
@@ -174,6 +177,7 @@ export function SessionResultCandidateCard({
   interactive = false,
   variant = "default",
   onSelect,
+  href,
   footer,
 }: Props) {
   const compact = variant === "compact";
@@ -181,10 +185,12 @@ export function SessionResultCandidateCard({
   const strengths = data.strengths ?? [];
   const highlightLimit = compact ? 3 : 4;
 
+  const signupCta = Boolean(href?.trim());
   const cardClass = [
     "dashboard-candidate-card",
     compact ? "dashboard-candidate-card--compact" : "",
-    interactive ? "" : "dashboard-candidate-card--static",
+    signupCta ? "dashboard-candidate-card--cta" : "",
+    interactive || signupCta ? "" : "dashboard-candidate-card--static",
     isActive ? "dashboard-candidate-card--active" : "",
   ]
     .filter(Boolean)
@@ -322,6 +328,19 @@ export function SessionResultCandidateCard({
           }
         }}
       >
+        {inner}
+      </article>
+    );
+  }
+
+  if (signupCta) {
+    return (
+      <article className={cardClass}>
+        <Link
+          href={href!.trim()}
+          className="dashboard-candidate-card-overlay-link"
+          aria-label={`Create account to view ${data.name}`}
+        />
         {inner}
       </article>
     );
