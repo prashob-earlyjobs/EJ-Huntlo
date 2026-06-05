@@ -7,7 +7,6 @@ import { LandingLogo } from "./LandingLogo";
 
 const FOOTER_LINK_HREFS: Record<string, string> = {
   Blog: "/blog",
-  "Huntlo vs competitors": "/compare",
   ...Object.fromEntries(COMPARISON_FOOTER_LINKS.map((item) => [item.label, item.href])),
 };
 
@@ -22,10 +21,7 @@ const FOOTER_COLUMNS = [
   },
   {
     title: "Comparison",
-    links: [
-      "Huntlo vs competitors",
-      ...COMPARISON_FOOTER_LINKS.map((item) => item.label),
-    ],
+    links: COMPARISON_FOOTER_LINKS.map((item) => item.label),
   },
   {
     title: "Company",
