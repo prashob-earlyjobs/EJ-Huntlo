@@ -20,22 +20,33 @@ type Props<T extends string> = {
   disabled?: boolean;
 };
 
+function minWidthFromLabelChars(chars: number, compact: boolean): string {
+  if (compact) return "2.75rem";
+  return `${Math.max(4.75, chars * 0.45 + 2).toFixed(2)}rem`;
+}
+
 function buildChipStyles<T extends string>(
-  compact?: boolean
+  compact?: boolean,
+  options?: readonly PillSelectOption<T>[]
 ): StylesConfig<PillSelectOption<T>, false, GroupBase<PillSelectOption<T>>> {
+  const longestLabel =
+    options?.reduce((max, opt) => Math.max(max, opt.label.length), 0) ?? 0;
+  const controlMinWidth = minWidthFromLabelChars(longestLabel, Boolean(compact));
+  const menuMinWidth = compact ? controlMinWidth : minWidthFromLabelChars(longestLabel + 2, false);
+
   return {
     container: (base) => ({
       ...base,
       display: "inline-block",
       verticalAlign: "middle",
       width: "auto",
-      minWidth: compact ? "2.75rem" : 0,
+      minWidth: controlMinWidth,
     }),
     control: (base, state) => ({
       ...base,
       minHeight: "1.625rem",
       height: "1.625rem",
-      minWidth: compact ? "2.75rem" : "auto",
+      minWidth: controlMinWidth,
       border: "none",
       borderRadius: "999px",
       backgroundColor: state.isDisabled
@@ -98,6 +109,8 @@ function buildChipStyles<T extends string>(
     menu: (base) => ({
       ...base,
       marginTop: "0.25rem",
+      minWidth: menuMinWidth,
+      width: "max-content",
       borderRadius: "0.625rem",
       border: "1px solid #e5e7eb",
       backgroundColor: "#fff",
@@ -113,7 +126,8 @@ function buildChipStyles<T extends string>(
     option: (base, state) => ({
       ...base,
       borderRadius: "0.375rem",
-      padding: "0.5rem 0.625rem",
+      padding: "0.5rem 0.875rem",
+      whiteSpace: "nowrap",
       fontSize: "0.8125rem",
       fontWeight: state.isSelected ? 600 : 500,
       lineHeight: 1.3,
@@ -151,13 +165,14 @@ export function OutreachPillSelect<T extends string>({
     <Select<PillSelectOption<T>, false>
       inputId={`outreach-pill-${ariaLabel.replace(/\s+/g, "-").toLowerCase()}`}
       aria-label={ariaLabel}
+      className={compact ? "outreach-pill-select--compact" : "outreach-pill-select--standard"}
       classNamePrefix="outreach-pill-select"
       value={selected}
       options={[...options]}
       onChange={(opt) => {
         if (opt) onChange(opt.value);
       }}
-      styles={buildChipStyles<T>(compact)}
+      styles={buildChipStyles<T>(compact, options)}
       isDisabled={disabled}
       isSearchable={false}
       components={{ Input: HiddenSelectInput }}

@@ -760,12 +760,13 @@
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
+  border: none;
   border-radius: 0.5rem;
   padding: 0.625rem 1rem;
   font-size: 0.875rem;
   font-weight: 600;
-  color: var(--dash-on-primary);
-  background-color: var(--dash-primary);
+  color: var(--dash-on-primary, #ffffff);
+  background-color: var(--dash-primary, #0050cb);
   box-shadow: 0 4px 14px rgba(0, 80, 203, 0.28);
   cursor: pointer;
   transition:
@@ -775,7 +776,7 @@
 }
 
 .dashboard-btn-primary:hover:not(:disabled) {
-  background-color: var(--dash-primary-hover);
+  background-color: var(--dash-primary-hover, #003fa4);
 }
 
 .dashboard-btn-primary:disabled {
@@ -858,6 +859,13 @@
 }
 
 .dashboard-modal-overlay {
+  --dash-primary: #0050cb;
+  --dash-primary-hover: #003fa4;
+  --dash-on-primary: #ffffff;
+  --dash-on-surface: #141b2b;
+  --dash-outline: #c2c6d8;
+  --dash-surface-low: #f1f3ff;
+
   position: fixed;
   inset: 0;
   z-index: 50;
@@ -878,6 +886,55 @@
   background: #ffffff;
   padding: 1.5rem;
   box-shadow: 0 24px 48px rgba(20, 27, 43, 0.18);
+}
+
+.dashboard-add-campaign-modal.dashboard-modal {
+  padding: 0;
+  min-height: min(22rem, 52vh);
+  max-height: min(90vh, 40rem);
+  overflow: hidden;
+}
+
+.dashboard-add-campaign-cell {
+  width: 100%;
+}
+
+.dashboard-add-campaign-cell--create {
+  border-style: dashed;
+}
+
+.dashboard-add-campaign-cell-check {
+  line-height: 0;
+}
+
+.dashboard-add-campaign-grid {
+  grid-auto-rows: minmax(4.25rem, auto);
+}
+
+.dashboard-add-campaign-grid-scroll {
+  min-height: 6.5rem;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: #c3cfdf transparent;
+}
+
+.dashboard-add-campaign-grid-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.dashboard-add-campaign-grid-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dashboard-add-campaign-grid-scroll::-webkit-scrollbar-thumb {
+  background: #c3cfdf;
+  border-radius: 9999px;
+}
+
+.dashboard-add-campaign-grid-scroll::-webkit-scrollbar-thumb:hover {
+  background: #a8b8cc;
 }
 
 .dashboard-confirm-modal-overlay {
@@ -7453,7 +7510,14 @@
 
 .dashboard-outreach-builder--embedded .outreach-pill-select__control {
   min-height: 1.375rem !important;
+}
+
+.dashboard-outreach-builder--embedded .outreach-pill-select--compact .outreach-pill-select__control {
   min-width: 0 !important;
+}
+
+.dashboard-outreach-builder--embedded .outreach-pill-select--standard .outreach-pill-select__control {
+  min-width: 4.75rem !important;
 }
 
 .dashboard-outreach-builder--embedded .outreach-pill-select__value-container {
@@ -8291,6 +8355,15 @@
 }
 
 .outreach-pill-select__single-value {
+  white-space: nowrap;
+}
+
+.outreach-pill-select__menu {
+  min-width: max(4.75rem, 100%);
+  width: max-content;
+}
+
+.outreach-pill-select__option {
   white-space: nowrap;
 }
 

@@ -731,8 +731,8 @@ export function CampaignWorkspace({
 
         const launched = await launchCampaignSequence(auth.token, campaign.id);
         onCampaignUpdatedRef.current?.(launched.campaign);
-        setContacts(launched.campaign.contacts);
         contactsFetchKeyRef.current = null;
+        void reloadContacts();
         setLaunchNotice(
           launched.enrolled > 0
             ? `Sequence launched for ${launched.enrolled} contact${launched.enrolled === 1 ? "" : "s"}.`
@@ -1060,8 +1060,8 @@ export function CampaignWorkspace({
     try {
       const result = await launchCampaignSequence(auth.token, campaign.id);
       onCampaignUpdatedRef.current?.(result.campaign);
-      setContacts(result.campaign.contacts);
       contactsFetchKeyRef.current = null;
+      void reloadContacts();
       setLaunchNotice(
         result.enrolled > 0
           ? `Sequence launched for ${result.enrolled} contact${result.enrolled === 1 ? "" : "s"}.`
@@ -1208,7 +1208,8 @@ export function CampaignWorkspace({
       try {
         const result = await removeContactFromCampaignApi(auth.token, campaign.id, key);
         onCampaignUpdatedRef.current?.(result.campaign);
-        setContacts(result.campaign.contacts);
+        contactsFetchKeyRef.current = null;
+        void reloadContacts();
         refreshContactDependentViews();
         setSaveToast({
           message:
@@ -1285,7 +1286,8 @@ export function CampaignWorkspace({
           contactsToImport
         );
         onCampaignUpdatedRef.current?.(result.campaign);
-        setContacts(result.campaign.contacts);
+        contactsFetchKeyRef.current = null;
+        void reloadContacts();
         refreshContactDependentViews();
         setCsvModalOpen(false);
         setCsvFileName("");
@@ -1681,7 +1683,8 @@ export function CampaignWorkspace({
       try {
         const result = await removeContactFromCampaignApi(auth.token, campaign.id, candidateKey);
         onCampaignUpdatedRef.current?.(result.campaign);
-        setContacts(result.campaign.contacts);
+        contactsFetchKeyRef.current = null;
+        void reloadContacts();
         refreshContactDependentViews();
         setSaveToast({
           message: result.removed ? "Candidate removed from campaign." : "Candidate not found.",

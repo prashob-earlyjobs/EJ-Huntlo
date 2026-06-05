@@ -3985,12 +3985,6 @@ export default function UserDashboardPage() {
 
       setAddToCampaignBusy(true);
 
-      const linkedinUrls = incoming.map((c) => c.linkedinUrl).filter(Boolean);
-      if (linkedinUrls.length > 0) {
-        const lookup = await lookupRevealedContacts(auth.token, linkedinUrls);
-        incoming = mergeRevealedLookupIntoContacts(incoming, lookup);
-      }
-
       try {
         if ("newCampaignName" in payload) {
           const batchCheck = validateCampaignContactBatch(0, incoming.length);
@@ -4005,8 +3999,9 @@ export default function UserDashboardPage() {
           );
           setCampaigns((prev) => [record, ...prev]);
           setAddToCampaignOpen(false);
+          const createdCount = record.contactCount ?? incoming.length;
           setSessionResultNotice(
-            `Added ${record.contacts.length} candidate${record.contacts.length === 1 ? "" : "s"} to "${record.name}". Email and phone will be revealed when you launch the campaign.`
+            `Added ${createdCount} candidate${createdCount === 1 ? "" : "s"} to "${record.name}". Email and phone will be revealed when you launch the campaign.`
           );
           navigateToTab("Campaigns", {
             campaignId: record.id,
@@ -4023,7 +4018,7 @@ export default function UserDashboardPage() {
           });
           return;
         }
-        const currentCount = existing?.contacts?.length ?? 0;
+        const currentCount = existing?.contactCount ?? existing?.contacts?.length ?? 0;
         const batchCheck = validateCampaignContactBatch(currentCount, incoming.length);
         if (!batchCheck.ok) {
           setDashboardToast({ message: batchCheck.message, variant: "warning" });

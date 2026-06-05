@@ -260,6 +260,18 @@ export function SearchHistoryTable({
               const isHighlighted = highlightSessionId === row.id;
               const isOpening = Boolean(openingSessionId) && openingSessionId === row.id;
               const hasPreviewCandidates = row.candidatePreview.length > 0;
+              const previewShown = Math.min(3, row.candidatePreview.length);
+              const previewMore = Math.max(0, row.candidatePreview.length - previewShown);
+              const totalResults =
+                row.totalDocs != null && row.totalDocs > previewShown
+                  ? row.totalDocs
+                  : null;
+              const moreCount =
+                totalResults != null ? totalResults - previewShown : previewMore;
+              const moreTitle =
+                totalResults != null
+                  ? `${totalResults.toLocaleString()} total candidates · ${previewShown} names shown`
+                  : `${previewMore} more in preview`;
 
               const handleOpen = () => {
                 if (isOpening) return;
@@ -322,9 +334,9 @@ export function SearchHistoryTable({
                           {c.name || "Unknown"}
                         </span>
                       ))}
-                      {row.candidatePreview.length > 3 ? (
-                        <span className="dashboard-chip dashboard-chip--more">
-                          +{row.candidatePreview.length - 3}
+                      {moreCount > 0 ? (
+                        <span className="dashboard-chip dashboard-chip--more" title={moreTitle}>
+                          +{moreCount.toLocaleString()}
                         </span>
                       ) : null}
                     </div>

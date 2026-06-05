@@ -155,7 +155,7 @@ export function CampaignsListTable({
                   campaign.lastActivityAt || campaign.createdAt
                 );
                 const isWhatsApp = campaign.outreachChannel === "whatsapp";
-                const contactCount = campaign.contacts.length;
+                const contactCount = campaign.contactCount ?? campaign.contacts.length;
                 const contactsSent = campaign.contactsSent ?? 0;
                 const interestedCount = campaign.interestedCount ?? 0;
                 return (
