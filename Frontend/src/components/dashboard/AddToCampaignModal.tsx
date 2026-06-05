@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
@@ -26,7 +26,7 @@ type Props = {
   ) => void | Promise<void>;
 };
 
-function CampaignOption({
+function CampaignGridCell({
   active,
   icon,
   name,
@@ -35,6 +35,7 @@ function CampaignOption({
   nameAttr,
   onSelect,
   disabled,
+  variant = "campaign",
 }: {
   active: boolean;
   icon: string;
@@ -44,14 +45,17 @@ function CampaignOption({
   nameAttr: string;
   onSelect: () => void;
   disabled?: boolean;
+  variant?: "campaign" | "create";
 }) {
   return (
     <label
-      className={`flex cursor-pointer items-center gap-3 rounded-xl border bg-white px-3 py-3 transition has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[#0050cb]/30 ${
+      className={`dashboard-add-campaign-cell flex min-h-[4.25rem] cursor-pointer items-center gap-2.5 rounded-lg border bg-white px-3 py-2.5 text-left transition has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[#0050cb]/30 ${
         active
-          ? "border-[#0050cb]/40 bg-[#f8f9ff] shadow-[0_0_0_1px_rgba(0,80,203,0.12)]"
-          : "border-slate-200 hover:border-[#0050cb]/40 hover:bg-[#f8f9ff]"
-      }${disabled ? " cursor-not-allowed opacity-55" : ""}`}
+          ? "border-[#0050cb]/45 bg-[#f8f9ff] shadow-[0_0_0_1px_rgba(0,80,203,0.14)]"
+          : "border-slate-200 hover:border-[#0050cb]/35 hover:bg-[#f8f9ff]"
+      }${disabled ? " cursor-not-allowed opacity-55" : ""}${
+        variant === "create" ? " dashboard-add-campaign-cell--create" : ""
+      }`}
     >
       <input
         type="radio"
@@ -63,15 +67,26 @@ function CampaignOption({
         className="sr-only"
       />
       <span
-        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[#0050cb]/15 bg-[#0050cb]/10 text-[#0050cb]"
+        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border text-[#0050cb] ${
+          variant === "create"
+            ? "border-[#0050cb]/25 bg-[#0050cb]/12"
+            : "border-[#0050cb]/15 bg-[#0050cb]/10"
+        }`}
         aria-hidden
       >
-        <MaterialIcon name={icon} className="text-[20px]" />
+        <MaterialIcon name={icon} className="text-[18px]" />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block text-sm font-semibold text-[#141b2b]">{name}</span>
-        {meta ? <span className="mt-0.5 block text-xs text-slate-500">{meta}</span> : null}
+        <span className="block truncate text-sm font-semibold text-[#141b2b]">{name}</span>
+        {meta ? (
+          <span className="mt-0.5 block truncate text-xs leading-snug text-slate-500">{meta}</span>
+        ) : null}
       </span>
+      {active ? (
+        <span className="dashboard-add-campaign-cell-check shrink-0" aria-hidden>
+          <MaterialIcon name="check_circle" className="text-base text-[#0050cb]" />
+        </span>
+      ) : null}
     </label>
   );
 }
@@ -87,6 +102,7 @@ export function AddToCampaignModal({
   const [mounted, setMounted] = useState(false);
   const [choice, setChoice] = useState("");
   const [newName, setNewName] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [submitError, setSubmitError] = useState("");
   const wasOpenRef = useRef(false);
 
@@ -96,6 +112,7 @@ export function AddToCampaignModal({
     if (!open) {
       setChoice("");
       setNewName("");
+      setSearchQuery("");
       setSubmitError("");
       wasOpenRef.current = false;
       return;
@@ -130,9 +147,26 @@ export function AddToCampaignModal({
     };
   }, [open, onClose, submitting]);
 
+  const filteredCampaigns = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return campaigns;
+    return campaigns.filter((c) => c.name.toLowerCase().includes(q));
+  }, [campaigns, searchQuery]);
+
+  const campaignsToShow = useMemo(() => {
+    if (!choice || choice === NEW_CAMPAIGN_VALUE) return filteredCampaigns;
+    const selected = campaigns.find((c) => c.id === choice);
+    if (!selected || filteredCampaigns.some((c) => c.id === choice)) {
+      return filteredCampaigns;
+    }
+    return [selected, ...filteredCampaigns];
+  }, [filteredCampaigns, campaigns, choice]);
+
   if (!open || !mounted) return null;
 
   const isNew = choice === NEW_CAMPAIGN_VALUE;
+  const showCampaignSearch = campaigns.length > 0;
+  const searchActive = searchQuery.trim().length > 0;
   const trimmedNew = newName.trim();
   const selectedCampaign = campaigns.find((c) => c.id === choice);
   const selectedCampaignLaunched =
@@ -166,7 +200,7 @@ export function AddToCampaignModal({
       }}
     >
       <div
-        className="dashboard-modal mx-auto flex max-h-[min(90vh,640px)] w-full max-w-lg flex-col overflow-hidden p-0"
+        className="dashboard-modal dashboard-add-campaign-modal mx-auto flex w-full max-w-2xl flex-col p-0"
         role="dialog"
         aria-modal="true"
         aria-labelledby="add-to-campaign-title"
@@ -194,22 +228,65 @@ export function AddToCampaignModal({
 
         <form
           onSubmit={handleSubmit}
-          className="dashboard-outreach-scroll flex min-h-0 flex-1 flex-col overflow-y-auto px-6 py-5"
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
         >
-          {campaigns.length > 0 ? (
-            <div className="flex flex-col gap-2" role="radiogroup" aria-label="Campaigns">
-              {campaigns.map((campaign) => {
+          <div className="shrink-0 space-y-3 px-6 pt-5">
+            {showCampaignSearch ? (
+              <label className="dashboard-campaign-wa-comms-search relative block">
+                <MaterialIcon
+                  name="search"
+                  className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-base text-slate-400"
+                />
+                <input
+                  type="search"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search campaigns…"
+                  className="dashboard-campaign-wa-comms-search-input w-full"
+                  disabled={submitting}
+                  aria-label="Search campaigns"
+                />
+              </label>
+            ) : null}
+
+            {searchActive && filteredCampaigns.length === 0 ? (
+              <p className="text-sm text-slate-500">
+                No campaigns match &ldquo;{searchQuery.trim()}&rdquo;.
+              </p>
+            ) : null}
+          </div>
+
+          <div className="dashboard-add-campaign-grid-scroll min-h-0 flex-1 overflow-y-auto px-6 py-3">
+            <div
+              className="dashboard-add-campaign-grid grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3"
+              role="radiogroup"
+              aria-label="Campaigns"
+            >
+              <CampaignGridCell
+                active={isNew}
+                icon="add"
+                name="Create new campaign"
+                meta="Start fresh"
+                value={NEW_CAMPAIGN_VALUE}
+                nameAttr="campaign-target"
+                onSelect={() => setChoice(NEW_CAMPAIGN_VALUE)}
+                disabled={submitting}
+                variant="create"
+              />
+
+              {campaignsToShow.map((campaign) => {
                 const launched = isCampaignLaunched(campaign.outreachStatus);
+                const count = campaign.contactCount ?? campaign.contacts.length;
                 return (
-                  <CampaignOption
+                  <CampaignGridCell
                     key={campaign.id}
                     active={choice === campaign.id}
                     icon="flag"
                     name={campaign.name}
                     meta={
                       launched
-                        ? "Launched — cannot add contacts"
-                        : `${campaign.contacts.length} contact${campaign.contacts.length === 1 ? "" : "s"}`
+                        ? "Launched — locked"
+                        : `${count.toLocaleString()} contact${count === 1 ? "" : "s"}`
                     }
                     value={campaign.id}
                     nameAttr="campaign-target"
@@ -219,56 +296,46 @@ export function AddToCampaignModal({
                 );
               })}
             </div>
-          ) : (
-            <p className="text-sm text-slate-500">No campaigns yet. Create one below.</p>
-          )}
-
-          <div className="mt-4 space-y-3">
-            <CampaignOption
-              active={isNew}
-              icon="add"
-              name="Create new campaign"
-              value={NEW_CAMPAIGN_VALUE}
-              nameAttr="campaign-target"
-              onSelect={() => setChoice(NEW_CAMPAIGN_VALUE)}
-              disabled={submitting}
-            />
-
-            {isNew ? (
-              <label className={`${dashboardLabelClass} block`}>
-                Campaign name
-                <input
-                  type="text"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  className={`${dashboardInputClass} mt-2 w-full`}
-                  placeholder="e.g. Q2 Engineering outreach"
-                  autoFocus
-                  disabled={submitting}
-                />
-              </label>
-            ) : null}
           </div>
 
-          {submitError ? (
-            <p className="dashboard-alert-warning mt-4" role="alert">
-              {submitError}
-            </p>
+          {isNew || submitError ? (
+            <div className="shrink-0 space-y-4 border-t border-slate-200 px-6 py-4">
+              {isNew ? (
+                <label className={`${dashboardLabelClass} block`}>
+                  Campaign name
+                  <input
+                    type="text"
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    className={`${dashboardInputClass} mt-2 w-full`}
+                    placeholder="e.g. Q2 Engineering outreach"
+                    autoFocus
+                    disabled={submitting}
+                  />
+                </label>
+              ) : null}
+
+              {submitError ? (
+                <p className="dashboard-alert-warning" role="alert">
+                  {submitError}
+                </p>
+              ) : null}
+            </div>
           ) : null}
 
-          <div className="mt-6 flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-4">
+          <div className="dashboard-confirm-modal-footer shrink-0">
             <button
               type="button"
               onClick={onClose}
               disabled={submitting}
-              className={`${dashboardBtnSecondaryClass} px-4 py-2.5 text-sm disabled:opacity-55`}
+              className={dashboardBtnSecondaryClass}
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={!canSubmit}
-              className={`${dashboardBtnPrimaryClass} px-5 py-2.5 text-sm disabled:opacity-55`}
+              className={dashboardBtnPrimaryClass}
             >
               {submitting ? (
                 <>

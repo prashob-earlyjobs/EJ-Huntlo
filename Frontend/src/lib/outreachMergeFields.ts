@@ -50,16 +50,19 @@ export function mergeTokenWithFallback(
   return `{{${t}|${fallback}}}`;
 }
 
-/** Insert at caret when the field was last focused; otherwise append to end. */
+export type FieldTextSelection = { start: number; end: number };
+
+/** Insert at caret when selection or element is available; otherwise append to end. */
 export function insertTextIntoField(
   current: string,
   insertText: string,
   element: HTMLInputElement | HTMLTextAreaElement | null,
-  insertAtCursor: boolean
+  insertAtCursor: boolean,
+  selection?: FieldTextSelection
 ): { value: string; selectionStart: number; selectionEnd: number } {
-  if (insertAtCursor && element) {
-    const start = element.selectionStart ?? current.length;
-    const end = element.selectionEnd ?? start;
+  if (insertAtCursor && (selection || element)) {
+    const start = selection?.start ?? element?.selectionStart ?? current.length;
+    const end = selection?.end ?? element?.selectionEnd ?? start;
     const value = current.slice(0, start) + insertText + current.slice(end);
     const pos = start + insertText.length;
     return { value, selectionStart: pos, selectionEnd: pos };

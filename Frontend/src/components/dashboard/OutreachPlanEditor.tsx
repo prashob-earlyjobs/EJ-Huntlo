@@ -26,8 +26,9 @@ import {
 } from "@/lib/outreachTemplates";
 import {
   formatGmailWaitConnectorLabel,
-  GMAIL_WAIT_UNIT_OPTIONS,
+  getGmailWaitUnitOptions,
   gmailWaitFromDisplay,
+  gmailWaitUsesSendAt,
   clampWaitAmount,
   inferGmailWaitDisplay,
   maxWaitAmountForUnit,
@@ -55,7 +56,11 @@ import {
   type OutreachTimezoneCode,
 } from "@/lib/outreachSchedule";
 import { OutreachStartScheduleBar } from "@/components/dashboard/OutreachStartScheduleBar";
-import { insertTextIntoField, OUTREACH_MERGE_FIELDS } from "@/lib/outreachMergeFields";
+import {
+  insertTextIntoField,
+  OUTREACH_MERGE_FIELDS,
+  type FieldTextSelection,
+} from "@/lib/outreachMergeFields";
 
 type CalendlyMeetingOption = {
   uri: string;
@@ -318,7 +323,8 @@ export function OutreachPlanEditor({
   const canvasScrollRef = useRef<HTMLDivElement>(null);
   const stepSectionRefs = useRef<(HTMLElement | null)[]>([]);
   const railStepRefs = useRef<(HTMLButtonElement | null)[]>([]);
-  const bodyInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const bodyInputRefs = useRef<Record<number, HTMLTextAreaElement | undefined>>({});
+  const bodySelectionRef = useRef<(FieldTextSelection & { order: number }) | null>(null);
   const [bodyFocusOrder, setBodyFocusOrder] = useState<number | null>(null);
   const scrollSyncLock = useRef(false);
   const scrollSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -767,6 +773,14 @@ export function OutreachPlanEditor({
     updateTouchpoint(order, gmailWaitFromDisplay(nextMeta.amount, nextMeta.unit));
   };
 
+  const captureBodySelection = useCallback((order: number, el: HTMLTextAreaElement) => {
+    bodySelectionRef.current = {
+      order,
+      start: el.selectionStart ?? 0,
+      end: el.selectionEnd ?? el.selectionStart ?? 0,
+    };
+  }, []);
+
   const insertBodyMergeToken = useCallback(
     (token: string) => {
       if (editorLocked) return;
@@ -775,18 +789,23 @@ export function OutreachPlanEditor({
       const tp = touchpoints.find((t) => t.order === order);
       if (!tp) return;
       const insertText = `{{${token}}}`;
+      const el = bodyInputRefs.current[order] ?? null;
+      const stored =
+        bodySelectionRef.current?.order === order ? bodySelectionRef.current : null;
       const { value, selectionStart, selectionEnd } = insertTextIntoField(
         tp.body,
         insertText,
-        bodyInputRef.current,
-        Boolean(bodyInputRef.current)
+        el,
+        Boolean(el && stored),
+        stored ? { start: stored.start, end: stored.end } : undefined
       );
       updateTouchpoint(order, { body: value });
       requestAnimationFrame(() => {
-        const el = bodyInputRef.current;
-        if (!el) return;
-        el.focus();
-        el.setSelectionRange(selectionStart, selectionEnd);
+        const target = bodyInputRefs.current[order];
+        if (!target) return;
+        target.focus();
+        target.setSelectionRange(selectionStart, selectionEnd);
+        bodySelectionRef.current = { order, start: selectionStart, end: selectionEnd };
       });
     },
     [activeIndex, bodyFocusOrder, editorLocked, touchpoints]
@@ -904,6 +923,7 @@ export function OutreachPlanEditor({
                     body: tp.body || "",
                     waitDays: tp.waitDays ?? 0,
                     waitHours: tp.waitHours ?? 0,
+                    waitMinutes: tp.waitMinutes ?? 0,
                     sendTime: tp.sendTime,
                     timezone: tp.timezone,
                     waitUnit: tp.waitUnit,
@@ -1301,7 +1321,8 @@ export function OutreachPlanEditor({
               const isActive = canvasIndex === activeIndex;
               const stepWaitUnit =
                 waitMeta[tp.order]?.unit ?? inferGmailWaitDisplay(tp).unit;
-              const stepWaitUsesSendAt = stepWaitUnit !== "hours";
+              const stepWaitUsesSendAt = gmailWaitUsesSendAt(stepWaitUnit);
+              const waitUnitOptions = getGmailWaitUnitOptions();
               return (
                 <div key={`wrap-${tp.order}-${index}`} className="dashboard-outreach-main-flow-item">
                   {index > 0 ? (
@@ -1338,9 +1359,8 @@ export function OutreachPlanEditor({
                               />
                               <ScheduleStaticChip
                                 label={
-                                  GMAIL_WAIT_UNIT_OPTIONS.find(
-                                    (o) => o.value === stepWaitUnit
-                                  )?.label ?? "days"
+                                  waitUnitOptions.find((o) => o.value === stepWaitUnit)
+                                    ?.label ?? "days"
                                 }
                               />
                               {stepWaitUsesSendAt ? (
@@ -1380,7 +1400,7 @@ export function OutreachPlanEditor({
                               />
                               <OutreachPillSelect
                                 value={stepWaitUnit}
-                                options={GMAIL_WAIT_UNIT_OPTIONS}
+                                options={waitUnitOptions}
                                 onChange={(unit) => updateStepWait(tp.order, { unit })}
                                 ariaLabel="Wait unit"
                               />
@@ -1497,10 +1517,19 @@ export function OutreachPlanEditor({
 
                       <div className="dashboard-outreach-builder-editor-wrap">
                         <textarea
-                          ref={isActive ? bodyInputRef : undefined}
+                          ref={(el) => {
+                            if (el) bodyInputRefs.current[tp.order] = el;
+                            else delete bodyInputRefs.current[tp.order];
+                          }}
                           value={tp.body}
                           readOnly={editorLocked}
-                          onFocus={() => setBodyFocusOrder(tp.order)}
+                          onFocus={(e) => {
+                            setBodyFocusOrder(tp.order);
+                            captureBodySelection(tp.order, e.currentTarget);
+                          }}
+                          onSelect={(e) => captureBodySelection(tp.order, e.currentTarget)}
+                          onKeyUp={(e) => captureBodySelection(tp.order, e.currentTarget)}
+                          onMouseUp={(e) => captureBodySelection(tp.order, e.currentTarget)}
                           onChange={(e) => updateTouchpoint(tp.order, { body: e.target.value })}
                           rows={10}
                           className={`dashboard-outreach-builder-body-input${
@@ -1518,6 +1547,7 @@ export function OutreachPlanEditor({
                                 <button
                                   key={field.token}
                                   type="button"
+                                  onMouseDown={(e) => e.preventDefault()}
                                   onClick={() => insertBodyMergeToken(field.token)}
                                   className="dashboard-wa-outreach-chip"
                                   title={field.label}

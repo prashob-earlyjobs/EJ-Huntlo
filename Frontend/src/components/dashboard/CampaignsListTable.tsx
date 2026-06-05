@@ -1,5 +1,9 @@
 "use client";
 
+import {
+  CampaignsSummarySkeleton,
+  CampaignsTableSkeleton,
+} from "@/components/dashboard/CampaignsListSkeleton";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import type { CampaignRecord } from "@/lib/campaigns";
 import type { CampaignsListSummary } from "@/lib/campaignsApi";
@@ -70,6 +74,14 @@ export function CampaignsListTable({
   loading = false,
   onOpenCampaign,
 }: Props) {
+  if (loading) {
+    return (
+      <div className="dashboard-campaigns-list-loading" aria-busy="true" aria-label="Loading campaigns">
+        <CampaignsSummarySkeleton />
+        <CampaignsTableSkeleton count={Math.max(campaigns.length, 5)} />
+      </div>
+    );
+  }
 
   return (
     <>
@@ -120,8 +132,7 @@ export function CampaignsListTable({
           Swipe sideways to see all columns
         </p>
         <div
-          className={`dashboard-thin-scrollbar dashboard-campaigns-table-scroll${loading ? " dashboard-campaigns-table-scroll--loading" : ""}`}
-          aria-busy={loading}
+          className="dashboard-thin-scrollbar dashboard-campaigns-table-scroll"
           tabIndex={0}
           role="region"
           aria-label="Campaigns table. Scroll horizontally on small screens to see all columns."
@@ -155,7 +166,7 @@ export function CampaignsListTable({
                   campaign.lastActivityAt || campaign.createdAt
                 );
                 const isWhatsApp = campaign.outreachChannel === "whatsapp";
-                const contactCount = campaign.contacts.length;
+                const contactCount = campaign.contactCount ?? campaign.contacts.length;
                 const contactsSent = campaign.contactsSent ?? 0;
                 const interestedCount = campaign.interestedCount ?? 0;
                 return (

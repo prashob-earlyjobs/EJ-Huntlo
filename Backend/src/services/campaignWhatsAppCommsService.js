@@ -9,6 +9,11 @@ const {
   findCampaignInScope,
   campaignOwnerUserId,
 } = require("../utils/campaignScope");
+const {
+  loadAllContactsForCampaign,
+  contactExistsInCampaign,
+  findContactByCandidateKey,
+} = require("./campaignContactService");
 
 /** Meta customer care session — free-form text allowed after candidate's last message. */
 const WHATSAPP_SESSION_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -116,8 +121,7 @@ async function markCampaignWhatsAppThreadRead(actorUserId, campaignId, candidate
     throw err;
   }
 
-  const contacts = Array.isArray(campaign.contacts) ? campaign.contacts : [];
-  const hasContact = contacts.some((c) => String(c.candidateKey || "").trim() === key);
+  const hasContact = await contactExistsInCampaign(campaignId, key);
   if (!hasContact) {
     const err = new Error("Contact not found in this campaign");
     err.statusCode = 404;
@@ -263,7 +267,7 @@ async function getCampaignWhatsAppConversations(actorUserId, campaignId, options
     messagesByKey.get(key).push(formatMessageRow(doc));
   }
 
-  const contacts = Array.isArray(campaign.contacts) ? campaign.contacts : [];
+  const contacts = await loadAllContactsForCampaign(campaignId);
   const allThreads = contacts.map((raw) => {
     const contact = formatContactFromCampaign(raw);
     const key = contact.candidateKey;
@@ -344,8 +348,7 @@ async function getCampaignWhatsAppThreadMessages(
   const campaign = await findCampaignInScope(actorUserId, campaignId);
   const ownerUserId = campaignOwnerUserId(campaign);
 
-  const contacts = Array.isArray(campaign.contacts) ? campaign.contacts : [];
-  const hasContact = contacts.some((c) => String(c.candidateKey || "").trim() === key);
+  const hasContact = await contactExistsInCampaign(campaignId, key);
   if (!hasContact) {
     const err = new Error("Contact not found in this campaign");
     err.statusCode = 404;
@@ -392,8 +395,7 @@ async function sendCampaignWhatsAppSessionMessage(actorUserId, campaignId, candi
     throw err;
   }
 
-  const contacts = Array.isArray(campaign.contacts) ? campaign.contacts : [];
-  const rawContact = contacts.find((c) => String(c.candidateKey || "").trim() === key);
+  const rawContact = await findContactByCandidateKey(campaignId, key);
   if (!rawContact) {
     const err = new Error("Contact not found in this campaign");
     err.statusCode = 404;

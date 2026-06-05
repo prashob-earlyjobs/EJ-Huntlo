@@ -343,7 +343,10 @@ export function OutreachSequencePicker({
     setCloneSelection("");
   }, [plansPage, existingPlans]);
 
-  const globalTemplates = templates.filter((t) => t.isGlobal);
+  // Hide deprecated multi-channel starter template in picker UI.
+  const globalTemplates = templates.filter(
+    (t) => t.isGlobal && t.starterKey !== "multichannel"
+  );
   const userTemplates = templates.filter((t) => !t.isGlobal);
   const listLoading = templatesLoading || plansLoading;
   /** Explicit false = parent gates first paint (campaign editor); undefined = loading flags only. */

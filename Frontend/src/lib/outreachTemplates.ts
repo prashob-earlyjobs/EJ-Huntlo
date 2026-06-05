@@ -17,11 +17,13 @@ export type OutreachTouchpointDraft = {
   waitDays: number;
   /** Sub-day delays; takes precedence over `waitDays` when scheduling sends. */
   waitHours?: number;
+  /** QA testing — sub-hour delays (minutes). */
+  waitMinutes?: number;
   /** HH:mm in `timezone` (IST = India Standard Time, UTC). */
   sendTime?: string;
   /** `IST` (India) or `UTC`. */
   timezone?: string;
-  waitUnit?: "days";
+  waitUnit?: "days" | "hours" | "minutes";
 };
 
 export type EmailWaitUnit = "hours" | "days" | "business_days" | "weeks" | "months";

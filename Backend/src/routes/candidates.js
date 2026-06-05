@@ -5,6 +5,7 @@ const {
   annotateSearchPrompt,
   createSearchSession,
   applySearchFilters,
+  claimPublicSearch,
   loadSessionProfiles,
   fetchMoreSessionProfiles,
   getSessionCandidateDetails,
@@ -36,6 +37,7 @@ router.post("/search", authenticate, searchCandidates);
 router.post("/search/annotate", authenticate, annotateSearchPrompt);
 router.post("/search/create", authenticate, createSearchSession);
 router.post("/search/apply", authenticate, applySearchFilters);
+router.post("/claim-public-search", authenticate, claimPublicSearch);
 router.get("/all", authenticate, listAllSourcedCandidates);
 router.get("/admin/all", authenticate, requireAdmin, listAllSourcedCandidatesAdmin);
 router.get("/admin/sessions", authenticate, requireAdmin, listSourcingSessionsAdmin);

@@ -13,7 +13,6 @@ const {
   findCampaignInScope,
   findCampaignDocumentInScope,
 } = require("../utils/campaignScope");
-const { normalizeToE164 } = require("./whatsappPhoneUtils");
 const {
   CAMPAIGN_MAX_CONTACTS,
   CAMPAIGN_CONTACT_LIMIT_MESSAGE,
@@ -23,69 +22,22 @@ const {
   logOutreachCreditUsage,
   outreachChannelToCreditChannel,
 } = require("./outreachCreditsService");
+const {
+  normalizeContacts,
+  formatContact,
+  ensureContactsMigrated,
+  countContactsForCampaign,
+  sumContactCountsForCampaigns,
+  getExistingCandidateKeys,
+  addContactsToCampaignCollection,
+  removeContactFromCampaignCollection,
+  updateCampaignContactFields,
+  deleteAllContactsForCampaign,
+  listCampaignContactsPaginated,
+  loadAllContactsForCampaign,
+  insertContactsForCampaign,
+} = require("./campaignContactService");
 
-/** WhatsApp campaign testing — E.164. Override via WHATSAPP_TEST_PHONE_E164 env. */
-const WHATSAPP_TEST_PHONE_E164 = String(
-  process.env.WHATSAPP_TEST_PHONE_E164 || "+918714500637"
-).trim();
-
-function normalizeContactPhone(raw) {
-  const trimmed = String(raw || "").trim();
-  if (!trimmed) return "";
-  return normalizeToE164(trimmed) || trimmed;
-}
-
-function normalizeContact(raw) {
-  if (!raw || typeof raw !== "object") return null;
-  const candidateKey = String(raw.candidateKey || "").trim();
-  if (!candidateKey) return null;
-  const phone =
-    normalizeContactPhone(raw.phone) ||
-    (process.env.WHATSAPP_USE_TEST_PHONE === "1" ? WHATSAPP_TEST_PHONE_E164 : "");
-  return {
-    candidateKey,
-    candidateId: String(raw.candidateId || "").trim(),
-    name: String(raw.name || "").trim(),
-    email: String(raw.email || "").trim(),
-    phone,
-    role: String(raw.role || "").trim(),
-    company: String(raw.company || "").trim(),
-    location: String(raw.location || "").trim(),
-    linkedinUrl: String(raw.linkedinUrl || "").trim(),
-    sourcingSessionId: String(raw.sourcingSessionId || "").trim(),
-    addedAt: raw.addedAt ? new Date(raw.addedAt) : new Date(),
-  };
-}
-
-function normalizeContacts(raw) {
-  if (!Array.isArray(raw)) return [];
-  const seen = new Set();
-  const out = [];
-  for (const item of raw) {
-    const contact = normalizeContact(item);
-    if (!contact || seen.has(contact.candidateKey)) continue;
-    seen.add(contact.candidateKey);
-    out.push(contact);
-  }
-  return out;
-}
-
-function formatContact(doc) {
-  return {
-    id: doc._id ? String(doc._id) : "",
-    candidateKey: doc.candidateKey || "",
-    candidateId: doc.candidateId || "",
-    name: doc.name || "",
-    email: doc.email || "",
-    phone: doc.phone || "",
-    role: doc.role || "",
-    company: doc.company || "",
-    location: doc.location || "",
-    linkedinUrl: doc.linkedinUrl || "",
-    sourcingSessionId: doc.sourcingSessionId || "",
-    addedAt: doc.addedAt ? new Date(doc.addedAt).toISOString() : new Date().toISOString(),
-  };
-}
 
 function normalizeCalendlyAutomation(raw) {
   const o = raw && typeof raw === "object" ? raw : {};
@@ -110,9 +62,26 @@ function normalizeCalendlyAutomation(raw) {
   };
 }
 
-function formatCampaign(doc, listStats) {
-  const contacts = Array.isArray(doc.contacts) ? doc.contacts : [];
-  const contactCount = contacts.length;
+function resolveContactCount(doc) {
+  const embedded = Array.isArray(doc?.contacts) ? doc.contacts.length : 0;
+  const stored =
+    typeof doc?.contactCount === "number" && Number.isFinite(doc.contactCount)
+      ? Math.max(0, Math.floor(doc.contactCount))
+      : 0;
+  return Math.max(stored, embedded);
+}
+
+function formatCampaign(doc, listStats, options = {}) {
+  const includeContacts = options.includeContacts === true;
+  const contacts = includeContacts
+    ? Array.isArray(options.contacts)
+      ? options.contacts.map(formatContact)
+      : []
+    : [];
+  const contactCount =
+    typeof options.contactCount === "number"
+      ? Math.max(0, options.contactCount)
+      : resolveContactCount(doc);
   const stats =
     listStats && typeof listStats === "object"
       ? listStats
@@ -136,7 +105,7 @@ function formatCampaign(doc, listStats) {
     whatsAppInterestedCount: Math.max(0, Number(doc.whatsAppInterestedCount) || 0),
     whatsAppNotInterestedCount: Math.max(0, Number(doc.whatsAppNotInterestedCount) || 0),
     contactCount,
-    contacts: contacts.map(formatContact),
+    contacts,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
     ...(contactsSent !== undefined ? { contactsSent } : {}),
@@ -232,19 +201,11 @@ async function listCampaigns(actorUserId, options = {}) {
     throw err;
   }
 
-  const [docs, total, active, contactsAgg] = await Promise.all([
+  const [docs, total, active, totalContacts] = await Promise.all([
     Campaign.find(filter).sort({ updatedAt: -1 }).skip(skip).limit(limit).lean(),
     Campaign.countDocuments(filter),
     Campaign.countDocuments({ ...filter, outreachStatus: "active" }),
-    Campaign.aggregate([
-      { $match: filter },
-      {
-        $project: {
-          contactCount: { $size: { $ifNull: ["$contacts", []] } },
-        },
-      },
-      { $group: { _id: null, total: { $sum: "$contactCount" } } },
-    ]),
+    sumContactCountsForCampaigns(filter),
   ]);
 
   const statsById = await loadCampaignListStats(
@@ -264,10 +225,6 @@ async function listCampaigns(actorUserId, options = {}) {
   const totalPages = Math.max(1, Math.ceil(total / limit) || 1);
   const safePage = Math.min(page, totalPages);
   const hasMore = safePage < totalPages;
-  const totalContacts =
-    contactsAgg && contactsAgg[0] && typeof contactsAgg[0].total === "number"
-      ? contactsAgg[0].total
-      : 0;
 
   return {
     campaigns,
@@ -287,125 +244,17 @@ async function listCampaigns(actorUserId, options = {}) {
 }
 
 async function listCampaignContacts(actorUserId, campaignId, options = {}) {
-  const oid = assertValidCampaignId(campaignId);
+  assertValidCampaignId(campaignId);
   await findCampaignInScope(actorUserId, campaignId, { select: "_id" });
-
-  const pageRaw = Number(options.page);
-  const limitRaw = Number(options.limit);
-  const search = String(options.search || "").trim();
-  const disposition = String(options.disposition || "").trim();
-  const page = Number.isFinite(pageRaw) && pageRaw > 0 ? Math.floor(pageRaw) : 1;
-  const limit = Math.min(100, Math.max(1, Number.isFinite(limitRaw) ? Math.floor(limitRaw) : 15));
-  const skip = (page - 1) * limit;
-  const escapedSearch = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const searchRegex = escapedSearch ? new RegExp(escapedSearch, "i") : null;
-  const dispositionFilter =
-    disposition === "interested" || disposition === "not_interested" || disposition === "awaiting"
-      ? disposition
-      : "all";
-
-  const pipeline = [
-    { $match: { _id: oid } },
-    { $unwind: "$contacts" },
-    {
-      $lookup: {
-        from: CampaignSequenceEnrollment.collection.name,
-        let: { campaignId: "$_id", key: "$contacts.candidateKey" },
-        pipeline: [
-          {
-            $match: {
-              $expr: {
-                $and: [
-                  { $eq: ["$campaignId", "$$campaignId"] },
-                  { $eq: ["$candidateKey", "$$key"] },
-                ],
-              },
-            },
-          },
-          { $project: { _id: 0, replyDisposition: 1 } },
-          { $limit: 1 },
-        ],
-        as: "enrollmentRows",
-      },
-    },
-    {
-      $addFields: {
-        replyDisposition: {
-          $ifNull: [{ $first: "$enrollmentRows.replyDisposition" }, "unknown"],
-        },
-      },
-    },
-  ];
-
-  if (searchRegex) {
-    pipeline.push({
-      $match: {
-        $or: [
-          { "contacts.name": searchRegex },
-          { "contacts.email": searchRegex },
-          { "contacts.role": searchRegex },
-          { "contacts.company": searchRegex },
-          { "contacts.phone": searchRegex },
-        ],
-      },
-    });
-  }
-
-  if (dispositionFilter === "interested") {
-    pipeline.push({ $match: { replyDisposition: "interested" } });
-  } else if (dispositionFilter === "not_interested") {
-    pipeline.push({ $match: { replyDisposition: "not_interested" } });
-  } else if (dispositionFilter === "awaiting") {
-    pipeline.push({ $match: { replyDisposition: "unknown" } });
-  }
-
-  pipeline.push(
-    { $sort: { "contacts.addedAt": -1, "contacts.candidateKey": 1 } },
-    {
-      $facet: {
-        rows: [
-          { $skip: skip },
-          { $limit: limit },
-          { $project: { contact: "$contacts", replyDisposition: 1 } },
-        ],
-        total: [{ $count: "count" }],
-      },
-    },
-  );
-
-  const [result] = await Campaign.aggregate(pipeline);
-
-  const rawRows = Array.isArray(result?.rows) ? result.rows : [];
-  const total = Array.isArray(result?.total) && result.total[0]?.count ? Number(result.total[0].count) : 0;
-  const contacts = rawRows.map((row) => formatContact(row.contact || {}));
-  const dispositionByCandidateKey = {};
-  rawRows.forEach((row) => {
-    const key = String(row?.contact?.candidateKey || "").trim();
-    if (!key) return;
-    const value =
-      row?.replyDisposition === "interested" || row?.replyDisposition === "not_interested"
-        ? row.replyDisposition
-        : "unknown";
-    dispositionByCandidateKey[key] = value;
-  });
-  const totalPages = Math.max(1, Math.ceil(total / limit));
-
-  return {
-    contacts,
-    dispositionByCandidateKey,
-    pagination: {
-      page,
-      limit,
-      total,
-      totalPages,
-      hasMore: page < totalPages,
-    },
-  };
+  return listCampaignContactsPaginated(campaignId, options);
 }
 
 async function getCampaign(actorUserId, campaignId) {
   const doc = await findCampaignInScope(actorUserId, campaignId);
-  return formatCampaign(doc);
+  await ensureContactsMigrated(campaignId);
+  const contacts = await loadAllContactsForCampaign(campaignId);
+  const contactCount = contacts.length;
+  return formatCampaign(doc, null, { includeContacts: true, contacts, contactCount });
 }
 
 async function createCampaign(userId, { name, contacts }) {
@@ -428,28 +277,32 @@ async function createCampaign(userId, { name, contacts }) {
     };
     throw err;
   }
-  const contactsToSave = normalized;
-  if (contactsToSave.length > 0) {
+  if (normalized.length > 0) {
     await assertOutreachCreditsAvailable(
       userId,
       outreachChannelToCreditChannel("gmail"),
-      contactsToSave.length
+      normalized.length
     );
   }
   const doc = await Campaign.create({
     userId: userOid(userId),
     name: campaignName,
-    contacts: contactsToSave,
+    contacts: [],
+    contactCount: 0,
   });
-  if (contactsToSave.length > 0) {
+
+  if (normalized.length > 0) {
+    await insertContactsForCampaign(String(doc._id), userId, normalized);
     await logOutreachCreditUsage(
       userId,
       outreachChannelToCreditChannel("gmail"),
-      contactsToSave.length
+      normalized.length
     );
   }
+
+  const contactCount = normalized.length;
   return {
-    campaign: formatCampaign(doc.toObject()),
+    campaign: formatCampaign(doc.toObject(), null, { contactCount }),
     limitSkippedCount: 0,
   };
 }
@@ -470,12 +323,11 @@ async function addContactsToCampaign(actorUserId, campaignId, contacts) {
   assertCampaignAcceptsNewContacts(doc);
 
   const incoming = normalizeContacts(contacts);
-  const existingKeys = new Set(
-    (doc.contacts || []).map((c) => String(c.candidateKey || "").trim()).filter(Boolean)
-  );
-
-  const currentCount = doc.contacts?.length || 0;
+  const currentCount = await countContactsForCampaign(campaignId);
   const remaining = Math.max(0, CAMPAIGN_MAX_CONTACTS - currentCount);
+
+  const existingKeys = await getExistingCandidateKeys(campaignId);
+
   let newUniqueCount = 0;
   for (const contact of incoming) {
     if (!existingKeys.has(contact.candidateKey)) {
@@ -514,32 +366,24 @@ async function addContactsToCampaign(actorUserId, campaignId, contacts) {
     await assertOutreachCreditsAvailable(actorUserId, creditChannel, newUniqueCount);
   }
 
-  let addedCount = 0;
-  let skippedCount = 0;
-  const limitSkippedCount = 0;
-  const addedCandidateKeys = [];
-  for (const contact of incoming) {
-    if (existingKeys.has(contact.candidateKey)) {
-      skippedCount += 1;
-      continue;
-    }
-    existingKeys.add(contact.candidateKey);
-    doc.contacts.push(contact);
-    addedCandidateKeys.push(contact.candidateKey);
-    addedCount += 1;
-  }
+  const ownerUserId = campaignOwnerUserId(doc);
+  const { addedCount, skippedCount, addedCandidateKeys } =
+    await addContactsToCampaignCollection(campaignId, ownerUserId, incoming);
 
   if (addedCount > 0) {
-    await doc.save();
     const creditChannel = outreachChannelToCreditChannel(doc.outreachChannel);
     await logOutreachCreditUsage(actorUserId, creditChannel, addedCount);
   }
 
+  const updatedCount = currentCount + addedCount;
+  const refreshed = doc.toObject();
+  refreshed.contactCount = updatedCount;
+
   return {
-    campaign: formatCampaign(doc.toObject()),
+    campaign: formatCampaign(refreshed, null, { contactCount: updatedCount }),
     addedCount,
     skippedCount,
-    limitSkippedCount,
+    limitSkippedCount: 0,
     addedCandidateKeys,
   };
 }
@@ -553,37 +397,17 @@ async function removeContactFromCampaign(actorUserId, campaignId, candidateKey) 
   }
 
   const doc = await findCampaignDocumentInScope(actorUserId, campaignId);
+  const before = await countContactsForCampaign(campaignId);
+  const removed = await removeContactFromCampaignCollection(campaignId, key);
+  const after = Math.max(0, before - removed);
 
-  const before = Array.isArray(doc.contacts) ? doc.contacts.length : 0;
-  doc.contacts = (doc.contacts || []).filter(
-    (c) => String(c?.candidateKey || "").trim() !== key
-  );
-  const after = Array.isArray(doc.contacts) ? doc.contacts.length : 0;
-  const removed = Math.max(0, before - after);
-  if (removed > 0) {
-    await doc.save();
-  }
+  const refreshed = doc.toObject();
+  refreshed.contactCount = after;
 
   return {
-    campaign: formatCampaign(doc.toObject()),
+    campaign: formatCampaign(refreshed, null, { contactCount: after }),
     removed,
   };
-}
-
-async function updateCampaignContactFields(ownerUserId, campaignId, candidateKey, email, phone) {
-  await Campaign.updateOne(
-    {
-      _id: assertValidCampaignId(campaignId),
-      userId: userOid(ownerUserId),
-      "contacts.candidateKey": candidateKey,
-    },
-    {
-      $set: {
-        "contacts.$.email": String(email || "").trim(),
-        "contacts.$.phone": String(phone || "").trim(),
-      },
-    }
-  );
 }
 
 /**
@@ -593,31 +417,32 @@ async function updateCampaignContactFields(ownerUserId, campaignId, candidateKey
 async function syncCampaignContactsFromUserCache(actorUserId, campaignId) {
   const campaignDoc = await findCampaignInScope(actorUserId, campaignId);
   const ownerUserId = campaignOwnerUserId(campaignDoc);
-  const campaign = formatCampaign(campaignDoc);
-  const linkedinUrls = (campaign.contacts || [])
-    .map((c) => c.linkedinUrl)
-    .filter(Boolean);
-  if (linkedinUrls.length === 0) return campaign;
+  const contacts = await loadAllContactsForCampaign(campaignId);
+  const linkedinUrls = contacts.map((c) => c.linkedinUrl).filter(Boolean);
+  if (linkedinUrls.length === 0) {
+    return formatCampaign(campaignDoc, null, {
+      includeContacts: true,
+      contacts,
+      contactCount: contacts.length,
+    });
+  }
 
   const lookup = await lookupUserRevealedContacts(ownerUserId, linkedinUrls);
 
-  for (const contact of campaign.contacts) {
+  for (const contact of contacts) {
     const key = normalizeLinkedinProfileUrl(contact.linkedinUrl);
     const cached = lookup[key];
     if (!cached) continue;
 
     const existingEmail = String(contact.email || "").trim();
     const existingPhone = String(contact.phone || "").trim();
-    const email =
-      existingEmail || String(cached.email || "").trim();
-    const phone =
-      existingPhone || String(cached.phone || "").trim();
+    const email = existingEmail || String(cached.email || "").trim();
+    const phone = existingPhone || String(cached.phone || "").trim();
 
     if (!email && !phone) continue;
     if (email === existingEmail && phone === existingPhone) continue;
 
     await updateCampaignContactFields(
-      ownerUserId,
       campaignId,
       contact.candidateKey,
       email,
@@ -638,7 +463,7 @@ async function setCampaignOutreachPlan(
   const ownerOid = userOid(campaignOwnerUserId(doc));
 
   const channel = outreachChannel === "whatsapp" ? "whatsapp" : "gmail";
-  const contactCount = Array.isArray(doc.contacts) ? doc.contacts.length : 0;
+  const contactCount = await countContactsForCampaign(campaignId);
   const previousChannel = doc.outreachChannel === "whatsapp" ? "whatsapp" : "gmail";
   if (contactCount > 0 && channel !== previousChannel) {
     await assertOutreachCreditsAvailable(
@@ -688,25 +513,34 @@ async function setCampaignOutreachPlan(
     );
   }
 
-  return formatCampaign(doc.toObject());
+  const refreshed = doc.toObject();
+  refreshed.contactCount = contactCount;
+  return formatCampaign(refreshed, null, { contactCount });
 }
 
 async function updateCampaignJobDescription(actorUserId, campaignId, jobDescription) {
   const doc = await findCampaignDocumentInScope(actorUserId, campaignId);
   doc.jobDescription = String(jobDescription || "").trim();
   await doc.save();
-  return formatCampaign(doc.toObject());
+  const contactCount = await countContactsForCampaign(campaignId);
+  const refreshed = doc.toObject();
+  refreshed.contactCount = contactCount;
+  return formatCampaign(refreshed, null, { contactCount });
 }
 
 async function updateCampaignCalendlyAutomation(actorUserId, campaignId, calendlyAutomation) {
   const doc = await findCampaignDocumentInScope(actorUserId, campaignId);
   doc.calendlyAutomation = normalizeCalendlyAutomation(calendlyAutomation);
   await doc.save();
-  return formatCampaign(doc.toObject());
+  const contactCount = await countContactsForCampaign(campaignId);
+  const refreshed = doc.toObject();
+  refreshed.contactCount = contactCount;
+  return formatCampaign(refreshed, null, { contactCount });
 }
 
 async function deleteCampaign(actorUserId, campaignId) {
   const doc = await findCampaignDocumentInScope(actorUserId, campaignId);
+  await deleteAllContactsForCampaign(campaignId);
   await Campaign.deleteOne({ _id: doc._id });
   await deleteEnrollmentsForCampaign(campaignId);
   await deleteRepliesForCampaign(campaignId);

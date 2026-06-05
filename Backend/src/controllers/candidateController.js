@@ -2176,6 +2176,139 @@ const listSourcingSessionsAdmin = async (req, res) => {
 };
 
 /**
+ * POST /api/candidates/claim-public-search
+ * Body: { futureJobsSessionId, prompt?, filterForm? }
+ * Links a landing-page public search session to the authenticated user.
+ */
+const claimPublicSearch = async (req, res) => {
+  const userId = req.auth?.userId;
+
+  try {
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    const futureJobsSessionId = String(req.body?.futureJobsSessionId || "").trim();
+    const prompt = typeof req.body?.prompt === "string" ? req.body.prompt.trim() : "";
+    const filterForm =
+      req.body?.filterForm && typeof req.body.filterForm === "object"
+        ? req.body.filterForm
+        : null;
+
+    if (!futureJobsSessionId) {
+      return res.status(400).json({
+        success: false,
+        message: "futureJobsSessionId is required",
+      });
+    }
+
+    const existing = await SourcingSession.findOne({ futureJobsSessionId }).lean();
+    if (existing) {
+      if (String(existing.userId) !== String(userId)) {
+        return res.status(409).json({
+          success: false,
+          message: "This search is already linked to another account.",
+        });
+      }
+      return res.status(200).json({
+        success: true,
+        futureJobsSessionId,
+        alreadyClaimed: true,
+        savedSessionId: String(existing._id),
+      });
+    }
+
+    const { buildApplyPayload } = require("../services/publicCandidateSearchService");
+
+    let payload = { sessionTitle: prompt };
+    let resolvedFilterForm = filterForm;
+    if (prompt && filterForm) {
+      try {
+        const built = buildApplyPayload(prompt, filterForm);
+        payload = built.payload;
+        resolvedFilterForm = built.filterForm;
+      } catch (buildErr) {
+        logApi("candidates/claim-public-search", "build payload skipped", {
+          userId,
+          futureJobsSessionId,
+          message: buildErr?.message,
+        });
+      }
+    }
+
+    logApi("candidates/claim-public-search", "fetch profiles", {
+      userId,
+      futureJobsSessionId,
+    });
+
+    const mapped = await fetchAllSessionProfilesFromFj(futureJobsSessionId);
+    const { candidates, profilesPagination, futureJobsProfiles } = mapped;
+
+    let profilesFetchError = null;
+    if (!Array.isArray(candidates) || candidates.length === 0) {
+      profilesFetchError =
+        typeof futureJobsProfiles?.message === "string"
+          ? futureJobsProfiles.message
+          : "No profiles loaded for this session yet.";
+    }
+
+    const savedSessionId = await persistSourcingSessionRow({
+      userId,
+      sessionId: futureJobsSessionId,
+      prompt,
+      payload,
+      usingSessionOverride: false,
+      futureJobs: null,
+      profilesPagination,
+      candidates: Array.isArray(candidates) ? candidates : [],
+      profilesFetchError,
+      filterForm: resolvedFilterForm,
+    });
+
+    if (futureJobsProfiles) {
+      await persistCandidateDetails({
+        userId,
+        sourcingSessionId: futureJobsSessionId,
+        profilesRes: futureJobsProfiles,
+        loggerHandler: "candidates/claim-public-search",
+      });
+    }
+
+    logApi("candidates/claim-public-search", "success", {
+      userId,
+      futureJobsSessionId,
+      savedSessionId,
+      candidateCount: Array.isArray(candidates) ? candidates.length : 0,
+    });
+
+    return res.status(200).json({
+      success: true,
+      futureJobsSessionId,
+      savedSessionId: savedSessionId ?? undefined,
+      candidateCount: Array.isArray(candidates) ? candidates.length : 0,
+    });
+  } catch (error) {
+    const status = error.statusCode || 500;
+    logApi("candidates/claim-public-search", "error", {
+      userId,
+      status,
+      message: error.message,
+      detailsPreview: error.details
+        ? safeJsonPreview(error.details, 500)
+        : undefined,
+    });
+    return res.status(status).json({
+      success: false,
+      message: error.message || "Failed to claim public search",
+      details: error.details,
+    });
+  }
+};
+
+/**
  * GET /api/candidates/sessions
  * Query: limit (1–100, default 30)
  */
@@ -2959,6 +3092,7 @@ module.exports = {
   annotateSearchPrompt,
   createSearchSession,
   applySearchFilters,
+  claimPublicSearch,
   getSessionCandidateDetails,
   loadSessionProfiles,
   fetchMoreSessionProfiles,

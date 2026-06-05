@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const Campaign = require("../models/Campaign");
+const { countContactsForUserCampaigns } = require("./campaignContactService");
 const User = require("../models/User");
 const UsageHistory = require("../models/UsageHistory");
 const { getBillingUser, getBillingUserId } = require("./organizationService");
@@ -70,12 +71,17 @@ async function countOutreachThreadsUsed(channel, opts = {}) {
     filter._id = { $ne: new mongoose.Types.ObjectId(String(excludeCampaignId)) };
   }
 
-  const docs = await Campaign.find(filter).select("contacts").lean();
-  let total = 0;
-  for (const doc of docs) {
-    total += Array.isArray(doc.contacts) ? doc.contacts.length : 0;
+  const billingUserIdResolved =
+    billingUserId && mongoose.Types.ObjectId.isValid(billingUserId)
+      ? billingUserId
+      : null;
+  if (!billingUserIdResolved) {
+    const campaignIds = await Campaign.find(filter).distinct("_id");
+    if (campaignIds.length === 0) return 0;
+    const CampaignContact = require("../models/CampaignContact");
+    return CampaignContact.countDocuments({ campaignId: { $in: campaignIds } });
   }
-  return total;
+  return countContactsForUserCampaigns(billingUserIdResolved, channel, excludeCampaignId);
 }
 
 async function resolveBillingUserIdFromFilter(userIdFilter) {

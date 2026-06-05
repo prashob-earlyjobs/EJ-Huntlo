@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type UIEvent } from "react";
 
-import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
+import { CampaignPreLaunchContactsPanel } from "@/components/dashboard/CampaignPreLaunchContactsPanel";
 import { CampaignContactsSkeleton } from "@/components/dashboard/CampaignContactsSkeleton";
 import { CampaignWorkspaceEmptyState } from "@/components/dashboard/CampaignWorkspaceEmptyState";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
@@ -125,14 +125,6 @@ function threadStatusLabel(status: WhatsAppContactThread["threadStatus"]) {
     default:
       return "";
   }
-}
-
-function buildPageNumbers(currentPage: number, totalPages: number): number[] {
-  if (totalPages <= 7) {
-    return Array.from({ length: totalPages }, (_, idx) => idx + 1);
-  }
-  const pages = new Set<number>([1, totalPages, currentPage, currentPage - 1, currentPage + 1]);
-  return Array.from(pages).filter((p) => p >= 1 && p <= totalPages).sort((a, b) => a - b);
 }
 
 export function CampaignWhatsAppCommunicationsPanel({
@@ -268,7 +260,6 @@ export function CampaignWhatsAppCommunicationsPanel({
   const activeThread = filteredThreads.find((t) => t.contactKey === activeKey) ?? null;
   const activeLastMessageId = activeThread?.messages.at(-1)?.id ?? null;
   const totalPages = Math.max(1, Math.ceil(threadCount / THREAD_PAGE_SIZE));
-  const idlePageNumbers = buildPageNumbers(threadPage, totalPages);
 
   useEffect(() => {
     setDraftText("");
@@ -520,126 +511,33 @@ export function CampaignWhatsAppCommunicationsPanel({
 
   if (outreachStatus === "idle") {
     return (
-      <div className="flex min-h-0 flex-1 flex-col">
-        <div className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3">
-          <div className="flex items-center gap-2">
-            <IntegrationBrandLogo provider="whatsapp" title="WhatsApp" className="h-6 w-6" />
-            <p className="text-sm font-medium text-slate-700">
-              Contacts ({threads.length}) - conversations unlock after campaign start
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              className="dashboard-btn-primary inline-flex min-h-9 items-center gap-1.5 px-3 text-xs disabled:opacity-55"
-              disabled={contactsLocked}
-              onClick={onAddFromSearchHistory}
-            >
-              <MaterialIcon name="person_add" className="text-base" />
-              Add candidate
-            </button>
-            <button
-              type="button"
-              className="dashboard-btn-secondary inline-flex min-h-9 items-center gap-1.5 px-3 text-xs disabled:opacity-55"
-              disabled={contactsLocked}
-              onClick={onUploadCsv}
-            >
-              <MaterialIcon name="upload_file" className="text-base" />
-              Upload CSV
-            </button>
-          </div>
-        </div>
-        <div className="min-h-0 flex-1 overflow-auto bg-white p-4">
-          <div className="overflow-hidden rounded-xl border border-slate-200">
-            <table className="min-w-full text-left text-sm">
-              <thead className="bg-slate-50">
-                <tr className="text-slate-600">
-                  <th className="px-3 py-2 font-medium">Name</th>
-                  <th className="px-3 py-2 font-medium">Phone</th>
-                  <th className="px-3 py-2 font-medium">Company</th>
-                  <th className="px-3 py-2 font-medium">Role</th>
-                  <th className="px-3 py-2 font-medium">Status</th>
-                  <th className="px-3 py-2 text-right font-medium">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {threads.map((thread) => (
-                  <tr key={thread.contactKey} className="border-t border-slate-100">
-                    <td className="px-3 py-2 text-slate-800">
-                      {thread.contact.name.trim() || "Unnamed contact"}
-                    </td>
-                    <td className="px-3 py-2 text-slate-700">
-                      {thread.contact.phone.trim() || (revealInProgress ? "Revealing..." : "-")}
-                    </td>
-                    <td className="px-3 py-2 text-slate-700">{thread.contact.company || "-"}</td>
-                    <td className="px-3 py-2 text-slate-700">{thread.contact.role || "-"}</td>
-                    <td className="px-3 py-2 text-slate-700">
-                      {thread.contact.phone.trim() ? "Ready for WhatsApp" : "Missing phone"}
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
-                        disabled={!onRemoveCandidate || removingKey === thread.contactKey}
-                        onClick={async () => {
-                          if (!onRemoveCandidate || removingKey === thread.contactKey) return;
-                          setRemovingKey(thread.contactKey);
-                          try {
-                            await onRemoveCandidate(thread.contactKey);
-                          } finally {
-                            setRemovingKey("");
-                          }
-                        }}
-                      >
-                        <MaterialIcon name="delete" className="text-sm" />
-                        {removingKey === thread.contactKey ? "Removing..." : "Remove"}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="mt-3 text-xs text-slate-500">
-            Start the campaign sequence from the editor/workspace to activate WhatsApp conversations.
-          </p>
-          {totalPages > 1 ? (
-            <div className="mt-4 flex flex-wrap items-center justify-end gap-1.5 border-t border-slate-100 pt-3">
-              <button
-                type="button"
-                className="rounded-md border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
-                disabled={threadPage <= 1 || refreshing}
-                onClick={() => void loadConversations(threadPage - 1, false, { soft: true })}
-              >
-                Prev
-              </button>
-              {idlePageNumbers.map((pageNum) => (
-                <button
-                  key={pageNum}
-                  type="button"
-                  className={`rounded-md px-2.5 py-1 text-xs font-medium ${
-                    pageNum === threadPage
-                      ? "bg-[#0050cb] text-white"
-                      : "border border-slate-200 text-slate-700 hover:bg-slate-50"
-                  }`}
-                  disabled={pageNum === threadPage || refreshing}
-                  onClick={() => void loadConversations(pageNum, false, { soft: true })}
-                >
-                  {pageNum}
-                </button>
-              ))}
-              <button
-                type="button"
-                className="rounded-md border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
-                disabled={threadPage >= totalPages || refreshing}
-                onClick={() => void loadConversations(threadPage + 1, false, { soft: true })}
-              >
-                Next
-              </button>
-            </div>
-          ) : null}
-        </div>
-      </div>
+      <CampaignPreLaunchContactsPanel
+        channel="whatsapp"
+        contacts={threads.map((thread) => thread.contact)}
+        totalContacts={threadCount}
+        page={threadPage}
+        totalPages={totalPages}
+        refreshing={refreshing}
+        revealInProgress={revealInProgress}
+        contactsLocked={contactsLocked}
+        removingKey={removingKey}
+        onPageChange={(pageNum) => void loadConversations(pageNum, false, { soft: true })}
+        onAddFromSearchHistory={onAddFromSearchHistory}
+        onUploadCsv={onUploadCsv}
+        onRemoveContact={
+          onRemoveCandidate
+            ? async (candidateKey) => {
+                if (removingKey === candidateKey) return;
+                setRemovingKey(candidateKey);
+                try {
+                  await onRemoveCandidate(candidateKey);
+                } finally {
+                  setRemovingKey("");
+                }
+              }
+            : undefined
+        }
+      />
     );
   }
 
