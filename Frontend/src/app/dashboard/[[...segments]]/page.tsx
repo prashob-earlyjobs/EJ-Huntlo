@@ -30,8 +30,10 @@ import {
 } from "@/components/dashboard/PeopleScoutPanel";
 import {
   MyProfilePanel,
+  parseWorkspaceOwner,
   type MyProfileFormState,
   type MyProfileSecurityState,
+  type MyProfileWorkspaceOwner,
 } from "@/components/dashboard/MyProfilePanel";
 import { DashboardOverviewPanel } from "@/components/dashboard/DashboardOverviewPanel";
 import { BlockedAccountModal } from "@/components/dashboard/BlockedAccountModal";
@@ -70,6 +72,7 @@ import {
   parseUtilisationHistoryPayload,
   parseUtilisationPayload,
   UTILISATION_HISTORY_PAGE_SIZE,
+  type OutreachThreadStats,
   type UserUtilisationStats,
   type UtilisationHistoryRow,
 } from "@/lib/planUtilisation";
@@ -77,6 +80,7 @@ import {
   parsePricingPlansFromApi,
   type PricingPlansPayload,
 } from "@/lib/pricingPlans";
+import { hasCampaignsAndIntegrationsAccess } from "@/lib/planAccess";
 import { mergeStoredAuthUser, postAuthPath } from "@/lib/onboarding";
 import { isBlockedAccountResponse, isBlockedMemberStatus } from "@/lib/sessionLogout";
 import {
@@ -1323,6 +1327,10 @@ export default function UserDashboardPage() {
     mobileUnveils: 0,
     linkedinLookups: 0,
   }));
+  const [planOutreachThreads, setPlanOutreachThreads] = useState<OutreachThreadStats>({
+    email: 0,
+    whatsapp: 0,
+  });
   const [userPlanId, setUserPlanId] = useState("trial");
   const [userPlanName, setUserPlanName] = useState("Trial");
   const [userPlanReady, setUserPlanReady] = useState(false);
@@ -1346,6 +1354,9 @@ export default function UserDashboardPage() {
   const [myProfilePhotoUploading, setMyProfilePhotoUploading] = useState(false);
   const [myProfileError, setMyProfileError] = useState("");
   const [myProfileSuccess, setMyProfileSuccess] = useState("");
+  const [myProfileAccountRole, setMyProfileAccountRole] = useState<string | null>(null);
+  const [myProfileWorkspaceOwner, setMyProfileWorkspaceOwner] =
+    useState<MyProfileWorkspaceOwner | null>(null);
   const [myProfileSecurity, setMyProfileSecurity] = useState<MyProfileSecurityState>({
     passwordChangedAt: "",
     activeSessions: 1,
@@ -1405,6 +1416,7 @@ export default function UserDashboardPage() {
         setDashboardOverview(parsed);
         setUserPlanId(parsed.plan.planId);
         setUserPlanName(parsed.plan.planName);
+        setPlanOutreachThreads(parsed.outreachThreads);
         setUserPlanReady(true);
       })
       .catch((err) => {
@@ -1446,6 +1458,7 @@ export default function UserDashboardPage() {
           setUserPlanId(snapshot.planId);
           setUserPlanName(snapshot.planName);
           if (snapshot.utilisation) setPlanUtilisation(snapshot.utilisation);
+          if (snapshot.outreachThreads) setPlanOutreachThreads(snapshot.outreachThreads);
         }
         setUserPlanReady(true);
       })
@@ -1456,7 +1469,7 @@ export default function UserDashboardPage() {
 
   const loadCampaignsList = useCallback(async (opts?: { page?: number }) => {
     const auth = getStoredAuth();
-    if (!auth?.token || userPlanId !== "enterprise") {
+    if (!auth?.token || !hasCampaignsAndIntegrationsAccess(userPlanId)) {
       setCampaigns([]);
       setCampaignsLoading(false);
       setCampaignsPage(1);
@@ -1492,12 +1505,12 @@ export default function UserDashboardPage() {
   );
 
   useEffect(() => {
-    if (userPlanId !== "enterprise") return;
+    if (!hasCampaignsAndIntegrationsAccess(userPlanId)) return;
     void loadCampaignsList({ page: 1 });
   }, [userPlanId, loadCampaignsList]);
 
   useEffect(() => {
-    if (userPlanId !== "enterprise") return;
+    if (!hasCampaignsAndIntegrationsAccess(userPlanId)) return;
     if (activeTab !== "Campaigns" && !addToCampaignOpen && !routeCampaignId) return;
     setCampaignsLoading(true);
     void loadCampaignsList({ page: 1 });
@@ -1633,6 +1646,10 @@ export default function UserDashboardPage() {
             typeof data.message === "string" ? data.message : "Failed to load profile"
           );
         }
+        setMyProfileAccountRole(
+          typeof data.user.accountRole === "string" ? data.user.accountRole : null
+        );
+        setMyProfileWorkspaceOwner(parseWorkspaceOwner(data.workspaceOwner));
         setMyProfileForm({
           fullName: typeof data.user.fullName === "string" ? data.user.fullName : "",
           companyName:
@@ -1826,7 +1843,7 @@ export default function UserDashboardPage() {
   }, [activeTab]);
 
   useEffect(() => {
-    if (activeTab !== "Plans and pricing") return;
+    if (activeTab !== "Plans and pricing" && activeTab !== "Dashboard") return;
     const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
     const auth = getStoredAuth();
     setUserPricingPlansLoading(true);
@@ -1870,6 +1887,7 @@ export default function UserDashboardPage() {
             setUserPlanId(snapshot.planId);
             setUserPlanName(snapshot.planName);
             if (snapshot.utilisation) setPlanUtilisation(snapshot.utilisation);
+            if (snapshot.outreachThreads) setPlanOutreachThreads(snapshot.outreachThreads);
           }
         }
       })
@@ -4056,7 +4074,7 @@ export default function UserDashboardPage() {
   );
 
   const openAddToCampaignModal = () => {
-    if (userPlanId !== "enterprise") {
+    if (!hasCampaignsAndIntegrationsAccess(userPlanId)) {
       navigateToTab("Plans and pricing");
       return;
     }
@@ -4380,6 +4398,9 @@ export default function UserDashboardPage() {
                 loading={dashboardOverviewLoading}
                 error={dashboardOverviewError}
                 data={dashboardOverview}
+                currentPlanId={userPlanId}
+                outreachThreads={planOutreachThreads}
+                pricingPlans={userPricingPlans}
                 onNavigate={navigateToTab}
                 onOpenSession={(session) => {
                   if (!session.futureJobsSessionId.trim()) return;
@@ -4856,6 +4877,8 @@ export default function UserDashboardPage() {
               <MyProfilePanel
                 form={myProfileForm}
                 security={myProfileSecurity}
+                accountRole={myProfileAccountRole}
+                workspaceOwner={myProfileWorkspaceOwner}
                 loading={myProfileLoading}
                 saving={myProfileSaving}
                 error={myProfileError}
@@ -5084,6 +5107,7 @@ export default function UserDashboardPage() {
                 currentPlanId={userPlanId}
                 currentPlanName={userPlanName}
                 utilisation={planUtilisation}
+                outreachThreads={planOutreachThreads}
                 history={utilisationHistory}
                 historyLoading={utilisationHistoryLoading}
                 historyPage={utilisationHistoryPage}

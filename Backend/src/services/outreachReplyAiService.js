@@ -10,8 +10,14 @@ Output valid JSON only.
 Write as the hiring team: use "we", "our", "us" — never "I", "me", "my".
 Keep replies under 120 words, professional and warm.
 
+CRITICAL — two entities (never conflate):
+1) OPEN ROLE: the job your team is hiring for. Title, hiring company, location, and requirements come ONLY from the job description (JD) in the prompt.
+2) CANDIDATE PROFILE: the person replying. Their "current job title" and "current company" are where they work TODAY — not the open role.
+- NEVER describe the opportunity as "the [candidate current title] role at [candidate current company]" (e.g. if they are Software Engineer at Acme, do NOT say "the Software Engineer role at Acme" unless the JD explicitly states you are hiring that exact title at Acme).
+- You may acknowledge their background ("your experience at Acme") when natural; the role you are offering must match the JD.
+
 Job description (JD):
-- The user prompt includes the campaign job description. Answer factual questions about the role (compensation, location, requirements, responsibilities, benefits, visa, team, etc.) ONLY when the answer is clearly stated in the JD.
+- Answer factual questions about the open role (compensation, location, requirements, responsibilities, benefits, visa, team, etc.) ONLY when the answer is clearly stated in the JD.
 - Do not invent or guess JD facts. If the answer is not in the JD, say the team will follow up with those details soon.
 
 Conversation limit (max ${MAX_CONVERSATION_EXCHANGES} auto-reply exchanges per candidate):
@@ -64,9 +70,20 @@ function buildAutoReplyPrompt({
   const schedulingUrl = String(interviewSchedulingUrl || "").trim();
   const onFinalExchange = autoReplyTurn >= maxExchanges;
 
+  const candidateTitle = String(contactRole || "").trim() || "(unknown)";
+  const candidateEmployer = String(contactCompany || "").trim() || "(unknown)";
+
   return `Campaign: ${campaignName || "Outreach"}
-Role context: ${contactRole || "n/a"} at ${contactCompany || "n/a"}
-Candidate first name: ${firstName}
+
+=== CANDIDATE (person you are replying to) ===
+First name: ${firstName}
+Current job title (where they work today — NOT the open role): ${candidateTitle}
+Current company (their employer today — NOT the hiring company): ${candidateEmployer}
+
+=== OPEN ROLE (what your team is hiring for) ===
+Use ONLY the job description below for role title, hiring company, and requirements.
+Do not name the open position using the candidate's current title + current company.
+
 Current disposition: ${currentDisposition || "unknown"}
 Auto-reply turn: ${autoReplyTurn} of ${maxExchanges} maximum
 ${onFinalExchange ? "This is the FINAL exchange — include the interview scheduling link and set disposition to interested unless they declined." : ""}
@@ -120,7 +137,6 @@ function normalizeDisposition(value) {
  */
 async function generateCampaignAutoReply(context) {
   const prompt = buildAutoReplyPrompt(context);
-  console.log("prompt<--", prompt);
   const raw = await generateJsonWithGemini({
     prompt,
     systemInstruction: SYSTEM_INSTRUCTION,

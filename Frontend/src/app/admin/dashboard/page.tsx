@@ -163,6 +163,8 @@ type UserPlanDetailsState = {
     candidateUnlocks: number | null;
     verifiedEmails: number | null;
     phoneNumbers: number | null;
+    emailOutreaches: number | null;
+    whatsappOutreaches: number | null;
     maxSubUsers: number | null;
   };
   utilisation: {
@@ -172,6 +174,21 @@ type UserPlanDetailsState = {
     mobileUnveils: number;
     linkedinLookups: number;
   };
+  outreachThreads: {
+    email: number;
+    whatsapp: number;
+  };
+};
+
+type OutreachCreditsSlot = {
+  threadsUsed: number;
+  limit: number | null;
+  remaining: number | null;
+};
+
+type OutreachCreditsAnalytics = {
+  email: OutreachCreditsSlot;
+  whatsapp: OutreachCreditsSlot;
 };
 
 type UsageAnalyticsCell = { count: number; credits: number };
@@ -221,6 +238,45 @@ function quotaRemainingDisplay(used: number, limit: number | null | undefined): 
   return "—/—";
 }
 
+function outreachQuotaDisplay(slot: OutreachCreditsSlot): string {
+  const used = Math.max(0, Math.floor(slot.threadsUsed || 0));
+  if (slot.limit == null) {
+    return used > 0 ? `${used} / Unlimited` : "Unlimited";
+  }
+  return quotaRemainingDisplay(used, slot.limit);
+}
+
+function parseOutreachCreditsSlot(raw: unknown): OutreachCreditsSlot {
+  if (!raw || typeof raw !== "object") {
+    return { threadsUsed: 0, limit: null, remaining: null };
+  }
+  const o = raw as Record<string, unknown>;
+  const threadsUsed =
+    typeof o.threadsUsed === "number" && Number.isFinite(o.threadsUsed)
+      ? Math.max(0, Math.floor(o.threadsUsed))
+      : 0;
+  const limit =
+    typeof o.limit === "number" && Number.isFinite(o.limit) && o.limit > 0
+      ? Math.floor(o.limit)
+      : null;
+  const remaining =
+    typeof o.remaining === "number" && Number.isFinite(o.remaining)
+      ? Math.max(0, Math.floor(o.remaining))
+      : limit != null
+        ? Math.max(0, limit - threadsUsed)
+        : null;
+  return { threadsUsed, limit, remaining };
+}
+
+function parseOutreachCreditsAnalytics(raw: unknown): OutreachCreditsAnalytics | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  return {
+    email: parseOutreachCreditsSlot(o.email),
+    whatsapp: parseOutreachCreditsSlot(o.whatsapp),
+  };
+}
+
 function mapApiCandidateToPoolRow(row: Record<string, unknown>): PoolCandidateRow {
   const highlights = Array.isArray(row.highlights)
     ? row.highlights.filter((h): h is string => typeof h === "string")
@@ -262,6 +318,10 @@ function utilisationQuotaActionLabel(action: string): string {
       return "Mobile unveil";
     case "linkedinLookups":
       return "LinkedIn search";
+    case "emailOutreaches":
+      return "Email outreach";
+    case "whatsappOutreaches":
+      return "WhatsApp outreach";
     default:
       return action || "Activity";
   }
@@ -332,15 +392,28 @@ function parseUsageAnalyticsSummary(raw: unknown): UsageAnalyticsSummary {
 function UsageAnalyticsBreakdownTable({
   summary,
   loading,
+  outreach = null,
+  showOutreachPlanLimits = false,
 }: {
   summary: UsageAnalyticsSummary | null;
   loading: boolean;
+  outreach?: OutreachCreditsAnalytics | null;
+  /** When true (single-user filter), outreach Credits column shows remaining / plan limit. */
+  showOutreachPlanLimits?: boolean;
 }) {
   const rows: Array<{ key: keyof Pick<UsageAnalyticsSummary, "people_scout_lookup" | "email_unveil" | "phone_unveil"> }> = [
     { key: "people_scout_lookup" },
     { key: "email_unveil" },
     { key: "phone_unveil" },
   ];
+
+  const outreachRows: Array<{ key: string; label: string; slot: OutreachCreditsSlot }> =
+    outreach
+      ? [
+          { key: "email_outreach", label: "Email outreach", slot: outreach.email },
+          { key: "whatsapp_outreach", label: "WhatsApp outreach", slot: outreach.whatsapp },
+        ]
+      : [];
 
   if (loading) {
     return <p className="mt-3 text-sm text-slate-500">Loading analytics…</p>;
@@ -349,6 +422,8 @@ function UsageAnalyticsBreakdownTable({
   if (!summary) {
     return <p className="mt-3 text-sm text-slate-500">Analytics unavailable.</p>;
   }
+
+  const dash = <span className="text-slate-400">—</span>;
 
   return (
     <div className="mt-3 overflow-x-auto rounded-lg border border-slate-200">
@@ -361,7 +436,9 @@ function UsageAnalyticsBreakdownTable({
             <th className="px-3 py-2 text-right font-semibold">Future Jobs</th>
             <th className="px-3 py-2 text-right font-semibold">Not found</th>
             <th className="px-3 py-2 text-right font-semibold">Total</th>
-            <th className="px-3 py-2 text-right font-semibold">Credits</th>
+            <th className="px-3 py-2 text-right font-semibold">
+              {showOutreachPlanLimits ? "Credits / quota" : "Credits"}
+            </th>
           </tr>
         </thead>
         <tbody className="text-slate-800">
@@ -392,8 +469,27 @@ function UsageAnalyticsBreakdownTable({
               </tr>
             );
           })}
+          {outreachRows.map(({ key, label, slot }) => (
+            <tr key={key} className="border-b border-slate-100 bg-[#f8f9ff]/50">
+              <td className="px-3 py-2 font-medium">{label}</td>
+              <td className="px-3 py-2 text-right">{dash}</td>
+              <td className="px-3 py-2 text-right">{dash}</td>
+              <td className="px-3 py-2 text-right">{dash}</td>
+              <td className="px-3 py-2 text-right">{dash}</td>
+              <td className="px-3 py-2 text-right font-medium tabular-nums">
+                {slot.threadsUsed}
+              </td>
+              <td className="px-3 py-2 text-right font-medium tabular-nums text-[#0050cb]">
+                {showOutreachPlanLimits
+                  ? outreachQuotaDisplay(slot)
+                  : slot.threadsUsed > 0
+                    ? String(slot.threadsUsed)
+                    : "0"}
+              </td>
+            </tr>
+          ))}
           <tr className="bg-slate-50 font-semibold">
-            <td className="px-3 py-2">All activities</td>
+            <td className="px-3 py-2">All activities (lookups &amp; unveils)</td>
             <td colSpan={4} className="px-3 py-2 text-right text-slate-500">
               —
             </td>
@@ -500,6 +596,8 @@ type PricingTierForm = {
   candidateUnlocks: string;
   verifiedEmails: string;
   phoneNumbers: string;
+  emailOutreaches: string;
+  whatsappOutreaches: string;
   maxSubUsers: string;
   featuresText: string;
   isPopular: boolean;
@@ -522,6 +620,14 @@ function quotaApiValueToFormField(v: unknown): string {
   return "";
 }
 
+/** Outreach quota fields only on Growth (tier 3) and Enterprise (tier 4). */
+function tierShowsOutreachQuotaFields(tierIndex: number, tierId: string): boolean {
+  const id = tierId.trim().toLowerCase();
+  if (id === "trial" || id === "starter") return false;
+  if (id === "growth" || id === "enterprise") return true;
+  return tierIndex >= 2;
+}
+
 function formQuotaFieldToApi(s: string): number | null {
   const t = s.trim();
   if (t === "") return null;
@@ -532,7 +638,7 @@ function formQuotaFieldToApi(s: string): number | null {
 function apiPlansToForm(plans: { intro?: unknown; tiers?: unknown }): PricingPlansFormState {
   const intro = typeof plans.intro === "string" ? plans.intro : "";
   const raw = Array.isArray(plans.tiers) ? plans.tiers : [];
-  const tiers: PricingTierForm[] = raw.map((item: unknown) => {
+  const tiers: PricingTierForm[] = raw.map((item: unknown, tierIndex: number) => {
     const t = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
     const features = Array.isArray(t.features) ? t.features : [];
     const lines = features.map((f) => String(f ?? "").trim()).filter(Boolean);
@@ -546,6 +652,12 @@ function apiPlansToForm(plans: { intro?: unknown; tiers?: unknown }): PricingPla
       candidateUnlocks: quotaApiValueToFormField(t.candidateUnlocks),
       verifiedEmails: quotaApiValueToFormField(t.verifiedEmails),
       phoneNumbers: quotaApiValueToFormField(t.phoneNumbers),
+      emailOutreaches: tierShowsOutreachQuotaFields(tierIndex, typeof t.id === "string" ? t.id : "")
+        ? quotaApiValueToFormField(t.emailOutreaches)
+        : "",
+      whatsappOutreaches: tierShowsOutreachQuotaFields(tierIndex, typeof t.id === "string" ? t.id : "")
+        ? quotaApiValueToFormField(t.whatsappOutreaches)
+        : "",
       maxSubUsers:
         t.maxSubUsers === null
           ? ""
@@ -564,7 +676,7 @@ function apiPlansToForm(plans: { intro?: unknown; tiers?: unknown }): PricingPla
 function formToApiPayload(form: PricingPlansFormState) {
   return {
     intro: form.intro,
-    tiers: form.tiers.map((t) => ({
+    tiers: form.tiers.map((t, tierIndex) => ({
       id: t.id,
       name: t.name,
       primaryPrice: t.primaryPrice,
@@ -574,6 +686,12 @@ function formToApiPayload(form: PricingPlansFormState) {
       candidateUnlocks: formQuotaFieldToApi(t.candidateUnlocks),
       verifiedEmails: formQuotaFieldToApi(t.verifiedEmails),
       phoneNumbers: formQuotaFieldToApi(t.phoneNumbers),
+      emailOutreaches: tierShowsOutreachQuotaFields(tierIndex, t.id.trim())
+        ? formQuotaFieldToApi(t.emailOutreaches)
+        : null,
+      whatsappOutreaches: tierShowsOutreachQuotaFields(tierIndex, t.id.trim())
+        ? formQuotaFieldToApi(t.whatsappOutreaches)
+        : null,
       maxSubUsers: t.maxSubUsers.trim() === "" ? null : formQuotaFieldToApi(t.maxSubUsers),
       features: t.featuresText
         .split("\n")
@@ -622,9 +740,13 @@ export default function AdminDashboardPage() {
   const [usageAnalyticsSummary, setUsageAnalyticsSummary] =
     useState<UsageAnalyticsSummary | null>(null);
   const [usageAnalyticsLoading, setUsageAnalyticsLoading] = useState(false);
+  const [outreachCreditsAnalytics, setOutreachCreditsAnalytics] =
+    useState<OutreachCreditsAnalytics | null>(null);
   const [userUsageAnalyticsSummary, setUserUsageAnalyticsSummary] =
     useState<UsageAnalyticsSummary | null>(null);
   const [userUsageAnalyticsLoading, setUserUsageAnalyticsLoading] = useState(false);
+  const [userOutreachCreditsAnalytics, setUserOutreachCreditsAnalytics] =
+    useState<OutreachCreditsAnalytics | null>(null);
   const [planChangeHistory, setPlanChangeHistory] = useState<PlanHistoryRow[]>([]);
   const [planChangeHistoryLoading, setPlanChangeHistoryLoading] = useState(false);
   const [userPlanDetails, setUserPlanDetails] = useState<UserPlanDetailsState | null>(
@@ -831,8 +953,10 @@ export default function AdminDashboardPage() {
           throw new Error(data.message || "Failed to load usage analytics");
         }
         setUsageAnalyticsSummary(parseUsageAnalyticsSummary(data.summary));
+        setOutreachCreditsAnalytics(parseOutreachCreditsAnalytics(data.outreachCredits));
       } catch {
         setUsageAnalyticsSummary(emptyUsageAnalyticsSummary());
+        setOutreachCreditsAnalytics(null);
       } finally {
         setUsageAnalyticsLoading(false);
       }
@@ -947,6 +1071,14 @@ export default function AdminDashboardPage() {
             typeof lim[k] === "number" && Number.isFinite(lim[k])
               ? Math.floor(lim[k] as number)
               : null;
+          const outreachRaw =
+            p.outreachThreads && typeof p.outreachThreads === "object"
+              ? (p.outreachThreads as Record<string, unknown>)
+              : {};
+          const outreachNum = (k: string) =>
+            typeof outreachRaw[k] === "number" && Number.isFinite(outreachRaw[k])
+              ? Math.max(0, Math.floor(outreachRaw[k] as number))
+              : 0;
           setUserPlanDetails({
             planId: typeof p.planId === "string" ? p.planId : "trial",
             planName: typeof p.planName === "string" ? p.planName : "Plan",
@@ -955,6 +1087,8 @@ export default function AdminDashboardPage() {
               candidateUnlocks: limNum("candidateUnlocks"),
               verifiedEmails: limNum("verifiedEmails"),
               phoneNumbers: limNum("phoneNumbers"),
+              emailOutreaches: limNum("emailOutreaches"),
+              whatsappOutreaches: limNum("whatsappOutreaches"),
               maxSubUsers: limNum("maxSubUsers"),
             },
             utilisation: {
@@ -964,6 +1098,10 @@ export default function AdminDashboardPage() {
               mobileUnveils: num("mobileUnveils"),
               linkedinLookups: num("linkedinLookups"),
             },
+            outreachThreads: {
+              email: outreachNum("email"),
+              whatsapp: outreachNum("whatsapp"),
+            },
           });
         } else {
           setUserPlanDetails(null);
@@ -971,14 +1109,19 @@ export default function AdminDashboardPage() {
 
         if (analyticsData.success && analyticsData.summary) {
           setUserUsageAnalyticsSummary(parseUsageAnalyticsSummary(analyticsData.summary));
+          setUserOutreachCreditsAnalytics(
+            parseOutreachCreditsAnalytics(analyticsData.outreachCredits)
+          );
         } else {
           setUserUsageAnalyticsSummary(emptyUsageAnalyticsSummary());
+          setUserOutreachCreditsAnalytics(null);
         }
       } catch {
         setUtilisationHistory([]);
         setPlanChangeHistory([]);
         setUserPlanDetails(null);
         setUserUsageAnalyticsSummary(emptyUsageAnalyticsSummary());
+        setUserOutreachCreditsAnalytics(null);
       } finally {
         setUtilisationHistoryLoading(false);
         setPlanChangeHistoryLoading(false);
@@ -995,6 +1138,7 @@ export default function AdminDashboardPage() {
       setPlanChangeHistory([]);
       setUserPlanDetails(null);
       setUserUsageAnalyticsSummary(null);
+      setUserOutreachCreditsAnalytics(null);
       return;
     }
     void loadUserManageData(manageModalUser.id, auth.token);
@@ -1363,7 +1507,7 @@ export default function AdminDashboardPage() {
                 <div>
                   <h3 className="dashboard-section-title">Analytics</h3>
                   <p className="mt-1 dashboard-text-body">
-                    Platform-wide usage breakdown and plan quota history.
+                    Platform-wide usage breakdown, outreach credits, and plan quota history.
                   </p>
                 </div>
 
@@ -1374,8 +1518,8 @@ export default function AdminDashboardPage() {
                         Usage analytics by source
                       </h4>
                       <p className="mt-1 text-xs text-slate-500">
-                        People Scout lookups and contact unveils broken down by cache source.
-                        Credits show only when quota was consumed.
+                        People Scout lookups, contact unveils, and campaign outreach (email /
+                        WhatsApp). Cache credits apply to lookups and unveils only.
                       </p>
                     </div>
                     <select
@@ -1394,6 +1538,8 @@ export default function AdminDashboardPage() {
                   <UsageAnalyticsBreakdownTable
                     summary={usageAnalyticsSummary}
                     loading={usageAnalyticsLoading}
+                    outreach={outreachCreditsAnalytics}
+                    showOutreachPlanLimits={Boolean(analyticsFilterUserId.trim())}
                   />
                 </div>
 
@@ -1703,6 +1849,42 @@ export default function AdminDashboardPage() {
                                 className="mt-1 w-full dashboard-input"
                               />
                             </div>
+                            {tierShowsOutreachQuotaFields(idx, tier.id) ? (
+                              <>
+                                <div>
+                                  <label className="text-xs text-slate-600">Email outreaches</label>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    step={1}
+                                    inputMode="numeric"
+                                    value={tier.emailOutreaches}
+                                    onChange={(e) =>
+                                      patchPricingTier(idx, { emailOutreaches: e.target.value })
+                                    }
+                                    placeholder="500"
+                                    className="mt-1 w-full dashboard-input"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-xs text-slate-600">WhatsApp outreaches</label>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    step={1}
+                                    inputMode="numeric"
+                                    value={tier.whatsappOutreaches}
+                                    onChange={(e) =>
+                                      patchPricingTier(idx, {
+                                        whatsappOutreaches: e.target.value,
+                                      })
+                                    }
+                                    placeholder="500"
+                                    className="mt-1 w-full dashboard-input"
+                                  />
+                                </div>
+                              </>
+                            ) : null}
                             <div>
                               <label className="text-xs text-slate-600">Sub-users (max)</label>
                               <input
@@ -2016,7 +2198,8 @@ export default function AdminDashboardPage() {
                     <h4 className="dashboard-section-title text-sm">Plan quota (remaining / limit)</h4>
                     <p className="mt-1 text-xs text-slate-500">
                       Based on the user&apos;s assigned plan. Search pool is shared between
-                      candidate search and LinkedIn lookup.
+                      candidate search and LinkedIn lookup. Email and WhatsApp outreach count
+                      campaign contacts on each channel.
                     </p>
                     {userPlanDetailsLoading ? (
                       <p className="mt-3 text-sm text-slate-500">Loading quota…</p>
@@ -2075,6 +2258,24 @@ export default function AdminDashboardPage() {
                                 )}
                               </td>
                             </tr>
+                            <tr className="border-b border-slate-100">
+                              <td className="px-3 py-2">Email outreach</td>
+                              <td className="px-3 py-2 text-right tabular-nums">
+                                {quotaRemainingDisplay(
+                                  userPlanDetails.outreachThreads.email,
+                                  userPlanDetails.limits.emailOutreaches
+                                )}
+                              </td>
+                            </tr>
+                            <tr className="border-b border-slate-100">
+                              <td className="px-3 py-2">WhatsApp outreach</td>
+                              <td className="px-3 py-2 text-right tabular-nums">
+                                {quotaRemainingDisplay(
+                                  userPlanDetails.outreachThreads.whatsapp,
+                                  userPlanDetails.limits.whatsappOutreaches
+                                )}
+                              </td>
+                            </tr>
                             <tr>
                               <td className="px-3 py-2">Sub-users allowed</td>
                               <td className="px-3 py-2 text-right tabular-nums">
@@ -2094,12 +2295,13 @@ export default function AdminDashboardPage() {
                   <div>
                     <h4 className="dashboard-section-title text-sm">Usage analytics by source</h4>
                     <p className="mt-1 text-xs text-slate-500">
-                      Lookup and unveil activity for this user, grouped by where the result came
-                      from.
+                      Lookup and unveil activity plus email / WhatsApp outreach for this user.
                     </p>
                     <UsageAnalyticsBreakdownTable
                       summary={userUsageAnalyticsSummary}
                       loading={userUsageAnalyticsLoading}
+                      outreach={userOutreachCreditsAnalytics}
+                      showOutreachPlanLimits
                     />
                   </div>
 

@@ -647,7 +647,7 @@ export function CampaignWhatsAppCommunicationsPanel({
     <div className="dashboard-campaign-wa-comms flex min-h-0 flex-1 flex-col">
       <div className="dashboard-campaign-wa-comms-toolbar shrink-0">
         <div className="dashboard-outreach-gmail-bar shrink-0 border-b-0">
-          <div className="flex min-w-0 flex-1 items-center gap-2.5">
+          <div className="dashboard-outreach-gmail-bar-heading flex min-w-0 items-center gap-2.5">
             <span className="dashboard-campaign-sequence-toolbar-icon shrink-0" aria-hidden>
               <IntegrationBrandLogo
                 provider="whatsapp"
@@ -656,14 +656,14 @@ export function CampaignWhatsAppCommunicationsPanel({
               />
             </span>
             <div className="min-w-0">
-              <h2 className="dashboard-campaign-report-title">WhatsApp conversations</h2>
-              <p className="dashboard-campaign-report-subtitle">
+              <h2 className="dashboard-campaign-report-title truncate">WhatsApp conversations</h2>
+              <p className="dashboard-campaign-report-subtitle truncate">
                 {threadCount} conversation{threadCount === 1 ? "" : "s"} · View and reply to
                 candidate messages
               </p>
             </div>
           </div>
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <div className="dashboard-outreach-gmail-bar-actions flex shrink-0 flex-wrap items-center justify-end gap-2">
             {outreachStatus === "active" ? (
               <span className="dashboard-campaign-wa-comms-preview-pill dashboard-campaign-wa-comms-live-pill">
                 Sequence active

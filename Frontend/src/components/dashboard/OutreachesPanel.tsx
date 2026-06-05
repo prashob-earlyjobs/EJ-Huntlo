@@ -26,8 +26,7 @@ import {
   fetchSavedOutreachPlans,
   SAVED_OUTREACH_PLANS_PAGE_SIZE,
 } from "@/lib/savedOutreachPlansApi";
-
-const ENTERPRISE_PLAN_ID = "enterprise";
+import { hasCampaignsAndIntegrationsAccess } from "@/lib/planAccess";
 
 type GmailEditorState = {
   planId: string | "new";
@@ -60,7 +59,7 @@ export function OutreachesPanel({
   onViewPlans,
   onGoToIntegrations,
 }: Props) {
-  const isEnterprise = currentPlanId === ENTERPRISE_PLAN_ID;
+  const hasOutreachAccess = hasCampaignsAndIntegrationsAccess(currentPlanId);
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
 
   const [createOutreachOpen, setCreateOutreachOpen] = useState(false);
@@ -77,7 +76,7 @@ export function OutreachesPanel({
 
   const loadModalPlans = useCallback(async (page = 1) => {
     const auth = getStoredAuth();
-    if (!auth?.token || !isEnterprise) {
+    if (!auth?.token || !hasOutreachAccess) {
       setModalPlans([]);
       setSavedPlansPage(1);
       setSavedPlansTotalPages(1);
@@ -102,11 +101,11 @@ export function OutreachesPanel({
     } finally {
       setModalPlansLoading(false);
     }
-  }, [isEnterprise]);
+  }, [hasOutreachAccess]);
 
   const loadModalTemplates = useCallback(async () => {
     const auth = getStoredAuth();
-    if (!auth?.token || !isEnterprise) {
+    if (!auth?.token || !hasOutreachAccess) {
       setModalTemplates([]);
       return;
     }
@@ -126,10 +125,10 @@ export function OutreachesPanel({
     } finally {
       setModalTemplatesLoading(false);
     }
-  }, [apiBase, isEnterprise]);
+  }, [apiBase, hasOutreachAccess]);
 
   const openCreateOutreach = () => {
-    if (!planResolved || !isEnterprise) {
+    if (!planResolved || !hasOutreachAccess) {
       if (planResolved) onViewPlans();
       return;
     }

@@ -6,6 +6,8 @@ const usageActionEnum = [
   "candidateUnveils",
   "mobileUnveils",
   "linkedinLookups",
+  "emailOutreaches",
+  "whatsappOutreaches",
 ];
 
 const usageHistorySchema = new mongoose.Schema(

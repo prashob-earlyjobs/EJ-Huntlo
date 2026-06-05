@@ -68,7 +68,8 @@ import {
   dashboardInputClass,
 } from "@/lib/dashboardStyles";
 import {
-  CAMPAIGN_WORKSPACE_TABS,
+  getVisibleCampaignWorkspaceTabs,
+  inferShowJobDescriptionTab,
   type CampaignWorkspaceTab,
 } from "@/lib/campaignRoutes";
 import {
@@ -868,18 +869,17 @@ export function CampaignWorkspace({
     effectiveChannel === "whatsapp" ||
     editor?.channel === "whatsapp";
 
-  const showJobDescriptionTab =
-    isWhatsAppCampaign || Boolean(String(campaign.jobDescription || "").trim());
+  const showJobDescriptionTab = inferShowJobDescriptionTab(activeTab, {
+    outreachChannel: effectiveChannel,
+    hasJobDescription: Boolean(String(campaign.jobDescription || "").trim()),
+  });
 
-  const visibleWorkspaceTabs = CAMPAIGN_WORKSPACE_TABS.filter((tab) => {
-    if (tab === "Job description" && !showJobDescriptionTab) return false;
-    if (!channelLocked || !effectiveChannel) return true;
-    if (effectiveChannel === "gmail") {
-      if (tab === "WhatsApp") return false;
-      if (tab === "Job description") return showJobDescriptionTab;
-      return true;
-    }
-    return tab !== "Emails";
+  const visibleWorkspaceTabs = getVisibleCampaignWorkspaceTabs({
+    outreachChannel: effectiveChannel,
+    channelLocked,
+    showJobDescriptionTab,
+    workspaceTab: activeTab,
+    hasJobDescription: Boolean(String(campaign.jobDescription || "").trim()),
   });
   const hasSequence = Boolean(campaign.outreachPlanId?.trim());
   const hasContacts = contacts.length > 0;
@@ -1882,13 +1882,48 @@ export function CampaignWorkspace({
           />
         ) : activeTab === "Emails" ? (
           <div className="dashboard-campaign-emails-panel flex min-h-0 flex-1 flex-col">
-            {emailListTotal > 0 ? (
-              <div className="dashboard-campaign-wa-comms-toolbar shrink-0">
+            {!hasContacts && !emailListLoading ? (
+              <CampaignWorkspaceEmptyState
+                brand="gmail"
+                title="No contacts yet"
+                description={
+                  <>
+                    Add candidates from{" "}
+                    <span className="font-medium text-[#141b2b]">Session Results</span> using{" "}
+                    <span className="font-medium text-[#141b2b]">Add to campaign</span>, then view
+                    Gmail conversations here.
+                  </>
+                }
+                actions={[
+                  {
+                    label: "Add from search history",
+                    icon: "history",
+                    disabled: campaignContactsLocked,
+                    onClick: onAddFromSearchHistory,
+                  },
+                  {
+                    label: "Upload CSV",
+                    icon: "upload_file",
+                    variant: "secondary",
+                    disabled: campaignContactsLocked,
+                    onClick: openCsvModal,
+                  },
+                ]}
+              />
+            ) : (
+              <>
+            <div className="dashboard-campaign-wa-comms-toolbar shrink-0">
                 <div className="flex flex-wrap items-center gap-3">
                   <div className="flex items-center gap-2">
                     <IntegrationBrandLogo provider="gmail" title="Gmail" className="h-4 w-4" />
                     <p className="dashboard-campaign-wa-comms-summary">
                       {emailListTotal} conversation{emailListTotal === 1 ? "" : "s"}
+                      {emailFilter !== "all" || emailSearch.trim() ? (
+                        <span className="text-slate-500">
+                          {" "}
+                          · {contacts.length} in campaign
+                        </span>
+                      ) : null}
                     </p>
                   </div>
                   {outreachStatus === "active" ? (
@@ -1951,8 +1986,7 @@ export function CampaignWorkspace({
                   </div>
                 </div>
               </div>
-            ) : null}
-            {emailListTotal > 0 && syncThreadsNotice ? (
+            {syncThreadsNotice ? (
               <p className="dashboard-alert-notice mx-3 mb-0 mt-2 shrink-0 text-sm" role="status">
                 {syncThreadsNotice}
               </p>
@@ -1971,34 +2005,6 @@ export function CampaignWorkspace({
                 <p className="dashboard-campaign-workspace-placeholder dashboard-campaign-workspace-placeholder--error py-12">
                   {emailListError}
                 </p>
-              ) : emailListTotal === 0 ? (
-                <CampaignWorkspaceEmptyState
-                  brand="gmail"
-                  title="No contacts yet"
-                  description={
-                    <>
-                      Add candidates from{" "}
-                      <span className="font-medium text-[#141b2b]">Session Results</span> using{" "}
-                      <span className="font-medium text-[#141b2b]">Add to campaign</span>, then
-                      view Gmail conversations here.
-                    </>
-                  }
-                  actions={[
-                    {
-                      label: "Add from search history",
-                      icon: "history",
-                      disabled: campaignContactsLocked,
-                      onClick: onAddFromSearchHistory,
-                    },
-                    {
-                      label: "Upload CSV",
-                      icon: "upload_file",
-                      variant: "secondary",
-                      disabled: campaignContactsLocked,
-                      onClick: openCsvModal,
-                    },
-                  ]}
-                />
               ) : (
                 <>
                   <aside className="dashboard-campaign-wa-comms-list flex min-h-0 w-full min-w-0 flex-col border-slate-200 md:w-[min(100%,360px)] md:max-w-[40%] md:border-r">
@@ -2202,6 +2208,8 @@ export function CampaignWorkspace({
                 </>
               )}
             </div>
+              </>
+            )}
           </div>
         ) : activeTab === "WhatsApp" ? (
           <CampaignWhatsAppCommunicationsPanel

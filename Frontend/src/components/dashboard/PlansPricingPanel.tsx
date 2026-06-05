@@ -6,9 +6,11 @@ import {
   quotaRemainingDisplay,
   quotaUsedPercent,
   utilisationQuotaActionLabel,
+  type OutreachThreadStats,
   type UserUtilisationStats,
   type UtilisationHistoryRow,
 } from "@/lib/planUtilisation";
+import { hasOutreachThreadUtilisation } from "@/lib/planAccess";
 import {
   tierFeatureLines,
   type PricingPlansPayload,
@@ -21,6 +23,7 @@ type Props = {
   currentPlanId: string;
   currentPlanName: string;
   utilisation: UserUtilisationStats;
+  outreachThreads: OutreachThreadStats;
   history: UtilisationHistoryRow[];
   historyLoading: boolean;
   historyPage: number;
@@ -69,6 +72,26 @@ const UTILISATION_METRICS: UtilisationMetric[] = [
     label: "LinkedIn search",
     icon: "travel_explore",
     limitKey: "searches",
+  },
+];
+
+const OUTREACH_UTILISATION_METRICS: Array<{
+  key: keyof OutreachThreadStats;
+  label: string;
+  icon: string;
+  limitKey: "emailOutreaches" | "whatsappOutreaches";
+}> = [
+  {
+    key: "email",
+    label: "Email outreach",
+    icon: "forward_to_inbox",
+    limitKey: "emailOutreaches",
+  },
+  {
+    key: "whatsapp",
+    label: "WhatsApp outreach",
+    icon: "chat",
+    limitKey: "whatsappOutreaches",
   },
 ];
 
@@ -176,6 +199,7 @@ export function PlansPricingPanel({
   currentPlanId,
   currentPlanName,
   utilisation,
+  outreachThreads,
   history,
   historyLoading,
   historyPage,
@@ -189,6 +213,7 @@ export function PlansPricingPanel({
     null;
 
   const displayPlanName = currentTier?.name ?? currentPlanName;
+  const showOutreachMeters = hasOutreachThreadUtilisation(currentPlanId);
 
   return (
     <section className="dashboard-card flex min-w-0 max-w-full w-full flex-col p-6">
@@ -243,6 +268,9 @@ export function PlansPricingPanel({
                   </span>{" "}
                   plan. Values show{" "}
                   <span className="font-medium">remaining / limit</span>.
+                  {showOutreachMeters
+                    ? " Email and WhatsApp outreach meters apply on Growth and Enterprise."
+                    : null}
                 </p>
               </div>
             </header>
@@ -257,6 +285,17 @@ export function PlansPricingPanel({
                   limit={currentTier?.[metric.limitKey]}
                 />
               ))}
+              {showOutreachMeters
+                ? OUTREACH_UTILISATION_METRICS.map((metric) => (
+                    <UtilisationMeter
+                      key={metric.key}
+                      label={metric.label}
+                      icon={metric.icon}
+                      used={outreachThreads[metric.key]}
+                      limit={currentTier?.[metric.limitKey]}
+                    />
+                  ))
+                : null}
             </div>
           </section>
 
@@ -268,8 +307,8 @@ export function PlansPricingPanel({
               <div>
                 <h4 className="dashboard-pricing-section-title">Credit utilisation history</h4>
                 <p className="dashboard-pricing-section-desc">
-                  Log of plan quota usage. Only events recorded after this feature shipped
-                  appear here.
+                  Log of plan quota usage, including outreach when contacts are added to
+                  campaigns. Older outreach usage before logging shipped may not appear.
                 </p>
               </div>
             </header>

@@ -14,6 +14,8 @@ const pricingPlanSchema = new mongoose.Schema(
     candidateUnlocks: { type: Number, default: null },
     verifiedEmails: { type: Number, default: null },
     phoneNumbers: { type: Number, default: null },
+    emailOutreaches: { type: Number, default: null },
+    whatsappOutreaches: { type: Number, default: null },
     /** Max workspace sub-users (members). null = unlimited; 0 = none. */
     maxSubUsers: { type: Number, default: null },
     features: [{ type: String, trim: true }],

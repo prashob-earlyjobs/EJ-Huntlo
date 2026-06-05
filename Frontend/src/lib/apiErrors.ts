@@ -28,8 +28,10 @@ export function parseApiError(
 
   const isQuotaExceeded =
     body.code === "QUOTA_EXCEEDED" ||
+    body.code === "OUTREACH_CREDITS_EXCEEDED" ||
     (res.status === 403 &&
-      /plan quota|quota exceeded/i.test(message));
+      (/plan quota|quota exceeded/i.test(message) ||
+        /no credits for (email|whatsapp)/i.test(message)));
 
   return { message, isQuotaExceeded };
 }
@@ -52,7 +54,11 @@ export const CLOSED_USER_ACTION_ALERT: UserActionAlertState = {
 
 export function quotaAlertFromMessage(message: string): UserActionAlertState | null {
   const trimmed = message.trim();
-  if (!trimmed || !/plan quota|quota exceeded/i.test(trimmed)) {
+  if (
+    !trimmed ||
+    (!/plan quota|quota exceeded/i.test(trimmed) &&
+      !/no credits for (email|whatsapp)/i.test(trimmed))
+  ) {
     return null;
   }
   return { open: true, message: trimmed, isQuotaExceeded: true };

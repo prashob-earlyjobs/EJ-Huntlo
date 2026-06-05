@@ -146,6 +146,20 @@ const getMyDashboard = async (req, res) => {
               ? tier.phoneNumbers
               : null,
         },
+        emailOutreach: {
+          used: Math.max(0, Math.floor(Number(plan?.outreachThreads?.email) || 0)),
+          limit:
+            typeof tier?.emailOutreaches === "number" && tier.emailOutreaches > 0
+              ? tier.emailOutreaches
+              : null,
+        },
+        whatsappOutreach: {
+          used: Math.max(0, Math.floor(Number(plan?.outreachThreads?.whatsapp) || 0)),
+          limit:
+            typeof tier?.whatsappOutreaches === "number" && tier.whatsappOutreaches > 0
+              ? tier.whatsappOutreaches
+              : null,
+        },
       },
       stats: {
         sourcingSessions,
