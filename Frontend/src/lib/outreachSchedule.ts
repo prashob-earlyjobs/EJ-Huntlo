@@ -142,6 +142,12 @@ function addWallClockHours(from: Date, hours: number): Date {
   return next;
 }
 
+function addWallClockMinutes(from: Date, minutes: number): Date {
+  const next = new Date(from);
+  next.setTime(next.getTime() + Math.max(0, minutes) * 60_000);
+  return next;
+}
+
 export function normalizeStartSchedule(
   raw?: Partial<OutreachStartScheduleDraft> & {
     soonestAt?: string;
@@ -186,7 +192,8 @@ export function touchpointsWithScheduleForSave(
         timezone: startSchedule.timezone,
       };
     }
-    if (inferGmailWaitDisplay(tp).unit === "hours") {
+    const waitUnit = inferGmailWaitDisplay(tp).unit;
+    if (waitUnit === "hours" || waitUnit === "minutes") {
       return tp;
     }
     const meta = stepScheduleMeta[tp.order];
@@ -236,8 +243,13 @@ export function computeTouchpointSendDate(
   for (let i = 1; i <= index; i++) {
     const step = touchpoints[i];
     if (!step) continue;
+    const waitMinutes = Math.max(0, Number(step.waitMinutes) || 0);
     const waitHours = Math.max(0, Number(step.waitHours) || 0);
     const waitDays = Math.max(0, Number(step.waitDays) || 0);
+    if (waitMinutes > 0 && waitDays === 0 && waitHours === 0) {
+      cursor = addWallClockMinutes(cursor, waitMinutes);
+      continue;
+    }
     if (waitHours > 0 && waitDays === 0) {
       cursor = addWallClockHours(cursor, waitHours);
       continue;

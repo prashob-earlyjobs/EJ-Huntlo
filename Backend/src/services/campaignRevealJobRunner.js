@@ -1,28 +1,11 @@
 const mongoose = require("mongoose");
-const Campaign = require("../models/Campaign");
 const CampaignRevealJob = require("../models/CampaignRevealJob");
 const { revealSingleContactItem } = require("./bulkRevealService");
 const { getCampaign, syncCampaignContactsFromUserCache } = require("./campaignService");
-
-function userOid(userId) {
-  return new mongoose.Types.ObjectId(userId);
-}
-
-async function updateCampaignContactFields(userId, campaignId, candidateKey, email, phone) {
-  await Campaign.updateOne(
-    {
-      _id: new mongoose.Types.ObjectId(campaignId),
-      userId: userOid(userId),
-      "contacts.candidateKey": candidateKey,
-    },
-    {
-      $set: {
-        "contacts.$.email": String(email || "").trim(),
-        "contacts.$.phone": String(phone || "").trim(),
-      },
-    }
-  );
-}
+const {
+  loadAllContactsForCampaign,
+  updateCampaignContactFields,
+} = require("./campaignContactService");
 
 /**
  * Runs in a child process — reveals contacts and writes email/phone onto the campaign.
@@ -52,8 +35,8 @@ async function runCampaignRevealJob(jobId) {
   await job.save();
 
   try {
-    const campaign = await getCampaign(userId, campaignId);
-    const contacts = (campaign.contacts || []).filter((c) => {
+    const allContacts = await loadAllContactsForCampaign(campaignId);
+    const contacts = allContacts.filter((c) => {
       if (candidateKeyFilter && !candidateKeyFilter.has(c.candidateKey)) return false;
       const linkedin = String(c.linkedinUrl || "").trim();
       const sessionId = String(c.sourcingSessionId || "").trim();
@@ -73,17 +56,13 @@ async function runCampaignRevealJob(jobId) {
           linkedin_profile_url: contact.linkedinUrl,
         });
 
-        // Keep manual overrides — only fill empty email/phone from reveal API.
         const existingEmail = String(contact.email || "").trim();
         const existingPhone = String(contact.phone || "").trim();
-        const email =
-          existingEmail || revealed.email?.trim() || "";
-        const phone =
-          existingPhone || revealed.phone?.trim() || "";
+        const email = existingEmail || revealed.email?.trim() || "";
+        const phone = existingPhone || revealed.phone?.trim() || "";
 
         if (email !== existingEmail || phone !== existingPhone) {
           await updateCampaignContactFields(
-            userId,
             campaignId,
             contact.candidateKey,
             email,
@@ -91,34 +70,17 @@ async function runCampaignRevealJob(jobId) {
           );
         }
 
-        if (email) job.revealedEmailCount += 1;
-        if (phone) job.revealedPhoneCount += 1;
-
-        if (revealed.errors?.length) {
-          console.warn("[campaign-reveal-job] reveal errors", {
-            jobId,
-            candidateKey: contact.candidateKey,
-            linkedinUrl: contact.linkedinUrl,
-            errors: revealed.errors,
-          });
-        }
-      } catch (error) {
-        if (error?.code === "QUOTA_EXCEEDED") {
-          job.status = "quota_exceeded";
-          job.errorMessage = error.message || "Plan quota exceeded";
-          job.processed += 1;
-          await job.save();
-          return job.toObject();
-        }
-        console.error("[campaign-reveal-job] contact error", {
-          jobId,
-          candidateKey: contact.candidateKey,
-          message: error.message,
-        });
+        if (email && !existingEmail) job.revealedEmailCount += 1;
+        if (phone && !existingPhone) job.revealedPhoneCount += 1;
+      } catch (itemErr) {
+        console.warn(
+          `[campaign-reveal-job] contact ${contact.candidateKey}:`,
+          itemErr?.message || itemErr
+        );
       }
 
       job.processed += 1;
-      if (job.processed % 3 === 0 || job.processed === job.total) {
+      if (job.processed % 5 === 0 || job.processed === job.total) {
         await job.save();
       }
     }
@@ -126,14 +88,17 @@ async function runCampaignRevealJob(jobId) {
     await syncCampaignContactsFromUserCache(userId, campaignId);
 
     job.status = "completed";
+    job.errorMessage = "";
     await job.save();
-    return job.toObject();
-  } catch (error) {
+    return { jobId, status: "completed" };
+  } catch (err) {
     job.status = "failed";
-    job.errorMessage = error.message || "Reveal job failed";
+    job.errorMessage = err instanceof Error ? err.message : "Reveal job failed";
     await job.save();
-    throw error;
+    throw err;
   }
 }
 
-module.exports = { runCampaignRevealJob };
+module.exports = {
+  runCampaignRevealJob,
+};

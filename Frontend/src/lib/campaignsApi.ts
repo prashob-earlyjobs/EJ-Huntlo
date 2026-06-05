@@ -42,6 +42,10 @@ function parseCampaign(raw: unknown): CampaignRecord | null {
   const contacts = Array.isArray(o.contacts)
     ? o.contacts.map(parseContact).filter((c): c is CampaignContact => c !== null)
     : [];
+  const contactCount =
+    typeof o.contactCount === "number" && Number.isFinite(o.contactCount)
+      ? Math.max(0, Math.floor(o.contactCount))
+      : contacts.length;
   const createdAt =
     typeof o.createdAt === "string"
       ? o.createdAt
@@ -106,6 +110,7 @@ function parseCampaign(raw: unknown): CampaignRecord | null {
     id,
     name,
     createdAt,
+    contactCount,
     contacts,
     jobDescription,
     ...(calendlyAutomation ? { calendlyAutomation } : {}),

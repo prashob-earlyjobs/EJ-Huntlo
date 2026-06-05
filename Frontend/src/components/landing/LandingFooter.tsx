@@ -1,8 +1,15 @@
 import Link from "next/link";
 
+import { COMPARISON_FOOTER_LINKS } from "@/lib/comparisons";
 import { FOOTER_PLATFORM_PARTNERS } from "@/lib/footerPlatformPartners";
 
 import { LandingLogo } from "./LandingLogo";
+
+const FOOTER_LINK_HREFS: Record<string, string> = {
+  Blog: "/blog",
+  "Huntlo vs competitors": "/compare",
+  ...Object.fromEntries(COMPARISON_FOOTER_LINKS.map((item) => [item.label, item.href])),
+};
 
 const FOOTER_COLUMNS = [
   {
@@ -12,6 +19,13 @@ const FOOTER_COLUMNS = [
   {
     title: "Product",
     links: ["Source Candidates", "People Scout", "Candidate Pool", "Integrations"],
+  },
+  {
+    title: "Comparison",
+    links: [
+      "Huntlo vs competitors",
+      ...COMPARISON_FOOTER_LINKS.map((item) => item.label),
+    ],
   },
   {
     title: "Company",
@@ -61,7 +75,7 @@ export function LandingFooter() {
       </div>
       <div className="mx-auto max-w-7xl px-4 py-12 md:px-8 md:py-14 lg:px-12">
         <nav
-          className="grid w-full grid-cols-2 gap-x-8 gap-y-10 sm:gap-x-10 md:grid-cols-4 md:gap-x-8 md:gap-y-0 lg:gap-x-12"
+          className="grid w-full grid-cols-2 gap-x-8 gap-y-10 sm:gap-x-10 md:grid-cols-3 md:gap-x-8 md:gap-y-10 lg:grid-cols-5 lg:gap-x-10 lg:gap-y-0"
           aria-label="Footer"
         >
           {FOOTER_COLUMNS.map((col) => (
@@ -70,16 +84,29 @@ export function LandingFooter() {
                 {col.title}
               </h4>
               <ul className="mt-3 space-y-2.5">
-                {col.links.map((label) => (
-                  <li key={label}>
-                    <a
-                      href="#"
-                      className="text-sm leading-snug text-[#434654] transition-colors hover:text-[#0050cb]"
-                    >
-                      {label}
-                    </a>
-                  </li>
-                ))}
+                {col.links.map((label) => {
+                  const href = FOOTER_LINK_HREFS[label] || "#";
+                  const isInternal = href.startsWith("/");
+                  return (
+                    <li key={label}>
+                      {isInternal ? (
+                        <Link
+                          href={href}
+                          className="text-sm leading-snug text-[#434654] transition-colors hover:text-[#0050cb]"
+                        >
+                          {label}
+                        </Link>
+                      ) : (
+                        <a
+                          href={href}
+                          className="text-sm leading-snug text-[#434654] transition-colors hover:text-[#0050cb]"
+                        >
+                          {label}
+                        </a>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           ))}

@@ -43,5 +43,7 @@ export type CampaignRecord = {
   interestedCount?: number;
   /** Latest send, reply, or campaign update (list view). */
   lastActivityAt?: string | null;
+  /** Total contacts in campaign (may be set when `contacts` is not loaded). */
+  contactCount?: number;
   contacts: CampaignContact[];
 };

@@ -26,8 +26,9 @@ import {
 } from "@/lib/outreachTemplates";
 import {
   formatGmailWaitConnectorLabel,
-  GMAIL_WAIT_UNIT_OPTIONS,
+  getGmailWaitUnitOptions,
   gmailWaitFromDisplay,
+  gmailWaitUsesSendAt,
   clampWaitAmount,
   inferGmailWaitDisplay,
   maxWaitAmountForUnit,
@@ -904,6 +905,7 @@ export function OutreachPlanEditor({
                     body: tp.body || "",
                     waitDays: tp.waitDays ?? 0,
                     waitHours: tp.waitHours ?? 0,
+                    waitMinutes: tp.waitMinutes ?? 0,
                     sendTime: tp.sendTime,
                     timezone: tp.timezone,
                     waitUnit: tp.waitUnit,
@@ -1301,7 +1303,8 @@ export function OutreachPlanEditor({
               const isActive = canvasIndex === activeIndex;
               const stepWaitUnit =
                 waitMeta[tp.order]?.unit ?? inferGmailWaitDisplay(tp).unit;
-              const stepWaitUsesSendAt = stepWaitUnit !== "hours";
+              const stepWaitUsesSendAt = gmailWaitUsesSendAt(stepWaitUnit);
+              const waitUnitOptions = getGmailWaitUnitOptions();
               return (
                 <div key={`wrap-${tp.order}-${index}`} className="dashboard-outreach-main-flow-item">
                   {index > 0 ? (
@@ -1338,9 +1341,8 @@ export function OutreachPlanEditor({
                               />
                               <ScheduleStaticChip
                                 label={
-                                  GMAIL_WAIT_UNIT_OPTIONS.find(
-                                    (o) => o.value === stepWaitUnit
-                                  )?.label ?? "days"
+                                  waitUnitOptions.find((o) => o.value === stepWaitUnit)
+                                    ?.label ?? "days"
                                 }
                               />
                               {stepWaitUsesSendAt ? (
@@ -1380,7 +1382,7 @@ export function OutreachPlanEditor({
                               />
                               <OutreachPillSelect
                                 value={stepWaitUnit}
-                                options={GMAIL_WAIT_UNIT_OPTIONS}
+                                options={waitUnitOptions}
                                 onChange={(unit) => updateStepWait(tp.order, { unit })}
                                 ariaLabel="Wait unit"
                               />

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { AdminBlogPanel } from "@/components/admin/AdminBlogPanel";
 import {
   AdminMessagingChannelSettings,
   type AdminMessagingChannel,
@@ -88,6 +89,26 @@ const sidebarItems = [
     ),
   },
   {
+    label: "Blog",
+    subtitle: "Publish articles on /blog",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
+        <path
+          d="M6 4H18V6H6V4ZM6 8H18V10H6V8ZM6 12H14V14H6V12ZM4 4H4.01M4 8H4.01M4 12H4.01"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+        />
+        <path
+          d="M6 16H18V20H6V16Z"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinejoin="round"
+        />
+      </svg>
+    ),
+  },
+  {
     label: "Plans & pricing",
     subtitle: "Edit tiers shown to users",
     icon: (
@@ -130,6 +151,7 @@ const sidebarItems = [
 const ADMIN_POOL_TAB = "Candidate pool";
 const ADMIN_ANALYTICS_TAB = "Analytics";
 const ADMIN_SETTINGS_TAB = "Settings";
+const ADMIN_BLOG_TAB = "Blog";
 const ADMIN_POOL_LIMIT = 12;
 
 type TeamUserRow = {
@@ -1774,6 +1796,8 @@ export default function AdminDashboardPage() {
                   )}
                 </div>
               </article>
+            ) : activeTab === ADMIN_BLOG_TAB ? (
+              auth?.token ? <AdminBlogPanel token={auth.token} /> : null
             ) : activeTab === "Plans & pricing" ? (
               <article className="dashboard-card p-6">
                 <div className="flex flex-wrap items-center justify-between gap-3">
