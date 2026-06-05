@@ -19,14 +19,14 @@ export type RazorpayPrefill = {
   contact: string;
 };
 
-type ApiError = {
-  success?: false;
+type ApiErrorBody = {
+  success?: boolean;
   message?: string;
   code?: string;
 };
 
-async function parseApiJson<T>(res: Response): Promise<T & ApiError> {
-  const data = (await res.json()) as T & ApiError;
+async function parseApiJson<T>(res: Response): Promise<T> {
+  const data = (await res.json()) as T & ApiErrorBody;
   if (!res.ok || data.success === false) {
     const err = new Error(data.message || "Request failed");
     (err as Error & { code?: string }).code = data.code;
