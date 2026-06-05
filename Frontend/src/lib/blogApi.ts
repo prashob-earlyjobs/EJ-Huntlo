@@ -22,10 +22,11 @@ export type BlogPostInput = {
 
 export async function fetchAdminBlogPosts(
   token: string,
-  options?: { page?: number; status?: string; q?: string }
+  options?: { page?: number; limit?: number; status?: string; q?: string }
 ): Promise<{ posts: BlogPost[]; pagination: BlogPagination; categories: string[] } | null> {
   const q = new URLSearchParams();
   if (options?.page) q.set("page", String(options.page));
+  if (options?.limit) q.set("limit", String(options.limit));
   if (options?.status?.trim()) q.set("status", options.status.trim());
   if (options?.q?.trim()) q.set("q", options.q.trim());
   const qs = q.toString();
