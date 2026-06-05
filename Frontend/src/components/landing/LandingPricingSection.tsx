@@ -35,7 +35,7 @@ function PricingPrice({ tier, featured }: { tier: PricingTier; featured: boolean
     <div className="mt-4">
       <p className="flex flex-wrap items-baseline gap-1">
         <span
-          className={`text-4xl font-bold tracking-tight md:text-[2.5rem] ${
+          className={`landing-pricing-price-amount ${
             featured ? "text-white" : "text-[#141b2b]"
           }`}
         >
@@ -43,7 +43,7 @@ function PricingPrice({ tier, featured }: { tier: PricingTier; featured: boolean
         </span>
         {period ? (
           <span
-            className={`text-lg font-medium ${
+            className={`landing-pricing-price-period ${
               featured ? "text-white/70" : "text-[#434654]"
             }`}
           >
@@ -67,8 +67,8 @@ function PricingCta({ tier, featured }: { tier: PricingTier; featured: boolean }
   if (enterprise) {
     return (
       <BookDemoLink
-        className="landing-pricing-cta landing-pricing-cta--sales mt-auto w-full"
-        disabledClassName="landing-pricing-cta landing-pricing-cta--sales mt-auto w-full cursor-not-allowed opacity-60"
+        className="landing-pricing-cta landing-pricing-cta--sales w-full"
+        disabledClassName="landing-pricing-cta landing-pricing-cta--sales w-full cursor-not-allowed opacity-60"
       >
         {label}
       </BookDemoLink>
@@ -79,7 +79,7 @@ function PricingCta({ tier, featured }: { tier: PricingTier; featured: boolean }
     return (
       <Link
         href="/signup"
-        className="landing-pricing-cta landing-pricing-cta--primary mt-auto w-full"
+        className="landing-pricing-cta landing-pricing-cta--primary w-full"
       >
         {label}
       </Link>
@@ -87,7 +87,7 @@ function PricingCta({ tier, featured }: { tier: PricingTier; featured: boolean }
   }
 
   return (
-    <Link href="/signup" className="landing-pricing-cta landing-pricing-cta--outline mt-auto w-full">
+    <Link href="/signup" className="landing-pricing-cta landing-pricing-cta--outline w-full">
       {label}
     </Link>
   );
@@ -123,7 +123,7 @@ function PricingCard({ tier }: { tier: PricingTier }) {
 
       <PricingPrice tier={tier} featured={featured} />
 
-      <ul className="mt-8 flex grow flex-col gap-4">
+      <ul className="mt-8 flex flex-col gap-4">
         {lines.map((feature) => (
           <li key={`${key}-${feature}`} className="flex items-start gap-3">
             <PricingCheckIcon featured={featured} />
@@ -138,7 +138,9 @@ function PricingCard({ tier }: { tier: PricingTier }) {
         ))}
       </ul>
 
-      <PricingCta tier={tier} featured={featured} />
+      <div className="mt-8">
+        <PricingCta tier={tier} featured={featured} />
+      </div>
     </article>
   );
 }
@@ -170,7 +172,7 @@ export function LandingPricingSection({ pricingPlans }: Props) {
             Pricing is temporarily unavailable. Please try again later.
           </p>
         ) : (
-          <div className="landing-pricing-grid mx-auto grid max-w-6xl grid-cols-1 gap-6 md:grid-cols-3 md:items-stretch md:gap-5 lg:gap-6">
+          <div className="landing-pricing-grid mx-auto grid max-w-6xl grid-cols-1 gap-6 md:grid-cols-3 md:items-start md:gap-5 lg:gap-6">
             {tiers.map((tier) => (
               <PricingCard key={tier.id || tier.name} tier={tier} />
             ))}

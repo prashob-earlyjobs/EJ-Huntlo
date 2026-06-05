@@ -595,7 +595,7 @@ export function OutreachSequencePicker({
       {showLead ? <p className={s.lead}>{lead}</p> : null}
 
       {variant === "campaign" ? (
-        <p className="dashboard-label-upper dashboard-campaign-sequence-actions-label">Get started</p>
+        <p className="dashboard-label-upper dashboard-campaign-sequence-actions-label">Start Free Trial</p>
       ) : null}
       <div className={s.options}>
         <OptionRow

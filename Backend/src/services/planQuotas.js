@@ -1,5 +1,5 @@
 const User = require("../models/User");
-const { DEFAULT_PRICING_PLANS, getEnrichedTiers } = require("../controllers/pricingController");
+const { getEnrichedTiers } = require("../controllers/pricingController");
 const { getBillingUser } = require("./organizationService");
 const { utilisationFromUser } = require("../utils/userUsage");
 
@@ -35,7 +35,8 @@ function getMaxSubUsersForTier(tier) {
 }
 
 function getDefaultPlanId(tiers) {
-  const list = Array.isArray(tiers) && tiers.length > 0 ? tiers : DEFAULT_PRICING_PLANS.tiers;
+  const list = Array.isArray(tiers) ? tiers : [];
+  if (list.length === 0) return "trial";
   const trial = list.find((t) => t.id === "trial");
   if (trial?.id) return trial.id;
   const starter = list.find((t) => t.id === "starter");
@@ -44,7 +45,8 @@ function getDefaultPlanId(tiers) {
 
 function normalizePlanId(planId, tiers) {
   const id = typeof planId === "string" ? planId.trim() : "";
-  const list = Array.isArray(tiers) && tiers.length > 0 ? tiers : DEFAULT_PRICING_PLANS.tiers;
+  const list = Array.isArray(tiers) ? tiers : [];
+  if (list.length === 0) return id || "trial";
   if (id && list.some((t) => t.id === id)) return id;
   return getDefaultPlanId(list);
 }

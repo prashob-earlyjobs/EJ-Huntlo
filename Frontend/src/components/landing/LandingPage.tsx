@@ -74,16 +74,9 @@ const SUITE_COLUMNS = [
 ];
 
 const IMPACT_STATS = [
-  { value: "5X", label: "Faster hire" },
+  { value: "10x", label: "Faster hire" },
   { value: "75%", label: "More candidates" },
   { value: "30%", label: "Lower cost" },
-];
-
-const ENTERPRISE_BADGES = [
-  { icon: "verified_user", label: "SOC2 Type II" },
-  { icon: "gpp_good", label: "GDPR Compliant" },
-  { icon: "key", label: "SSO Integration" },
-  { icon: "support_agent", label: "24/7 Support" },
 ];
 
 type LandingPageProps = {
@@ -105,22 +98,22 @@ export function LandingPage({ pricingPlans = null }: LandingPageProps) {
         </div>
         <div className="relative z-10 mx-auto max-w-4xl text-center">
           <h1 className="text-4xl font-bold leading-[1.1] tracking-tight text-[#141b2b] md:text-5xl lg:text-[56px]">
-            Stop Posting and waiting.
+            Stop Posting Jobs.
             <br />
             <span className="text-[#0050cb]">
-              Huntlo finds and engages talent with AI.
+              Start Getting Candidates Who Actually Reply.
             </span>
           </h1>
           <p className="mx-auto mt-6 max-w-2xl text-base leading-relaxed text-[#434654] md:text-lg">
-            The world&apos;s first AI-powered outbound recruiting platform. Reach top talent in
-            seconds, not weeks.
+            Huntlo helps recruiters source, engage, and schedule interviews with qualified
+            candidates in days not weeks.
           </p>
           <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <Link
               href="/signup"
               className="w-full rounded-full bg-[#0050cb] px-8 py-3.5 text-sm font-semibold text-white shadow-lg shadow-[#0050cb]/25 transition-all hover:bg-[#003fa4] sm:w-auto"
             >
-              Get Started
+              Start Free Trial
             </Link>
             <BookDemoLink className={bookDemoButtonClass}>Book Demo</BookDemoLink>
           </div>
@@ -136,7 +129,7 @@ export function LandingPage({ pricingPlans = null }: LandingPageProps) {
             <h2 className="text-3xl font-bold tracking-tight text-[#141b2b] md:text-4xl">
               The Huntlo Advantage
             </h2>
-            <p className="mt-2 text-[#434654]">Results that speak for themselves.</p>
+            <p className="mt-2 text-[#434654]">Trusted by 200+ recruiting teams.</p>
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {ADVANTAGE_METRICS.map((card) => {
@@ -362,34 +355,13 @@ export function LandingPage({ pricingPlans = null }: LandingPageProps) {
       <section className="bg-[#f1f3ff] px-4 py-20 md:px-8 lg:px-12">
         <div className="mx-auto max-w-7xl text-center">
           <h2 className="text-3xl font-bold tracking-tight text-[#141b2b] md:text-4xl">
-            Measurable Impact from Day One
+          The Operating System for Recruiters, Agencies & Hiring Teams
           </h2>
           <div className="mt-12 grid grid-cols-1 gap-8 sm:grid-cols-3">
             {IMPACT_STATS.map((s) => (
               <div key={s.label}>
                 <p className="text-5xl font-bold text-[#0050cb] md:text-6xl">{s.value}</p>
                 <p className="mt-2 text-lg font-medium text-[#141b2b]">{s.label}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Enterprise */}
-      <section className="px-4 py-20 md:px-8 lg:px-12" id="company">
-        <div className="mx-auto max-w-7xl text-center">
-          <h2 className="text-3xl font-bold tracking-tight text-[#141b2b] md:text-4xl">
-            Enterprise-Grade by Design
-          </h2>
-          <p className="mt-2 text-[#434654]">Built with security and compliance in mind.</p>
-          <div className="mt-12 grid grid-cols-2 gap-6 md:grid-cols-4">
-            {ENTERPRISE_BADGES.map((b) => (
-              <div
-                key={b.label}
-                className="flex flex-col items-center gap-3 rounded-2xl border border-[#c3c6d6]/30 bg-white p-6"
-              >
-                <MaterialIcon name={b.icon} className="text-[40px] text-[#0050cb]" />
-                <span className="text-sm font-semibold text-[#141b2b]">{b.label}</span>
               </div>
             ))}
           </div>
@@ -417,7 +389,7 @@ export function LandingPage({ pricingPlans = null }: LandingPageProps) {
               href="/signup"
               className="w-full rounded-full bg-white px-10 py-4 text-sm font-bold text-[#0050cb] shadow-xl transition-all hover:bg-[#f1f3ff] sm:w-auto"
             >
-              Get Started
+              Start Free Trial
             </Link>
             <BookDemoLink className="w-full rounded-full border border-white/30 px-10 py-4 text-sm font-semibold text-white transition-all hover:bg-white/10 sm:w-auto">
               Book a Demo

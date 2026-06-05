@@ -144,7 +144,25 @@
 }
 
 .landing-pricing-grid {
-  align-items: stretch;
+  align-items: start;
+}
+
+.landing-pricing-price-amount {
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+@media (min-width: 768px) {
+  .landing-pricing-price-amount {
+    font-size: 1.625rem;
+  }
+}
+
+.landing-pricing-price-period {
+  font-size: 0.875rem;
+  font-weight: 500;
 }
 
 .landing-pricing-card {
@@ -154,7 +172,7 @@
   box-shadow:
     0 4px 24px -4px rgba(20, 27, 43, 0.06),
     0 1px 3px rgba(20, 27, 43, 0.04);
-  min-height: 100%;
+  height: auto;
 }
 
 .landing-pricing-card--featured {
@@ -388,7 +406,30 @@
   }
 }
 
-/* Product sourcing — clickable tabs + panel swap */
+/* Product sourcing — scroll-driven tabs + panel swap */
+.landing-sourcing-scroll-section {
+  height: 300vh;
+}
+
+.landing-sourcing-scroll-sticky {
+  position: sticky;
+  top: 5.5rem;
+  padding-top: 5rem;
+  padding-bottom: 5rem;
+}
+
+@media (max-width: 1023px) {
+  .landing-sourcing-scroll-section {
+    height: auto;
+  }
+
+  .landing-sourcing-scroll-sticky {
+    position: static;
+    padding-top: 5rem;
+    padding-bottom: 5rem;
+  }
+}
+
 .landing-sourcing-panel-wrap > div {
   animation: landing-sourcing-panel-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
 }

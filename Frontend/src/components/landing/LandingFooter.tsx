@@ -20,16 +20,16 @@ const FOOTER_COLUMNS = [
     links: ["Source Candidates", "People Scout", "Candidate Pool", "Integrations"],
   },
   {
-    title: "Comparison",
-    links: COMPARISON_FOOTER_LINKS.map((item) => item.label),
+    title: "Resources",
+    links: ["Documentation", "Help Center", "Blog", "FAQs"],
   },
   {
     title: "Company",
-    links: ["About", "Careers", "Contact", "Blog"],
+    links: ["About", "Careers", "Contact", "Partnerships"],
   },
   {
-    title: "Resources",
-    links: ["Documentation", "Help Center", "API", "Status"],
+    title: "Comparison",
+    links: COMPARISON_FOOTER_LINKS.map((item) => item.label),
   },
 ];
 

@@ -116,7 +116,7 @@ export default async function BlogPostPage({ params }: PageProps) {
             ) : null}
             <div className="mt-6 flex flex-wrap gap-3">
               <Link href="/signup" className="dashboard-btn-primary text-sm">
-                Get started free
+                Start Free Trial
               </Link>
               <Link href="/blog" className="dashboard-btn-secondary text-sm">
                 <MaterialIcon name="arrow_back" className="text-sm" />
