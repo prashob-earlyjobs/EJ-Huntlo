@@ -8,11 +8,12 @@ const touchpointSchema = new mongoose.Schema(
     body: { type: String, default: "" },
     waitDays: { type: Number, default: 0, min: 0 },
     waitHours: { type: Number, default: 0, min: 0 },
+    waitMinutes: { type: Number, default: 0, min: 0 },
     sendTime: { type: String, trim: true, default: "09:00" },
     timezone: { type: String, enum: ["IST", "UTC"], default: "IST" },
     waitUnit: {
       type: String,
-      enum: ["days"],
+      enum: ["days", "hours", "minutes"],
       default: "days",
     },
   },

@@ -99,10 +99,20 @@ function addWallClockHours(baseDate, hours) {
   return next;
 }
 
+function addWallClockMinutes(baseDate, minutes) {
+  const next = new Date(baseDate);
+  next.setTime(next.getTime() + Math.max(0, Number(minutes) || 0) * 60_000);
+  return next;
+}
+
 function getTouchpointDelayHours(touchpoint) {
   if (!touchpoint || typeof touchpoint !== "object") return 0;
+  const waitMinutes = Math.max(0, Number(touchpoint.waitMinutes) || 0);
   const waitHours = Math.max(0, Number(touchpoint.waitHours) || 0);
   const waitDays = Math.max(0, Number(touchpoint.waitDays) || 0);
+  if (waitMinutes > 0 && waitDays === 0 && waitHours === 0) {
+    return waitMinutes / 60;
+  }
   if (waitHours > 0 && waitDays === 0) return waitHours;
   if (waitDays > 0) return waitDays * 24;
   return 0;
@@ -186,6 +196,7 @@ function computeFirstSendAt(now, startSchedule, firstTouchpoint = {}) {
   const timezone = normalizeTimezoneCode(
     schedule.timezone || firstTouchpoint.timezone || "IST"
   );
+  const waitMinutes = Math.max(0, Number(firstTouchpoint.waitMinutes) || 0);
   const waitHours = Math.max(0, Number(firstTouchpoint.waitHours) || 0);
   const waitDays = Math.max(0, Number(firstTouchpoint.waitDays) || 0);
 
@@ -198,8 +209,15 @@ function computeFirstSendAt(now, startSchedule, firstTouchpoint = {}) {
   }
 
   if (schedule.mode === "immediate") {
+    if (waitMinutes > 0 && waitDays === 0 && waitHours === 0) {
+      return addWallClockMinutes(now, waitMinutes);
+    }
     if (waitHours > 0) return addWallClockHours(now, waitHours);
     return new Date(now);
+  }
+
+  if (waitMinutes > 0 && waitDays === 0 && waitHours === 0) {
+    return addWallClockMinutes(now, waitMinutes);
   }
 
   if (waitHours > 0 && waitDays === 0) {
@@ -227,8 +245,13 @@ function scheduledSendAt(baseDate, touchpointOrWaitDays) {
   }
 
   const touchpoint = touchpointOrWaitDays;
+  const waitMinutes = Math.max(0, Number(touchpoint.waitMinutes) || 0);
   const waitHours = Math.max(0, Number(touchpoint.waitHours) || 0);
   const waitDays = Math.max(0, Number(touchpoint.waitDays) || 0);
+
+  if (waitMinutes > 0 && waitDays === 0 && waitHours === 0) {
+    return addWallClockMinutes(baseDate, waitMinutes);
+  }
 
   if (waitHours > 0 && waitDays === 0) {
     return addWallClockHours(baseDate, waitHours);
@@ -254,5 +277,6 @@ module.exports = {
   scheduledSendAt,
   getTouchpointDelayHours,
   addWallClockHours,
+  addWallClockMinutes,
   normalizeWaitUnit,
 };

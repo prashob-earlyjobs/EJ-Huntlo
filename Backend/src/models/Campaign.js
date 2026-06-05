@@ -63,6 +63,9 @@ const campaignSchema = new mongoose.Schema(
     outreachStartedAt: { type: Date, default: null },
     whatsAppInterestedCount: { type: Number, default: 0, min: 0 },
     whatsAppNotInterestedCount: { type: Number, default: 0, min: 0 },
+    /** Denormalized count — source of truth is CampaignContact collection. */
+    contactCount: { type: Number, default: 0, min: 0 },
+    /** @deprecated Legacy embedded contacts — migrated to CampaignContact on read. */
     contacts: {
       type: [campaignContactSchema],
       default: [],

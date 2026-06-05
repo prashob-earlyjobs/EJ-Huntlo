@@ -67,14 +67,19 @@ async function claimEnrollmentForSend(enrollment) {
   const sentCount = enrollment.sentCount || 0;
   const processingUntil = new Date(now.getTime() + 10 * 60 * 1000);
 
+  const claimFilter = {
+    _id: enrollment._id,
+    status: "active",
+    currentStepOrder: stepOrder,
+    sentCount,
+    nextSendAt: { $lte: now },
+  };
+  if (stepOrder > 1) {
+    claimFilter.hasReply = { $ne: true };
+  }
+
   const claimed = await CampaignSequenceEnrollment.findOneAndUpdate(
-    {
-      _id: enrollment._id,
-      status: "active",
-      currentStepOrder: stepOrder,
-      sentCount,
-      nextSendAt: { $lte: now },
-    },
+    claimFilter,
     { $set: { nextSendAt: processingUntil } },
     { new: true }
   ).lean();
@@ -261,7 +266,8 @@ async function launchCampaignSequence(actorUserId, campaignId) {
   }
 
   const now = new Date();
-  const contacts = Array.isArray(campaign.contacts) ? campaign.contacts : [];
+  const { loadAllContactsForCampaign } = require("./campaignContactService");
+  const contacts = await loadAllContactsForCampaign(campaignId);
 
   const creditChannel = outreachChannelToCreditChannel(channel);
   await assertOutreachCreditsAvailable(actorUserId, creditChannel, contacts.length, {
@@ -445,10 +451,8 @@ async function enrollAddedContactsIfCampaignActive(actorUserId, campaignId, cand
     campaignId
   );
   const isWhatsApp = channel === "whatsapp";
-  const keySet = new Set(keys);
-  const contacts = (Array.isArray(campaign.contacts) ? campaign.contacts : []).filter((c) =>
-    keySet.has(String(c?.candidateKey || "").trim())
-  );
+  const { loadContactsByCandidateKeys } = require("./campaignContactService");
+  const contacts = await loadContactsByCandidateKeys(campaignId, keys);
   const now = new Date();
 
   let enrolled = 0;
@@ -513,6 +517,7 @@ async function resumeCampaignSequence(actorUserId, campaignId) {
 
   let resumed = 0;
   for (const row of paused) {
+    if (row.hasReply) continue;
     const stepOrder = row.currentStepOrder || 1;
     const tp = getTouchpointByOrder(touchpoints, stepOrder);
     let nextSendAt = scheduledSendAt(now, tp);
@@ -576,6 +581,19 @@ async function processGmailEnrollmentDoc(enrollment, campaign) {
   const userId = String(enrollment.userId);
   const campaignId = String(enrollment.campaignId);
   const stepOrder = enrollment.currentStepOrder || 1;
+
+  if (stepOrder > 1 && enrollment.hasReply) {
+    await CampaignSequenceEnrollment.updateOne(
+      { _id: enrollmentId },
+      {
+        $set: {
+          status: "paused",
+          lastError: "Reply received — sequence paused",
+        },
+      }
+    );
+    return;
+  }
 
   const plan = await OutreachPlan.findById(enrollment.outreachPlanId).lean();
   if (!plan) {
@@ -1140,20 +1158,19 @@ function buildRecentActivityFromEnrollments(enrollments, channel) {
 
 async function loadCampaignReportEnrollments(actorUserId, campaignId) {
   const campaign = await findCampaignInScope(actorUserId, campaignId, {
-    select: "contacts outreachChannel outreachStatus outreachStartedAt name userId",
+    select: "outreachChannel outreachStatus outreachStartedAt name userId contactCount",
   });
   const ownerUserId = campaignOwnerUserId(campaign);
+  const {
+    countContactsForCampaign,
+    countContactsWithEmail,
+    countContactsWithPhone,
+  } = require("./campaignContactService");
 
   const channel = campaign.outreachChannel === "whatsapp" ? "whatsapp" : "email";
-  const totalContacts = Array.isArray(campaign.contacts) ? campaign.contacts.length : 0;
-  const contactsWithEmail = (campaign.contacts || []).filter((c) =>
-    String(c.email || "")
-      .trim()
-      .includes("@")
-  ).length;
-  const contactsWithPhone = (campaign.contacts || []).filter((c) =>
-    Boolean(String(c.phone || "").trim())
-  ).length;
+  const totalContacts = await countContactsForCampaign(campaignId);
+  const contactsWithEmail = await countContactsWithEmail(campaignId);
+  const contactsWithPhone = await countContactsWithPhone(campaignId);
 
   const enrollments = await CampaignSequenceEnrollment.find({
     campaignId: campaign._id,

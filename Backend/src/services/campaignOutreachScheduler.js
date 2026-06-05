@@ -20,15 +20,15 @@ async function runTick() {
   if (tickRunning) return;
   tickRunning = true;
   try {
-    const processed = await processDueEnrollments();
-    if (processed > 0) {
-      console.log(`[outreach-scheduler] processed ${processed} due enrollment(s)`);
-    }
     const replySync = await syncDueEnrollmentReplies();
     if (replySync.newReplies > 0) {
       console.log(
         `[outreach-reply-sync] stored ${replySync.newReplies} new reply message(s) from ${replySync.checked} enrollment(s)`
       );
+    }
+    const processed = await processDueEnrollments();
+    if (processed > 0) {
+      console.log(`[outreach-scheduler] processed ${processed} due enrollment(s)`);
     }
   } catch (err) {
     console.error("[outreach-scheduler]", err?.message || err);

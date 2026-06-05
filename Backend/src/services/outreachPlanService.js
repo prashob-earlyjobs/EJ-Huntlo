@@ -7,6 +7,7 @@ const {
   normalizeStartSchedule,
   normalizeWaitUnit,
 } = require("../utils/outreachScheduleUtils");
+const { isQaEnv } = require("../config/appEnv");
 
 function normalizeTouchpoints(raw) {
   if (!Array.isArray(raw)) return [];
@@ -18,18 +19,27 @@ function normalizeTouchpoints(raw) {
       const label = typeof tp?.label === "string" ? tp.label.trim() : "";
       const waitDays = Math.max(0, Number(tp?.waitDays) || 0);
       const waitHours = Math.max(0, Number(tp?.waitHours) || 0);
-      const usesHourWait = waitHours > 0 && waitDays === 0;
+      const waitMinutesRaw = Math.max(0, Number(tp?.waitMinutes) || 0);
+      const waitMinutes = isQaEnv() ? waitMinutesRaw : 0;
+      const usesMinuteWait = waitMinutes > 0 && waitDays === 0 && waitHours === 0;
+      const usesHourWait = waitHours > 0 && waitDays === 0 && !usesMinuteWait;
+      const usesSubDayWait = usesMinuteWait || usesHourWait;
       if (!subject && !body) return null;
       return {
         order: Number.isFinite(order) && order > 0 ? order : index + 1,
         label,
         subject,
         body,
-        waitDays: usesHourWait ? 0 : waitDays,
+        waitDays: usesSubDayWait ? 0 : waitDays,
         waitHours: usesHourWait ? waitHours : 0,
-        sendTime: usesHourWait ? "09:00" : normalizeSendTime(tp?.sendTime),
-        timezone: usesHourWait ? "IST" : normalizeTimezoneCode(tp?.timezone),
-        waitUnit: usesHourWait ? "days" : normalizeWaitUnit(tp?.waitUnit),
+        waitMinutes: usesMinuteWait ? waitMinutes : 0,
+        sendTime: usesSubDayWait ? "09:00" : normalizeSendTime(tp?.sendTime),
+        timezone: usesSubDayWait ? "IST" : normalizeTimezoneCode(tp?.timezone),
+        waitUnit: usesMinuteWait
+          ? "minutes"
+          : usesHourWait
+            ? "hours"
+            : normalizeWaitUnit(tp?.waitUnit),
       };
     })
     .filter(Boolean)
@@ -75,6 +85,7 @@ function formatPlan(doc) {
       body: tp.body || "",
       waitDays: tp.waitDays ?? 0,
       waitHours: tp.waitHours ?? 0,
+      waitMinutes: tp.waitMinutes ?? 0,
       sendTime: tp.sendTime || "09:00",
       timezone: tp.timezone || "IST",
       waitUnit: tp.waitUnit || "days",
