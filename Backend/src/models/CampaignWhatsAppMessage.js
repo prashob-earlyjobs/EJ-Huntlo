@@ -31,7 +31,7 @@ const campaignWhatsAppMessageSchema = new mongoose.Schema(
     sequenceStepLabel: { type: String, trim: true, default: "" },
     provider: {
       type: String,
-      enum: ["", "meta"],
+      enum: ["", "meta", "gupshup"],
       default: "",
     },
     externalMessageId: { type: String, trim: true, default: "" },

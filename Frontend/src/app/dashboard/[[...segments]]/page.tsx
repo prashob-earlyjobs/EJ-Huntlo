@@ -1331,6 +1331,7 @@ export default function UserDashboardPage() {
   const [utilisationHistoryPage, setUtilisationHistoryPage] = useState(1);
   const [utilisationHistoryTotalDocs, setUtilisationHistoryTotalDocs] = useState(0);
   const [utilisationHistoryTotalPages, setUtilisationHistoryTotalPages] = useState(1);
+  const [planPaymentSuccessToast, setPlanPaymentSuccessToast] = useState<string | null>(null);
   const [dashboardOverview, setDashboardOverview] = useState<DashboardOverviewData | null>(
     null
   );
@@ -1824,6 +1825,35 @@ export default function UserDashboardPage() {
         setPeopleScoutRecentLoading(false);
       });
   }, [activeTab]);
+
+  const reloadUserPlanSnapshot = useCallback(async () => {
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+    const auth = getStoredAuth();
+    if (!auth?.token) return;
+    try {
+      const res = await fetch(`${apiBase}/api/users/me`, {
+        headers: authHeaders(auth.token),
+      });
+      const data = await res.json();
+      const snapshot = parsePlanFromMeResponse(data);
+      if (snapshot) {
+        setUserPlanId(snapshot.planId);
+        setUserPlanName(snapshot.planName);
+        if (snapshot.utilisation) setPlanUtilisation(snapshot.utilisation);
+      }
+      setUserPlanReady(true);
+    } catch {
+      /* keep prior snapshot */
+    }
+  }, []);
+
+  const handlePlanPaymentSuccess = useCallback(
+    (message: string) => {
+      setPlanPaymentSuccessToast(message);
+      void reloadUserPlanSnapshot();
+    },
+    [reloadUserPlanSnapshot]
+  );
 
   useEffect(() => {
     if (activeTab !== "Plans and pricing") return;
@@ -5089,6 +5119,8 @@ export default function UserDashboardPage() {
                 historyTotalDocs={utilisationHistoryTotalDocs}
                 historyTotalPages={utilisationHistoryTotalPages}
                 onHistoryPageChange={setUtilisationHistoryPage}
+                onPaymentSuccess={handlePlanPaymentSuccess}
+                paymentSuccessToast={planPaymentSuccessToast}
               />
             ) : (
               <section className="dashboard-card flex h-full min-w-0 max-w-full w-full flex-col p-6">

@@ -18,8 +18,7 @@ const CHANNEL_OPTIONS: {
     id: "gupshup",
     title: "Gupshup account",
     description:
-      "Route outbound WhatsApp through Gupshup APIs and templates. Configuration and send logic are not wired yet.",
-    badge: "Preview",
+      "Route outbound WhatsApp through Gupshup Gateway (SENDMESSAGE). Requires GUPSHUP_USERID/PASSWORD (or reply/template pairs). Register incoming + delivery-report webhook URLs in Gupshup Console.",
   },
 ];
 
@@ -91,8 +90,9 @@ export function AdminMessagingChannelSettings({
       </fieldset>
 
       <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-        Saved settings apply platform-wide. Outbound send routing for Gupshup is not enabled yet;
-        only the stored preference is updated.
+        Saved settings apply platform-wide. All WhatsApp sends, webhooks, and Integrations use the
+        selected provider. Configure Gupshup credentials in Backend <code>.env</code> when using
+        Gupshup.
       </p>
 
       <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">

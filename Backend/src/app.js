@@ -25,6 +25,7 @@ function parseCorsOrigins() {
 }
 
 const app = express();
+const { handleDodoWebhook } = require("./controllers/billingController");
 
 app.use(morgan("dev"));
 app.use(
@@ -32,6 +33,13 @@ app.use(
     origin: parseCorsOrigins(),
   }),
 );
+
+app.post(
+  "/api/billing/dodo/webhook",
+  express.raw({ type: "application/json" }),
+  handleDodoWebhook
+);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use("/uploads", express.static(path.join(__dirname, "../uploads")));

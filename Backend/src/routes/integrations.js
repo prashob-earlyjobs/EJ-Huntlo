@@ -22,12 +22,23 @@ const {
   verifyMetaWebhookHandler,
   receiveMetaWebhookHandler,
 } = require("../controllers/metaWhatsAppWebhookController");
+const {
+  receiveGupshupWebhookHandler,
+  receiveGupshupIncomingHandler,
+  receiveGupshupDeliveryReportHandler,
+  receiveGupshupStatusHandler,
+} = require("../controllers/gupshupWhatsAppWebhookController");
 
 const router = express.Router();
 
 // Meta webhook endpoints (public)
 router.get("/whatsapp/meta/webhook", verifyMetaWebhookHandler);
 router.post("/whatsapp/meta/webhook", receiveMetaWebhookHandler);
+router.post("/whatsapp/gupshup/webhook/incoming", receiveGupshupIncomingHandler);
+router.all("/whatsapp/gupshup/webhook/delivery-report", receiveGupshupDeliveryReportHandler);
+router.post("/whatsapp/gupshup/webhook/status", receiveGupshupStatusHandler);
+router.post("/whatsapp/gupshup/webhook", receiveGupshupWebhookHandler);
+router.get("/whatsapp/gupshup/webhook", receiveGupshupWebhookHandler);
 
 router.get("/", authenticate, listIntegrationsHandler);
 router.get("/gmail/status", authenticate, getGmailStatusHandler);

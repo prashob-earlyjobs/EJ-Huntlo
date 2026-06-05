@@ -830,7 +830,7 @@ async function processWhatsAppEnrollmentDoc(enrollment, campaign) {
       body,
       sequenceStepOrder: stepOrder,
       sequenceStepLabel: String(touchpoint.label || `Step ${stepOrder}`),
-      provider: "meta",
+      provider: "",
       externalMessageId: "",
       status: "failed",
       errorMessage: err instanceof Error ? err.message : "WhatsApp send failed",

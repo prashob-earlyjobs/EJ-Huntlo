@@ -408,7 +408,11 @@ export function IntegrationsPanel({
         }
         setWhatsappModalOpen(false);
         if (isHuntlo) {
-          setNotice("Huntlo WhatsApp connected. You can launch WhatsApp campaigns from your workspace.");
+          setNotice(
+            values.mode === "huntlo" && row?.providerLabel === "Gupshup"
+              ? "Gupshup WhatsApp connected. You can launch WhatsApp campaigns from your workspace."
+              : "Huntlo WhatsApp connected. You can launch WhatsApp campaigns from your workspace."
+          );
         } else {
           const label =
             typeof row?.senderName === "string" && row.senderName

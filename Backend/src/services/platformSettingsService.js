@@ -53,7 +53,14 @@ async function setMessagingChannel(messagingChannel) {
   return toSettingsPayload(doc);
 }
 
+/** Active WhatsApp provider for the whole platform (admin Settings). */
+async function getActiveMessagingChannel() {
+  const settings = await getPlatformSettings();
+  return settings.messagingChannel;
+}
+
 module.exports = {
   getPlatformSettings,
   setMessagingChannel,
+  getActiveMessagingChannel,
 };

@@ -6,6 +6,7 @@ const integrationRoutes = require("./integrations");
 const outreachRoutes = require("./outreach");
 const campaignRoutes = require("./campaigns");
 const platformSettingsRoutes = require("./platformSettings");
+const billingRoutes = require("./billing");
 
 const router = express.Router();
 
@@ -24,5 +25,6 @@ router.use("/integrations", integrationRoutes);
 router.use("/outreach", outreachRoutes);
 router.use("/campaigns", campaignRoutes);
 router.use("/platform-settings", platformSettingsRoutes);
+router.use("/billing", billingRoutes);
 
 module.exports = router;
