@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type UIEvent } from 
 import { CampaignPreLaunchContactsPanel } from "@/components/dashboard/CampaignPreLaunchContactsPanel";
 import { CampaignContactsSkeleton } from "@/components/dashboard/CampaignContactsSkeleton";
 import { CampaignWorkspaceEmptyState } from "@/components/dashboard/CampaignWorkspaceEmptyState";
+import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { getStoredAuth } from "@/lib/auth";
 import {
