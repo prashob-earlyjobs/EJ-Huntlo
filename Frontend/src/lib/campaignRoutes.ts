@@ -85,6 +85,7 @@ export function getVisibleCampaignWorkspaceTabs(opts: {
         });
 
   return CAMPAIGN_WORKSPACE_TABS.filter((tab) => {
+    if (tab === "Contacts") return false;
     if (tab === "Job description" && !showJobDescriptionTab) return false;
     if (!channelLocked || !effectiveChannel) return true;
     if (effectiveChannel === "gmail") {
@@ -116,6 +117,24 @@ const SLUG_TO_TAB: Record<string, CampaignWorkspaceTab> = {
 
 export function slugForCampaignWorkspaceTab(tab: CampaignWorkspaceTab): string {
   return TAB_TO_SLUG[tab];
+}
+
+/** Channel-specific tab for managing campaign contacts (replaces legacy Contacts tab). */
+export function contactsWorkspaceTabForChannel(
+  outreachChannel?: CampaignOutreachChannel | null
+): CampaignWorkspaceTab {
+  return outreachChannel === "whatsapp" ? "WhatsApp" : "Emails";
+}
+
+/** Map legacy / hidden tabs to a visible workspace tab. */
+export function normalizeCampaignWorkspaceTab(
+  tab: CampaignWorkspaceTab,
+  outreachChannel?: CampaignOutreachChannel | null
+): CampaignWorkspaceTab {
+  if (tab === "Contacts") {
+    return contactsWorkspaceTabForChannel(outreachChannel);
+  }
+  return tab;
 }
 
 export function campaignWorkspaceTabFromSlug(slug: string): CampaignWorkspaceTab {

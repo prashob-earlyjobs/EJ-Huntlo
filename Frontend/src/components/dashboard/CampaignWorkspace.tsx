@@ -19,6 +19,7 @@ import {
 import { CampaignEmailReportPanel } from "@/components/dashboard/CampaignEmailReportPanel";
 import { CampaignJobDescriptionPanel } from "@/components/dashboard/CampaignJobDescriptionPanel";
 import { CampaignContactsSkeleton } from "@/components/dashboard/CampaignContactsSkeleton";
+import { CampaignPreLaunchContactsPanel } from "@/components/dashboard/CampaignPreLaunchContactsPanel";
 import { CampaignWhatsAppCommunicationsPanel } from "@/components/dashboard/CampaignWhatsAppCommunicationsPanel";
 import { CampaignWorkspaceEmptyState } from "@/components/dashboard/CampaignWorkspaceEmptyState";
 import { ImportCampaignContactsCsvModal } from "@/components/dashboard/ImportCampaignContactsCsvModal";
@@ -70,6 +71,7 @@ import {
 import {
   getVisibleCampaignWorkspaceTabs,
   inferShowJobDescriptionTab,
+  normalizeCampaignWorkspaceTab,
   type CampaignWorkspaceTab,
 } from "@/lib/campaignRoutes";
 import {
@@ -364,7 +366,6 @@ export function CampaignWorkspace({
   const [contactsListTotal, setContactsListTotal] = useState(0);
   const [contactsListTotalPages, setContactsListTotalPages] = useState(1);
   const [removeContactBusyKey, setRemoveContactBusyKey] = useState("");
-  const [openContactMenuKey, setOpenContactMenuKey] = useState("");
   const [removeContactConfirm, setRemoveContactConfirm] = useState<CampaignContact | null>(null);
   const [revealInProgress, setRevealInProgress] = useState(false);
   const [waCommsRefreshKey, setWaCommsRefreshKey] = useState(0);
@@ -882,13 +883,17 @@ export function CampaignWorkspace({
     hasJobDescription: Boolean(String(campaign.jobDescription || "").trim()),
   });
   const hasSequence = Boolean(campaign.outreachPlanId?.trim());
-  const hasContacts = contacts.length > 0;
+  const campaignContactCount = campaign.contactCount ?? campaign.contacts.length;
+  const hasContacts =
+    contacts.length > 0 || contactsListTotal > 0 || campaignContactCount > 0;
 
   useEffect(() => {
     if (!visibleWorkspaceTabs.includes(activeTab)) {
-      onWorkspaceTabChange("Editor");
+      onWorkspaceTabChange(
+        normalizeCampaignWorkspaceTab(activeTab, effectiveChannel)
+      );
     }
-  }, [activeTab, onWorkspaceTabChange, visibleWorkspaceTabs]);
+  }, [activeTab, effectiveChannel, onWorkspaceTabChange, visibleWorkspaceTabs]);
 
   const whatsappJobDescriptionEditing =
     editorPhase === "editing" && editor?.channel === "whatsapp";
@@ -1219,7 +1224,6 @@ export function CampaignWorkspace({
           variant: result.removed > 0 ? "success" : "error",
         });
         setRemoveContactConfirm(null);
-        setOpenContactMenuKey("");
       } catch (err) {
         setSaveToast({
           message: err instanceof Error ? err.message : "Could not remove contact from campaign.",
@@ -1401,9 +1405,17 @@ export function CampaignWorkspace({
   );
 
   useEffect(() => {
-    if (activeTab !== "Contacts") return;
+    const showPreLaunchContacts = activeTab === "Emails" && outreachStatus === "idle";
+    if (!showPreLaunchContacts) return;
     void loadContactsListPage(contactsListPage);
-  }, [activeTab, contactsListPage, loadContactsListPage, contactsFromPropsKey, contactViewsRevision]);
+  }, [
+    activeTab,
+    contactsListPage,
+    loadContactsListPage,
+    contactsFromPropsKey,
+    contactViewsRevision,
+    outreachStatus,
+  ]);
 
   useEffect(() => {
     if (activeTab !== "Emails") return;
@@ -1448,11 +1460,6 @@ export function CampaignWorkspace({
     if (activeTab !== "Emails") return;
     void loadEmailListPage();
   }, [activeTab, loadEmailListPage, contactViewsRevision]);
-
-  const contactsListPageItems = useMemo(
-    () => buildCompactPageItems(contactsListPage, contactsListTotalPages),
-    [buildCompactPageItems, contactsListPage, contactsListTotalPages]
-  );
 
   const loadSelectedEmailThread = useCallback(
     async (sync: boolean) => {
@@ -1885,7 +1892,11 @@ export function CampaignWorkspace({
           />
         ) : activeTab === "Emails" ? (
           <div className="dashboard-campaign-emails-panel flex min-h-0 flex-1 flex-col">
-            {!hasContacts && !emailListLoading ? (
+            {!hasContacts &&
+            contactsListTotal === 0 &&
+            campaignContactCount === 0 &&
+            !emailListLoading &&
+            !contactsListLoading ? (
               <CampaignWorkspaceEmptyState
                 brand="gmail"
                 title="No contacts yet"
@@ -1893,8 +1904,8 @@ export function CampaignWorkspace({
                   <>
                     Add candidates from{" "}
                     <span className="font-medium text-[#141b2b]">Session Results</span> using{" "}
-                    <span className="font-medium text-[#141b2b]">Add to campaign</span>, then view
-                    Gmail conversations here.
+                    <span className="font-medium text-[#141b2b]">Add to campaign</span>, or upload a
+                    CSV to build your outreach list before launch.
                   </>
                 }
                 actions={[
@@ -1912,6 +1923,34 @@ export function CampaignWorkspace({
                     onClick: openCsvModal,
                   },
                 ]}
+              />
+            ) : outreachStatus === "idle" ? (
+              <CampaignPreLaunchContactsPanel
+                channel="gmail"
+                contacts={contactsListRows}
+                totalContacts={contactsListTotal}
+                page={contactsListPage}
+                totalPages={contactsListTotalPages}
+                loading={contactsListLoading}
+                error={contactsListError}
+                revealInProgress={revealInProgress || launchBusy}
+                contactsLocked={campaignContactsLocked}
+                removingKey={removeContactBusyKey}
+                onPageChange={setContactsListPage}
+                onAddFromSearchHistory={
+                  campaignContactsLocked ? undefined : onAddFromSearchHistory
+                }
+                onUploadCsv={campaignContactsLocked ? undefined : openCsvModal}
+                onRemoveContact={
+                  campaignFieldsLocked
+                    ? undefined
+                    : async (candidateKey) => {
+                        const contact = contactsListRows.find(
+                          (row) => row.candidateKey === candidateKey
+                        );
+                        if (contact) await handleRemoveContactFromCampaign(contact);
+                      }
+                }
               />
             ) : (
               <>
@@ -2244,204 +2283,6 @@ export function CampaignWorkspace({
           />
         ) : activeTab === "Activity" ? (
           <CampaignEmailReportPanel campaignId={campaign.id} variant="activity" />
-        ) : activeTab === "Contacts" ? (
-          <div className="dashboard-campaign-emails-panel flex min-h-0 flex-1 flex-col">
-            <div className="dashboard-campaign-emails-toolbar shrink-0 flex flex-wrap items-center justify-between gap-2">
-              <p className="dashboard-campaign-emails-summary">
-                {contactsListTotal} contact{contactsListTotal === 1 ? "" : "s"}
-              </p>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  className={`${dashboardBtnSecondaryClass} cursor-pointer px-2.5 py-1 text-xs disabled:opacity-55`}
-                  disabled={campaignContactsLocked}
-                  title={
-                    campaignContactsLocked ? CAMPAIGN_CONTACTS_LOCKED_MESSAGE : undefined
-                  }
-                  onClick={() => {
-                    window.location.href = "/dashboard/search/history";
-                  }}
-                >
-                  Add Candidates
-                </button>
-                <button
-                  type="button"
-                  className={`${dashboardBtnSecondaryClass} cursor-pointer px-2.5 py-1 text-xs disabled:opacity-55`}
-                  disabled={csvImportBusy || campaignContactsLocked}
-                  title={
-                    campaignContactsLocked ? CAMPAIGN_CONTACTS_LOCKED_MESSAGE : undefined
-                  }
-                  onClick={openCsvModal}
-                >
-                  {csvImportBusy ? "Importing…" : "Import CSV"}
-                </button>
-              </div>
-            </div>
-            <div className="dashboard-campaign-emails-scroll flex min-h-0 flex-1 flex-col">
-              {contactsListLoading ? (
-                <CampaignContactsSkeleton rows={6} />
-              ) : contactsListError ? (
-                <p className="dashboard-campaign-workspace-placeholder dashboard-campaign-workspace-placeholder--error py-12">
-                  {contactsListError}
-                </p>
-              ) : contactsListRows.length === 0 ? (
-                <CampaignWorkspaceEmptyState
-                  icon="group"
-                  title="No contacts in this campaign"
-                  description="Import candidates from search history or upload a CSV to build your outreach list."
-                  actions={[
-                    {
-                      label: "Add from search history",
-                      icon: "history",
-                      disabled: campaignContactsLocked,
-                      onClick: onAddFromSearchHistory,
-                    },
-                    {
-                      label: "Upload CSV",
-                      icon: "upload_file",
-                      variant: "secondary",
-                      disabled: campaignContactsLocked,
-                      onClick: openCsvModal,
-                    },
-                  ]}
-                />
-              ) : (
-                <ul className="dashboard-campaign-emails-list">
-                  {contactsListRows.map((contact) => {
-                      const subtitle = [contact.role, contact.company, contact.location]
-                        .filter(Boolean)
-                        .join(" · ");
-                      const email = contact.email.trim();
-                      const phone = contact.phone.trim();
-                      return (
-                        <li key={contact.candidateKey} className="dashboard-campaign-emails-row group">
-                          <span className="dashboard-campaign-emails-avatar" aria-hidden>
-                            {contactInitial(contact.name)}
-                          </span>
-                          <div className="dashboard-campaign-emails-main min-w-0 flex-1">
-                            <p className="dashboard-campaign-emails-name">
-                              {contact.name.trim() || "Unnamed contact"}
-                            </p>
-                            {subtitle ? (
-                              <p className="dashboard-campaign-emails-meta">{subtitle}</p>
-                            ) : null}
-                            {email ? (
-                              <p className="dashboard-campaign-emails-meta">
-                                <span className="font-medium text-[#5f6368]">Email: </span>
-                                {email}
-                              </p>
-                            ) : null}
-                            {phone ? (
-                              <p className="dashboard-campaign-emails-meta">
-                                <span className="font-medium text-[#5f6368]">Phone: </span>
-                                {phone}
-                              </p>
-                            ) : null}
-                            {!email && !phone && !subtitle ? (
-                              <p className="dashboard-campaign-emails-meta dashboard-campaign-emails-address--empty">
-                                No contact details
-                              </p>
-                            ) : null}
-                          </div>
-                          <div className="relative">
-                            <button
-                              type="button"
-                              className={`inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 ${
-                                campaignFieldsLocked
-                                  ? "hidden"
-                                  : openContactMenuKey === contact.candidateKey
-                                    ? "opacity-100"
-                                    : "opacity-0 group-hover:opacity-100"
-                              }`}
-                              disabled={removeContactBusyKey === contact.candidateKey}
-                              onClick={() =>
-                                setOpenContactMenuKey((prev) =>
-                                  prev === contact.candidateKey ? "" : contact.candidateKey
-                                )
-                              }
-                              aria-label={`Open actions for ${contact.name.trim() || "contact"}`}
-                              title="Contact actions"
-                            >
-                              <MaterialIcon name="more_vert" className="text-base" />
-                            </button>
-                            {openContactMenuKey === contact.candidateKey ? (
-                              <div className="absolute right-0 top-9 z-20 min-w-32 rounded-md border border-slate-200 bg-white p-1 shadow-sm">
-                                <button
-                                  type="button"
-                                  className="flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-left text-xs font-medium text-red-600 transition hover:bg-red-50"
-                                  disabled={removeContactBusyKey === contact.candidateKey}
-                                  onClick={() => {
-                                    setOpenContactMenuKey("");
-                                    setRemoveContactConfirm(contact);
-                                  }}
-                                >
-                                  <MaterialIcon name="delete" className="text-sm" />
-                                  Delete
-                                </button>
-                              </div>
-                            ) : null}
-                          </div>
-                        </li>
-                      );
-                    })}
-                </ul>
-              )}
-            </div>
-            {contactsListTotalPages > 1 ? (
-              <div className="sticky bottom-0 z-10 shrink-0 border-t border-slate-200 bg-white px-3 py-2">
-                <div className="flex flex-wrap items-center justify-end gap-1">
-                  <button
-                    type="button"
-                    className="inline-flex h-8 cursor-pointer items-center rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                    disabled={contactsListPage <= 1 || contactsListLoading}
-                    onClick={() => setContactsListPage((p) => Math.max(1, p - 1))}
-                  >
-                    Prev
-                  </button>
-                  {contactsListPageItems.map((item) => {
-                    if (typeof item !== "number") {
-                      return (
-                        <span
-                          key={item}
-                          className="inline-flex h-8 min-w-8 items-center justify-center px-1 text-xs font-medium text-slate-400"
-                          aria-hidden
-                        >
-                          ...
-                        </span>
-                      );
-                    }
-                    const active = item === contactsListPage;
-                    return (
-                      <button
-                        key={item}
-                        type="button"
-                        className={`inline-flex h-8 min-w-8 cursor-pointer items-center justify-center rounded-md border px-2 text-xs font-medium transition ${
-                          active
-                            ? "border-[#0050cb] bg-[#eef4ff] text-[#0050cb]"
-                            : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-                        }`}
-                        disabled={contactsListLoading}
-                        onClick={() => setContactsListPage(item)}
-                        aria-current={active ? "page" : undefined}
-                      >
-                        {item}
-                      </button>
-                    );
-                  })}
-                  <button
-                    type="button"
-                    className="inline-flex h-8 cursor-pointer items-center rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                    disabled={contactsListPage >= contactsListTotalPages || contactsListLoading}
-                    onClick={() =>
-                      setContactsListPage((p) => Math.min(contactsListTotalPages, p + 1))
-                    }
-                  >
-                    Next
-                  </button>
-                </div>
-              </div>
-            ) : null}
-          </div>
         ) : COMING_SOON_TABS.has(activeTab) ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-12 text-center">
             <MaterialIcon name="construction" className="text-4xl text-slate-400" />

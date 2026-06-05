@@ -166,7 +166,6 @@ function bodyForTab(tab: CampaignWorkspaceTab) {
       return <EditorSkeleton />;
     case "Job description":
       return <GenericTabSkeleton />;
-    case "Contacts":
     case "Emails":
       return <ContactsListSkeleton />;
     default:

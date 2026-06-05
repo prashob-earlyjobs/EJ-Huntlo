@@ -4089,6 +4089,14 @@
   min-width: 0;
 }
 
+.dashboard-campaigns-list-loading {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 0;
+  width: 100%;
+}
+
 .dashboard-campaigns-summary {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
