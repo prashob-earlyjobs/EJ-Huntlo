@@ -4005,7 +4005,8 @@ export default function UserDashboardPage() {
           );
           navigateToTab("Campaigns", {
             campaignId: record.id,
-            campaignWorkspaceTab: "Contacts",
+            campaignWorkspaceTab:
+              record.outreachChannel === "whatsapp" ? "WhatsApp" : "Emails",
           });
           return;
         }
@@ -4045,7 +4046,8 @@ export default function UserDashboardPage() {
         }
         navigateToTab("Campaigns", {
           campaignId: campaign.id,
-          campaignWorkspaceTab: "Contacts",
+          campaignWorkspaceTab:
+            campaign.outreachChannel === "whatsapp" ? "WhatsApp" : "Emails",
         });
       } catch (err) {
         if (!userActionAlert.fromThrown(err)) {

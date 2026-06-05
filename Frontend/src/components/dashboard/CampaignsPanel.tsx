@@ -21,6 +21,7 @@ import { getStoredAuth } from "@/lib/auth";
 import type { ReportMetricKey } from "@/lib/campaignEmailReport";
 import {
   inferCampaignWorkspaceChannel,
+  normalizeCampaignWorkspaceTab,
   parseCampaignWorkspaceTabFromPathname,
   pathForCampaignReportMetric,
   pathForCampaignWhatsAppConversation,
@@ -214,17 +215,30 @@ export function CampaignsPanel({
   const showPagination = campaignsTotalPages > 1;
 
   useEffect(() => {
-    setWorkspaceTab(routeWorkspaceTab);
-  }, [routeWorkspaceTab, activeCampaignId]);
+    const channel =
+      workspaceCampaign?.outreachChannel === "whatsapp"
+        ? "whatsapp"
+        : workspaceCampaign?.outreachChannel === "gmail"
+          ? "gmail"
+          : null;
+    setWorkspaceTab(normalizeCampaignWorkspaceTab(routeWorkspaceTab, channel));
+  }, [routeWorkspaceTab, activeCampaignId, workspaceCampaign?.outreachChannel]);
 
   useEffect(() => {
     const onPopState = () => {
       const tab = parseCampaignWorkspaceTabFromPathname(window.location.pathname);
-      if (tab) setWorkspaceTab(tab);
+      if (!tab) return;
+      const channel =
+        workspaceCampaign?.outreachChannel === "whatsapp"
+          ? "whatsapp"
+          : workspaceCampaign?.outreachChannel === "gmail"
+            ? "gmail"
+            : null;
+      setWorkspaceTab(normalizeCampaignWorkspaceTab(tab, channel));
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
-  }, []);
+  }, [workspaceCampaign?.outreachChannel]);
 
   useEffect(() => {
     listScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
