@@ -171,7 +171,7 @@ export default function SignupPage() {
     <main className="premium-shell flex min-h-screen items-center justify-center px-4 py-10">
       <section className="premium-card w-full max-w-md rounded-3xl p-8 sm:p-9">
         <div className="mb-8">
-          <p className="text-sm font-medium text-blue-700">Join EJHunter</p>
+          <p className="text-sm font-medium text-blue-700">Join Huntlo</p>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
             Create your account
           </h1>
