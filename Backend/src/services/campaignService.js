@@ -18,6 +18,11 @@ const {
   CAMPAIGN_MAX_CONTACTS,
   CAMPAIGN_CONTACT_LIMIT_MESSAGE,
 } = require("../constants/campaignLimits");
+const {
+  assertOutreachCreditsAvailable,
+  logOutreachCreditUsage,
+  outreachChannelToCreditChannel,
+} = require("./outreachCreditsService");
 
 /** WhatsApp campaign testing — E.164. Override via WHATSAPP_TEST_PHONE_E164 env. */
 const WHATSAPP_TEST_PHONE_E164 = String(
@@ -424,11 +429,25 @@ async function createCampaign(userId, { name, contacts }) {
     throw err;
   }
   const contactsToSave = normalized;
+  if (contactsToSave.length > 0) {
+    await assertOutreachCreditsAvailable(
+      userId,
+      outreachChannelToCreditChannel("gmail"),
+      contactsToSave.length
+    );
+  }
   const doc = await Campaign.create({
     userId: userOid(userId),
     name: campaignName,
     contacts: contactsToSave,
   });
+  if (contactsToSave.length > 0) {
+    await logOutreachCreditUsage(
+      userId,
+      outreachChannelToCreditChannel("gmail"),
+      contactsToSave.length
+    );
+  }
   return {
     campaign: formatCampaign(doc.toObject()),
     limitSkippedCount: 0,
@@ -490,6 +509,11 @@ async function addContactsToCampaign(actorUserId, campaignId, contacts) {
     throw err;
   }
 
+  if (newUniqueCount > 0) {
+    const creditChannel = outreachChannelToCreditChannel(doc.outreachChannel);
+    await assertOutreachCreditsAvailable(actorUserId, creditChannel, newUniqueCount);
+  }
+
   let addedCount = 0;
   let skippedCount = 0;
   const limitSkippedCount = 0;
@@ -507,6 +531,8 @@ async function addContactsToCampaign(actorUserId, campaignId, contacts) {
 
   if (addedCount > 0) {
     await doc.save();
+    const creditChannel = outreachChannelToCreditChannel(doc.outreachChannel);
+    await logOutreachCreditUsage(actorUserId, creditChannel, addedCount);
   }
 
   return {
@@ -612,6 +638,16 @@ async function setCampaignOutreachPlan(
   const ownerOid = userOid(campaignOwnerUserId(doc));
 
   const channel = outreachChannel === "whatsapp" ? "whatsapp" : "gmail";
+  const contactCount = Array.isArray(doc.contacts) ? doc.contacts.length : 0;
+  const previousChannel = doc.outreachChannel === "whatsapp" ? "whatsapp" : "gmail";
+  if (contactCount > 0 && channel !== previousChannel) {
+    await assertOutreachCreditsAvailable(
+      actorUserId,
+      outreachChannelToCreditChannel(channel),
+      contactCount,
+      { excludeCampaignId: String(doc._id) }
+    );
+  }
   const raw = outreachPlanId === null || outreachPlanId === undefined ? "" : String(outreachPlanId).trim();
   if (!raw) {
     doc.outreachPlanId = null;
@@ -643,6 +679,15 @@ async function setCampaignOutreachPlan(
   }
 
   await doc.save();
+
+  if (contactCount > 0 && channel !== previousChannel) {
+    await logOutreachCreditUsage(
+      actorUserId,
+      outreachChannelToCreditChannel(channel),
+      contactCount
+    );
+  }
+
   return formatCampaign(doc.toObject());
 }
 

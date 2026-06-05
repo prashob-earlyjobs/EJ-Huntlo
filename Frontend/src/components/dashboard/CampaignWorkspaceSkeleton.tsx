@@ -1,12 +1,19 @@
 "use client";
 
 import {
-  CAMPAIGN_WORKSPACE_TABS,
+  getVisibleCampaignWorkspaceTabs,
+  inferCampaignWorkspaceChannel,
+  inferShowJobDescriptionTab,
+  type CampaignOutreachChannel,
   type CampaignWorkspaceTab,
 } from "@/lib/campaignRoutes";
 
 type Props = {
   workspaceTab?: CampaignWorkspaceTab;
+  /** When known (e.g. from campaigns list), hides the other channel's tabs while loading. */
+  outreachChannel?: CampaignOutreachChannel | null;
+  /** When known, shows Job description tab during shimmer (Gmail campaigns with a saved JD). */
+  hasJobDescription?: boolean;
 };
 
 function WhatsAppCommsSkeleton() {
@@ -167,7 +174,28 @@ function bodyForTab(tab: CampaignWorkspaceTab) {
   }
 }
 
-export function CampaignWorkspaceSkeleton({ workspaceTab = "Editor" }: Props) {
+export function CampaignWorkspaceSkeleton({
+  workspaceTab = "Editor",
+  outreachChannel = null,
+  hasJobDescription = false,
+}: Props) {
+  const effectiveChannel = inferCampaignWorkspaceChannel(workspaceTab, outreachChannel);
+  const channelLocked = effectiveChannel === "gmail" || effectiveChannel === "whatsapp";
+  const showJobDescriptionTab = inferShowJobDescriptionTab(workspaceTab, {
+    outreachChannel: effectiveChannel,
+    hasJobDescription,
+  });
+  const visibleTabs = getVisibleCampaignWorkspaceTabs({
+    outreachChannel: effectiveChannel,
+    channelLocked,
+    showJobDescriptionTab,
+    workspaceTab,
+    hasJobDescription,
+  });
+  const skeletonTab = visibleTabs.includes(workspaceTab)
+    ? workspaceTab
+    : visibleTabs[0] ?? "Editor";
+
   return (
     <section
       className="dashboard-campaign-workspace-skeleton flex h-full min-h-0 min-w-0 w-full flex-col overflow-hidden rounded-[inherit] bg-white"
@@ -185,8 +213,8 @@ export function CampaignWorkspaceSkeleton({ workspaceTab = "Editor" }: Props) {
           className="mt-3 flex gap-1 overflow-x-auto pb-0.5"
           aria-label="Campaign sections"
         >
-          {CAMPAIGN_WORKSPACE_TABS.map((tab) => {
-            const active = tab === workspaceTab;
+          {visibleTabs.map((tab) => {
+            const active = tab === skeletonTab;
             return (
               <span
                 key={tab}
@@ -205,7 +233,7 @@ export function CampaignWorkspaceSkeleton({ workspaceTab = "Editor" }: Props) {
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col bg-[#f8f9fc]">
-        {bodyForTab(workspaceTab)}
+        {bodyForTab(skeletonTab)}
       </div>
     </section>
   );

@@ -20,18 +20,20 @@ import { fetchCampaign, type CampaignsListSummary } from "@/lib/campaignsApi";
 import { getStoredAuth } from "@/lib/auth";
 import type { ReportMetricKey } from "@/lib/campaignEmailReport";
 import {
+  inferCampaignWorkspaceChannel,
   parseCampaignWorkspaceTabFromPathname,
   pathForCampaignReportMetric,
   pathForCampaignWhatsAppConversation,
   pathForCampaignWorkspace,
   pathForCampaignsList,
+  replaceCampaignWorkspaceUrl,
   type CampaignWorkspaceTab,
 } from "@/lib/campaignRoutes";
 import { dashboardBtnSecondaryClass } from "@/lib/dashboardStyles";
-
-const ENTERPRISE_PLAN_ID = "enterprise";
-const ENTERPRISE_LOCKED_MESSAGE =
-  "Campaigns are available on the Enterprise plan. Upgrade to organize and run outreach campaigns.";
+import {
+  CAMPAIGNS_LOCKED_MESSAGE,
+  hasCampaignsAndIntegrationsAccess,
+} from "@/lib/planAccess";
 
 type Props = {
   currentPlanId: string;
@@ -76,7 +78,7 @@ export function CampaignsPanel({
   onAddFromSearchHistory,
 }: Props) {
   const router = useRouter();
-  const isEnterprise = currentPlanId === ENTERPRISE_PLAN_ID;
+  const hasCampaignsAccess = hasCampaignsAndIntegrationsAccess(currentPlanId);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [createBusy, setCreateBusy] = useState(false);
@@ -87,6 +89,14 @@ export function CampaignsPanel({
   const [workspaceTab, setWorkspaceTab] =
     useState<CampaignWorkspaceTab>(routeWorkspaceTab);
   const listScrollRef = useRef<HTMLDivElement | null>(null);
+  /** Keeps workspace mounted during brief refetch / tab URL updates. */
+  const [cachedWorkspaceCampaign, setCachedWorkspaceCampaign] =
+    useState<CampaignRecord | null>(null);
+  const [campaignNavHint, setCampaignNavHint] = useState<{
+    campaignId: string;
+    outreachChannel: "gmail" | "whatsapp" | null;
+    hasJobDescription: boolean;
+  } | null>(null);
 
   const activeCampaignId = routeCampaignId.trim() || null;
   const listCampaign =
@@ -94,6 +104,31 @@ export function CampaignsPanel({
       ? campaigns.find((c) => c.id === activeCampaignId) ?? null
       : null;
   const resolvedCampaign = listCampaign ?? fetchedCampaign;
+  const workspaceCampaign =
+    resolvedCampaign ??
+    (cachedWorkspaceCampaign?.id === activeCampaignId ? cachedWorkspaceCampaign : null);
+
+  useEffect(() => {
+    if (!resolvedCampaign) return;
+    setCachedWorkspaceCampaign(resolvedCampaign);
+    setCampaignNavHint({
+      campaignId: resolvedCampaign.id,
+      outreachChannel:
+        resolvedCampaign.outreachChannel === "whatsapp"
+          ? "whatsapp"
+          : resolvedCampaign.outreachChannel === "gmail"
+            ? "gmail"
+            : null,
+      hasJobDescription: Boolean(resolvedCampaign.jobDescription?.trim()),
+    });
+  }, [resolvedCampaign]);
+
+  useEffect(() => {
+    if (!activeCampaignId) {
+      setCachedWorkspaceCampaign(null);
+      setCampaignNavHint(null);
+    }
+  }, [activeCampaignId]);
 
   useLayoutEffect(() => {
     if (!activeCampaignId) {
@@ -162,17 +197,20 @@ export function CampaignsPanel({
 
   const awaitingCampaignResolve =
     Boolean(activeCampaignId) &&
-    !resolvedCampaign &&
+    !workspaceCampaign &&
     (campaignsLoading || fetchCampaignLoading || !fetchCampaignAttempted);
+
+  const skeletonNavHint =
+    campaignNavHint?.campaignId === activeCampaignId ? campaignNavHint : null;
 
   /** Full skeleton only on first load (no campaigns yet). */
   const showListShimmer =
-    !planResolved || (campaignsLoading && campaignsTotal === 0 && isEnterprise);
+    !planResolved || (campaignsLoading && campaignsTotal === 0 && hasCampaignsAccess);
 
-  const showEnterpriseLocked =
-    planResolved && !isEnterprise && !campaignsLoading && campaignsTotal === 0;
+  const showPlanLocked =
+    planResolved && !hasCampaignsAccess && !campaignsLoading && campaignsTotal === 0;
   const showEmptyList =
-    planResolved && isEnterprise && !campaignsLoading && campaignsTotal === 0;
+    planResolved && hasCampaignsAccess && !campaignsLoading && campaignsTotal === 0;
   const showPagination = campaignsTotalPages > 1;
 
   useEffect(() => {
@@ -195,34 +233,35 @@ export function CampaignsPanel({
   const selectWorkspaceTab = useCallback(
     (tab: CampaignWorkspaceTab) => {
       setWorkspaceTab(tab);
-      if (resolvedCampaign) {
-        router.push(pathForCampaignWorkspace(resolvedCampaign.id, tab));
-      }
+      const campaign = workspaceCampaign;
+      if (!campaign || campaign.id !== activeCampaignId) return;
+      replaceCampaignWorkspaceUrl(campaign.id, tab);
     },
-    [resolvedCampaign, router]
+    [activeCampaignId, workspaceCampaign]
   );
 
   const openReportMetric = useCallback(
     (metric: ReportMetricKey) => {
-      if (!resolvedCampaign) return;
-      router.push(pathForCampaignReportMetric(resolvedCampaign.id, metric));
+      if (!workspaceCampaign) return;
+      router.push(pathForCampaignReportMetric(workspaceCampaign.id, metric));
     },
-    [resolvedCampaign, router]
+    [workspaceCampaign, router]
   );
 
   const closeReportMetric = useCallback(() => {
-    if (!resolvedCampaign) return;
-    router.push(pathForCampaignWorkspace(resolvedCampaign.id, "Report"));
-  }, [resolvedCampaign, router]);
+    if (!workspaceCampaign) return;
+    replaceCampaignWorkspaceUrl(workspaceCampaign.id, "Report");
+    setWorkspaceTab("Report");
+  }, [workspaceCampaign]);
 
   const openWhatsAppConversation = useCallback(
     (candidateKey: string) => {
       const key = candidateKey.trim();
-      if (!resolvedCampaign || !key) return;
+      if (!workspaceCampaign || !key) return;
       setWorkspaceTab("WhatsApp");
-      router.push(pathForCampaignWhatsAppConversation(resolvedCampaign.id, key));
+      router.push(pathForCampaignWhatsAppConversation(workspaceCampaign.id, key));
     },
-    [resolvedCampaign, router]
+    [workspaceCampaign, router]
   );
 
   const openCampaign = useCallback(
@@ -235,6 +274,21 @@ export function CampaignsPanel({
 
   const handleCampaignUpdated = useCallback(
     (updated: CampaignRecord) => {
+      setCachedWorkspaceCampaign((prev) => (prev?.id === updated.id ? updated : prev));
+      setCampaignNavHint((prev) =>
+        prev?.campaignId === updated.id
+          ? {
+              campaignId: updated.id,
+              outreachChannel:
+                updated.outreachChannel === "whatsapp"
+                  ? "whatsapp"
+                  : updated.outreachChannel === "gmail"
+                    ? "gmail"
+                    : null,
+              hasJobDescription: Boolean(updated.jobDescription?.trim()),
+            }
+          : prev
+      );
       setFetchedCampaign((prev) => (prev?.id === updated.id ? updated : prev));
       onCampaignUpdated?.(updated);
     },
@@ -242,7 +296,7 @@ export function CampaignsPanel({
   );
 
   const openCreateModal = () => {
-    if (!isEnterprise) {
+    if (!hasCampaignsAccess) {
       onViewPlans();
       return;
     }
@@ -271,12 +325,22 @@ export function CampaignsPanel({
     />
   );
 
-  if (activeCampaignId && !resolvedCampaign) {
+  if (activeCampaignId && !workspaceCampaign) {
     return (
       <>
         <section className="dashboard-card dashboard-card--fill dashboard-campaign-workspace-card flex h-full min-w-0 max-w-full w-full flex-col overflow-hidden p-0">
           {awaitingCampaignResolve ? (
-            <CampaignWorkspaceSkeleton workspaceTab={routeWorkspaceTab} />
+            <CampaignWorkspaceSkeleton
+              workspaceTab={workspaceTab}
+              outreachChannel={inferCampaignWorkspaceChannel(
+                workspaceTab,
+                listCampaign?.outreachChannel ?? skeletonNavHint?.outreachChannel ?? null
+              )}
+              hasJobDescription={
+                Boolean(listCampaign?.jobDescription?.trim()) ||
+                Boolean(skeletonNavHint?.hasJobDescription)
+              }
+            />
           ) : (
             <div className="dashboard-card-body-scroll flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
               <p className="text-sm text-[#5f6368]">
@@ -296,12 +360,12 @@ export function CampaignsPanel({
     );
   }
 
-  if (resolvedCampaign) {
+  if (workspaceCampaign) {
     return (
       <>
         <section className="dashboard-card dashboard-card--fill dashboard-campaign-workspace-card flex h-full min-w-0 max-w-full w-full flex-col overflow-hidden p-0">
           <CampaignWorkspace
-            campaign={resolvedCampaign}
+            campaign={workspaceCampaign}
             workspaceTab={workspaceTab}
             reportMetric={routeReportMetric}
             onWorkspaceTabChange={selectWorkspaceTab}
@@ -349,7 +413,7 @@ export function CampaignsPanel({
               ) : null}
               <button
                 type="button"
-                disabled={!planResolved || !isEnterprise}
+                disabled={!planResolved || !hasCampaignsAccess}
                 onClick={openCreateModal}
                 className="dashboard-btn-primary shrink-0 px-3 py-1.5 text-xs disabled:opacity-55"
               >
@@ -366,16 +430,16 @@ export function CampaignsPanel({
         >
           {showListShimmer ? (
             <CampaignsListSkeleton count={5} />
-          ) : showEnterpriseLocked ? (
+          ) : showPlanLocked ? (
             <div className="dashboard-integration-notice-wrap">
-              <p className="dashboard-alert-notice">{ENTERPRISE_LOCKED_MESSAGE}</p>
+              <p className="dashboard-alert-notice">{CAMPAIGNS_LOCKED_MESSAGE}</p>
               <button
                 type="button"
                 onClick={onViewPlans}
                 className="dashboard-btn-primary mt-3 px-4 py-2 text-sm"
               >
                 <MaterialIcon name="workspace_premium" className="text-base" />
-                View Enterprise plan
+                View plans
               </button>
             </div>
           ) : showEmptyList ? (
@@ -388,7 +452,7 @@ export function CampaignsPanel({
                 Create a campaign to group outreach plans, contacts, and performance across your
                 pipeline.
               </p>
-              {isEnterprise ? (
+              {hasCampaignsAccess ? (
                 <button
                   type="button"
                   onClick={openCreateModal}
@@ -400,7 +464,7 @@ export function CampaignsPanel({
               ) : (
                 <button type="button" onClick={onViewPlans} className="dashboard-btn-primary mt-6">
                   <MaterialIcon name="workspace_premium" className="text-base" />
-                  View Enterprise plan
+                  View plans
                 </button>
               )}
             </div>
@@ -414,7 +478,7 @@ export function CampaignsPanel({
           )}
         </div>
 
-        {showPagination && !showListShimmer && !showEmptyList && !showEnterpriseLocked ? (
+        {showPagination && !showListShimmer && !showEmptyList && !showPlanLocked ? (
           <div className="dashboard-campaigns-pagination dashboard-pagination shrink-0">
             <p className="dashboard-pagination-label tabular-nums">
               Page {campaignsPage} of {campaignsTotalPages}

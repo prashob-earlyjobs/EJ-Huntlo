@@ -80,7 +80,9 @@ function sanitizeMergedOutreachText(text) {
 
 /**
  * Replace merge tokens in subject/body.
- * Tokens: candidate_name, candidate_email, candidate_phone, FirstName, CurrentCompany, JobTitle, SenderFirstName.
+ * Candidate tokens: FirstName, CurrentCompany (employer today), JobTitle (title today), candidate_email, candidate_phone.
+ * Sender: SenderFirstName.
+ * JobTitle/CurrentCompany are NOT the open role — that comes from the campaign job description.
  * Fallback: {{candidate_name|there}} uses "there" when the field is empty.
  */
 function applyMergeFields(text, { contact, senderFirstName = "" }) {

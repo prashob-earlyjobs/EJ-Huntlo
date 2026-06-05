@@ -53,6 +53,15 @@ function handleError(res, error) {
   if (error.activeCampaign) body.activeCampaign = error.activeCampaign;
   if (error.gmailDailyLimit) body.gmailDailyLimit = error.gmailDailyLimit;
   if (error.campaignContactLimit) body.campaignContactLimit = error.campaignContactLimit;
+  if (error.code === "OUTREACH_CREDITS_EXCEEDED") {
+    body.outreachCredits = {
+      channel: error.channel,
+      limit: error.limit,
+      used: error.used,
+      requested: error.requested,
+      remaining: error.remaining,
+    };
+  }
   return res.status(status).json(body);
 }
 

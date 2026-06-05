@@ -9,12 +9,21 @@ import {
   type DashboardOverviewData,
   type DashboardRecentSession,
 } from "@/lib/dashboardOverview";
-import { quotaUsedPercent, utilisationQuotaActionLabel } from "@/lib/planUtilisation";
+import { hasOutreachThreadUtilisation } from "@/lib/planAccess";
+import {
+  quotaUsedPercent,
+  utilisationQuotaActionLabel,
+  type OutreachThreadStats,
+} from "@/lib/planUtilisation";
+import type { PricingPlansPayload } from "@/lib/pricingPlans";
 
 type Props = {
   loading: boolean;
   error: string;
   data: DashboardOverviewData | null;
+  currentPlanId: string;
+  outreachThreads: OutreachThreadStats;
+  pricingPlans: PricingPlansPayload | null;
   onNavigate: (tab: string) => void;
   onOpenSession: (session: DashboardRecentSession) => void;
 };
@@ -83,14 +92,54 @@ function CompactQuotaMeter({
   );
 }
 
+function resolveOutreachMeter(
+  data: DashboardOverviewData,
+  currentPlanId: string,
+  outreachThreads: OutreachThreadStats,
+  pricingPlans: PricingPlansPayload | null,
+  channel: "email" | "whatsapp"
+): { used: number; limit: number | null } {
+  const quotaKey = channel === "email" ? "emailOutreach" : "whatsappOutreach";
+  const limitKey = channel === "email" ? "emailOutreaches" : "whatsappOutreaches";
+  const tier =
+    pricingPlans?.tiers.find((t) => t.id === currentPlanId) ??
+    pricingPlans?.tiers.find((t) => t.id === data.plan.planId) ??
+    null;
+  const tierLimit = tier?.[limitKey];
+  const limit =
+    (typeof tierLimit === "number" && tierLimit > 0 ? tierLimit : null) ??
+    data.plan.limits[limitKey] ??
+    data.quotaSummary[quotaKey].limit;
+  const used =
+    outreachThreads[channel] > 0
+      ? outreachThreads[channel]
+      : data.outreachThreads[channel] > 0
+        ? data.outreachThreads[channel]
+        : data.quotaSummary[quotaKey].used;
+  return { used, limit };
+}
+
 export function DashboardOverviewPanel({
   loading,
   error,
   data,
+  currentPlanId,
+  outreachThreads,
+  pricingPlans,
   onNavigate,
   onOpenSession,
 }: Props) {
   const firstName = data ? dashboardGreetingName(data.greeting.fullName) : "";
+  const planId = data?.plan.planId || currentPlanId;
+  const showOutreachMeters = hasOutreachThreadUtilisation(planId);
+  const emailOutreach =
+    data && showOutreachMeters
+      ? resolveOutreachMeter(data, currentPlanId, outreachThreads, pricingPlans, "email")
+      : null;
+  const whatsappOutreach =
+    data && showOutreachMeters
+      ? resolveOutreachMeter(data, currentPlanId, outreachThreads, pricingPlans, "whatsapp")
+      : null;
 
   return (
     <section className="dashboard-card flex min-w-0 max-w-full w-full flex-col p-6">
@@ -246,6 +295,22 @@ export function DashboardOverviewPanel({
                   used={data.quotaSummary.phoneNumbers.used}
                   limit={data.quotaSummary.phoneNumbers.limit}
                 />
+                {emailOutreach ? (
+                  <CompactQuotaMeter
+                    label="Email outreach"
+                    icon="forward_to_inbox"
+                    used={emailOutreach.used}
+                    limit={emailOutreach.limit}
+                  />
+                ) : null}
+                {whatsappOutreach ? (
+                  <CompactQuotaMeter
+                    label="WhatsApp outreach"
+                    icon="chat"
+                    used={whatsappOutreach.used}
+                    limit={whatsappOutreach.limit}
+                  />
+                ) : null}
               </div>
             </div>
 

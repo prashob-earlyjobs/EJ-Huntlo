@@ -20,6 +20,18 @@ export type MyProfileSecurityState = {
   activeSessions: number;
 };
 
+export type MyProfileWorkspaceOwner = {
+  id: string;
+  fullName: string;
+  email: string;
+  companyName: string;
+  mobile: string;
+  location: string;
+  profilePhotoUrl: string;
+  planId: string;
+  planName: string;
+};
+
 type PasswordFormState = {
   currentPassword: string;
   newPassword: string;
@@ -43,9 +55,45 @@ function formatPasswordChanged(iso: string): string {
   });
 }
 
+const OWNER_INFO_FIELDS: {
+  key: keyof MyProfileWorkspaceOwner;
+  label: string;
+  icon: string;
+}[] = [
+  { key: "fullName", label: "Full name", icon: "person" },
+  { key: "email", label: "Work email", icon: "mail" },
+  { key: "companyName", label: "Company", icon: "business" },
+  { key: "mobile", label: "Phone", icon: "call" },
+  { key: "location", label: "Location", icon: "location_on" },
+  { key: "planName", label: "Workspace plan", icon: "verified" },
+];
+
+function parseWorkspaceOwner(raw: unknown): MyProfileWorkspaceOwner | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const id = typeof o.id === "string" ? o.id : "";
+  if (!id) return null;
+  return {
+    id,
+    fullName: typeof o.fullName === "string" ? o.fullName : "",
+    email: typeof o.email === "string" ? o.email : "",
+    companyName: typeof o.companyName === "string" ? o.companyName : "",
+    mobile: typeof o.mobile === "string" ? o.mobile : "",
+    location: typeof o.location === "string" ? o.location : "",
+    profilePhotoUrl:
+      typeof o.profilePhotoUrl === "string" ? o.profilePhotoUrl : "",
+    planId: typeof o.planId === "string" ? o.planId : "",
+    planName: typeof o.planName === "string" ? o.planName : "",
+  };
+}
+
+export { parseWorkspaceOwner };
+
 type Props = {
   form: MyProfileFormState;
   security: MyProfileSecurityState;
+  accountRole: string | null;
+  workspaceOwner: MyProfileWorkspaceOwner | null;
   loading: boolean;
   saving: boolean;
   error: string;
@@ -198,9 +246,67 @@ function ProfileAvatar({
   );
 }
 
+function OwnerInfoSection({ owner }: { owner: MyProfileWorkspaceOwner }) {
+  const displayName = owner.fullName.trim() || "Workspace owner";
+
+  return (
+    <section className="dashboard-profile-section dashboard-profile-section--owner">
+      <header className="dashboard-profile-section-head">
+        <span className="dashboard-profile-section-icon dashboard-profile-section-icon--owner">
+          <MaterialIcon name="supervisor_account" className="text-lg" />
+        </span>
+        <div>
+          <h4 className="dashboard-profile-section-title">Owner info</h4>
+          <p className="dashboard-profile-section-desc">
+            Your workspace is managed under this account. Plan usage and billing apply
+            to the owner.
+          </p>
+        </div>
+      </header>
+
+      <div className="dashboard-profile-owner-hero">
+        <ProfileAvatar
+          name={owner.fullName}
+          photoPath={owner.profilePhotoUrl}
+          isEditing={false}
+          photoUploading={false}
+          onPhotoUpload={() => {}}
+          onPhotoRemove={() => {}}
+        />
+        <div className="min-w-0 flex-1">
+          <p className="dashboard-profile-hero-name truncate">{displayName}</p>
+          <p className="dashboard-profile-hero-email truncate">
+            {owner.email.trim() || "—"}
+          </p>
+          {owner.planName.trim() ? (
+            <span className="dashboard-profile-owner-plan-pill">{owner.planName}</span>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="dashboard-profile-fields dashboard-profile-fields--readonly">
+        {OWNER_INFO_FIELDS.map((field) => {
+          const value = String(owner[field.key] ?? "").trim() || "—";
+          return (
+            <div key={field.key} className="dashboard-profile-field">
+              <span className="dashboard-profile-field-label">
+                <MaterialIcon name={field.icon} className="text-base opacity-70" />
+                {field.label}
+              </span>
+              <p className="dashboard-profile-readonly-value">{value}</p>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 export function MyProfilePanel({
   form,
   security,
+  accountRole,
+  workspaceOwner,
   loading,
   saving,
   error,
@@ -221,7 +327,12 @@ export function MyProfilePanel({
   onUpdatePassword,
 }: Props) {
   const displayName = form.fullName.trim() || "Your profile";
-  const roleLabel = form.role === "Admin" ? "Admin" : "Recruiter";
+  const isTeamMember = accountRole === "member";
+  const roleLabel = isTeamMember
+    ? "Team member"
+    : form.role === "Admin"
+      ? "Admin"
+      : "Recruiter";
 
   return (
     <section className="dashboard-card dashboard-card--fill flex h-full min-w-0 max-w-full w-full flex-col p-6">
@@ -328,6 +439,10 @@ export function MyProfilePanel({
           ) : null}
 
           <div className="dashboard-profile-sections">
+            {isTeamMember && workspaceOwner ? (
+              <OwnerInfoSection owner={workspaceOwner} />
+            ) : null}
+
             <section className="dashboard-profile-section">
               <header className="dashboard-profile-section-head">
                 <span className="dashboard-profile-section-icon">
@@ -336,7 +451,9 @@ export function MyProfilePanel({
                 <div>
                   <h4 className="dashboard-profile-section-title">Basic information</h4>
                   <p className="dashboard-profile-section-desc">
-                    Used across your workspace and outreach defaults.
+                    {isTeamMember
+                      ? "Your personal details for this workspace."
+                      : "Used across your workspace and outreach defaults."}
                   </p>
                 </div>
               </header>

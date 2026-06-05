@@ -21,6 +21,11 @@ export type DashboardRecentActivity = {
   createdAt: string;
 };
 
+export type DashboardOutreachThreads = {
+  email: number;
+  whatsapp: number;
+};
+
 export type DashboardOverviewData = {
   greeting: {
     fullName: string;
@@ -34,6 +39,8 @@ export type DashboardOverviewData = {
       candidateUnlocks: number | null;
       verifiedEmails: number | null;
       phoneNumbers: number | null;
+      emailOutreaches: number | null;
+      whatsappOutreaches: number | null;
     };
   };
   stats: {
@@ -47,7 +54,10 @@ export type DashboardOverviewData = {
     verifiedEmails: DashboardQuotaSlot;
     candidateUnlocks: DashboardQuotaSlot;
     phoneNumbers: DashboardQuotaSlot;
+    emailOutreach: DashboardQuotaSlot;
+    whatsappOutreach: DashboardQuotaSlot;
   };
+  outreachThreads: DashboardOutreachThreads;
   recentSessions: DashboardRecentSession[];
   recentActivity: DashboardRecentActivity[];
 };
@@ -64,6 +74,32 @@ function quotaSlot(raw: unknown): DashboardQuotaSlot {
       ? Math.floor(o.limit)
       : null;
   return { used: num(o.used), limit };
+}
+
+function planLimit(raw: Record<string, unknown>, key: string): number | null {
+  const v = raw[key];
+  return typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.floor(v) : null;
+}
+
+function parseOutreachThreads(raw: unknown): DashboardOutreachThreads {
+  if (!raw || typeof raw !== "object") return { email: 0, whatsapp: 0 };
+  const o = raw as Record<string, unknown>;
+  return { email: num(o.email), whatsapp: num(o.whatsapp) };
+}
+
+function mergeOutreachQuotaSlot(
+  quotaPart: DashboardQuotaSlot,
+  threads: DashboardOutreachThreads,
+  channel: keyof DashboardOutreachThreads,
+  limitsRaw: Record<string, unknown>,
+  limitKey: "emailOutreaches" | "whatsappOutreaches"
+): DashboardQuotaSlot {
+  const threadUsed = threads[channel];
+  const used = quotaPart.used > 0 ? quotaPart.used : threadUsed;
+  return {
+    used,
+    limit: quotaPart.limit ?? planLimit(limitsRaw, limitKey),
+  };
 }
 
 export function parseDashboardOverviewPayload(raw: unknown): DashboardOverviewData | null {
@@ -136,6 +172,22 @@ export function parseDashboardOverviewPayload(raw: unknown): DashboardOverviewDa
     }
   }
 
+  const outreachThreads = parseOutreachThreads(plan.outreachThreads);
+  const emailOutreachSlot = mergeOutreachQuotaSlot(
+    quotaSlot(quota.emailOutreach),
+    outreachThreads,
+    "email",
+    limitsRaw,
+    "emailOutreaches"
+  );
+  const whatsappOutreachSlot = mergeOutreachQuotaSlot(
+    quotaSlot(quota.whatsappOutreach),
+    outreachThreads,
+    "whatsapp",
+    limitsRaw,
+    "whatsappOutreaches"
+  );
+
   return {
     greeting: {
       fullName: typeof greeting.fullName === "string" ? greeting.fullName : "",
@@ -158,6 +210,12 @@ export function parseDashboardOverviewPayload(raw: unknown): DashboardOverviewDa
             : null,
         phoneNumbers:
           typeof limitsRaw.phoneNumbers === "number" ? limitsRaw.phoneNumbers : null,
+        emailOutreaches:
+          typeof limitsRaw.emailOutreaches === "number" ? limitsRaw.emailOutreaches : null,
+        whatsappOutreaches:
+          typeof limitsRaw.whatsappOutreaches === "number"
+            ? limitsRaw.whatsappOutreaches
+            : null,
       },
     },
     stats: {
@@ -171,7 +229,10 @@ export function parseDashboardOverviewPayload(raw: unknown): DashboardOverviewDa
       verifiedEmails: quotaSlot(quota.verifiedEmails),
       candidateUnlocks: quotaSlot(quota.candidateUnlocks),
       phoneNumbers: quotaSlot(quota.phoneNumbers),
+      emailOutreach: emailOutreachSlot,
+      whatsappOutreach: whatsappOutreachSlot,
     },
+    outreachThreads,
     recentSessions,
     recentActivity,
   };

@@ -2,10 +2,10 @@
 
 import { OutreachPanelSkeleton } from "@/components/dashboard/OutreachPanelSkeleton";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
-
-const ENTERPRISE_PLAN_ID = "enterprise";
-const ENTERPRISE_LOCKED_MESSAGE =
-  "Outreaches are available on the Enterprise plan. Upgrade to create outreach plans and send from Gmail.";
+import {
+  hasCampaignsAndIntegrationsAccess,
+  OUTREACHES_LOCKED_MESSAGE,
+} from "@/lib/planAccess";
 
 type Props = {
   currentPlanId: string;
@@ -25,13 +25,13 @@ export function EmailOutreachPanel({
   externalNotice,
   onClearNotice,
 }: Props) {
-  const isEnterprise = currentPlanId === ENTERPRISE_PLAN_ID;
+  const hasOutreachAccess = hasCampaignsAndIntegrationsAccess(currentPlanId);
   const showShimmer = !planResolved;
-  const showEnterpriseLocked = planResolved && !isEnterprise;
+  const showPlanLocked = planResolved && !hasOutreachAccess;
 
   const handleNewOutreach = () => {
     onClearNotice?.();
-    if (!isEnterprise) {
+    if (!hasOutreachAccess) {
       onViewPlans();
       return;
     }
@@ -59,15 +59,15 @@ export function EmailOutreachPanel({
       <div className="dashboard-card-body-scroll dashboard-outreach-panel-body flex flex-1 flex-col">
         {showShimmer ? (
           <OutreachPanelSkeleton />
-        ) : showEnterpriseLocked ? (
+        ) : showPlanLocked ? (
           <div className="dashboard-integration-notice-wrap">
-            <p className="dashboard-alert-notice">{ENTERPRISE_LOCKED_MESSAGE}</p>
+            <p className="dashboard-alert-notice">{OUTREACHES_LOCKED_MESSAGE}</p>
             <button
               type="button"
               onClick={onViewPlans}
               className="dashboard-btn-primary mt-3 px-4 py-2 text-sm"
             >
-              View Enterprise plan
+              View plans
             </button>
           </div>
         ) : externalNotice ? (

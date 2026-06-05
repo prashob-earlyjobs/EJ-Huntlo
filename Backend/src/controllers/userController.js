@@ -4,6 +4,7 @@ const fs = require("fs/promises");
 const path = require("path");
 const mongoose = require("mongoose");
 const User = require("../models/User");
+const Organization = require("../models/Organization");
 const CreditHistory = require("../models/CreditHistory");
 const UsageHistory = require("../models/UsageHistory");
 const UserSession = require("../models/UserSession");
@@ -25,6 +26,36 @@ const {
 
 const normalizeCredits = (user) =>
   Math.max(0, Math.floor(Number(user?.credits ?? 0)));
+
+const sanitizeWorkspaceOwnerForMember = (owner, planSummary) => ({
+  id: String(owner._id),
+  fullName: typeof owner.fullName === "string" ? owner.fullName : "",
+  email: typeof owner.email === "string" ? owner.email : "",
+  companyName: typeof owner.companyName === "string" ? owner.companyName : "",
+  mobile: typeof owner.mobile === "string" ? owner.mobile : "",
+  location: typeof owner.location === "string" ? owner.location : "",
+  profilePhotoUrl:
+    typeof owner.profilePhotoUrl === "string" ? owner.profilePhotoUrl.trim() : "",
+  planId: planSummary?.planId || owner.planId || "trial",
+  planName: planSummary?.planName || planSummary?.planId || "Trial",
+});
+
+async function resolveWorkspaceOwnerForMember(member) {
+  if (!member || member.accountRole !== "member") return null;
+
+  let ownerId = member.ownerUserId;
+  if (!ownerId && member.organizationId) {
+    const org = await Organization.findById(member.organizationId).select("ownerUserId").lean();
+    ownerId = org?.ownerUserId || null;
+  }
+  if (!ownerId || !mongoose.Types.ObjectId.isValid(String(ownerId))) return null;
+
+  const owner = await User.findById(ownerId);
+  if (!owner) return null;
+
+  const plan = await getUserPlanSummary(owner);
+  return sanitizeWorkspaceOwnerForMember(owner, plan);
+}
 
 const sanitizeUser = (user) => ({
   id: user._id,
@@ -920,12 +951,14 @@ const getMyProfile = async (req, res) => {
     }
 
     const plan = await getUserPlanSummary(user);
+    const workspaceOwner = await resolveWorkspaceOwnerForMember(user);
 
     return res.status(200).json({
       success: true,
       user: sanitizeUser(user),
       utilisation: plan.utilisation || utilisationFromUser(user),
       plan,
+      workspaceOwner,
       security: {
         passwordChangedAt: user.passwordChangedAt || user.updatedAt || null,
         activeSessions: await getActiveSessionCount(user._id),

@@ -44,6 +44,10 @@ const {
   assertCanSendGmailToday,
   recordGmailSend,
 } = require("./gmailDailySendLimitService");
+const {
+  assertOutreachCreditsAvailable,
+  outreachChannelToCreditChannel,
+} = require("./outreachCreditsService");
 
 function sortTouchpoints(touchpoints) {
   return [...(touchpoints || [])].sort((a, b) => (a.order || 0) - (b.order || 0));
@@ -258,6 +262,11 @@ async function launchCampaignSequence(actorUserId, campaignId) {
 
   const now = new Date();
   const contacts = Array.isArray(campaign.contacts) ? campaign.contacts : [];
+
+  const creditChannel = outreachChannelToCreditChannel(channel);
+  await assertOutreachCreditsAvailable(actorUserId, creditChannel, contacts.length, {
+    excludeCampaignId: String(campaign._id),
+  });
 
   if (!isWhatsApp) {
     await assertGmailLaunchCapacity(ownerUserId, contacts);

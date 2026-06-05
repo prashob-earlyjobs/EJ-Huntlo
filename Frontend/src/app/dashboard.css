@@ -6913,19 +6913,53 @@
 
 /* Gmail / email sequence editor — campaign workspace pattern */
 .dashboard-outreach-gmail-bar {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "heading actions"
+    "meta meta";
   align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
+  column-gap: 0.75rem;
+  row-gap: 0.5rem;
   border-bottom: 1px solid #e8eaed;
   background: #fff;
   padding: 0.75rem 1rem;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.dashboard-outreach-gmail-bar-heading {
+  grid-area: heading;
+  min-width: 0;
+}
+
+.dashboard-outreach-gmail-bar-meta {
+  grid-area: meta;
+  min-width: 0;
+}
+
+.dashboard-outreach-gmail-bar-actions {
+  grid-area: actions;
+  justify-self: end;
 }
 
 @media (min-width: 640px) {
   .dashboard-outreach-gmail-bar {
     padding: 0.75rem 1.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .dashboard-outreach-gmail-bar:not(:has(.dashboard-outreach-gmail-bar-meta)) {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "heading actions";
+    row-gap: 0;
+  }
+
+  .dashboard-outreach-gmail-bar:has(.dashboard-outreach-gmail-bar-meta) {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 13rem) auto;
+    grid-template-areas: "heading meta actions";
+    row-gap: 0;
   }
 }
 
@@ -6983,13 +7017,13 @@
 }
 
 .dashboard-outreach-gmail-plan-meta {
-  text-align: right;
+  text-align: left;
 }
 
-.dashboard-outreach-gmail-plan-meta--mobile {
-  border-bottom: 1px solid #e8eaed;
-  background: #fff;
-  padding: 0.625rem 1rem 0.75rem;
+@media (min-width: 1024px) {
+  .dashboard-outreach-gmail-bar:has(.dashboard-outreach-gmail-bar-meta) .dashboard-outreach-gmail-plan-meta {
+    text-align: right;
+  }
 }
 
 .dashboard-outreach-gmail-status-wrap {
@@ -7155,10 +7189,6 @@
 
   .dashboard-outreach-builder--embedded .dashboard-outreach-calendly-rail-card {
     margin-top: 0.5rem;
-  }
-
-  .dashboard-outreach-gmail-plan-meta {
-    text-align: left;
   }
 
   .dashboard-outreach-builder--embedded .dashboard-outreach-builder-body {
@@ -9428,6 +9458,49 @@ select.dashboard-outreach-start-chip--select {
 .dashboard-profile-section-icon--security {
   background: color-mix(in srgb, #0d9488 12%, white);
   color: #0f766e;
+}
+
+.dashboard-profile-section-icon--owner {
+  background: color-mix(in srgb, #6366f1 14%, white);
+  color: #4f46e5;
+}
+
+.dashboard-profile-section--owner {
+  grid-column: 1 / -1;
+}
+
+.dashboard-profile-owner-hero {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--dash-outline) 35%, transparent);
+}
+
+.dashboard-profile-owner-plan-pill {
+  display: inline-flex;
+  margin-top: 0.375rem;
+  align-items: center;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--dash-primary) 10%, white);
+  padding: 0.125rem 0.625rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--dash-primary);
+}
+
+.dashboard-profile-fields--readonly .dashboard-profile-readonly-value {
+  margin: 0;
+  min-height: 2.5rem;
+  display: flex;
+  align-items: center;
+  border-radius: 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--dash-outline) 38%, transparent);
+  background: color-mix(in srgb, var(--dash-surface-variant) 28%, white);
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  color: var(--dash-on-surface);
 }
 
 .dashboard-profile-section-title {
