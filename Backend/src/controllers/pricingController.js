@@ -6,6 +6,26 @@ const DEFAULT_POPULAR_BADGE = "⭐ Most Popular";
 
 const QUOTA_MAX = 1e9;
 
+/** Until admin saves explicit flags, growth/enterprise keep prior product access. */
+function legacyPlanProductAccess(planId) {
+  const id = String(planId || "").trim().toLowerCase();
+  const enabled = id === "growth" || id === "enterprise";
+  return {
+    campaignsEnabled: enabled,
+    integrationsEnabled: enabled,
+    outreachesEnabled: enabled,
+  };
+}
+
+function resolvePlanProductFlag(stored, planId, key) {
+  if (typeof stored === "boolean") return stored;
+  return legacyPlanProductAccess(planId)[key];
+}
+
+function tierUsesOutreachQuotas(tier) {
+  return Boolean(tier.campaignsEnabled || tier.outreachesEnabled);
+}
+
 /** Accepts number or numeric string (e.g. legacy "300 searches"); returns null if unset/invalid. */
 function normalizeQuotaNumber(v) {
   if (v === null || v === undefined || v === "") return null;
@@ -119,6 +139,9 @@ function normalizePayload(body) {
       whatsappOutreaches,
       maxSubUsers,
       features,
+      campaignsEnabled: Boolean(t?.campaignsEnabled),
+      integrationsEnabled: Boolean(t?.integrationsEnabled),
+      outreachesEnabled: Boolean(t?.outreachesEnabled),
       isPopular,
       popularBadge,
     };
@@ -146,18 +169,30 @@ function enrichPlansData(raw) {
     typeof raw.intro === "string" && raw.intro.trim() ? raw.intro.trim() : "";
   const srcTiers = Array.isArray(raw.tiers) ? raw.tiers : [];
 
-  const tiers = srcTiers.map((tier, index) => {
+  const tiers = srcTiers.map((tier) => {
     const merged = { ...tier };
+    merged.campaignsEnabled = resolvePlanProductFlag(
+      tier.campaignsEnabled,
+      tier.id,
+      "campaignsEnabled"
+    );
+    merged.integrationsEnabled = resolvePlanProductFlag(
+      tier.integrationsEnabled,
+      tier.id,
+      "integrationsEnabled"
+    );
+    merged.outreachesEnabled = resolvePlanProductFlag(
+      tier.outreachesEnabled,
+      tier.id,
+      "outreachesEnabled"
+    );
+
     const pick = (key) => normalizeQuotaNumber(tier[key]);
     merged.searches = pick("searches");
     merged.candidateUnlocks = pick("candidateUnlocks");
     merged.verifiedEmails = pick("verifiedEmails");
     merged.phoneNumbers = pick("phoneNumbers");
-    const outreachQuotaTier =
-      merged.id === "growth" ||
-      merged.id === "enterprise" ||
-      (index >= 2 && merged.id !== "trial" && merged.id !== "starter");
-    if (outreachQuotaTier) {
+    if (tierUsesOutreachQuotas(merged)) {
       merged.emailOutreaches = pick("emailOutreaches");
       merged.whatsappOutreaches = pick("whatsappOutreaches");
     } else {
@@ -213,6 +248,13 @@ function planDocumentToTierPayload(doc) {
           ? undefined
           : coerceStoredQuota(o.maxSubUsers),
     features: Array.isArray(o.features) ? o.features : [],
+    campaignsEnabled: resolvePlanProductFlag(o.campaignsEnabled, o.planId, "campaignsEnabled"),
+    integrationsEnabled: resolvePlanProductFlag(
+      o.integrationsEnabled,
+      o.planId,
+      "integrationsEnabled"
+    ),
+    outreachesEnabled: resolvePlanProductFlag(o.outreachesEnabled, o.planId, "outreachesEnabled"),
     isPopular: Boolean(o.isPopular),
     popularBadge: o.popularBadge || "⭐ Most Popular",
     lastUpdated: iso(o.updatedAt),
@@ -238,6 +280,9 @@ async function upsertPricingPlanFromNormalized(t, sortOrder) {
         whatsappOutreaches: t.whatsappOutreaches,
         maxSubUsers: t.maxSubUsers,
         features: t.features,
+        campaignsEnabled: Boolean(t.campaignsEnabled),
+        integrationsEnabled: Boolean(t.integrationsEnabled),
+        outreachesEnabled: Boolean(t.outreachesEnabled),
         isPopular: t.isPopular,
         popularBadge: t.popularBadge,
       },

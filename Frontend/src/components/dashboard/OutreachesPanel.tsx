@@ -26,7 +26,8 @@ import {
   fetchSavedOutreachPlans,
   SAVED_OUTREACH_PLANS_PAGE_SIZE,
 } from "@/lib/savedOutreachPlansApi";
-import { hasCampaignsAndIntegrationsAccess } from "@/lib/planAccess";
+import { hasOutreachesAccess } from "@/lib/planAccess";
+import type { PricingPlansPayload } from "@/lib/pricingPlans";
 
 type GmailEditorState = {
   planId: string | "new";
@@ -49,6 +50,8 @@ type ActiveEditor =
 type Props = {
   currentPlanId: string;
   planResolved?: boolean;
+  pricingPlans?: PricingPlansPayload | null;
+  pricingPlansReady?: boolean;
   onViewPlans: () => void;
   onGoToIntegrations?: () => void;
 };
@@ -56,10 +59,13 @@ type Props = {
 export function OutreachesPanel({
   currentPlanId,
   planResolved = false,
+  pricingPlans = null,
+  pricingPlansReady = false,
   onViewPlans,
   onGoToIntegrations,
 }: Props) {
-  const hasOutreachAccess = hasCampaignsAndIntegrationsAccess(currentPlanId);
+  const planAccessOpts = { plansReady: pricingPlansReady };
+  const outreachAllowed = hasOutreachesAccess(currentPlanId, pricingPlans, planAccessOpts);
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
 
   const [createOutreachOpen, setCreateOutreachOpen] = useState(false);
@@ -76,7 +82,7 @@ export function OutreachesPanel({
 
   const loadModalPlans = useCallback(async (page = 1) => {
     const auth = getStoredAuth();
-    if (!auth?.token || !hasOutreachAccess) {
+    if (!auth?.token || !outreachAllowed) {
       setModalPlans([]);
       setSavedPlansPage(1);
       setSavedPlansTotalPages(1);
@@ -101,11 +107,11 @@ export function OutreachesPanel({
     } finally {
       setModalPlansLoading(false);
     }
-  }, [hasOutreachAccess]);
+  }, [outreachAllowed]);
 
   const loadModalTemplates = useCallback(async () => {
     const auth = getStoredAuth();
-    if (!auth?.token || !hasOutreachAccess) {
+    if (!auth?.token || !outreachAllowed) {
       setModalTemplates([]);
       return;
     }
@@ -125,10 +131,10 @@ export function OutreachesPanel({
     } finally {
       setModalTemplatesLoading(false);
     }
-  }, [apiBase, hasOutreachAccess]);
+  }, [apiBase, outreachAllowed]);
 
   const openCreateOutreach = () => {
-    if (!planResolved || !hasOutreachAccess) {
+    if (!planResolved || !outreachAllowed) {
       if (planResolved) onViewPlans();
       return;
     }
@@ -316,6 +322,8 @@ export function OutreachesPanel({
       <EmailOutreachPanel
         currentPlanId={currentPlanId}
         planResolved={planResolved}
+        pricingPlans={pricingPlans}
+        pricingPlansReady={pricingPlansReady}
         onViewPlans={onViewPlans}
         onCreateOutreach={openCreateOutreach}
         externalNotice={notice}
