@@ -28,9 +28,11 @@ export function HeroSearchTyping() {
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const phrase = HERO_SEARCH_PHRASES[phraseIndex] ?? HERO_SEARCH_PHRASES[0];
+  const hasUserQuery = Boolean(userValue.trim());
 
   const goToCandidates = () => {
-    const q = userValue.trim() || display.trim() || phrase;
+    const q = userValue.trim();
+    if (!q) return;
     router.push(`/candidates?q=${encodeURIComponent(q)}`);
   };
 
@@ -98,7 +100,7 @@ export function HeroSearchTyping() {
             value={userValue}
             onChange={(e) => setUserValue(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") goToCandidates();
+              if (e.key === "Enter" && hasUserQuery) goToCandidates();
             }}
             onFocus={() => setIsEditing(true)}
             onBlur={() => {
@@ -128,7 +130,8 @@ export function HeroSearchTyping() {
         <button
           type="button"
           onClick={goToCandidates}
-          className="shrink-0 rounded-full bg-[#0050cb] px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-[#0050cb]/25 transition-colors hover:bg-[#003fa4]"
+          disabled={!hasUserQuery}
+          className="shrink-0 rounded-full bg-[#0050cb] px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-[#0050cb]/25 transition-colors hover:bg-[#003fa4] disabled:cursor-not-allowed disabled:bg-[#c3c6d6] disabled:text-white/90 disabled:shadow-none disabled:hover:bg-[#c3c6d6]"
         >
           Find Candidates
         </button>

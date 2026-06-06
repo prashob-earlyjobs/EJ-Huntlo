@@ -13,6 +13,7 @@ const {
   findCampaignInScope,
   findCampaignDocumentInScope,
 } = require("../utils/campaignScope");
+const { normalizeToE164 } = require("./whatsappPhoneUtils");
 const {
   CAMPAIGN_MAX_CONTACTS,
   CAMPAIGN_CONTACT_LIMIT_MESSAGE,
@@ -22,22 +23,93 @@ const {
   logOutreachCreditUsage,
   outreachChannelToCreditChannel,
 } = require("./outreachCreditsService");
+const User = require("../models/User");
+const { resolveTierForUser } = require("./planQuotas");
 const {
-  normalizeContacts,
-  formatContact,
-  ensureContactsMigrated,
-  countContactsForCampaign,
-  sumContactCountsForCampaigns,
-  getExistingCandidateKeys,
   addContactsToCampaignCollection,
-  removeContactFromCampaignCollection,
-  updateCampaignContactFields,
+  countContactsForCampaign,
   deleteAllContactsForCampaign,
+  ensureContactsMigrated,
+  getExistingCandidateKeys,
+  insertContactsForCampaign,
   listCampaignContactsPaginated,
   loadAllContactsForCampaign,
-  insertContactsForCampaign,
+  removeContactFromCampaignCollection,
+  sumContactCountsForCampaigns,
+  updateCampaignContactFields,
 } = require("./campaignContactService");
 
+async function assertCampaignsEnabledForUser(userId) {
+  const user = await User.findById(userId).lean();
+  if (!user) {
+    const err = new Error("Invalid session");
+    err.statusCode = 401;
+    throw err;
+  }
+  const { tier } = await resolveTierForUser(user);
+  if (!tier?.campaignsEnabled) {
+    const err = new Error("Campaigns are not available on your current plan.");
+    err.statusCode = 403;
+    err.code = "PLAN_CAMPAIGNS_DISABLED";
+    throw err;
+  }
+}
+
+/** WhatsApp campaign testing — E.164 India. Replace/remove when using real contact phones. */
+const WHATSAPP_TEST_PHONE_E164 = "+918714500637";
+
+function normalizeContact(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const candidateKey = String(raw.candidateKey || "").trim();
+  if (!candidateKey) return null;
+  const phoneFromPayload = String(raw.phone || "").trim();
+  const phone =
+    phoneFromPayload ||
+    (process.env.WHATSAPP_USE_TEST_PHONE === "1" ? WHATSAPP_TEST_PHONE_E164 : "");
+  return {
+    candidateKey,
+    candidateId: String(raw.candidateId || "").trim(),
+    name: String(raw.name || "").trim(),
+    email: String(raw.email || "").trim(),
+    phone,
+    role: String(raw.role || "").trim(),
+    company: String(raw.company || "").trim(),
+    location: String(raw.location || "").trim(),
+    linkedinUrl: String(raw.linkedinUrl || "").trim(),
+    sourcingSessionId: String(raw.sourcingSessionId || "").trim(),
+    addedAt: raw.addedAt ? new Date(raw.addedAt) : new Date(),
+  };
+}
+
+function normalizeContacts(raw) {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const item of raw) {
+    const contact = normalizeContact(item);
+    if (!contact || seen.has(contact.candidateKey)) continue;
+    seen.add(contact.candidateKey);
+    out.push(contact);
+  }
+  return out;
+}
+
+function formatContact(doc) {
+  return {
+    id: doc._id ? String(doc._id) : "",
+    candidateKey: doc.candidateKey || "",
+    candidateId: doc.candidateId || "",
+    name: doc.name || "",
+    email: doc.email || "",
+    phone: doc.phone || "",
+    role: doc.role || "",
+    company: doc.company || "",
+    location: doc.location || "",
+    linkedinUrl: doc.linkedinUrl || "",
+    sourcingSessionId: doc.sourcingSessionId || "",
+    addedAt: doc.addedAt ? new Date(doc.addedAt).toISOString() : new Date().toISOString(),
+  };
+}
 
 function normalizeCalendlyAutomation(raw) {
   const o = raw && typeof raw === "object" ? raw : {};
@@ -258,6 +330,7 @@ async function getCampaign(actorUserId, campaignId) {
 }
 
 async function createCampaign(userId, { name, contacts }) {
+  await assertCampaignsEnabledForUser(userId);
   const campaignName = String(name || "").trim();
   if (!campaignName) {
     const err = new Error("Campaign name is required");

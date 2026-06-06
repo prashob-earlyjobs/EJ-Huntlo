@@ -17,9 +17,10 @@ import { IntegrationsPanelSkeleton } from "@/components/dashboard/IntegrationsPa
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { authHeaders, getStoredAuth } from "@/lib/auth";
 import {
-  hasCampaignsAndIntegrationsAccess,
+  hasIntegrationsAccess,
   INTEGRATIONS_LOCKED_MESSAGE,
 } from "@/lib/planAccess";
+import type { PricingPlansPayload } from "@/lib/pricingPlans";
 import type { MetaWebhookSetupPayload } from "@/lib/whatsappMetaWebhookSetup";
 import { fetchWhatsAppMetaWebhookSetup } from "@/lib/whatsappMetaWebhookSetup";
 
@@ -185,15 +186,21 @@ function ConnectOptionCard({
 type Props = {
   currentPlanId: string;
   planResolved?: boolean;
+  pricingPlans?: PricingPlansPayload | null;
+  pricingPlansReady?: boolean;
   onViewPlans: () => void;
 };
 
 export function IntegrationsPanel({
   currentPlanId,
   planResolved = false,
+  pricingPlans = null,
+  pricingPlansReady = false,
   onViewPlans,
 }: Props) {
-  const hasIntegrationsAccess = hasCampaignsAndIntegrationsAccess(currentPlanId);
+  const planAccessOpts = { plansReady: pricingPlansReady };
+  const integrationsAllowed = hasIntegrationsAccess(currentPlanId, pricingPlans, planAccessOpts);
+  const pricingAccessPending = !pricingPlansReady;
   const [integrations, setIntegrations] = useState<IntegrationRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [listReady, setListReady] = useState(false);
@@ -218,7 +225,7 @@ export function IntegrationsPanel({
 
   const loadIntegrations = useCallback(async () => {
     const auth = getStoredAuth();
-    if (!auth?.token || !hasIntegrationsAccess) {
+    if (!auth?.token || !integrationsAllowed) {
       setIntegrations([]);
       setLoading(false);
       return;
@@ -239,11 +246,11 @@ export function IntegrationsPanel({
     } finally {
       setLoading(false);
     }
-  }, [apiBase, hasIntegrationsAccess]);
+  }, [apiBase, integrationsAllowed]);
 
   useEffect(() => {
     if (!planResolved) return;
-    if (!hasIntegrationsAccess) {
+    if (!integrationsAllowed) {
       setIntegrations([]);
       setLoading(false);
       setListReady(true);
@@ -251,7 +258,7 @@ export function IntegrationsPanel({
     }
     setListReady(false);
     void loadIntegrations();
-  }, [planResolved, hasIntegrationsAccess, loadIntegrations]);
+  }, [planResolved, integrationsAllowed, loadIntegrations]);
 
   useEffect(() => {
     if (!loading) setListReady(true);
@@ -262,7 +269,7 @@ export function IntegrationsPanel({
   );
 
   useEffect(() => {
-    if (!hasIntegrationsAccess || !hasOwnMetaWhatsApp) {
+    if (!integrationsAllowed || !hasOwnMetaWhatsApp) {
       setOwnMetaWebhookSetup(null);
       return;
     }
@@ -280,12 +287,14 @@ export function IntegrationsPanel({
     return () => {
       cancelled = true;
     };
-  }, [hasIntegrationsAccess, hasOwnMetaWhatsApp, integrations]);
+  }, [integrationsAllowed, hasOwnMetaWhatsApp, integrations]);
 
   const showShimmer =
-    !planResolved || (hasIntegrationsAccess && (!listReady || loading));
+    !planResolved ||
+    pricingAccessPending ||
+    (integrationsAllowed && (!listReady || loading));
 
-  const showPlanLocked = planResolved && !hasIntegrationsAccess;
+  const showPlanLocked = planResolved && pricingPlansReady && !integrationsAllowed;
 
   const gmailLogin = useGoogleLogin({
     flow: "auth-code",
@@ -338,32 +347,32 @@ export function IntegrationsPanel({
   });
 
   const handleConnectGmail = useCallback(() => {
-    if (!hasIntegrationsAccess) {
+    if (!integrationsAllowed) {
       showPlanLockedNotice();
       return;
     }
     setNotice("");
     setBusyProvider("gmail");
     gmailLogin();
-  }, [hasIntegrationsAccess, showPlanLockedNotice, gmailLogin]);
+  }, [integrationsAllowed, showPlanLockedNotice, gmailLogin]);
 
   const handleConnectWhatsApp = useCallback(() => {
-    if (!hasIntegrationsAccess) {
+    if (!integrationsAllowed) {
       showPlanLockedNotice();
       return;
     }
     setNotice("");
     setWhatsappModalOpen(true);
-  }, [hasIntegrationsAccess, showPlanLockedNotice]);
+  }, [integrationsAllowed, showPlanLockedNotice]);
 
   const handleConnectCalendly = useCallback(() => {
-    if (!hasIntegrationsAccess) {
+    if (!integrationsAllowed) {
       showPlanLockedNotice();
       return;
     }
     setNotice("");
     setCalendlyModalOpen(true);
-  }, [hasIntegrationsAccess, showPlanLockedNotice]);
+  }, [integrationsAllowed, showPlanLockedNotice]);
 
   const handleWhatsAppSubmit = useCallback(
     async (values: WhatsAppConnectFormValues) => {
@@ -477,7 +486,7 @@ export function IntegrationsPanel({
 
   const handleDisconnect = useCallback(
     async (provider: string) => {
-      if (!hasIntegrationsAccess) return;
+      if (!integrationsAllowed) return;
       setNotice("");
       setBusyProvider(provider);
       const auth = getStoredAuth();
@@ -505,7 +514,7 @@ export function IntegrationsPanel({
       }
       setBusyProvider(null);
     },
-    [apiBase, hasIntegrationsAccess]
+    [apiBase, integrationsAllowed]
   );
 
   return (
@@ -546,7 +555,7 @@ export function IntegrationsPanel({
                 key={option.id}
                 option={option}
                 locked={showPlanLocked}
-                connected={hasIntegrationsAccess && connectedProviders.has(option.id)}
+                connected={integrationsAllowed && connectedProviders.has(option.id)}
                 busy={busyProvider === option.id}
                 onLocked={showPlanLockedNotice}
                 onConnect={
@@ -563,7 +572,7 @@ export function IntegrationsPanel({
           </div>
         </div>
 
-        {!hasIntegrationsAccess ? (
+        {!integrationsAllowed ? (
           <div className="dashboard-integration-summary">
             <span className="dashboard-integration-summary-stat">
               Available on Growth and Enterprise plans

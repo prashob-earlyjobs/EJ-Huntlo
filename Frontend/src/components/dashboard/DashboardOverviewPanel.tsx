@@ -131,7 +131,7 @@ export function DashboardOverviewPanel({
 }: Props) {
   const firstName = data ? dashboardGreetingName(data.greeting.fullName) : "";
   const planId = data?.plan.planId || currentPlanId;
-  const showOutreachMeters = hasOutreachThreadUtilisation(planId);
+  const showOutreachMeters = hasOutreachThreadUtilisation(planId, pricingPlans);
   const emailOutreach =
     data && showOutreachMeters
       ? resolveOutreachMeter(data, currentPlanId, outreachThreads, pricingPlans, "email")
