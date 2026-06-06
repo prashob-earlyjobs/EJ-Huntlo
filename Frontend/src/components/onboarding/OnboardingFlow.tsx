@@ -54,12 +54,12 @@ function OnboardingFooter() {
           © {new Date().getFullYear()} EJHunter. AI-Driven Recruiting Infrastructure.
         </p>
         <div className="flex gap-6 text-xs text-[#424656]">
-          <a href="#" className="transition-colors hover:text-[#0050cb]">
+          <Link href="/privacy" className="transition-colors hover:text-[#0050cb]">
             Privacy Policy
-          </a>
-          <a href="#" className="transition-colors hover:text-[#0050cb]">
+          </Link>
+          <Link href="/terms" className="transition-colors hover:text-[#0050cb]">
             Terms of Service
-          </a>
+          </Link>
           <a href="#" className="transition-colors hover:text-[#0050cb]">
             Help Center
           </a>

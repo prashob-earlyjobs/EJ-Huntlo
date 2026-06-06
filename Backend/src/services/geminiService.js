@@ -50,14 +50,23 @@ const OUTREACH_AUTO_REPLY_RESPONSE_SCHEMA = {
   required: ["disposition", "shouldSendReply", "replyBody"],
 };
 
-/** JSON schema for WhatsApp outreach sequence from JD. */
+/** JSON schema for WhatsApp outreach sequence from JD (template picks + reply questions only). */
 const WHATSAPP_OUTREACH_SEQUENCE_RESPONSE_SCHEMA = {
   type: SchemaType.OBJECT,
   properties: {
     planName: { type: SchemaType.STRING },
-    openingMessage: { type: SchemaType.STRING },
-    noReplyFollowUp1: { type: SchemaType.STRING },
-    noReplyFollowUp2: { type: SchemaType.STRING },
+    openingTemplateId: {
+      type: SchemaType.STRING,
+      description: "opening_message_01 or role_opportunity",
+    },
+    noReply1TemplateId: {
+      type: SchemaType.STRING,
+      description: "no_reply_1_bump or no_reply_1_value",
+    },
+    noReply2TemplateId: {
+      type: SchemaType.STRING,
+      description: "no_reply_2_final or no_reply_2_door_open",
+    },
     replyQuestions: {
       type: SchemaType.ARRAY,
       items: { type: SchemaType.STRING },
@@ -65,9 +74,9 @@ const WHATSAPP_OUTREACH_SEQUENCE_RESPONSE_SCHEMA = {
   },
   required: [
     "planName",
-    "openingMessage",
-    "noReplyFollowUp1",
-    "noReplyFollowUp2",
+    "openingTemplateId",
+    "noReply1TemplateId",
+    "noReply2TemplateId",
     "replyQuestions",
   ],
 };
