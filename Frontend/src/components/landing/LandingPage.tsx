@@ -127,9 +127,9 @@ export function LandingPage({ pricingPlans = null }: LandingPageProps) {
       <LandingNav />
 
       {/* Hero */}
-      <section className="relative overflow-hidden px-4 pb-16 pt-12 md:px-8 md:pb-24 md:pt-16 lg:px-12">
-        <div className="pointer-events-none absolute inset-0">
-          <div className="absolute left-1/2 top-0 h-[520px] w-[900px] -translate-x-1/2 rounded-full bg-[#dae1ff]/60 blur-[100px]" />
+      <section className="relative overflow-x-clip px-4 pb-16 pt-12 md:px-8 md:pb-24 md:pt-16 lg:px-12">
+        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+          <div className="absolute left-1/2 top-0 h-[520px] w-[min(900px,100vw)] max-w-full -translate-x-1/2 rounded-full bg-[#dae1ff]/60 blur-[100px]" />
         </div>
         <div className="relative z-10 mx-auto max-w-4xl text-center">
           <h1 className="text-4xl font-bold leading-[1.1] tracking-tight text-[#141b2b] md:text-5xl lg:text-[56px]">
@@ -444,9 +444,9 @@ export function LandingPage({ pricingPlans = null }: LandingPageProps) {
       <LandingPricingSection pricingPlans={pricingPlans} />
 
       {/* Final CTA */}
-      <section className="relative overflow-hidden bg-[#141b2b] px-4 py-24 text-center text-white md:px-8 lg:px-12">
-        <div className="pointer-events-none absolute inset-0 opacity-30">
-          <div className="absolute left-1/2 top-0 h-[400px] w-[600px] -translate-x-1/2 rounded-full bg-[#0050cb] blur-[120px]" />
+      <section className="relative overflow-x-clip bg-[#141b2b] px-4 py-24 text-center text-white md:px-8 lg:px-12">
+        <div className="pointer-events-none absolute inset-0 overflow-hidden opacity-30">
+          <div className="absolute left-1/2 top-0 h-[400px] w-[min(600px,100vw)] max-w-full -translate-x-1/2 rounded-full bg-[#0050cb] blur-[120px]" />
         </div>
         <div className="relative z-10 mx-auto max-w-3xl">
           <h2 className="text-3xl font-bold leading-tight md:text-4xl lg:text-5xl">

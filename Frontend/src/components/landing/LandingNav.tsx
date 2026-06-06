@@ -23,13 +23,13 @@ export function LandingNav() {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
-    <nav className="sticky top-0 z-[100] w-full border-b border-[#c3c6d6]/25 bg-white/90 backdrop-blur-md">
-      <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-4 py-4 md:px-8 lg:px-12">
-        <Link href="/" className="flex shrink-0 items-center">
-          <LandingLogo priority className="h-10 w-auto md:h-11" />
+    <nav className="landing-nav sticky top-0 z-[100] border-b border-[#c3c6d6]/25 bg-white/90 backdrop-blur-md">
+      <div className="landing-nav-inner">
+        <Link href="/" className="flex min-w-0 shrink items-center">
+          <LandingLogo priority className="h-9 w-auto sm:h-10 md:h-11" />
         </Link>
 
-        <div className="hidden items-center gap-8 md:flex">
+        <div className="hidden min-w-0 flex-1 items-center justify-center gap-8 md:flex">
           {NAV_LINKS.map((link) => (
             <a
               key={link.href}
@@ -41,7 +41,7 @@ export function LandingNav() {
           ))}
         </div>
 
-        <div className="hidden items-center gap-3 md:flex">
+        <div className="hidden shrink-0 items-center gap-3 md:flex">
           <Link
             href="/login"
             className="rounded-full px-4 py-2 text-sm font-medium text-[#141b2b] transition-colors hover:text-[#0050cb]"
@@ -53,7 +53,7 @@ export function LandingNav() {
 
         <button
           type="button"
-          className="p-2 text-[#141b2b] md:hidden"
+          className="landing-nav-menu-btn p-2 text-[#141b2b] md:hidden"
           aria-label={mobileOpen ? "Close menu" : "Open menu"}
           onClick={() => setMobileOpen((o) => !o)}
         >
