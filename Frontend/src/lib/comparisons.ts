@@ -18,7 +18,16 @@ export const COMPARISON_HUB_ENTRIES: ComparisonHubEntry[] = DETAILED_COMPARISON_
   })
 );
 
-export const COMPARISON_FOOTER_LINKS = COMPARISON_HUB_ENTRIES.map((c) => ({
-  label: `Huntlo vs ${c.shortName}`,
-  href: c.href,
-}));
+/** Footer comparison column order (Prism ↔ Juicebox swapped vs hub list). */
+const FOOTER_COMPARISON_SLUG_ORDER = ["juicebox", "contrario", "prism", "qureos"] as const;
+
+export const COMPARISON_FOOTER_LINKS = FOOTER_COMPARISON_SLUG_ORDER.map((slug) => {
+  const entry = COMPARISON_HUB_ENTRIES.find((c) => c.slug === slug);
+  if (!entry) {
+    throw new Error(`Missing comparison entry for footer slug: ${slug}`);
+  }
+  return {
+    label: `Huntlo vs ${entry.shortName}`,
+    href: entry.href,
+  };
+});
