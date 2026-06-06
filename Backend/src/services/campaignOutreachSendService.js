@@ -294,6 +294,7 @@ async function launchCampaignSequence(actorUserId, campaignId) {
       contact,
       isWhatsApp,
       now,
+      firstReplyFollowUpOrder,
     });
     if (result === "enrolled") enrolled += 1;
     else skipped += 1;
@@ -353,10 +354,18 @@ async function upsertEnrollmentForContact({
   contact,
   isWhatsApp,
   now,
+  firstReplyFollowUpOrder = 0,
 }) {
   const candidateKey = String(contact?.candidateKey || "").trim();
   const email = String(contact?.email || "").trim();
-  const phone = String(contact?.phone || "").trim();
+  let phone = String(contact?.phone || "").trim();
+  if (isWhatsApp && phone) {
+    try {
+      phone = assertValidRecipientPhone(phone);
+    } catch {
+      phone = String(contact?.phone || "").trim();
+    }
+  }
   if (!candidateKey) return "skipped";
 
   const hasContact = isWhatsApp ? Boolean(phone) : Boolean(email && email.includes("@"));
@@ -412,6 +421,7 @@ async function upsertEnrollmentForContact({
         replyDisposition: "unknown",
         autoReplyCount: 0,
         lastAutoRepliedToMessageId: "",
+        nextReplyFollowUpOrder: isWhatsApp ? firstReplyFollowUpOrder : 0,
       },
       $unset: {
         lastSentAt: 1,
@@ -421,6 +431,7 @@ async function upsertEnrollmentForContact({
         lastReplySyncedAt: 1,
         replyDispositionAt: 1,
         lastAutoReplyAt: 1,
+        lastWhatsAppAiHandledMessageId: 1,
       },
     },
     { upsert: true, new: true }
@@ -458,6 +469,9 @@ async function enrollAddedContactsIfCampaignActive(actorUserId, campaignId, cand
   let enrolled = 0;
   let skipped = 0;
   for (const contact of contacts) {
+    const firstReplyFollowUpOrder = isWhatsApp
+      ? (touchpoints.find((tp) => tp && tp.isReplyFollowUp)?.order || 0)
+      : 0;
     const result = await upsertEnrollmentForContact({
       campaign: { _id: campaign._id },
       plan,
@@ -466,6 +480,7 @@ async function enrollAddedContactsIfCampaignActive(actorUserId, campaignId, cand
       contact,
       isWhatsApp,
       now,
+      firstReplyFollowUpOrder,
     });
     if (result === "enrolled") enrolled += 1;
     else skipped += 1;
@@ -767,6 +782,21 @@ async function processWhatsAppEnrollmentDoc(enrollment, campaign) {
     return;
   }
 
+  if (touchpoint.isReplyFollowUp && !enrollment.hasReply) {
+    await CampaignSequenceEnrollment.updateOne(
+      { _id: enrollmentId },
+      {
+        $set: {
+          status: "active",
+          currentStepOrder: stepOrder,
+          nextSendAt: null,
+          lastError: "",
+        },
+      }
+    );
+    return;
+  }
+
   const contactPhone = String(enrollment.contactPhone || "").trim();
   let normalizedPhone;
   try {
@@ -794,27 +824,27 @@ async function processWhatsAppEnrollmentDoc(enrollment, campaign) {
     senderFirstName,
   }).trim();
 
-  // TODO(meta-whatsapp-test): Require plan templateId or body before production sends.
-  // if (!templateId && !body) {
-  //   await CampaignSequenceEnrollment.updateOne(
-  //     { _id: enrollmentId },
-  //     {
-  //       $set: {
-  //         status: "failed",
-  //         lastError: `WhatsApp step ${stepOrder} is empty`,
-  //       },
-  //     }
-  //   );
-  //   return;
-  // }
+  if (!templateId && !body) {
+    await CampaignSequenceEnrollment.updateOne(
+      { _id: enrollmentId },
+      {
+        $set: {
+          status: "failed",
+          lastError: `WhatsApp step ${stepOrder} needs a Meta template name or message body`,
+        },
+      }
+    );
+    return;
+  }
 
   let sendResult;
   try {
     sendResult = await sendWhatsAppMessage(userId, {
       to: normalizedPhone,
       body,
-      // TODO(meta-whatsapp-test): Pass touchpoint.templateId from plan; metaWhatsAppSendService forces hello_world for now.
-      templateId: templateId || "hello_world",
+      templateId,
+      contact,
+      senderFirstName,
     });
   } catch (err) {
     await logCampaignWhatsAppMessage({
@@ -827,7 +857,7 @@ async function processWhatsAppEnrollmentDoc(enrollment, campaign) {
       body,
       sequenceStepOrder: stepOrder,
       sequenceStepLabel: String(touchpoint.label || `Step ${stepOrder}`),
-      provider: "meta",
+      provider: "",
       externalMessageId: "",
       status: "failed",
       errorMessage: err instanceof Error ? err.message : "WhatsApp send failed",

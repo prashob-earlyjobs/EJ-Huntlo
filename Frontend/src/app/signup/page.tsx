@@ -6,7 +6,7 @@ import { FormEvent, useEffect, useState } from "react";
 
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { getStoredAuth } from "@/lib/auth";
-import { postAuthPath } from "@/lib/onboarding";
+import { resolveAuthRedirect } from "@/lib/claimPublicSearch";
 
 type SignupField = "fullName" | "companyName" | "email" | "mobile" | "password" | "confirmPassword";
 type SignupFieldErrors = Partial<Record<SignupField, string>>;
@@ -35,7 +35,7 @@ export default function SignupPage() {
   useEffect(() => {
     const auth = getStoredAuth();
     if (auth) {
-      router.replace(postAuthPath(auth));
+      void resolveAuthRedirect(auth, auth.token).then((path) => router.replace(path));
     }
   }, [router]);
 
@@ -140,16 +140,17 @@ export default function SignupPage() {
         );
         setSuccessMessage("Account created. Redirecting...");
         setTimeout(() => {
-          router.push(
-            postAuthPath({
+          void resolveAuthRedirect(
+            {
               role: data.user.role === "admin" ? "admin" : "user",
               onboardingCompleted: Boolean(data.user.onboardingCompleted),
               accountRole:
                 data.user.accountRole === "owner" || data.user.accountRole === "member"
                   ? data.user.accountRole
                   : null,
-            })
-          );
+            },
+            data.token
+          ).then((path) => router.push(path));
         }, 600);
       } else {
         setSuccessMessage("Account created successfully. Redirecting to login...");
@@ -170,7 +171,7 @@ export default function SignupPage() {
     <main className="premium-shell flex min-h-screen items-center justify-center px-4 py-10">
       <section className="premium-card w-full max-w-md rounded-3xl p-8 sm:p-9">
         <div className="mb-8">
-          <p className="text-sm font-medium text-blue-700">Join EJHunter</p>
+          <p className="text-sm font-medium text-blue-700">Join Huntlo</p>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
             Create your account
           </h1>

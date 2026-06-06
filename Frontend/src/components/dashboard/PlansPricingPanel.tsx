@@ -1,7 +1,14 @@
 "use client";
 
+import { useCallback, useState } from "react";
+
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { PlanPaymentButton } from "@/components/dashboard/PlanPaymentButton";
 import { PlansPricingSkeleton } from "@/components/dashboard/PlansPricingSkeleton";
+import {
+  planPaymentCurrencyLabel,
+  type PlanPaymentCurrency,
+} from "@/lib/planPayment";
 import {
   quotaRemainingDisplay,
   quotaUsedPercent,
@@ -16,6 +23,7 @@ import {
   type PricingPlansPayload,
   type PricingTier,
 } from "@/lib/pricingPlans";
+import { useDodoPaymentReturn } from "@/lib/useDodoPaymentReturn";
 
 type Props = {
   loading: boolean;
@@ -30,6 +38,8 @@ type Props = {
   historyTotalDocs: number;
   historyTotalPages: number;
   onHistoryPageChange: (page: number) => void;
+  onPaymentSuccess?: (message: string) => void;
+  paymentSuccessToast?: string | null;
 };
 
 type UtilisationMetric = {
@@ -142,9 +152,15 @@ function UtilisationMeter({
 function PricingPlanCard({
   tier,
   isCurrent,
+  currentPlanId,
+  paymentCurrency,
+  onPaymentSuccess,
 }: {
   tier: PricingTier;
   isCurrent: boolean;
+  currentPlanId: string;
+  paymentCurrency: PlanPaymentCurrency;
+  onPaymentSuccess?: (message: string) => void;
 }) {
   const featured = Boolean(tier.isPopular) && !isCurrent;
   const lines = tierFeatureLines(tier);
@@ -189,6 +205,16 @@ function PricingPlanCard({
           ))}
         </ul>
       ) : null}
+
+      <div className="dashboard-pricing-card-actions">
+        <PlanPaymentButton
+          tier={tier}
+          currentPlanId={currentPlanId}
+          currency={paymentCurrency}
+          featured={featured}
+          onPaymentSuccess={onPaymentSuccess}
+        />
+      </div>
     </article>
   );
 }
@@ -206,14 +232,40 @@ export function PlansPricingPanel({
   historyTotalDocs,
   historyTotalPages,
   onHistoryPageChange,
+  onPaymentSuccess,
+  paymentSuccessToast,
 }: Props) {
+  const [paymentCurrency, setPaymentCurrency] = useState<PlanPaymentCurrency>("inr");
+  const [dodoReturnMessage, setDodoReturnMessage] = useState<{
+    tone: "success" | "error";
+    text: string;
+  } | null>(null);
+
+  const handleDodoReturnSuccess = useCallback(
+    (message: string) => {
+      setDodoReturnMessage({ tone: "success", text: message });
+      onPaymentSuccess?.(message);
+    },
+    [onPaymentSuccess]
+  );
+
+  const handleDodoReturnError = useCallback((message: string) => {
+    setDodoReturnMessage({ tone: "error", text: message });
+  }, []);
+
+  useDodoPaymentReturn({
+    enabled: !loading,
+    onSuccess: handleDodoReturnSuccess,
+    onError: handleDodoReturnError,
+  });
+
   const currentTier =
     plans?.tiers.find((tier) => tier.id === currentPlanId) ??
     plans?.tiers.find((tier) => tier.name === currentPlanName) ??
     null;
 
   const displayPlanName = currentTier?.name ?? currentPlanName;
-  const showOutreachMeters = hasOutreachThreadUtilisation(currentPlanId);
+  const showOutreachMeters = hasOutreachThreadUtilisation(currentPlanId, plans);
 
   return (
     <section className="dashboard-card flex min-w-0 max-w-full w-full flex-col p-6">
@@ -244,12 +296,55 @@ export function PlansPricingPanel({
             <p className="dashboard-pricing-intro">{plans.intro}</p>
           ) : null}
 
+          {paymentSuccessToast || dodoReturnMessage ? (
+            <p
+              className={
+                dodoReturnMessage?.tone === "error"
+                  ? "dashboard-plan-pay-modal-notice dashboard-plan-pay-modal-notice--error mb-4"
+                  : "dashboard-pricing-payment-toast"
+              }
+              role="status"
+            >
+              <MaterialIcon
+                name={dodoReturnMessage?.tone === "error" ? "error" : "check_circle"}
+                className="shrink-0 text-base"
+              />
+              {dodoReturnMessage?.text || paymentSuccessToast}
+            </p>
+          ) : null}
+
+          <div className="dashboard-pricing-billing-row">
+            <p className="dashboard-pricing-billing-label">Billing currency</p>
+            <div
+              className="dashboard-pricing-billing-toggle"
+              role="group"
+              aria-label="Select billing currency for payment"
+            >
+              {(["inr", "usd"] as const).map((code) => (
+                <button
+                  key={code}
+                  type="button"
+                  className={`dashboard-pricing-billing-option${
+                    paymentCurrency === code ? " dashboard-pricing-billing-option--active" : ""
+                  }`}
+                  aria-pressed={paymentCurrency === code}
+                  onClick={() => setPaymentCurrency(code)}
+                >
+                  {planPaymentCurrencyLabel(code)}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="dashboard-pricing-grid">
             {plans.tiers.map((tier) => (
               <PricingPlanCard
                 key={tier.id || tier.name}
                 tier={tier}
                 isCurrent={tier.id === currentPlanId}
+                currentPlanId={currentPlanId}
+                paymentCurrency={paymentCurrency}
+                onPaymentSuccess={onPaymentSuccess}
               />
             ))}
           </div>

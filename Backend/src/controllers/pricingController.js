@@ -2,113 +2,29 @@ const PricingPlan = require("../models/PricingPlan");
 const PricingPlansMeta = require("../models/PricingPlansMeta");
 const PricingPlansConfig = require("../models/PricingPlansConfig");
 
-const DEFAULT_PRICING_PLANS = {
-  intro:
-    "Transparent limits in INR and USD. Upgrade when your outbound volume grows—no surprise overages on core allowances within each tier.",
-  tiers: [
-    {
-      id: "trial",
-      name: "Trial",
-      primaryPrice: "Free trial",
-      secondaryPrice: "",
-      description:
-        "Try Huntlo with limited searches and unlocks. Upgrade to Starter or Growth when you are ready.",
-      searches: 50,
-      candidateUnlocks: 25,
-      verifiedEmails: 25,
-      phoneNumbers: 10,
-      emailOutreaches: null,
-      whatsappOutreaches: null,
-      maxSubUsers: 0,
-      features: [
-        "AI candidate search",
-        "Filter drawer & session results",
-        "Email outreach (limited)",
-        "Upgrade anytime",
-      ],
-      isPopular: false,
-      popularBadge: "⭐ Most Popular",
-    },
-    {
-      id: "starter",
-      name: "Starter",
-      primaryPrice: "₹4,999/month",
-      secondaryPrice: "(or $99/month)",
-      description:
-        "For solo recruiters and lean hiring teams starting with AI-powered sourcing and outreach.",
-      searches: 300,
-      candidateUnlocks: 100,
-      verifiedEmails: 100,
-      phoneNumbers: 100,
-      emailOutreaches: null,
-      whatsappOutreaches: null,
-      maxSubUsers: 1,
-      features: [
-        "100 outreach credits",
-        "AI sourcing workflows",
-        "Email outreach",
-        "Chrome extension",
-        "Email + chat support",
-      ],
-      isPopular: false,
-      popularBadge: "⭐ Most Popular",
-    },
-    {
-      id: "growth",
-      name: "Growth",
-      primaryPrice: "₹19,999/month",
-      secondaryPrice: "(or $399/month)",
-      description:
-        "For recruiting teams running active outbound hiring campaigns across multiple roles.",
-      searches: 1500,
-      candidateUnlocks: 700,
-      verifiedEmails: 350,
-      phoneNumbers: 120,
-      emailOutreaches: 500,
-      whatsappOutreaches: 500,
-      maxSubUsers: 5,
-      features: [
-        "1,000 outreach credits",
-        "WhatsApp + Email outreach",
-        "AI personalization",
-        "ATS integrations",
-        "Team collaboration",
-        "Priority support",
-      ],
-      isPopular: true,
-      popularBadge: "⭐ Most Popular",
-    },
-    {
-      id: "enterprise",
-      name: "Enterprise",
-      primaryPrice: "Custom Pricing",
-      secondaryPrice: "(Starts at ₹59,999/month or $1,499/month)",
-      description:
-        "For enterprise hiring operations, staffing firms, and large-scale recruiting teams.",
-      searches: 10000,
-      candidateUnlocks: 4000,
-      verifiedEmails: 2000,
-      phoneNumbers: 800,
-      emailOutreaches: 500,
-      whatsappOutreaches: 500,
-      maxSubUsers: null,
-      features: [
-        "5,000+ outreach credits",
-        "AI recruiter workflows",
-        "AI voice outreach",
-        "API access",
-        "Enterprise integrations",
-        "Advanced analytics",
-        "Dedicated infrastructure",
-        "Dedicated support team",
-      ],
-      isPopular: false,
-      popularBadge: "⭐ Most Popular",
-    },
-  ],
-};
+const DEFAULT_POPULAR_BADGE = "⭐ Most Popular";
 
 const QUOTA_MAX = 1e9;
+
+/** Until admin saves explicit flags, growth/enterprise keep prior product access. */
+function legacyPlanProductAccess(planId) {
+  const id = String(planId || "").trim().toLowerCase();
+  const enabled = id === "growth" || id === "enterprise";
+  return {
+    campaignsEnabled: enabled,
+    integrationsEnabled: enabled,
+    outreachesEnabled: enabled,
+  };
+}
+
+function resolvePlanProductFlag(stored, planId, key) {
+  if (typeof stored === "boolean") return stored;
+  return legacyPlanProductAccess(planId)[key];
+}
+
+function tierUsesOutreachQuotas(tier) {
+  return Boolean(tier.campaignsEnabled || tier.outreachesEnabled);
+}
 
 /** Accepts number or numeric string (e.g. legacy "300 searches"); returns null if unset/invalid. */
 function normalizeQuotaNumber(v) {
@@ -208,8 +124,7 @@ function normalizePayload(body) {
     const popularBadge =
       typeof t?.popularBadge === "string"
         ? t.popularBadge.trim().slice(0, 80)
-        : DEFAULT_PRICING_PLANS.tiers.find((d) => d.id === "growth")?.popularBadge ||
-          "⭐ Most Popular";
+        : DEFAULT_POPULAR_BADGE;
     return {
       id,
       name,
@@ -224,6 +139,9 @@ function normalizePayload(body) {
       whatsappOutreaches,
       maxSubUsers,
       features,
+      campaignsEnabled: Boolean(t?.campaignsEnabled),
+      integrationsEnabled: Boolean(t?.integrationsEnabled),
+      outreachesEnabled: Boolean(t?.outreachesEnabled),
       isPopular,
       popularBadge,
     };
@@ -248,32 +166,33 @@ function validatePlansPayload(data) {
 
 function enrichPlansData(raw) {
   const intro =
-    typeof raw.intro === "string" && raw.intro.trim()
-      ? raw.intro.trim()
-      : DEFAULT_PRICING_PLANS.intro;
-  const srcTiers =
-    Array.isArray(raw.tiers) && raw.tiers.length > 0 ? raw.tiers : DEFAULT_PRICING_PLANS.tiers;
+    typeof raw.intro === "string" && raw.intro.trim() ? raw.intro.trim() : "";
+  const srcTiers = Array.isArray(raw.tiers) ? raw.tiers : [];
 
-  const tiers = srcTiers.map((tier, index) => {
-    const def =
-      DEFAULT_PRICING_PLANS.tiers.find((d) => d.id === tier.id) ||
-      DEFAULT_PRICING_PLANS.tiers[index] ||
-      {};
-    const merged = { ...def, ...tier };
-    const pick = (key) => {
-      const n = normalizeQuotaNumber(tier[key]);
-      if (n !== null) return n;
-      return normalizeQuotaNumber(def[key]);
-    };
+  const tiers = srcTiers.map((tier) => {
+    const merged = { ...tier };
+    merged.campaignsEnabled = resolvePlanProductFlag(
+      tier.campaignsEnabled,
+      tier.id,
+      "campaignsEnabled"
+    );
+    merged.integrationsEnabled = resolvePlanProductFlag(
+      tier.integrationsEnabled,
+      tier.id,
+      "integrationsEnabled"
+    );
+    merged.outreachesEnabled = resolvePlanProductFlag(
+      tier.outreachesEnabled,
+      tier.id,
+      "outreachesEnabled"
+    );
+
+    const pick = (key) => normalizeQuotaNumber(tier[key]);
     merged.searches = pick("searches");
     merged.candidateUnlocks = pick("candidateUnlocks");
     merged.verifiedEmails = pick("verifiedEmails");
     merged.phoneNumbers = pick("phoneNumbers");
-    const outreachQuotaTier =
-      merged.id === "growth" ||
-      merged.id === "enterprise" ||
-      (index >= 2 && merged.id !== "trial" && merged.id !== "starter");
-    if (outreachQuotaTier) {
+    if (tierUsesOutreachQuotas(merged)) {
       merged.emailOutreaches = pick("emailOutreaches");
       merged.whatsappOutreaches = pick("whatsappOutreaches");
     } else {
@@ -285,21 +204,15 @@ function enrichPlansData(raw) {
         return null;
       }
       const n = normalizeQuotaNumber(tier.maxSubUsers);
-      if (n !== null) return n;
-      if (def.maxSubUsers === null) return null;
-      const d = normalizeQuotaNumber(def.maxSubUsers);
-      return d !== null ? d : 0;
+      return n !== null ? n : 0;
     };
     merged.maxSubUsers = pickSubUsers();
 
-    const strip = quotaStripSetFromNumbers(def);
+    const strip = quotaStripSetFromNumbers(merged);
     let feats = Array.isArray(tier.features)
       ? tier.features.map((f) => String(f).trim()).filter(Boolean)
       : [];
     feats = feats.filter((f) => !strip.has(f));
-    if (feats.length === 0 && Array.isArray(def.features)) {
-      feats = [...def.features];
-    }
     merged.features = feats.slice(0, 40);
     return merged;
   });
@@ -335,6 +248,13 @@ function planDocumentToTierPayload(doc) {
           ? undefined
           : coerceStoredQuota(o.maxSubUsers),
     features: Array.isArray(o.features) ? o.features : [],
+    campaignsEnabled: resolvePlanProductFlag(o.campaignsEnabled, o.planId, "campaignsEnabled"),
+    integrationsEnabled: resolvePlanProductFlag(
+      o.integrationsEnabled,
+      o.planId,
+      "integrationsEnabled"
+    ),
+    outreachesEnabled: resolvePlanProductFlag(o.outreachesEnabled, o.planId, "outreachesEnabled"),
     isPopular: Boolean(o.isPopular),
     popularBadge: o.popularBadge || "⭐ Most Popular",
     lastUpdated: iso(o.updatedAt),
@@ -360,6 +280,9 @@ async function upsertPricingPlanFromNormalized(t, sortOrder) {
         whatsappOutreaches: t.whatsappOutreaches,
         maxSubUsers: t.maxSubUsers,
         features: t.features,
+        campaignsEnabled: Boolean(t.campaignsEnabled),
+        integrationsEnabled: Boolean(t.integrationsEnabled),
+        outreachesEnabled: Boolean(t.outreachesEnabled),
         isPopular: t.isPopular,
         popularBadge: t.popularBadge,
       },
@@ -374,12 +297,10 @@ async function migrateFromLegacyIfNeeded() {
   if (!legacy?.data || typeof legacy.data !== "object") return;
 
   const raw = legacy.data;
-  const tiersIn =
-    Array.isArray(raw.tiers) && raw.tiers.length > 0 ? raw.tiers : DEFAULT_PRICING_PLANS.tiers;
-  const intro =
-    typeof raw.intro === "string" && raw.intro.trim()
-      ? raw.intro.trim()
-      : DEFAULT_PRICING_PLANS.intro;
+  const tiersIn = Array.isArray(raw.tiers) && raw.tiers.length > 0 ? raw.tiers : [];
+  const intro = typeof raw.intro === "string" && raw.intro.trim() ? raw.intro.trim() : "";
+  if (!intro && tiersIn.length === 0) return;
+
   const normalized = normalizePayload({ intro, tiers: tiersIn });
 
   await PricingPlansMeta.findOneAndUpdate(
@@ -395,41 +316,6 @@ async function migrateFromLegacyIfNeeded() {
   await PricingPlansConfig.deleteOne({ key: "singleton" });
 }
 
-/** Fresh DB: seed default intro + default tiers as separate documents. */
-async function ensurePricingDataSeeded() {
-  const n = await PricingPlan.countDocuments();
-  if (n > 0) return;
-
-  const normalized = normalizePayload(DEFAULT_PRICING_PLANS);
-  await PricingPlansMeta.findOneAndUpdate(
-    { key: "singleton" },
-    { $set: { key: "singleton", intro: normalized.intro } },
-    { upsert: true, new: true }
-  );
-
-  for (let i = 0; i < normalized.tiers.length; i += 1) {
-    await upsertPricingPlanFromNormalized(normalized.tiers[i], i);
-  }
-}
-
-/** Ensure trial tier exists in DB (for deployments seeded before trial was added). */
-async function ensureTrialPlanExists() {
-  const exists = await PricingPlan.findOne({ planId: "trial" }).lean();
-  if (exists) return;
-
-  const def = DEFAULT_PRICING_PLANS.tiers.find((t) => t.id === "trial");
-  if (!def) return;
-
-  const first = await PricingPlan.findOne().sort({ sortOrder: 1 }).select("sortOrder").lean();
-  const sortOrder =
-    first && typeof first.sortOrder === "number" ? first.sortOrder - 1 : 0;
-  const normalized = normalizePayload({
-    intro: DEFAULT_PRICING_PLANS.intro,
-    tiers: [def],
-  });
-  await upsertPricingPlanFromNormalized(normalized.tiers[0], sortOrder);
-}
-
 async function ensureMetaIfPlansExist() {
   const n = await PricingPlan.countDocuments();
   if (n === 0) return;
@@ -437,7 +323,7 @@ async function ensureMetaIfPlansExist() {
   if (!meta) {
     await PricingPlansMeta.create({
       key: "singleton",
-      intro: DEFAULT_PRICING_PLANS.intro,
+      intro: "",
     });
   }
 }
@@ -447,9 +333,7 @@ async function loadPlansFromDatabase() {
   const planDocs = await PricingPlan.find().sort({ sortOrder: 1 }).lean();
 
   const intro =
-    typeof metaDoc?.intro === "string" && metaDoc.intro.trim()
-      ? metaDoc.intro.trim()
-      : DEFAULT_PRICING_PLANS.intro;
+    typeof metaDoc?.intro === "string" && metaDoc.intro.trim() ? metaDoc.intro.trim() : "";
 
   const tiers = planDocs.map(planDocumentToTierPayload).filter(Boolean);
   const enriched = enrichPlansData({ intro, tiers });
@@ -477,8 +361,6 @@ async function loadPlansFromDatabase() {
 const getPricingPlans = async (_req, res) => {
   try {
     await migrateFromLegacyIfNeeded();
-    await ensurePricingDataSeeded();
-    await ensureTrialPlanExists();
     await ensureMetaIfPlansExist();
 
     const payload = await loadPlansFromDatabase();
@@ -540,8 +422,6 @@ const updatePricingPlans = async (req, res) => {
 
 async function getEnrichedTiers() {
   await migrateFromLegacyIfNeeded();
-  await ensurePricingDataSeeded();
-  await ensureTrialPlanExists();
   await ensureMetaIfPlansExist();
   const payload = await loadPlansFromDatabase();
   return payload.plans.tiers;
@@ -550,6 +430,5 @@ async function getEnrichedTiers() {
 module.exports = {
   getPricingPlans,
   updatePricingPlans,
-  DEFAULT_PRICING_PLANS,
   getEnrichedTiers,
 };

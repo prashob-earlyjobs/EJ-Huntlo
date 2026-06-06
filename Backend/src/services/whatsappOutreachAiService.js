@@ -12,7 +12,7 @@ WhatsApp messages should be concise (under 120 words each), conversational, and 
 Use short paragraphs; line breaks are allowed.
 Emojis: at most one per message, only when it fits naturally.`;
 
-const OPENING_TEMPLATE_ID = "professional_intro";
+const OPENING_TEMPLATE_ID = "opening_message_01";
 const NO_REPLY_1_TEMPLATE_ID = "no_reply_1_bump";
 const NO_REPLY_2_TEMPLATE_ID = "no_reply_2_final";
 

@@ -5,6 +5,10 @@ const pricingRoutes = require("./pricing");
 const integrationRoutes = require("./integrations");
 const outreachRoutes = require("./outreach");
 const campaignRoutes = require("./campaigns");
+const platformSettingsRoutes = require("./platformSettings");
+const billingRoutes = require("./billing");
+const publicCandidatesRoutes = require("./publicCandidates");
+const blogRoutes = require("./blog");
 
 const router = express.Router();
 
@@ -22,5 +26,9 @@ router.use("/pricing-plans", pricingRoutes);
 router.use("/integrations", integrationRoutes);
 router.use("/outreach", outreachRoutes);
 router.use("/campaigns", campaignRoutes);
+router.use("/platform-settings", platformSettingsRoutes);
+router.use("/billing", billingRoutes);
+router.use("/public-candidates", publicCandidatesRoutes);
+router.use("/blog", blogRoutes);
 
 module.exports = router;

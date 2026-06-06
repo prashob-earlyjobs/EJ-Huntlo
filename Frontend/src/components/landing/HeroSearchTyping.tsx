@@ -1,11 +1,11 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 
 import { MaterialIcon } from "./MaterialIcon";
 
-const HERO_FILTER_TAGS = ["Roles", "Skills", "Experience"] as const;
+const HERO_FILTER_TAGS = ["Roles", "Skills", "Location", "Experience"] as const;
 
 const HERO_SEARCH_PHRASES_DESKTOP = [
   "Tell me who you want to hire — backend engineer in Berlin with 3+ years of experience...",
@@ -62,14 +62,26 @@ function phrasesForTier(tier: TypingTier) {
 }
 
 export function HeroSearchTyping() {
+  const router = useRouter();
   const tier = useTypingTier();
   const phrases = phrasesForTier(tier);
 
   const [phraseIndex, setPhraseIndex] = useState(0);
   const [display, setDisplay] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
+  const [userValue, setUserValue] = useState("");
+  const [isEditing, setIsEditing] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   const phrase = phrases[phraseIndex] ?? phrases[0];
+  const hasUserQuery = Boolean(userValue.trim());
+  const showTyping = !isEditing && !userValue;
+
+  const goToCandidates = () => {
+    const q = userValue.trim();
+    if (!q) return;
+    router.push(`/candidates?q=${encodeURIComponent(q)}`);
+  };
 
   useEffect(() => {
     setPhraseIndex(0);
@@ -78,6 +90,8 @@ export function HeroSearchTyping() {
   }, [tier]);
 
   useEffect(() => {
+    if (!showTyping) return;
+
     if (!isDeleting && display.length === phrase.length) {
       const pause = setTimeout(() => setIsDeleting(true), PAUSE_FULL_MS);
       return () => clearTimeout(pause);
@@ -103,22 +117,48 @@ export function HeroSearchTyping() {
     );
 
     return () => clearTimeout(tick);
-  }, [display, isDeleting, phrase, phrases.length]);
+  }, [display, isDeleting, phrase, phrases.length, showTyping]);
 
   return (
     <div className="landing-hero-search landing-ambient-shadow mx-auto mt-8 w-full max-w-3xl rounded-2xl border border-[#c3c6d6]/30 bg-white p-3 shadow-xl sm:mt-12 md:p-4">
-      <div className="landing-hero-search-input-row py-3 md:px-4 md:py-4">
+      <div
+        className="landing-hero-search-input-row py-3 md:px-4 md:py-4"
+        onClick={() => inputRef.current?.focus()}
+      >
         <MaterialIcon
           name="search"
           className="shrink-0 text-[20px] text-[#0050cb] sm:text-[22px] md:mt-0.5"
         />
-        <div className="landing-hero-search-typing">
-          <p className="landing-hero-search-typing-text" aria-live="polite">
+        <div className="landing-hero-search-typing relative min-h-6 md:min-h-12">
+          <p
+            className={`landing-hero-search-typing-text absolute inset-x-0 top-0 pointer-events-none transition-opacity ${
+              showTyping ? "opacity-100" : "opacity-0"
+            }`}
+            aria-live="polite"
+            aria-hidden={!showTyping}
+          >
             <span className="landing-hero-search-typing-value">{display}</span>
             <span className="landing-typing-cursor shrink-0 font-light text-[#0050cb]">
               |
             </span>
           </p>
+
+          <input
+            ref={inputRef}
+            type="text"
+            value={userValue}
+            onChange={(e) => setUserValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && hasUserQuery) goToCandidates();
+            }}
+            onFocus={() => setIsEditing(true)}
+            onBlur={() => {
+              if (!userValue.trim()) setIsEditing(false);
+            }}
+            placeholder={showTyping ? "" : display}
+            className="relative z-10 w-full min-w-0 border-none bg-transparent text-left text-sm leading-6 text-[#434654] caret-[#0050cb] outline-none md:text-[15px] md:leading-relaxed"
+            aria-label="Describe who you want to hire"
+          />
         </div>
       </div>
 
@@ -135,12 +175,14 @@ export function HeroSearchTyping() {
             </span>
           ))}
         </div>
-        <Link
-          href="/signup"
-          className="landing-hero-search-footer-cta shrink-0 rounded-full bg-[#0050cb] px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-[#0050cb]/25 transition-colors hover:bg-[#003fa4]"
+        <button
+          type="button"
+          onClick={goToCandidates}
+          disabled={!hasUserQuery}
+          className="landing-hero-search-footer-cta shrink-0 rounded-full bg-[#0050cb] px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-[#0050cb]/25 transition-colors hover:bg-[#003fa4] disabled:cursor-not-allowed disabled:bg-[#c3c6d6] disabled:text-white/90 disabled:shadow-none disabled:hover:bg-[#c3c6d6]"
         >
           Find Candidates
-        </Link>
+        </button>
       </div>
     </div>
   );

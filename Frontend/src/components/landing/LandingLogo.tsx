@@ -8,10 +8,10 @@ type Props = {
 export function LandingLogo({ className = "h-12 w-auto md:h-14", priority = false }: Props) {
   return (
     <Image
-      src="/logo_2.png"
+      src="/logo_3.png"
       alt="Huntlo"
       width={340}
-      height={97}
+      height={79}
       className={className}
       priority={priority}
     />

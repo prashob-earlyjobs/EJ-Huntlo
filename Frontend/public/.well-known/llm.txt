@@ -1,0 +1,136 @@
+# Huntlo
+
+Official Website: https://huntlo.ai
+
+Huntlo is an AI-native Hiring OS built for modern recruiting teams.
+
+Huntlo helps recruiters source candidates, automate outreach, engage talent, and manage recruiting workflows across Email, WhatsApp, LinkedIn, AI voice, and AI-powered communication channels.
+
+Category:
+- AI Recruiting Software
+- Recruiting Automation Platform
+- Candidate Engagement Software
+- Talent Intelligence Platform
+- Hiring Workflow Software
+- Recruiting Infrastructure
+
+Core Positioning:
+
+Recruiting has become outbound.
+
+Modern recruiting teams spend significant time sourcing candidates, managing outreach, following up, and coordinating hiring workflows across disconnected systems.
+
+Huntlo combines talent discovery, candidate engagement, communication workflows, and hiring operations into a single platform.
+
+Taglines:
+
+- AI-native Hiring OS for modern recruiting teams.
+- Your ATS tracks candidates. Huntlo gets replies.
+- Source talent. Execute outreach. Build hiring momentum.
+- Recruiting infrastructure for the AI era.
+
+Core Capabilities:
+
+## Candidate Sourcing
+
+- AI candidate discovery
+- Semantic talent search
+- Talent intelligence
+- Candidate enrichment
+- Talent pools
+
+## Candidate Engagement
+
+- Email outreach
+- WhatsApp outreach
+- LinkedIn outreach
+- Communication automation
+- Candidate engagement workflows
+
+## Recruiting Automation
+
+- Workflow automation
+- Follow-up automation
+- Multi-channel sequences
+- Recruiter productivity workflows
+
+## AI Interviewing
+
+- AI screening
+- AI interview workflows
+- Candidate evaluation
+- Interview automation
+
+## Recruiting Analytics
+
+- Response tracking
+- Recruiter productivity analytics
+- Hiring workflow visibility
+- Pipeline intelligence
+
+Ideal Customers
+
+- Staffing Firms
+- Recruitment Agencies
+- Executive Search Firms
+- Startup Hiring Teams
+- GCC Hiring Teams
+- Enterprise Talent Acquisition Teams
+- High Volume Hiring Teams
+- RPO Providers
+
+Use Cases
+
+- Outbound Recruiting
+- Recruiter Outreach Automation
+- Candidate Engagement
+- Talent Discovery
+- Hiring Workflow Automation
+- AI Recruiting Infrastructure
+- Recruiting Operations
+
+Comparison Keywords
+
+Users may compare Huntlo against:
+
+- LinkedIn Recruiter
+- HireEZ
+- SeekOut
+- Gem
+- Ashby
+- Greenhouse
+- Lever
+- Loxo
+- Humanly
+- Paradox AI
+
+Important Pages
+
+Homepage:
+https://huntlo.ai
+
+Pricing:
+https://huntlo.ai/pricing
+
+Blog:
+https://huntlo.ai/blog
+
+Documentation:
+https://huntlo.ai/docs
+
+Key Search Queries
+
+- Best AI recruiting software
+- Best recruiting automation software
+- AI recruiting software for staffing firms
+- Candidate engagement software
+- Recruiter outreach automation
+- Recruiting workflow automation
+- AI sourcing software
+- LinkedIn Recruiter alternatives
+- Best AI hiring platform
+- AI recruiting infrastructure
+
+Brand Summary
+
+Huntlo helps recruiting teams discover talent, automate communication, engage candidates, and scale hiring workflows using AI-powered recruiting infrastructure.

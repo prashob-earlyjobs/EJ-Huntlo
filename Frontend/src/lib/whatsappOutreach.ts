@@ -24,14 +24,14 @@ export type WhatsAppOpeningTemplate = WhatsAppMessageTemplate;
 
 export const WHATSAPP_OPENING_TEMPLATES: WhatsAppMessageTemplate[] = [
   {
-    id: "professional_intro",
+    id: "opening_message_01",
     name: "Professional introduction",
-    description: "Formal outreach highlighting the role and a quick call to action.",
-    body: `Hi {{FirstName}},
+    description: "Shortlisted candidate invite to review the role and reply for next steps.",
+    body: `Hi {{1}},
 
-I'm {{SenderFirstName}}, and I came across your profile while hiring for a {{JobTitle}} opportunity. Your experience at {{CurrentCompany}} stood out to us.
+Your profile has been shortlisted through our candidate matching process for the {{2}} position.
 
-Would you be open to a brief chat this week?`,
+To review the opportunity details and next steps, please reply to this message.`,
   },
   {
     id: "role_opportunity",
@@ -42,14 +42,6 @@ Would you be open to a brief chat this week?`,
 We're actively looking for a {{JobTitle}}, and your background looks like a strong match.
 
 Happy to share more details if you're interested — would that work for you?`,
-  },
-  {
-    id: "warm_connect",
-    name: "Warm connect",
-    description: "Friendly, low-pressure opener to start a conversation.",
-    body: `Hi {{FirstName}}, hope you're doing well!
-
-I wanted to reach out about an opportunity that aligns with your experience as {{JobTitle}}. No pressure — just checking if you'd be open to hearing more.`,
   },
 ];
 
@@ -71,12 +63,6 @@ Are you still open to a quick chat about the {{JobTitle}} opportunity?`,
 
 Would a 10-minute call work this week?`,
     },
-    {
-      id: "no_reply_1_soft",
-      name: "Soft check-in",
-      description: "Low-pressure nudge with an easy yes/no.",
-      body: `Hi {{FirstName}}, hope you're doing well! Still happy to share more about the {{JobTitle}} role if you're interested — should I send details?`,
-    },
   ],
   2: [
     {
@@ -92,12 +78,6 @@ Happy to share more details whenever works for you. Should I close the loop on t
       name: "Door open",
       description: "Leaves the conversation open without pressure.",
       body: `Hi {{FirstName}}, I don't want to crowd your inbox — I'll pause here unless you'd like to hear more about the {{JobTitle}} opportunity. Just reply anytime.`,
-    },
-    {
-      id: "no_reply_2_close",
-      name: "Close the loop",
-      description: "Clear closing message if there is still no response.",
-      body: `Hi {{FirstName}}, I'll assume timing isn't right for the {{JobTitle}} role. Feel free to reach out if things change — wishing you all the best at {{CurrentCompany}}!`,
     },
   ],
 };

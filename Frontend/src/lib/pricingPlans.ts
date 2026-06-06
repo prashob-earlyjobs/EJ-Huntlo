@@ -13,6 +13,9 @@ export type PricingTier = {
   /** null = unlimited sub-users */
   maxSubUsers?: number | null;
   features: string[];
+  campaignsEnabled?: boolean;
+  integrationsEnabled?: boolean;
+  outreachesEnabled?: boolean;
   isPopular?: boolean;
   popularBadge?: string;
 };
@@ -100,6 +103,12 @@ export function parsePricingPlansFromApi(plans: unknown): PricingPlansPayload | 
           ? null
           : parsePricingQuotaFromApi(t.maxSubUsers),
       features: features.map((f) => String(f ?? "").trim()).filter((line) => line !== ""),
+      campaignsEnabled:
+        typeof t.campaignsEnabled === "boolean" ? t.campaignsEnabled : undefined,
+      integrationsEnabled:
+        typeof t.integrationsEnabled === "boolean" ? t.integrationsEnabled : undefined,
+      outreachesEnabled:
+        typeof t.outreachesEnabled === "boolean" ? t.outreachesEnabled : undefined,
       isPopular: Boolean(t.isPopular),
       popularBadge:
         typeof t.popularBadge === "string" && t.popularBadge.trim()
@@ -132,28 +141,30 @@ export function planCtaLabel(tier: PricingTier): string {
   if (tier.id === "enterprise" || /custom/i.test(tier.primaryPrice)) {
     return "Contact us";
   }
-  if (tier.isPopular) return "Get started";
+  if (tier.isPopular) return "Start Free Trial";
   return "Start deploying";
 }
 
-/** Landing page: Starter, popular tier center, Enterprise (no Trial). */
-export function landingDisplayTiers(tiers: PricingTier[]): PricingTier[] {
-  const paid = tiers.filter((t) => t.id !== "trial");
-  if (paid.length === 0) return tiers.slice(0, 3);
+const LANDING_PLAN_IDS = ["trial", "starter", "growth"] as const;
 
-  const popular = paid.find((t) => t.isPopular);
-  const others = paid.filter((t) => !t.isPopular);
-  if (popular && others.length >= 2) {
-    return [others[0], popular, others[1]];
-  }
-  return paid.slice(0, 3);
+/** Landing page: trial, starter, growth (fixed order). */
+export function landingDisplayTiers(tiers: PricingTier[]): PricingTier[] {
+  const byId = new Map(
+    tiers
+      .filter((t) => typeof t.id === "string" && t.id.trim())
+      .map((t) => [t.id as string, t])
+  );
+  return LANDING_PLAN_IDS.map((id) => byId.get(id)).filter(
+    (tier): tier is PricingTier => tier !== undefined
+  );
 }
 
 export function landingPlanCtaLabel(tier: PricingTier): string {
   if (tier.id === "enterprise" || /custom/i.test(tier.primaryPrice)) {
     return "Contact Sales";
   }
-  if (tier.isPopular) return "Get Started";
+  if (tier.id === "trial") return "Start Free Trial";
+  if (tier.isPopular) return "Start Free Trial";
   return `Choose ${tier.name}`;
 }
 

@@ -219,7 +219,7 @@ async function logCampaignWhatsAppMessage({
         ? Number(sequenceStepOrder)
         : null,
     sequenceStepLabel: String(sequenceStepLabel || "").trim(),
-    provider: provider === "meta" ? provider : "",
+    provider: provider === "meta" || provider === "gupshup" ? provider : "",
     externalMessageId: String(externalMessageId || "").trim(),
     status: status || "sent",
     errorMessage: String(errorMessage || "").trim(),
@@ -449,7 +449,7 @@ async function sendCampaignWhatsAppSessionMessage(actorUserId, campaignId, candi
       body: text,
       sequenceStepOrder: null,
       sequenceStepLabel: "",
-      provider: "meta",
+      provider: "",
       externalMessageId: "",
       status: "failed",
       errorMessage: sendError?.message || "Send failed",

@@ -4,6 +4,11 @@ import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { AdminBlogPanel } from "@/components/admin/AdminBlogPanel";
+import {
+  AdminMessagingChannelSettings,
+  type AdminMessagingChannel,
+} from "@/components/admin/AdminMessagingChannelSettings";
 import {
   CandidatePoolPanel,
   type PoolCandidateRow,
@@ -11,6 +16,10 @@ import {
 } from "@/components/dashboard/CandidatePoolPanel";
 import { LandingLogo } from "@/components/landing/LandingLogo";
 import { authHeaders, getStoredAuth, type StoredAuth } from "@/lib/auth";
+import {
+  fetchPlatformSettings,
+  updatePlatformSettings,
+} from "@/lib/platformSettingsApi";
 import {
   candidateIdentityKey,
   candidateRowKey,
@@ -80,6 +89,26 @@ const sidebarItems = [
     ),
   },
   {
+    label: "Blog",
+    subtitle: "Publish articles on /blog",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
+        <path
+          d="M6 4H18V6H6V4ZM6 8H18V10H6V8ZM6 12H14V14H6V12ZM4 4H4.01M4 8H4.01M4 12H4.01"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+        />
+        <path
+          d="M6 16H18V20H6V16Z"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinejoin="round"
+        />
+      </svg>
+    ),
+  },
+  {
     label: "Plans & pricing",
     subtitle: "Edit tiers shown to users",
     icon: (
@@ -104,7 +133,7 @@ const sidebarItems = [
   },
   {
     label: "Settings",
-    subtitle: "Workspace preferences",
+    subtitle: "Messaging channel",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
         <path
@@ -121,6 +150,8 @@ const sidebarItems = [
 
 const ADMIN_POOL_TAB = "Candidate pool";
 const ADMIN_ANALYTICS_TAB = "Analytics";
+const ADMIN_SETTINGS_TAB = "Settings";
+const ADMIN_BLOG_TAB = "Blog";
 const ADMIN_POOL_LIMIT = 12;
 
 type TeamUserRow = {
@@ -600,6 +631,9 @@ type PricingTierForm = {
   whatsappOutreaches: string;
   maxSubUsers: string;
   featuresText: string;
+  campaignsEnabled: boolean;
+  integrationsEnabled: boolean;
+  outreachesEnabled: boolean;
   isPopular: boolean;
   popularBadge: string;
 };
@@ -620,12 +654,13 @@ function quotaApiValueToFormField(v: unknown): string {
   return "";
 }
 
-/** Outreach quota fields only on Growth (tier 3) and Enterprise (tier 4). */
-function tierShowsOutreachQuotaFields(tierIndex: number, tierId: string): boolean {
+function legacyTierProductAccess(tierId: string) {
   const id = tierId.trim().toLowerCase();
-  if (id === "trial" || id === "starter") return false;
-  if (id === "growth" || id === "enterprise") return true;
-  return tierIndex >= 2;
+  return id === "growth" || id === "enterprise";
+}
+
+function tierUsesOutreachQuotas(tier: Pick<PricingTierForm, "campaignsEnabled" | "outreachesEnabled">) {
+  return tier.campaignsEnabled || tier.outreachesEnabled;
 }
 
 function formQuotaFieldToApi(s: string): number | null {
@@ -638,12 +673,26 @@ function formQuotaFieldToApi(s: string): number | null {
 function apiPlansToForm(plans: { intro?: unknown; tiers?: unknown }): PricingPlansFormState {
   const intro = typeof plans.intro === "string" ? plans.intro : "";
   const raw = Array.isArray(plans.tiers) ? plans.tiers : [];
-  const tiers: PricingTierForm[] = raw.map((item: unknown, tierIndex: number) => {
+  const tiers: PricingTierForm[] = raw.map((item: unknown) => {
     const t = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+    const tierId = typeof t.id === "string" ? t.id : "";
     const features = Array.isArray(t.features) ? t.features : [];
     const lines = features.map((f) => String(f ?? "").trim()).filter(Boolean);
+    const campaignsEnabled =
+      typeof t.campaignsEnabled === "boolean"
+        ? t.campaignsEnabled
+        : legacyTierProductAccess(tierId);
+    const integrationsEnabled =
+      typeof t.integrationsEnabled === "boolean"
+        ? t.integrationsEnabled
+        : legacyTierProductAccess(tierId);
+    const outreachesEnabled =
+      typeof t.outreachesEnabled === "boolean"
+        ? t.outreachesEnabled
+        : legacyTierProductAccess(tierId);
+    const showOutreachQuotas = campaignsEnabled || outreachesEnabled;
     return {
-      id: typeof t.id === "string" ? t.id : "",
+      id: tierId,
       name: typeof t.name === "string" ? t.name : "",
       primaryPrice: typeof t.primaryPrice === "string" ? t.primaryPrice : "",
       secondaryPrice: typeof t.secondaryPrice === "string" ? t.secondaryPrice : "",
@@ -652,10 +701,11 @@ function apiPlansToForm(plans: { intro?: unknown; tiers?: unknown }): PricingPla
       candidateUnlocks: quotaApiValueToFormField(t.candidateUnlocks),
       verifiedEmails: quotaApiValueToFormField(t.verifiedEmails),
       phoneNumbers: quotaApiValueToFormField(t.phoneNumbers),
-      emailOutreaches: tierShowsOutreachQuotaFields(tierIndex, typeof t.id === "string" ? t.id : "")
-        ? quotaApiValueToFormField(t.emailOutreaches)
-        : "",
-      whatsappOutreaches: tierShowsOutreachQuotaFields(tierIndex, typeof t.id === "string" ? t.id : "")
+      campaignsEnabled,
+      integrationsEnabled,
+      outreachesEnabled,
+      emailOutreaches: showOutreachQuotas ? quotaApiValueToFormField(t.emailOutreaches) : "",
+      whatsappOutreaches: showOutreachQuotas
         ? quotaApiValueToFormField(t.whatsappOutreaches)
         : "",
       maxSubUsers:
@@ -676,7 +726,7 @@ function apiPlansToForm(plans: { intro?: unknown; tiers?: unknown }): PricingPla
 function formToApiPayload(form: PricingPlansFormState) {
   return {
     intro: form.intro,
-    tiers: form.tiers.map((t, tierIndex) => ({
+    tiers: form.tiers.map((t) => ({
       id: t.id,
       name: t.name,
       primaryPrice: t.primaryPrice,
@@ -686,10 +736,10 @@ function formToApiPayload(form: PricingPlansFormState) {
       candidateUnlocks: formQuotaFieldToApi(t.candidateUnlocks),
       verifiedEmails: formQuotaFieldToApi(t.verifiedEmails),
       phoneNumbers: formQuotaFieldToApi(t.phoneNumbers),
-      emailOutreaches: tierShowsOutreachQuotaFields(tierIndex, t.id.trim())
+      emailOutreaches: tierUsesOutreachQuotas(t)
         ? formQuotaFieldToApi(t.emailOutreaches)
         : null,
-      whatsappOutreaches: tierShowsOutreachQuotaFields(tierIndex, t.id.trim())
+      whatsappOutreaches: tierUsesOutreachQuotas(t)
         ? formQuotaFieldToApi(t.whatsappOutreaches)
         : null,
       maxSubUsers: t.maxSubUsers.trim() === "" ? null : formQuotaFieldToApi(t.maxSubUsers),
@@ -697,6 +747,9 @@ function formToApiPayload(form: PricingPlansFormState) {
         .split("\n")
         .map((s) => s.trim())
         .filter((s) => s !== ""),
+      campaignsEnabled: Boolean(t.campaignsEnabled),
+      integrationsEnabled: Boolean(t.integrationsEnabled),
+      outreachesEnabled: Boolean(t.outreachesEnabled),
       isPopular: t.isPopular,
       popularBadge: t.popularBadge,
     })),
@@ -707,6 +760,13 @@ export default function AdminDashboardPage() {
   const router = useRouter();
   const [auth, setAuth] = useState<StoredAuth | null>(null);
   const [activeTab, setActiveTab] = useState("Users");
+  const [adminMessagingChannel, setAdminMessagingChannel] =
+    useState<AdminMessagingChannel>("huntlo_meta");
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsError, setSettingsError] = useState("");
+  const [settingsSuccess, setSettingsSuccess] = useState("");
+  const [settingsUpdatedAt, setSettingsUpdatedAt] = useState<string | null>(null);
   const [isCreateUserModalOpen, setIsCreateUserModalOpen] = useState(false);
   const [teamUsers, setTeamUsers] = useState<TeamUserRow[]>([]);
   const [usersLoading, setUsersLoading] = useState(true);
@@ -1172,6 +1232,53 @@ export default function AdminDashboardPage() {
       cancelled = true;
     };
   }, [activeTab, apiBase]);
+
+  useEffect(() => {
+    if (activeTab !== ADMIN_SETTINGS_TAB || !auth) return;
+    let cancelled = false;
+    setSettingsError("");
+    setSettingsSuccess("");
+    setSettingsLoading(true);
+    fetchPlatformSettings(apiBase, auth.token)
+      .then((settings) => {
+        if (cancelled) return;
+        setAdminMessagingChannel(settings.messagingChannel);
+        setSettingsUpdatedAt(settings.updatedAt);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setSettingsError(err instanceof Error ? err.message : "Load failed");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setSettingsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, apiBase, auth]);
+
+  const handleSavePlatformSettings = async () => {
+    if (!auth) return;
+    setSettingsError("");
+    setSettingsSuccess("");
+    setSettingsSaving(true);
+    try {
+      const settings = await updatePlatformSettings(
+        apiBase,
+        auth.token,
+        adminMessagingChannel
+      );
+      setAdminMessagingChannel(settings.messagingChannel);
+      setSettingsUpdatedAt(settings.updatedAt);
+      setSettingsSuccess("Saved.");
+      window.setTimeout(() => setSettingsSuccess(""), 2500);
+    } catch (e) {
+      setSettingsError(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setSettingsSaving(false);
+    }
+  };
 
   const handleLogout = async () => {
     try {
@@ -1671,6 +1778,48 @@ export default function AdminDashboardPage() {
                 getDisplayedPhone={() => ""}
                 readOnly
               />
+            ) : activeTab === ADMIN_SETTINGS_TAB ? (
+              <article className="dashboard-card p-6">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="dashboard-section-title">Settings</h3>
+                    <p className="mt-1 dashboard-text-body">
+                      Choose which provider Huntlo should use for WhatsApp campaign messaging.
+                      Stored in the database for the whole platform.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleSavePlatformSettings()}
+                    disabled={settingsSaving || settingsLoading}
+                    className="dashboard-btn-primary disabled:opacity-50"
+                  >
+                    {settingsSaving ? "Saving…" : "Save"}
+                  </button>
+                </div>
+                {settingsError ? (
+                  <p className="mt-4 text-sm text-red-600" role="alert">
+                    {settingsError}
+                  </p>
+                ) : null}
+                {settingsSuccess ? (
+                  <p className="mt-4 text-sm text-emerald-700">{settingsSuccess}</p>
+                ) : null}
+                <div className="mt-6">
+                  {settingsLoading ? (
+                    <p className="text-sm text-slate-500">Loading settings…</p>
+                  ) : (
+                    <AdminMessagingChannelSettings
+                      value={adminMessagingChannel}
+                      onChange={setAdminMessagingChannel}
+                      disabled={settingsSaving}
+                      updatedAt={settingsUpdatedAt}
+                    />
+                  )}
+                </div>
+              </article>
+            ) : activeTab === ADMIN_BLOG_TAB ? (
+              auth?.token ? <AdminBlogPanel token={auth.token} /> : null
             ) : activeTab === "Plans & pricing" ? (
               <article className="dashboard-card p-6">
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1786,6 +1935,49 @@ export default function AdminDashboardPage() {
                         </div>
                         <div className="mt-4 border-t border-slate-200 pt-4">
                           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Product access
+                          </p>
+                          <p className="mt-1 text-[10px] text-slate-500">
+                            Control which dashboard areas this plan can use.
+                          </p>
+                          <div className="mt-3 flex flex-wrap gap-4">
+                            <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+                              <input
+                                type="checkbox"
+                                checked={tier.campaignsEnabled}
+                                onChange={(e) =>
+                                  patchPricingTier(idx, { campaignsEnabled: e.target.checked })
+                                }
+                                className="rounded border-slate-300"
+                              />
+                              Campaigns
+                            </label>
+                            <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+                              <input
+                                type="checkbox"
+                                checked={tier.integrationsEnabled}
+                                onChange={(e) =>
+                                  patchPricingTier(idx, { integrationsEnabled: e.target.checked })
+                                }
+                                className="rounded border-slate-300"
+                              />
+                              Integrations
+                            </label>
+                            <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+                              <input
+                                type="checkbox"
+                                checked={tier.outreachesEnabled}
+                                onChange={(e) =>
+                                  patchPricingTier(idx, { outreachesEnabled: e.target.checked })
+                                }
+                                className="rounded border-slate-300"
+                              />
+                              Outreaches
+                            </label>
+                          </div>
+                        </div>
+                        <div className="mt-4 border-t border-slate-200 pt-4">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                             Usage limits (numbers only; labels are fixed on the dashboard)
                           </p>
                           <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -1849,7 +2041,7 @@ export default function AdminDashboardPage() {
                                 className="mt-1 w-full dashboard-input"
                               />
                             </div>
-                            {tierShowsOutreachQuotaFields(idx, tier.id) ? (
+                            {tierUsesOutreachQuotas(tier) ? (
                               <>
                                 <div>
                                   <label className="text-xs text-slate-600">Email outreaches</label>

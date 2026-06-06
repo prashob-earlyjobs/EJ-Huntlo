@@ -1,5 +1,12 @@
 /** Shared UI helpers for session result candidate cards. */
 
+import type {
+  SessionResultCardData,
+  SessionResultHighlight,
+} from "@/components/dashboard/SessionResultCandidateCard";
+import type { SessionResultDoc } from "@/lib/sessionCandidateDetail";
+import { isOpenToWork } from "@/lib/openToWork";
+
 export type SessionResultDocLike = {
   _id?: string;
   profile?: {
@@ -65,4 +72,68 @@ export function nameInitials(name: string): string {
     if (a && b) return (a + b).toUpperCase();
   }
   return name.slice(0, 2).toUpperCase() || "?";
+}
+
+function compactSkillsFromDoc(doc: SessionResultDoc): string | undefined {
+  const skills = doc.profile?.skills;
+  if (!Array.isArray(skills) || skills.length === 0) return undefined;
+  const line = skills
+    .map((skill) => String(skill ?? "").trim())
+    .filter(Boolean)
+    .slice(0, 12)
+    .join(", ");
+  return line || undefined;
+}
+
+function compactAboutFromDoc(doc: SessionResultDoc): string | undefined {
+  const recommendation = doc.profileAnalysis?.recommendation?.trim();
+  if (recommendation) return recommendation;
+
+  const highlights = doc.profileAnalysis?.highlights;
+  const fromHighlights = (highlights ?? [])
+    .map((item) => String(item.Highlight || "").trim())
+    .filter(Boolean);
+  if (fromHighlights.length > 0) return fromHighlights.join(" · ");
+
+  const summary = doc.profile?.summary?.trim();
+  if (summary) return summary.length > 220 ? `${summary.slice(0, 217)}…` : summary;
+
+  return undefined;
+}
+
+/** Map a Future Jobs session profile doc to compact card data (dashboard + public preview). */
+export function sessionDocToCardData(
+  doc: SessionResultDoc,
+  idx: number,
+  options?: { includeLinkedIn?: boolean }
+): SessionResultCardData {
+  const current = doc.profile?.current_employers_object?.[0];
+  const includeLinkedIn = options?.includeLinkedIn !== false;
+  const highlights = doc.profileAnalysis?.highlights as SessionResultHighlight[] | undefined;
+
+  const card: SessionResultCardData = {
+    id: doc._id || `session-doc-${idx}`,
+    name: doc.profile?.name || "Unnamed candidate",
+    role: current?.job_title,
+    company: current?.company_name,
+    companyWebsiteDomain: current?.company_website_domain,
+    companyWebsite: current?.company_website,
+    openToWork: isOpenToWork(doc.profile?.open_to_cards),
+    region: doc.profile?.region,
+    yearsExperience: doc.profile?.years_of_experience_raw,
+    finalScore: doc.finalScore,
+    photoUrl: doc.profile?.profile_picture_permalink,
+    linkedinUrl: includeLinkedIn ? doc.profile?.linkedin_profile_url : undefined,
+    highlights,
+    recommendation: doc.profileAnalysis?.recommendation,
+    strengths: doc.profileAnalysis?.analysis?.keyStrengths,
+  };
+
+  const skillsLine = compactSkillsFromDoc(doc);
+  if (skillsLine) card.compactSkills = skillsLine;
+
+  const about = compactAboutFromDoc(doc);
+  if (about) card.compactAbout = about;
+
+  return card;
 }

@@ -1,5 +1,95 @@
 const { getFutureJobsConfig } = require("./config");
-const { logOutbound, safeJsonPreview } = require("../../utils/logger");
+const {
+  logOutbound,
+  safeJsonPreview,
+  payloadForSupportLog,
+  logFutureJobsExchange,
+} = require("../../utils/logger");
+
+/**
+ * Perform one Future Jobs HTTP call and emit a single support log with request + response.
+ */
+async function futureJobsHttpRequest({
+  method,
+  url,
+  body,
+  apiKey,
+  fjOperation,
+  traceId,
+  defaultErrorPrefix = "Future Jobs API",
+}) {
+  const authHeaders = buildFjAuthHeaders(apiKey);
+  const hasBody = body !== undefined && body !== null;
+  const started = Date.now();
+
+  let res;
+  let text = "";
+  try {
+    res = await fetch(url, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        ...authHeaders,
+      },
+      ...(hasBody ? { body: JSON.stringify(body) } : {}),
+    });
+    text = await res.text();
+  } catch (networkErr) {
+    const elapsedMs = Date.now() - started;
+    logFutureJobsExchange({
+      traceId,
+      fjOperation,
+      method,
+      url,
+      elapsedMs,
+      ok: false,
+      networkError: networkErr?.message || String(networkErr),
+      requestBody: payloadForSupportLog(hasBody ? body : undefined),
+      responseBody: null,
+    });
+    throw networkErr;
+  }
+
+  const elapsedMs = Date.now() - started;
+  let data;
+  let parseError = false;
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    parseError = true;
+    data = { raw: text, parseError: true };
+  }
+
+  logFutureJobsExchange({
+    traceId,
+    fjOperation,
+    method,
+    url,
+    elapsedMs,
+    httpStatus: res.status,
+    ok: res.ok,
+    responseParseError: parseError,
+    requestBody: payloadForSupportLog(hasBody ? body : undefined),
+    responseBody: payloadForSupportLog(
+      parseError ? { parseError: true, raw: text } : data,
+    ),
+  });
+
+  if (!res.ok) {
+    const msg =
+      data.message ||
+      data.status ||
+      data.error ||
+      `${defaultErrorPrefix} HTTP ${res.status}`;
+    const err = new Error(msg);
+    err.statusCode = res.status === 404 ? 404 : 502;
+    err.details = data;
+    err.fjOperation = fjOperation;
+    throw err;
+  }
+
+  return data;
+}
 
 const inFlightFutureJobsRequests = new Map();
 
@@ -71,7 +161,7 @@ function fjAuthStyleLabel() {
  * @param {object} body — full JSON body (sessionTitle, jdDetail, queries, …)
  * @returns {Promise<object>} Parsed JSON response body
  */
-const createSourcingSession = async (body) => {
+const createSourcingSession = async (body, opts = {}) => {
   const { baseUrl, apiKey } = getFutureJobsConfig();
 
   try {
@@ -86,69 +176,16 @@ const createSourcingSession = async (body) => {
   }
 
   const url = `${baseUrl}/wl/sourcing-session`;
-  const authHeaders = buildFjAuthHeaders(apiKey);
-  const authStyle = fjAuthStyleLabel();
 
-  logOutbound("futurejobs", "request POST /wl/sourcing-session", {
-    url,
-    authStyle,
-    apiKeyConfigured: Boolean(apiKey),
-    sessionTitle: body?.sessionTitle,
-    bodyPreview: safeJsonPreview(body),
-  });
-
-  const started = Date.now();
-
-  const res = await fetch(url, {
+  return futureJobsHttpRequest({
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...authHeaders,
-    },
-    body: JSON.stringify(body),
+    url,
+    body,
+    apiKey,
+    traceId: opts.traceId,
+    fjOperation: "POST /wl/sourcing-session",
+    defaultErrorPrefix: "Future Jobs API",
   });
-
-  const elapsedMs = Date.now() - started;
-  const text = await res.text();
-  let data;
-  try {
-    data = text ? JSON.parse(text) : {};
-  } catch {
-    data = { raw: text, parseError: true };
-  }
-
-  if (!res.ok) {
-    logOutbound("futurejobs", "response error", {
-      httpStatus: res.status,
-      elapsedMs,
-      message: data.message || data.status || data.error,
-      responseBody: data,
-      responseBodyJson: JSON.stringify(data),
-    });
-    const msg =
-      data.message ||
-      data.status ||
-      data.error ||
-      `Future Jobs API HTTP ${res.status}`;
-    const err = new Error(msg);
-    err.statusCode = 502;
-    err.details = data;
-    throw err;
-  }
-
-  logOutbound("futurejobs", "response ok", {
-    httpStatus: res.status,
-    elapsedMs,
-    status: data.status,
-    statusCode: data.statusCode,
-    message: data.message,
-    sessionId: data?.data?.session?._id,
-    totalDisplayCount: data?.data?.sourcing?.total_display_count,
-    responseBody: data,
-    responseBodyJson: JSON.stringify(data),
-  });
-
-  return data;
 };
 
 /**
@@ -172,7 +209,7 @@ function fjSessionPendingMessage(data) {
  * @param {string} sessionId
  * @param {object} body — session fields (queries, jdDetail, sessionTitle, nuances, …)
  */
-const updateSourcingSession = async (sessionId, body) => {
+const updateSourcingSession = async (sessionId, body, opts = {}) => {
   const { baseUrl, apiKey } = getFutureJobsConfig();
 
   try {
@@ -190,59 +227,16 @@ const updateSourcingSession = async (sessionId, body) => {
   }
 
   const url = `${baseUrl}/wl/sourcing-session/update-session/${encodeURIComponent(sid)}`;
-  const authHeaders = buildFjAuthHeaders(apiKey);
 
-  logOutbound("futurejobs", "request PATCH /wl/sourcing-session/update-session/:id", {
-    url,
-    sessionId: sid,
-    bodyPreview: safeJsonPreview(body),
-  });
-
-  const started = Date.now();
-  const res = await fetch(url, {
+  return futureJobsHttpRequest({
     method: "PATCH",
-    headers: {
-      "Content-Type": "application/json",
-      ...authHeaders,
-    },
-    body: JSON.stringify(body),
+    url,
+    body,
+    apiKey,
+    traceId: opts.traceId,
+    fjOperation: "PATCH /wl/sourcing-session/update-session/:id",
+    defaultErrorPrefix: "Future Jobs update session",
   });
-
-  const elapsedMs = Date.now() - started;
-  const text = await res.text();
-  let data;
-  try {
-    data = text ? JSON.parse(text) : {};
-  } catch {
-    data = { raw: text, parseError: true };
-  }
-
-  if (!res.ok) {
-    logOutbound("futurejobs", "update session response error", {
-      httpStatus: res.status,
-      elapsedMs,
-      message: data.message || data.status || data.error,
-      bodyPreview: safeJsonPreview(data),
-    });
-    const msg =
-      data.message ||
-      data.status ||
-      data.error ||
-      `Future Jobs update session HTTP ${res.status}`;
-    const err = new Error(msg);
-    err.statusCode = res.status === 404 ? 404 : 502;
-    err.details = data;
-    throw err;
-  }
-
-  logOutbound("futurejobs", "update session response ok", {
-    httpStatus: res.status,
-    elapsedMs,
-    status: data.status,
-    sessionId: sid,
-  });
-
-  return data;
 };
 
 /**
