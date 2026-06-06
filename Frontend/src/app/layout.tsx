@@ -29,9 +29,9 @@ const syne = Syne({
 });
 
 export const metadata: Metadata = {
-  title: "Huntlo | AI-Powered Outbound Recruiting",
+  title: "AI Recruiting OS for Sourcing, Outreach & Hiring Automation | Huntlo AI",
   description:
-    "Stop posting jobs and waiting. Reach top talent in seconds with AI-powered sourcing, outreach, and contact reveal.",
+    "Hire faster with Agentic AI candidate sourcing, automated outreach across email and WhatsApp, AI voice screening, interview scheduling, and access to the EarlyJobs recruiter network.",
   icons: {
     icon: [{ url: "/favicon.png", type: "image/png" }],
     shortcut: "/favicon.png",
