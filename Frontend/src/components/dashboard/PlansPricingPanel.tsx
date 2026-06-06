@@ -265,7 +265,7 @@ export function PlansPricingPanel({
     null;
 
   const displayPlanName = currentTier?.name ?? currentPlanName;
-  const showOutreachMeters = hasOutreachThreadUtilisation(currentPlanId);
+  const showOutreachMeters = hasOutreachThreadUtilisation(currentPlanId, plans);
 
   return (
     <section className="dashboard-card flex min-w-0 max-w-full w-full flex-col p-6">

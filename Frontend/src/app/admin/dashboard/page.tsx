@@ -631,6 +631,9 @@ type PricingTierForm = {
   whatsappOutreaches: string;
   maxSubUsers: string;
   featuresText: string;
+  campaignsEnabled: boolean;
+  integrationsEnabled: boolean;
+  outreachesEnabled: boolean;
   isPopular: boolean;
   popularBadge: string;
 };
@@ -651,12 +654,13 @@ function quotaApiValueToFormField(v: unknown): string {
   return "";
 }
 
-/** Outreach quota fields only on Growth (tier 3) and Enterprise (tier 4). */
-function tierShowsOutreachQuotaFields(tierIndex: number, tierId: string): boolean {
+function legacyTierProductAccess(tierId: string) {
   const id = tierId.trim().toLowerCase();
-  if (id === "trial" || id === "starter") return false;
-  if (id === "growth" || id === "enterprise") return true;
-  return tierIndex >= 2;
+  return id === "growth" || id === "enterprise";
+}
+
+function tierUsesOutreachQuotas(tier: Pick<PricingTierForm, "campaignsEnabled" | "outreachesEnabled">) {
+  return tier.campaignsEnabled || tier.outreachesEnabled;
 }
 
 function formQuotaFieldToApi(s: string): number | null {
@@ -669,12 +673,26 @@ function formQuotaFieldToApi(s: string): number | null {
 function apiPlansToForm(plans: { intro?: unknown; tiers?: unknown }): PricingPlansFormState {
   const intro = typeof plans.intro === "string" ? plans.intro : "";
   const raw = Array.isArray(plans.tiers) ? plans.tiers : [];
-  const tiers: PricingTierForm[] = raw.map((item: unknown, tierIndex: number) => {
+  const tiers: PricingTierForm[] = raw.map((item: unknown) => {
     const t = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+    const tierId = typeof t.id === "string" ? t.id : "";
     const features = Array.isArray(t.features) ? t.features : [];
     const lines = features.map((f) => String(f ?? "").trim()).filter(Boolean);
+    const campaignsEnabled =
+      typeof t.campaignsEnabled === "boolean"
+        ? t.campaignsEnabled
+        : legacyTierProductAccess(tierId);
+    const integrationsEnabled =
+      typeof t.integrationsEnabled === "boolean"
+        ? t.integrationsEnabled
+        : legacyTierProductAccess(tierId);
+    const outreachesEnabled =
+      typeof t.outreachesEnabled === "boolean"
+        ? t.outreachesEnabled
+        : legacyTierProductAccess(tierId);
+    const showOutreachQuotas = campaignsEnabled || outreachesEnabled;
     return {
-      id: typeof t.id === "string" ? t.id : "",
+      id: tierId,
       name: typeof t.name === "string" ? t.name : "",
       primaryPrice: typeof t.primaryPrice === "string" ? t.primaryPrice : "",
       secondaryPrice: typeof t.secondaryPrice === "string" ? t.secondaryPrice : "",
@@ -683,10 +701,11 @@ function apiPlansToForm(plans: { intro?: unknown; tiers?: unknown }): PricingPla
       candidateUnlocks: quotaApiValueToFormField(t.candidateUnlocks),
       verifiedEmails: quotaApiValueToFormField(t.verifiedEmails),
       phoneNumbers: quotaApiValueToFormField(t.phoneNumbers),
-      emailOutreaches: tierShowsOutreachQuotaFields(tierIndex, typeof t.id === "string" ? t.id : "")
-        ? quotaApiValueToFormField(t.emailOutreaches)
-        : "",
-      whatsappOutreaches: tierShowsOutreachQuotaFields(tierIndex, typeof t.id === "string" ? t.id : "")
+      campaignsEnabled,
+      integrationsEnabled,
+      outreachesEnabled,
+      emailOutreaches: showOutreachQuotas ? quotaApiValueToFormField(t.emailOutreaches) : "",
+      whatsappOutreaches: showOutreachQuotas
         ? quotaApiValueToFormField(t.whatsappOutreaches)
         : "",
       maxSubUsers:
@@ -707,7 +726,7 @@ function apiPlansToForm(plans: { intro?: unknown; tiers?: unknown }): PricingPla
 function formToApiPayload(form: PricingPlansFormState) {
   return {
     intro: form.intro,
-    tiers: form.tiers.map((t, tierIndex) => ({
+    tiers: form.tiers.map((t) => ({
       id: t.id,
       name: t.name,
       primaryPrice: t.primaryPrice,
@@ -717,10 +736,10 @@ function formToApiPayload(form: PricingPlansFormState) {
       candidateUnlocks: formQuotaFieldToApi(t.candidateUnlocks),
       verifiedEmails: formQuotaFieldToApi(t.verifiedEmails),
       phoneNumbers: formQuotaFieldToApi(t.phoneNumbers),
-      emailOutreaches: tierShowsOutreachQuotaFields(tierIndex, t.id.trim())
+      emailOutreaches: tierUsesOutreachQuotas(t)
         ? formQuotaFieldToApi(t.emailOutreaches)
         : null,
-      whatsappOutreaches: tierShowsOutreachQuotaFields(tierIndex, t.id.trim())
+      whatsappOutreaches: tierUsesOutreachQuotas(t)
         ? formQuotaFieldToApi(t.whatsappOutreaches)
         : null,
       maxSubUsers: t.maxSubUsers.trim() === "" ? null : formQuotaFieldToApi(t.maxSubUsers),
@@ -728,6 +747,9 @@ function formToApiPayload(form: PricingPlansFormState) {
         .split("\n")
         .map((s) => s.trim())
         .filter((s) => s !== ""),
+      campaignsEnabled: Boolean(t.campaignsEnabled),
+      integrationsEnabled: Boolean(t.integrationsEnabled),
+      outreachesEnabled: Boolean(t.outreachesEnabled),
       isPopular: t.isPopular,
       popularBadge: t.popularBadge,
     })),
@@ -1913,6 +1935,49 @@ export default function AdminDashboardPage() {
                         </div>
                         <div className="mt-4 border-t border-slate-200 pt-4">
                           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Product access
+                          </p>
+                          <p className="mt-1 text-[10px] text-slate-500">
+                            Control which dashboard areas this plan can use.
+                          </p>
+                          <div className="mt-3 flex flex-wrap gap-4">
+                            <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+                              <input
+                                type="checkbox"
+                                checked={tier.campaignsEnabled}
+                                onChange={(e) =>
+                                  patchPricingTier(idx, { campaignsEnabled: e.target.checked })
+                                }
+                                className="rounded border-slate-300"
+                              />
+                              Campaigns
+                            </label>
+                            <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+                              <input
+                                type="checkbox"
+                                checked={tier.integrationsEnabled}
+                                onChange={(e) =>
+                                  patchPricingTier(idx, { integrationsEnabled: e.target.checked })
+                                }
+                                className="rounded border-slate-300"
+                              />
+                              Integrations
+                            </label>
+                            <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+                              <input
+                                type="checkbox"
+                                checked={tier.outreachesEnabled}
+                                onChange={(e) =>
+                                  patchPricingTier(idx, { outreachesEnabled: e.target.checked })
+                                }
+                                className="rounded border-slate-300"
+                              />
+                              Outreaches
+                            </label>
+                          </div>
+                        </div>
+                        <div className="mt-4 border-t border-slate-200 pt-4">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                             Usage limits (numbers only; labels are fixed on the dashboard)
                           </p>
                           <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -1976,7 +2041,7 @@ export default function AdminDashboardPage() {
                                 className="mt-1 w-full dashboard-input"
                               />
                             </div>
-                            {tierShowsOutreachQuotaFields(idx, tier.id) ? (
+                            {tierUsesOutreachQuotas(tier) ? (
                               <>
                                 <div>
                                   <label className="text-xs text-slate-600">Email outreaches</label>
