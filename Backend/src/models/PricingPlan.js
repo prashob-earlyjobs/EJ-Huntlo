@@ -19,6 +19,10 @@ const pricingPlanSchema = new mongoose.Schema(
     /** Max workspace sub-users (members). null = unlimited; 0 = none. */
     maxSubUsers: { type: Number, default: null },
     features: [{ type: String, trim: true }],
+    /** Admin toggles — which dashboard product areas this plan unlocks. */
+    campaignsEnabled: { type: Boolean, default: false },
+    integrationsEnabled: { type: Boolean, default: false },
+    outreachesEnabled: { type: Boolean, default: false },
     isPopular: { type: Boolean, default: false },
     popularBadge: { type: String, default: "⭐ Most Popular", maxlength: 80 },
   },

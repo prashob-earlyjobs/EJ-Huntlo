@@ -13,6 +13,9 @@ export type PricingTier = {
   /** null = unlimited sub-users */
   maxSubUsers?: number | null;
   features: string[];
+  campaignsEnabled?: boolean;
+  integrationsEnabled?: boolean;
+  outreachesEnabled?: boolean;
   isPopular?: boolean;
   popularBadge?: string;
 };
@@ -100,6 +103,12 @@ export function parsePricingPlansFromApi(plans: unknown): PricingPlansPayload | 
           ? null
           : parsePricingQuotaFromApi(t.maxSubUsers),
       features: features.map((f) => String(f ?? "").trim()).filter((line) => line !== ""),
+      campaignsEnabled:
+        typeof t.campaignsEnabled === "boolean" ? t.campaignsEnabled : undefined,
+      integrationsEnabled:
+        typeof t.integrationsEnabled === "boolean" ? t.integrationsEnabled : undefined,
+      outreachesEnabled:
+        typeof t.outreachesEnabled === "boolean" ? t.outreachesEnabled : undefined,
       isPopular: Boolean(t.isPopular),
       popularBadge:
         typeof t.popularBadge === "string" && t.popularBadge.trim()

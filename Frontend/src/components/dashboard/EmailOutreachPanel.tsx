@@ -3,14 +3,17 @@
 import { OutreachPanelSkeleton } from "@/components/dashboard/OutreachPanelSkeleton";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import {
-  hasCampaignsAndIntegrationsAccess,
+  hasOutreachesAccess,
   OUTREACHES_LOCKED_MESSAGE,
 } from "@/lib/planAccess";
+import type { PricingPlansPayload } from "@/lib/pricingPlans";
 
 type Props = {
   currentPlanId: string;
   /** False until /api/users/me has set the real plan id. */
   planResolved?: boolean;
+  pricingPlans?: PricingPlansPayload | null;
+  pricingPlansReady?: boolean;
   onViewPlans: () => void;
   onCreateOutreach?: () => void;
   externalNotice?: string;
@@ -20,18 +23,21 @@ type Props = {
 export function EmailOutreachPanel({
   currentPlanId,
   planResolved = false,
+  pricingPlans = null,
+  pricingPlansReady = false,
   onViewPlans,
   onCreateOutreach,
   externalNotice,
   onClearNotice,
 }: Props) {
-  const hasOutreachAccess = hasCampaignsAndIntegrationsAccess(currentPlanId);
-  const showShimmer = !planResolved;
-  const showPlanLocked = planResolved && !hasOutreachAccess;
+  const planAccessOpts = { plansReady: pricingPlansReady };
+  const outreachAllowed = hasOutreachesAccess(currentPlanId, pricingPlans, planAccessOpts);
+  const showShimmer = !planResolved || !pricingPlansReady;
+  const showPlanLocked = planResolved && pricingPlansReady && !outreachAllowed;
 
   const handleNewOutreach = () => {
     onClearNotice?.();
-    if (!hasOutreachAccess) {
+    if (!outreachAllowed) {
       onViewPlans();
       return;
     }

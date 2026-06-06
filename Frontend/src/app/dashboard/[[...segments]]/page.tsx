@@ -80,7 +80,7 @@ import {
   parsePricingPlansFromApi,
   type PricingPlansPayload,
 } from "@/lib/pricingPlans";
-import { hasCampaignsAndIntegrationsAccess } from "@/lib/planAccess";
+import { hasCampaignsAccess } from "@/lib/planAccess";
 import { mergeStoredAuthUser, postAuthPath } from "@/lib/onboarding";
 import { isBlockedAccountResponse, isBlockedMemberStatus } from "@/lib/sessionLogout";
 import {
@@ -1320,6 +1320,7 @@ export default function UserDashboardPage() {
   const [peopleScoutRecentLoading, setPeopleScoutRecentLoading] = useState(false);
   const [userPricingPlans, setUserPricingPlans] = useState<PricingPlansPayload | null>(null);
   const [userPricingPlansLoading, setUserPricingPlansLoading] = useState(false);
+  const [userPricingPlansReady, setUserPricingPlansReady] = useState(false);
   const [planUtilisation, setPlanUtilisation] = useState<UserUtilisationStats>(() => ({
     candidateSearches: 0,
     emailUnveils: 0,
@@ -1470,7 +1471,12 @@ export default function UserDashboardPage() {
 
   const loadCampaignsList = useCallback(async (opts?: { page?: number }) => {
     const auth = getStoredAuth();
-    if (!auth?.token || !hasCampaignsAndIntegrationsAccess(userPlanId)) {
+    const planAccessOpts = { plansReady: userPricingPlansReady };
+    if (
+      !auth?.token ||
+      (userPricingPlansReady &&
+        !hasCampaignsAccess(userPlanId, userPricingPlans, planAccessOpts))
+    ) {
       setCampaigns([]);
       setCampaignsLoading(false);
       setCampaignsPage(1);
@@ -1493,7 +1499,12 @@ export default function UserDashboardPage() {
     } finally {
       setCampaignsLoading(false);
     }
-  }, [userPlanId]);
+  }, [userPlanId, userPricingPlans, userPricingPlansReady]);
+
+  const planAccessOpts = useMemo(
+    () => ({ plansReady: userPricingPlansReady }),
+    [userPricingPlansReady]
+  );
 
   const handleCampaignsPageChange = useCallback(
     (page: number) => {
@@ -1506,16 +1517,25 @@ export default function UserDashboardPage() {
   );
 
   useEffect(() => {
-    if (!hasCampaignsAndIntegrationsAccess(userPlanId)) return;
+    if (!hasCampaignsAccess(userPlanId, userPricingPlans, planAccessOpts)) return;
     void loadCampaignsList({ page: 1 });
-  }, [userPlanId, loadCampaignsList]);
+  }, [userPlanId, userPricingPlans, userPricingPlansReady, planAccessOpts, loadCampaignsList]);
 
   useEffect(() => {
-    if (!hasCampaignsAndIntegrationsAccess(userPlanId)) return;
+    if (!hasCampaignsAccess(userPlanId, userPricingPlans, planAccessOpts)) return;
     if (activeTab !== "Campaigns" && !addToCampaignOpen && !routeCampaignId) return;
     setCampaignsLoading(true);
     void loadCampaignsList({ page: 1 });
-  }, [activeTab, addToCampaignOpen, userPlanId, loadCampaignsList, routeCampaignId]);
+  }, [
+    activeTab,
+    addToCampaignOpen,
+    userPlanId,
+    userPricingPlans,
+    userPricingPlansReady,
+    planAccessOpts,
+    loadCampaignsList,
+    routeCampaignId,
+  ]);
 
   useEffect(() => {
     if (activeTab !== "Saved" && activeTab !== "Session Results" && activeTab !== "Candidates") return;
@@ -1871,6 +1891,30 @@ export default function UserDashboardPage() {
     },
     [reloadUserPlanSnapshot]
   );
+
+  useEffect(() => {
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+    let cancelled = false;
+    fetch(`${apiBase}/api/pricing-plans`)
+      .then((r) => r.json())
+      .then((data: { success?: boolean; plans?: unknown }) => {
+        if (cancelled) return;
+        if (data.success && data.plans) {
+          setUserPricingPlans(parsePricingPlansFromApi(data.plans));
+        } else {
+          setUserPricingPlans(null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setUserPricingPlans(null);
+      })
+      .finally(() => {
+        if (!cancelled) setUserPricingPlansReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (activeTab !== "Plans and pricing" && activeTab !== "Dashboard") return;
@@ -4100,7 +4144,7 @@ export default function UserDashboardPage() {
   );
 
   const openAddToCampaignModal = () => {
-    if (!hasCampaignsAndIntegrationsAccess(userPlanId)) {
+    if (!hasCampaignsAccess(userPlanId, userPricingPlans, planAccessOpts)) {
       navigateToTab("Plans and pricing");
       return;
     }
@@ -5094,6 +5138,8 @@ export default function UserDashboardPage() {
               <OutreachesPanel
                 currentPlanId={userPlanId}
                 planResolved={userPlanReady}
+                pricingPlans={userPricingPlans}
+                pricingPlansReady={userPricingPlansReady}
                 onViewPlans={() => navigateToTab("Plans and pricing")}
                 onGoToIntegrations={() => navigateToTab("Integrations")}
               />
@@ -5101,6 +5147,8 @@ export default function UserDashboardPage() {
               <CampaignsPanel
                 currentPlanId={userPlanId}
                 planResolved={userPlanReady}
+                pricingPlans={userPricingPlans}
+                pricingPlansReady={userPricingPlansReady}
                 onViewPlans={() => navigateToTab("Plans and pricing")}
                 onGoToIntegrations={() => navigateToTab("Integrations")}
                 onAddFromSearchHistory={() => navigateToTab("Search history")}
@@ -5122,6 +5170,8 @@ export default function UserDashboardPage() {
               <IntegrationsPanel
                 currentPlanId={userPlanId}
                 planResolved={userPlanReady}
+                pricingPlans={userPricingPlans}
+                pricingPlansReady={userPricingPlansReady}
                 onViewPlans={() => navigateToTab("Plans and pricing")}
               />
             ) : activeTab === "Team" ? (

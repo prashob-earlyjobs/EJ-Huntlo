@@ -33,13 +33,16 @@ import {
 import { dashboardBtnSecondaryClass } from "@/lib/dashboardStyles";
 import {
   CAMPAIGNS_LOCKED_MESSAGE,
-  hasCampaignsAndIntegrationsAccess,
+  hasCampaignsAccess,
 } from "@/lib/planAccess";
+import type { PricingPlansPayload } from "@/lib/pricingPlans";
 
 type Props = {
   currentPlanId: string;
   /** False until /api/users/me (or dashboard overview) has set the real plan id. */
   planResolved?: boolean;
+  pricingPlans?: PricingPlansPayload | null;
+  pricingPlansReady?: boolean;
   onViewPlans: () => void;
   onGoToIntegrations?: () => void;
   campaigns: CampaignRecord[];
@@ -61,6 +64,8 @@ type Props = {
 export function CampaignsPanel({
   currentPlanId,
   planResolved = false,
+  pricingPlans = null,
+  pricingPlansReady = false,
   onViewPlans,
   onGoToIntegrations,
   campaigns,
@@ -79,7 +84,9 @@ export function CampaignsPanel({
   onAddFromSearchHistory,
 }: Props) {
   const router = useRouter();
-  const hasCampaignsAccess = hasCampaignsAndIntegrationsAccess(currentPlanId);
+  const planAccessOpts = { plansReady: pricingPlansReady };
+  const campaignsAllowed = hasCampaignsAccess(currentPlanId, pricingPlans, planAccessOpts);
+  const pricingAccessPending = !pricingPlansReady;
 
   const [createOpen, setCreateOpen] = useState(false);
   const [createBusy, setCreateBusy] = useState(false);
@@ -206,12 +213,18 @@ export function CampaignsPanel({
 
   /** Full skeleton only on first load (no campaigns yet). */
   const showListShimmer =
-    !planResolved || (campaignsLoading && campaignsTotal === 0 && hasCampaignsAccess);
+    !planResolved ||
+    pricingAccessPending ||
+    (campaignsLoading && campaignsTotal === 0 && campaignsAllowed);
 
   const showPlanLocked =
-    planResolved && !hasCampaignsAccess && !campaignsLoading && campaignsTotal === 0;
+    planResolved &&
+    pricingPlansReady &&
+    !campaignsAllowed &&
+    !campaignsLoading &&
+    campaignsTotal === 0;
   const showEmptyList =
-    planResolved && hasCampaignsAccess && !campaignsLoading && campaignsTotal === 0;
+    planResolved && campaignsAllowed && !campaignsLoading && campaignsTotal === 0;
   const showPagination = campaignsTotalPages > 1;
 
   useEffect(() => {
@@ -310,7 +323,7 @@ export function CampaignsPanel({
   );
 
   const openCreateModal = () => {
-    if (!hasCampaignsAccess) {
+    if (!campaignsAllowed) {
       onViewPlans();
       return;
     }
@@ -427,7 +440,7 @@ export function CampaignsPanel({
               ) : null}
               <button
                 type="button"
-                disabled={!planResolved || !hasCampaignsAccess}
+                disabled={!planResolved || !campaignsAllowed}
                 onClick={openCreateModal}
                 className="dashboard-btn-primary shrink-0 px-3 py-1.5 text-xs disabled:opacity-55"
               >
@@ -466,7 +479,7 @@ export function CampaignsPanel({
                 Create a campaign to group outreach plans, contacts, and performance across your
                 pipeline.
               </p>
-              {hasCampaignsAccess ? (
+              {campaignsAllowed ? (
                 <button
                   type="button"
                   onClick={openCreateModal}
