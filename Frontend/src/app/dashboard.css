@@ -4077,6 +4077,31 @@
   padding: 1rem 1.125rem !important;
 }
 
+@media (max-width: 1023px) {
+  .dashboard-campaigns-panel {
+    padding: 0.75rem 0.875rem !important;
+  }
+
+  .dashboard-campaigns-panel-header .dashboard-results-toolbar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .dashboard-campaigns-panel-header .dashboard-results-toolbar-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .dashboard-campaigns-panel-header .dashboard-section-title {
+    font-size: 0.9375rem;
+  }
+
+  .dashboard-campaigns-panel-header .dashboard-text-body {
+    font-size: 0.8125rem;
+  }
+}
+
 .dashboard-campaigns-panel-header {
   padding-bottom: 0.25rem;
 }
@@ -4344,6 +4369,27 @@
 
 .dashboard-campaign-workspace {
   min-height: 0;
+}
+
+.dashboard-campaign-workspace-topbar-tabs {
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+}
+
+.dashboard-campaign-workspace-topbar-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.dashboard-campaign-workspace-topbar-row {
+  margin: 0;
+  min-height: 1.75rem;
+}
+
+@media (min-width: 640px) {
+  .dashboard-campaign-workspace-topbar-row {
+    min-height: 2rem;
+  }
 }
 
 .dashboard-campaign-workspace-header {
@@ -6509,8 +6555,20 @@
 
 .dashboard-campaign-wa-comms-toolbar {
   border-bottom: 1px solid #e8eaed;
-  padding: 0.875rem 1rem 0.75rem;
+  padding: 0.625rem 0.75rem 0.5rem;
   background: #fff;
+}
+
+.dashboard-campaign-wa-comms-toolbar .dashboard-campaign-wa-comms-bar.dashboard-outreach-gmail-bar {
+  padding: 0;
+  border-bottom: none;
+  row-gap: 0.375rem;
+}
+
+@media (min-width: 640px) {
+  .dashboard-campaign-wa-comms-toolbar {
+    padding: 0.875rem 1rem 0.75rem;
+  }
 }
 
 .dashboard-campaign-wa-comms-summary {
@@ -6546,7 +6604,7 @@
 .dashboard-campaign-wa-comms-search-input {
   border: 1px solid #dadce0;
   border-radius: 0.5rem;
-  padding: 0.5rem 0.75rem 0.5rem 2.25rem;
+  padding: 0.35rem 0.75rem 0.35rem 2.25rem;
   font-size: 0.8125rem;
   color: #141b2b;
   background: #f8f9fc;
@@ -6631,6 +6689,12 @@
   color: #fff;
 }
 
+@media (max-width: 1023px) {
+  .dashboard-campaign-wa-comms-list-avatar {
+    display: none;
+  }
+}
+
 .dashboard-campaign-wa-comms-list-name {
   font-size: 0.875rem;
   font-weight: 600;
@@ -6698,7 +6762,7 @@
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  padding: 0.625rem 1rem;
+  padding: 0.45rem 0.85rem;
   background: #f0f2f5;
   border-bottom: 1px solid #d1d7db;
 }
@@ -6959,6 +7023,28 @@
   color: #667781;
 }
 
+.dashboard-campaign-wa-comms-composer-note-icon.material-symbols-outlined {
+  font-size: 0.875rem;
+  line-height: 1;
+}
+
+@media (max-width: 639px) {
+  .dashboard-campaign-wa-comms-composer {
+    padding: 0.35rem 0.5rem 0.45rem;
+  }
+
+  .dashboard-campaign-wa-comms-composer-note {
+    margin: 0 0 0.25rem;
+    gap: 0.25rem;
+    font-size: 0.625rem;
+    line-height: 1.25;
+  }
+
+  .dashboard-campaign-wa-comms-composer-note-icon.material-symbols-outlined {
+    font-size: 0.75rem;
+  }
+}
+
 .dashboard-campaign-wa-comms-composer-row {
   display: flex;
   align-items: center;
@@ -6967,23 +7053,49 @@
 
 .dashboard-campaign-wa-comms-composer-input {
   border: none;
-  border-radius: 1.5rem;
-  padding: 0.625rem 1rem;
-  font-size: 0.875rem;
+  border-radius: 1.25rem;
+  padding: 0.4375rem 0.875rem;
+  font-size: 0.8125rem;
+  line-height: 1.25;
+  min-height: 2rem;
   background: #fff;
+}
+
+@media (max-width: 639px) {
+  .dashboard-campaign-wa-comms-composer-input {
+    padding: 0.3125rem 0.75rem;
+    font-size: 0.75rem;
+    min-height: 1.75rem;
+    border-radius: 1rem;
+  }
+
+  .dashboard-campaign-wa-comms-send {
+    width: 1.75rem;
+    height: 1.75rem;
+  }
+
+  .dashboard-campaign-wa-comms-send .material-symbols-outlined {
+    font-size: 0.9375rem;
+  }
 }
 
 .dashboard-campaign-wa-comms-send {
   display: inline-flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  width: 2.5rem;
-  height: 2.5rem;
+  width: 2rem;
+  height: 2rem;
   border: none;
   border-radius: 999px;
   background: #25d366;
   color: #fff;
   cursor: not-allowed;
+}
+
+.dashboard-campaign-wa-comms-send .material-symbols-outlined {
+  font-size: 1.0625rem;
+  line-height: 1;
 }
 
 .dashboard-outreach-builder--embedded {

@@ -69,6 +69,7 @@ import {
   dashboardInputClass,
 } from "@/lib/dashboardStyles";
 import {
+  campaignWorkspaceTabShortLabel,
   getVisibleCampaignWorkspaceTabs,
   inferShowJobDescriptionTab,
   normalizeCampaignWorkspaceTab,
@@ -82,6 +83,7 @@ import {
 import type { OutreachStartScheduleDraft } from "@/lib/outreachSchedule";
 import {
   createInitialWhatsAppSequence,
+  ensureWhatsAppSequenceWithFallbacks,
   type WhatsAppTouchpointDraft,
 } from "@/lib/whatsappOutreach";
 import {
@@ -712,6 +714,56 @@ export function CampaignWorkspace({
       }
     },
     [campaign, campaign.id, campaign.jobDescription, editor]
+  );
+
+  const autoSaveWhatsAppSequence = useCallback(
+    async (draft: {
+      planId?: string | "new";
+      planName: string;
+      touchpoints: WhatsAppTouchpointDraft[];
+      jobDescription?: string;
+      calendlySchedulingUrl?: string;
+    }) => {
+      const normalizedTouchpoints = ensureWhatsAppSequenceWithFallbacks(
+        draft.touchpoints.length > 0 ? draft.touchpoints : createInitialWhatsAppSequence()
+      );
+      const auth = getStoredAuth();
+      if (!auth?.token) {
+        openWhatsAppEditor({
+          planId: draft.planId ?? "new",
+          planName: draft.planName,
+          touchpoints: normalizedTouchpoints,
+          jobDescription: draft.jobDescription,
+          calendlySchedulingUrl: draft.calendlySchedulingUrl,
+        });
+        return;
+      }
+
+      setLinkedPlanLoading(true);
+      try {
+        const saved = await saveWhatsAppOutreachPlan(auth.token, {
+          planId: draft.planId ?? "new",
+          name: draft.planName.trim() || campaign.name,
+          touchpoints: normalizedTouchpoints,
+          jobDescription: draft.jobDescription?.trim() || "",
+        });
+        await handleWhatsAppPlanSaved("WhatsApp sequence saved.", saved);
+      } catch (err) {
+        openWhatsAppEditor({
+          planId: draft.planId ?? "new",
+          planName: draft.planName,
+          touchpoints: normalizedTouchpoints,
+          jobDescription: draft.jobDescription,
+          calendlySchedulingUrl: draft.calendlySchedulingUrl,
+        });
+        setEditorNotice(
+          err instanceof Error ? err.message : "Could not save WhatsApp sequence."
+        );
+      } finally {
+        setLinkedPlanLoading(false);
+      }
+    },
+    [campaign.name, handleWhatsAppPlanSaved]
   );
 
   const handleLaunchWhatsAppCampaign = useCallback(
@@ -1527,8 +1579,7 @@ export function CampaignWorkspace({
         }
       }
       if (choice.channel === "whatsapp") {
-        openWhatsAppEditor({
-          planId: "new",
+        await autoSaveWhatsAppSequence({
           planName: campaign.name,
           touchpoints: createInitialWhatsAppSequence(),
           jobDescription: jd,
@@ -1590,8 +1641,7 @@ export function CampaignWorkspace({
             );
           }
         }
-        openWhatsAppEditor({
-          planId: "new",
+        await autoSaveWhatsAppSequence({
           planName: choice.planName || campaign.name,
           touchpoints: choice.touchpoints.map((tp) => ({ ...tp })),
           jobDescription: jd,
@@ -1619,8 +1669,7 @@ export function CampaignWorkspace({
             campaign.jobDescription?.trim() ||
             standaloneJobDescription.trim();
           if (jd) setStandaloneJobDescription(jd);
-          openWhatsAppEditor({
-            planId: "new",
+          await autoSaveWhatsAppSequence({
             planName: campaign.name,
             touchpoints:
               plan.touchpoints.length > 0
@@ -1709,23 +1758,23 @@ export function CampaignWorkspace({
 
   return (
     <section className="flex h-full min-h-0 min-w-0 w-full flex-col overflow-hidden rounded-[inherit] bg-white">
-      <header className="shrink-0 border-b border-slate-200 bg-white px-4 py-3 sm:px-6">
-        <div className="flex items-center gap-2">
+      <header className="dashboard-campaign-workspace-topbar shrink-0 border-b border-slate-200 bg-white px-2 py-1 sm:px-5 sm:py-2">
+        <div className="dashboard-campaign-workspace-topbar-row flex items-center gap-1 sm:gap-1.5">
           <button
             type="button"
             onClick={onBack}
-            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-600 transition hover:bg-slate-100 hover:text-[#141b2b]"
+            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-600 transition hover:bg-slate-100 hover:text-[#141b2b] sm:h-8 sm:w-8 sm:rounded-lg"
             aria-label="Back to campaigns"
           >
-            <MaterialIcon name="arrow_back" className="text-xl" />
+            <MaterialIcon name="arrow_back" className="text-base sm:text-lg" />
           </button>
-          <h1 className="dashboard-section-title min-w-0 flex-1 truncate text-lg">
+          <h1 className="min-w-0 flex-1 truncate text-sm font-semibold leading-none text-[#141b2b] sm:text-base">
             {campaign.name}
           </h1>
         </div>
 
         <nav
-          className="mt-3 flex gap-1 overflow-x-auto pb-0.5"
+          className="dashboard-campaign-workspace-topbar-tabs mt-1 flex gap-0.5 overflow-x-auto pb-0 sm:mt-1.5 sm:gap-1"
           aria-label="Campaign sections"
         >
           {visibleWorkspaceTabs.map((tab) => {
@@ -1736,24 +1785,27 @@ export function CampaignWorkspace({
                 type="button"
                 role="tab"
                 aria-selected={active}
-                className={`shrink-0 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+                aria-label={tab}
+                title={tab}
+                className={`shrink-0 snap-start rounded-md px-2 py-0.5 text-xs font-medium transition sm:rounded-lg sm:px-3 sm:py-1 sm:text-sm ${
                   active
                     ? "bg-[#0050cb]/10 text-[#0050cb]"
                     : "text-slate-600 hover:bg-slate-100 hover:text-[#141b2b]"
                 }`}
                 onClick={() => onWorkspaceTabChange(tab)}
               >
-                {tab}
+                <span className="sm:hidden">{campaignWorkspaceTabShortLabel(tab)}</span>
+                <span className="hidden sm:inline">{tab}</span>
               </button>
             );
           })}
         </nav>
         {launchError ? (
-          <p className="dashboard-alert-warning mt-2 text-sm" role="alert">
+          <p className="dashboard-alert-warning mt-1 text-xs sm:mt-1.5 sm:text-sm" role="alert">
             {launchError}
           </p>
         ) : launchNotice ? (
-          <p className="dashboard-alert-notice mt-2 text-sm" role="status">
+          <p className="dashboard-alert-notice mt-1 text-xs sm:mt-1.5 sm:text-sm" role="status">
             {launchNotice}
           </p>
         ) : null}

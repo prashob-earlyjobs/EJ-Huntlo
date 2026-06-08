@@ -90,12 +90,6 @@ function validateTouchpoints(touchpoints) {
     err.statusCode = 400;
     throw err;
   }
-  const replyFollowUps = touchpoints.filter((tp) => tp.isReplyFollowUp);
-  if (replyFollowUps.length < 4) {
-    const err = new Error("Add 4 reply-based questions after the opening message");
-    err.statusCode = 400;
-    throw err;
-  }
 }
 
 function formatPlan(doc) {
