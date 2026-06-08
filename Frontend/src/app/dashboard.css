@@ -4181,6 +4181,12 @@
   color: color-mix(in srgb, var(--dash-on-surface-variant) 72%, transparent);
 }
 
+.dashboard-page .landing-hero-search-chip--detected {
+  border-color: var(--dash-success-border);
+  background: var(--dash-success-bg);
+  color: var(--dash-success-text);
+}
+
 .dashboard-ai-search-recent-list {
   margin: 1rem 0 0;
   display: flex;
