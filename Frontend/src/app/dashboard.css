@@ -1691,6 +1691,23 @@
   color: var(--dash-on-surface-variant);
 }
 
+.dashboard-user-action-modal-overlay {
+  z-index: 9999;
+}
+
+.dashboard-user-action-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  border: none;
+  background: transparent;
+  cursor: default;
+}
+
+.dashboard-user-action-modal {
+  position: relative;
+  z-index: 1;
+}
+
 .dashboard-user-action-modal--quota {
   border-color: color-mix(in srgb, var(--dash-primary) 32%, var(--dash-outline));
 }

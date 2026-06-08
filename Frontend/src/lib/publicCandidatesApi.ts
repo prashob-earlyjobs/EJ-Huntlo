@@ -1,3 +1,8 @@
+import {
+  FUTURE_JOBS_UPSTREAM_ERROR_CODE,
+  FUTURE_JOBS_UPSTREAM_ERROR_MESSAGE,
+  isFutureJobsUpstreamApiError,
+} from "@/lib/apiErrors";
 import type { CandidateFilterForm } from "@/lib/sourcingFilters";
 import type { SessionResultDoc } from "@/lib/sessionCandidateDetail";
 
@@ -25,6 +30,11 @@ async function parsePublicApiJson<T>(res: Response): Promise<T> {
   const data = (await res.json().catch(() => ({}))) as T & PublicApiError;
 
   if (!res.ok || data.success === false) {
+    if (isFutureJobsUpstreamApiError(res, data)) {
+      const err = new Error(FUTURE_JOBS_UPSTREAM_ERROR_MESSAGE);
+      (err as Error & { code?: string }).code = FUTURE_JOBS_UPSTREAM_ERROR_CODE;
+      throw err;
+    }
     const message =
       typeof data.message === "string" && data.message.trim()
         ? data.message

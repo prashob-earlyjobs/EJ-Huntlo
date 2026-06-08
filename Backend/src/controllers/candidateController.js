@@ -582,6 +582,7 @@ const annotateSearchPrompt = async (req, res) => {
     });
     return res.status(status).json({
       success: false,
+      code: error.code,
       message: error.message || "Failed to analyze search prompt",
       details: error.details,
     });
@@ -714,6 +715,7 @@ const createSearchSession = async (req, res) => {
     });
     return res.status(status).json({
       success: false,
+      code: error.code,
       message: error.message || "Failed to create search session",
       details: error.details,
     });
@@ -991,6 +993,7 @@ const applySearchFilters = async (req, res) => {
     });
     return res.status(status).json({
       success: false,
+      code: error.code,
       message: error.message || "Failed to apply filters and load profiles",
       details: error.details,
     });
@@ -1583,6 +1586,7 @@ const loadSessionProfiles = async (req, res) => {
     });
     return res.status(status).json({
       success: false,
+      code: error.code,
       message: error.message || "Failed to load session profiles",
       details: error.details,
     });
@@ -1716,6 +1720,7 @@ const fetchMoreSessionProfiles = async (req, res) => {
     });
     return res.status(status).json({
       success: false,
+      code: error.code,
       message: error.message || "Failed to fetch more profiles",
       details: error.details,
     });

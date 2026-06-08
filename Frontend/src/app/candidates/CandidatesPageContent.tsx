@@ -12,9 +12,11 @@ import { CandidateSearchAgentOverlay } from "@/components/dashboard/CandidateSea
 import { LandingFooter } from "@/components/landing/LandingFooter";
 import { LandingNav } from "@/components/landing/LandingNav";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { UserActionAlertModal } from "@/components/dashboard/UserActionAlertModal";
 import { savePendingPublicSearch } from "@/lib/pendingPublicSearch";
 import { searchPublicCandidates } from "@/lib/publicCandidatesApi";
 import { sessionDocToCardData } from "@/lib/sessionResultUi";
+import { useUserActionAlert } from "@/lib/useUserActionAlert";
 
 export function CandidatesPageContent() {
   const searchParams = useSearchParams();
@@ -24,6 +26,7 @@ export function CandidatesPageContent() {
   const [totalMatched, setTotalMatched] = useState(0);
   const [loading, setLoading] = useState(Boolean(query));
   const [error, setError] = useState("");
+  const userActionAlert = useUserActionAlert();
 
   useEffect(() => {
     if (!query) {
@@ -70,6 +73,7 @@ export function CandidatesPageContent() {
       })
       .catch((err: unknown) => {
         if (cancelled) return;
+        if (userActionAlert.fromThrown(err)) return;
         setError(err instanceof Error ? err.message : "Could not load candidate preview.");
       })
       .finally(() => {
@@ -197,6 +201,13 @@ export function CandidatesPageContent() {
       </main>
 
       <LandingFooter />
+
+      <UserActionAlertModal
+        open={userActionAlert.alert.open}
+        message={userActionAlert.alert.message}
+        isQuotaExceeded={userActionAlert.alert.isQuotaExceeded}
+        onClose={userActionAlert.close}
+      />
     </div>
   );
 }
