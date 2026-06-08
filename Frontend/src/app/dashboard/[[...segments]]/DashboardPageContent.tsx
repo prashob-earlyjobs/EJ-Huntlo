@@ -88,6 +88,11 @@ import {
   revealContactNotFoundMessage,
   type RevealContactType,
 } from "@/lib/revealContactMessages";
+import {
+  FUTURE_JOBS_UPSTREAM_ERROR_CODE,
+  FUTURE_JOBS_UPSTREAM_ERROR_MESSAGE,
+  isFutureJobsUpstreamApiError,
+} from "@/lib/apiErrors";
 import { useUserActionAlert } from "@/lib/useUserActionAlert";
 import type { CampaignContact, CampaignRecord } from "@/lib/campaigns";
 import {
@@ -125,9 +130,6 @@ import {
   normalizeFilterForm,
   type CandidateFilterForm,
 } from "@/lib/sourcingFilters";
-
-const TEMPORARY_SEARCH_FAILURE_MESSAGE =
-  "We couldn’t complete the search right now. Please try again shortly.";
 
 type SourcingSessionRow = {
   id: string;
@@ -1157,8 +1159,6 @@ export function UserDashboardPage() {
   const profileMenuRef = useRef<HTMLDivElement>(null);
   const [showAdminLink, setShowAdminLink] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
-  const [searchError, setSearchError] = useState("");
-  const [profilesWarning, setProfilesWarning] = useState("");
   const [revealContactNotice, setRevealContactNotice] = useState("");
   const [searchSummary, setSearchSummary] = useState<SearchSummaryState | null>(
     null
@@ -2757,7 +2757,7 @@ export function UserDashboardPage() {
           : prevSummary?.sourcingStatus ?? null,
       profilesFetchError: warn || prevSummary?.profilesFetchError || null,
     });
-    if (warn) setProfilesWarning(warn);
+    if (warn) userActionAlert.showError(warn);
   };
 
   const applyFilterFormFromSession = (
@@ -2918,9 +2918,13 @@ export function UserDashboardPage() {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.success) {
-      throw new Error(
-        typeof data.message === "string" ? data.message : "Failed to load profiles"
+      const err = new Error(
+        userActionAlert.apiMessage(res, data, "Failed to load profiles")
       );
+      if (isFutureJobsUpstreamApiError(res, data)) {
+        (err as Error & { code?: string }).code = FUTURE_JOBS_UPSTREAM_ERROR_CODE;
+      }
+      throw err;
     }
     applySessionProfilesFromSearchResponse(data as Record<string, unknown>, backTab, options);
   };
@@ -2949,6 +2953,7 @@ export function UserDashboardPage() {
     void loadSessionProfilesFirstPage(routeSessionId, 20, auth.token, "Search history")
       .catch((err) => {
         sessionProfilesAutoLoadRef.current = null;
+        if (userActionAlert.fromThrown(err)) return;
         setSessionResultError(
           err instanceof Error ? err.message : "Could not load session results"
         );
@@ -2962,18 +2967,16 @@ export function UserDashboardPage() {
     if (annotateLoading || searchLoading || applyFiltersLoading) return;
 
     const prompt = aiPrompt.trim();
-    setSearchError("");
     setSessionResultError("");
-    setProfilesWarning("");
 
     if (!prompt) {
-      setSearchError("Enter a search prompt first.");
+      userActionAlert.showError("Enter a search prompt first.");
       return;
     }
 
     const auth = getStoredAuth();
     if (!auth?.token) {
-      setSearchError("Please sign in again to search.");
+      userActionAlert.showError("Please sign in again to search.");
       return;
     }
 
@@ -2999,10 +3002,9 @@ export function UserDashboardPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
+        if (userActionAlert.fromFutureJobsApi(res, data)) return;
         throw new Error(
-          typeof data.message === "string"
-            ? data.message
-            : "Could not analyze your prompt"
+          userActionAlert.apiMessage(res, data, "Could not analyze your prompt")
         );
       }
       if (data.filterForm && typeof data.filterForm === "object") {
@@ -3014,7 +3016,8 @@ export function UserDashboardPage() {
         );
       }
     } catch (err) {
-      setProfilesWarning(
+      if (userActionAlert.fromThrown(err)) return;
+      userActionAlert.showError(
         err instanceof Error
           ? `${err.message}. You can set filters manually.`
           : "Could not prefill filters. You can set them manually."
@@ -3052,19 +3055,19 @@ export function UserDashboardPage() {
     const prompt = (filterSearchPrompt || aiPrompt).trim();
     const keywordSkills = String(candidateFilterForm.keywordSkills || "").trim();
     if (!prompt) {
-      setSearchError("Enter a search prompt first.");
+      userActionAlert.showError("Enter a search prompt first.");
       return;
     }
     if (!keywordSkills) {
       const message = "At least one skill is required.";
       setFilterSkillsError(message);
-      setSearchError(message);
+      userActionAlert.showError(message);
       return;
     }
 
     const auth = getStoredAuth();
     if (!auth?.token) {
-      setSearchError("Please sign in again to search.");
+      userActionAlert.showError("Please sign in again to search.");
       return;
     }
 
@@ -3088,7 +3091,7 @@ export function UserDashboardPage() {
 
     const auth = getStoredAuth();
     if (!auth?.token) {
-      setSearchError("Please sign in again to search.");
+      userActionAlert.showError("Please sign in again to search.");
       return;
     }
 
@@ -3116,9 +3119,7 @@ export function UserDashboardPage() {
     setApplyFiltersLoading(true);
     setApplyStatusStepIndex(0);
     setFilterSkillsError("");
-    setSearchError("");
     setSessionResultError("");
-    setProfilesWarning("");
 
     try {
       const res = await fetch(`${apiBase}/api/candidates/search/apply`, {
@@ -3134,11 +3135,12 @@ export function UserDashboardPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
-        if ([502, 503, 504].includes(res.status)) {
-          throw new Error(TEMPORARY_SEARCH_FAILURE_MESSAGE);
-        }
         if (userActionAlert.fromApi(res, data, "Failed to load candidates")) return;
-        throw new Error(userActionAlert.apiMessage(res, data, "Failed to load candidates"));
+        if (userActionAlert.fromFutureJobsApi(res, data)) return;
+        userActionAlert.showError(
+          userActionAlert.apiMessage(res, data, "Failed to load candidates")
+        );
+        return;
       }
 
       const sessionId =
@@ -3149,12 +3151,18 @@ export function UserDashboardPage() {
             : null;
 
       if (!sessionId) {
-        setSearchError("Search completed but no sourcing session was returned.");
+        userActionAlert.showError("Search completed but no sourcing session was returned.");
         return;
       }
 
       if (typeof data.profilesFetchError === "string" && data.profilesFetchError) {
-        setProfilesWarning(data.profilesFetchError);
+        if (data.profilesFetchError === FUTURE_JOBS_UPSTREAM_ERROR_MESSAGE) {
+          userActionAlert.showFutureJobsUpstream();
+        } else {
+          userActionAlert.showError(
+            `Session created, but profiles could not be loaded: ${data.profilesFetchError}`
+          );
+        }
       }
 
       setPendingSearchSessionId(sessionId);
@@ -3217,7 +3225,7 @@ export function UserDashboardPage() {
       const message =
         err instanceof Error ? err.message : "Could not apply filters";
       setSessionResultError(message);
-      setSearchError(message);
+      userActionAlert.showError(message);
     } finally {
       setApplyFiltersLoading(false);
     }
@@ -3248,6 +3256,7 @@ export function UserDashboardPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
+        if (userActionAlert.fromFutureJobsApi(res, data)) return;
         const message = userActionAlert.apiMessage(
           res,
           data,
@@ -3325,8 +3334,6 @@ export function UserDashboardPage() {
     setSessionResultSelectedKeys([]);
     setSessionResultsFromDb(true);
     setSessionResultError("");
-    setSearchError("");
-    setProfilesWarning("");
     setSearchLoading(true);
     setSearchSummary({
       candidateCount: 0,
@@ -3354,7 +3361,7 @@ export function UserDashboardPage() {
   ) => {
     const auth = getStoredAuth();
     if (!auth?.token) {
-      setSearchError("Please sign in again.");
+      userActionAlert.showError("Please sign in again.");
       return;
     }
     beginHistorySessionNavigation(row.futureJobsSessionId, backTab, {
@@ -3413,7 +3420,7 @@ export function UserDashboardPage() {
         (typeof data.fetchMoreError === "string"
           ? `fetch-more: ${data.fetchMoreError}`
           : "");
-      setProfilesWarning(warn);
+      if (warn) userActionAlert.showError(warn);
       const displayedCount = detailedDocs.length;
       const canFetchMore = data.canFetchMore !== false;
       setSessionCanFetchMore(canFetchMore);
@@ -3435,9 +3442,11 @@ export function UserDashboardPage() {
       setSessionResultTotalPages(1);
     } catch (err) {
       setSessionResultsFromDb(false);
-      setSearchError(
-        err instanceof Error ? err.message : "Could not open this session"
-      );
+      if (!userActionAlert.fromThrown(err)) {
+        userActionAlert.showError(
+          err instanceof Error ? err.message : "Could not open this session"
+        );
+      }
     } finally {
       setSearchLoading(false);
       setOpeningHistorySessionId(null);
@@ -3447,7 +3456,7 @@ export function UserDashboardPage() {
   const toggleSaveCandidate = async (candidate: CandidateRow) => {
     const auth = getStoredAuth();
     if (!auth?.token) {
-      setSearchError("Please sign in again to save candidates.");
+      userActionAlert.showError("Please sign in again to save candidates.");
       return;
     }
     const key = candidateIdentityKey(candidate);
@@ -3505,7 +3514,7 @@ export function UserDashboardPage() {
       }
     } catch (err) {
       if (userActionAlert.fromThrown(err)) return;
-      setProfilesWarning(
+      userActionAlert.showError(
         err instanceof Error ? err.message : "Could not update saved candidate"
       );
     } finally {
@@ -3518,7 +3527,7 @@ export function UserDashboardPage() {
     if (!name || createSaveListBusy) return;
     const auth = getStoredAuth();
     if (!auth?.token) {
-      setProfilesWarning("Please sign in again to create a list.");
+      userActionAlert.showError("Please sign in again to create a list.");
       return;
     }
     const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
@@ -3544,7 +3553,7 @@ export function UserDashboardPage() {
         setSaveListFilter(id);
       }
     } catch (err) {
-      setProfilesWarning(err instanceof Error ? err.message : "Could not create list");
+      userActionAlert.showError(err instanceof Error ? err.message : "Could not create list");
     } finally {
       setCreateSaveListBusy(false);
     }
@@ -3554,7 +3563,7 @@ export function UserDashboardPage() {
     if (!listId) return;
     const auth = getStoredAuth();
     if (!auth?.token) {
-      setProfilesWarning("Please sign in again to delete a list.");
+      userActionAlert.showError("Please sign in again to delete a list.");
       return;
     }
     const ok = window.confirm(
@@ -3588,7 +3597,7 @@ export function UserDashboardPage() {
         }
       }
     } catch (err) {
-      setProfilesWarning(err instanceof Error ? err.message : "Could not delete list");
+      userActionAlert.showError(err instanceof Error ? err.message : "Could not delete list");
     } finally {
       setDeleteSaveListBusyId(null);
     }
@@ -3597,7 +3606,7 @@ export function UserDashboardPage() {
   const moveCandidateToSaveList = async (candidate: CandidateRow, nextListId: string) => {
     const auth = getStoredAuth();
     if (!auth?.token) {
-      setProfilesWarning("Please sign in again to move candidates.");
+      userActionAlert.showError("Please sign in again to move candidates.");
       return;
     }
     const key = candidateIdentityKey(candidate);
@@ -3636,7 +3645,7 @@ export function UserDashboardPage() {
         void loadSavedCandidates(savedCandidatesPage, saveListFilter);
       }
     } catch (err) {
-      setProfilesWarning(err instanceof Error ? err.message : "Could not move candidate");
+      userActionAlert.showError(err instanceof Error ? err.message : "Could not move candidate");
     } finally {
       setSaveCandidateBusyKeys((prev) => prev.filter((x) => x !== key));
     }
@@ -4508,8 +4517,6 @@ export function UserDashboardPage() {
                 onAiPromptChange={setAiPrompt}
                 onSearch={() => void handleSearch()}
                 searchLoading={searchLoading || applyFiltersLoading || annotateLoading}
-                searchError={searchError}
-                profilesWarning={profilesWarning}
                 recentSearches={recentSearches}
                 recentLoading={recentSearchesLoading}
                 onOpenRecent={openRecentAiSearch}
