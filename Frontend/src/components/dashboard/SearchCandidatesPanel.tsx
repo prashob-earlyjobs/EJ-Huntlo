@@ -1,8 +1,17 @@
 "use client";
 
-import { type FormEvent } from "react";
+import { type FormEvent, useMemo, useRef, useState } from "react";
 
+import { HeroSearchPromptWarningModal } from "@/components/landing/HeroSearchPromptWarningModal";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { checkHeroPromptWithBackend } from "@/lib/heroPromptCheckApi";
+import {
+  detectHeroQueryDimensions,
+  hasMinimumHeroQueryDimensions,
+  HERO_TAG_TO_DIMENSION,
+} from "@/lib/heroQueryDimensions";
+
+const PROMPT_DIMENSION_TAGS = ["Roles", "Skills", "Location", "Experience"] as const;
 
 export type RecentAiSearchItem = {
   id: string;
@@ -77,11 +86,44 @@ export function SearchCandidatesPanel({
 }: Props) {
   const firstName = greetingFirstName(userDisplayName);
   const trimmedPrompt = aiPrompt.trim();
-  const canSearch = trimmedPrompt.length > 0 && !searchLoading;
+  const [incompleteWarningOpen, setIncompleteWarningOpen] = useState(false);
+  const [promptCheckLoading, setPromptCheckLoading] = useState(false);
+  const promptRef = useRef<HTMLTextAreaElement | null>(null);
+  const queryDimensions = useMemo(
+    () => detectHeroQueryDimensions(aiPrompt),
+    [aiPrompt]
+  );
+  const canSearch =
+    trimmedPrompt.length > 0 && !searchLoading && !promptCheckLoading;
+
+  const requestSearch = async () => {
+    const q = trimmedPrompt;
+    if (!q || searchLoading || promptCheckLoading) return;
+
+    if (!hasMinimumHeroQueryDimensions(queryDimensions)) {
+      setIncompleteWarningOpen(true);
+      return;
+    }
+
+    setPromptCheckLoading(true);
+    try {
+      const result = await checkHeroPromptWithBackend(q);
+      if (result.allPresent) {
+        onSearch();
+        return;
+      }
+      setIncompleteWarningOpen(true);
+    } catch {
+      // If AI verification is unavailable, proceed — FE rule-based check already passed.
+      onSearch();
+    } finally {
+      setPromptCheckLoading(false);
+    }
+  };
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
-    if (canSearch) onSearch();
+    if (canSearch) void requestSearch();
   };
 
   return (
@@ -114,20 +156,40 @@ export function SearchCandidatesPanel({
                 <span className="text-sm font-medium text-[#141b2b]">AI search prompt</span>
               </div>
               <textarea
+                ref={promptRef}
                 id="aiPrompt"
                 value={aiPrompt}
                 onChange={(e) => onAiPromptChange(e.target.value)}
                 placeholder="Example: Find candidates with 3+ years Node.js experience in Hyderabad who can join in 30 days."
                 rows={7}
-                disabled={searchLoading}
+                disabled={searchLoading || promptCheckLoading}
                 className="dashboard-ai-prompt-textarea disabled:cursor-not-allowed"
               />
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {PROMPT_DIMENSION_TAGS.map((tag) => {
+                const dimension = HERO_TAG_TO_DIMENSION[tag];
+                const detected = dimension ? queryDimensions[dimension] : false;
+                return (
+                  <span
+                    key={tag}
+                    className={`landing-hero-search-chip rounded-full px-3 py-1 text-xs ${
+                      detected
+                        ? "landing-hero-search-chip--detected"
+                        : "landing-hero-search-chip--default"
+                    }`}
+                  >
+                    {tag}
+                  </span>
+                );
+              })}
             </div>
 
             <div className="flex flex-wrap items-center justify-end gap-2">
               <button
                 type="button"
-                disabled={!trimmedPrompt || searchLoading}
+                disabled={!trimmedPrompt || searchLoading || promptCheckLoading}
                 onClick={() => onAiPromptChange("")}
                 className="dashboard-btn-secondary px-3 py-2 text-sm disabled:opacity-50"
               >
@@ -139,10 +201,26 @@ export function SearchCandidatesPanel({
                 className="dashboard-btn-primary dashboard-people-scout-search-btn px-5 disabled:opacity-55"
               >
                 <MaterialIcon name="tune" className="text-base" />
-                {searchLoading ? "Preparing…" : "Continue to filters"}
+                {promptCheckLoading
+                  ? "Checking…"
+                  : searchLoading
+                    ? "Preparing…"
+                    : "Continue to filters"}
               </button>
             </div>
           </form>
+
+          <HeroSearchPromptWarningModal
+            open={incompleteWarningOpen}
+            onEdit={() => {
+              setIncompleteWarningOpen(false);
+              requestAnimationFrame(() => promptRef.current?.focus());
+            }}
+            onContinue={() => {
+              setIncompleteWarningOpen(false);
+              onSearch();
+            }}
+          />
 
           {searchError ? <p className="mt-3 dashboard-alert-error">{searchError}</p> : null}
           {profilesWarning ? (
