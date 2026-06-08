@@ -2,11 +2,16 @@ import Link from "next/link";
 
 import { COMPARISON_FOOTER_LINKS } from "@/lib/comparisons";
 import { FOOTER_PLATFORM_PARTNERS } from "@/lib/footerPlatformPartners";
+import { FOOTER_LEGAL_LINKS, legalPageHref } from "@/lib/legalPages";
 
 import { LandingLogo } from "./LandingLogo";
 
 const FOOTER_LINK_HREFS: Record<string, string> = {
+  Documentation: "/docs",
   Blog: "/blog",
+  FAQs: "/faqs",
+  About: "/about",
+  Careers: "/careers",
   ...Object.fromEntries(COMPARISON_FOOTER_LINKS.map((item) => [item.label, item.href])),
 };
 
@@ -32,8 +37,6 @@ const FOOTER_COLUMNS = [
     links: COMPARISON_FOOTER_LINKS.map((item) => item.label),
   },
 ];
-
-const FOOTER_LEGAL_LINKS = ["Privacy", "Terms", "Security", "Cookies"] as const;
 
 export function LandingFooter() {
   return (
@@ -115,14 +118,14 @@ export function LandingFooter() {
             className="flex flex-wrap items-center justify-center gap-x-5 gap-y-1"
             aria-label="Legal"
           >
-            {FOOTER_LEGAL_LINKS.map((label) => (
-              <a
-                key={label}
-                href="#"
+            {FOOTER_LEGAL_LINKS.map(({ label, slug }) => (
+              <Link
+                key={slug}
+                href={legalPageHref(slug)}
                 className="text-[#434654] transition-colors hover:text-[#0050cb]"
               >
                 {label}
-              </a>
+              </Link>
             ))}
           </nav>
         </div>

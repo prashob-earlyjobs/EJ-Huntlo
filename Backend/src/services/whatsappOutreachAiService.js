@@ -2,19 +2,29 @@ const {
   generateJsonWithGemini,
   WHATSAPP_OUTREACH_SEQUENCE_RESPONSE_SCHEMA,
 } = require("./geminiService");
+const {
+  DEFAULT_NO_REPLY_1_TEMPLATE_ID,
+  DEFAULT_NO_REPLY_2_TEMPLATE_ID,
+  DEFAULT_OPENING_TEMPLATE_ID,
+  findNoReplyTemplate,
+  findOpeningTemplate,
+  NO_REPLY_1_TEMPLATE_IDS,
+  NO_REPLY_2_TEMPLATE_IDS,
+  OPENING_TEMPLATE_IDS,
+  resolveNoReply1TemplateId,
+  resolveNoReply2TemplateId,
+  resolveOpeningTemplateId,
+} = require("../constants/whatsappMessageTemplates");
 
-const SYSTEM_INSTRUCTION = `You write recruiter WhatsApp outreach sequences for Huntlo.
+const SYSTEM_INSTRUCTION = `You configure recruiter WhatsApp outreach sequences for Huntlo.
 Output must be valid JSON only when asked.
-Merge tokens (CANDIDATE fields — not the open role): {{FirstName}}, {{CurrentCompany}} (current employer), {{JobTitle}} (current title), {{SenderFirstName}}.
-Describe the OPEN POSITION only from the job description — never "the {{JobTitle}} role at {{CurrentCompany}}" as your opening.
-Write on behalf of the hiring team/company: use "we", "our", and "us" — never first-person singular ("I", "me", "my", "mine").
-WhatsApp messages should be concise (under 120 words each), conversational, and professional.
-Use short paragraphs; line breaks are allowed.
-Emojis: at most one per message, only when it fits naturally.`;
-
-const OPENING_TEMPLATE_ID = "opening_message_01";
-const NO_REPLY_1_TEMPLATE_ID = "no_reply_1_bump";
-const NO_REPLY_2_TEMPLATE_ID = "no_reply_2_final";
+Steps 1–3 use pre-approved Meta WhatsApp templates only — you must NOT write custom opening or no-reply message text.
+Pick the best template id for each step from the allowed lists.
+Write only the 4 reply-based screening questions (sent after the candidate replies).
+Merge tokens may appear in reply questions: {{FirstName}}, {{CurrentCompany}}, {{JobTitle}}, {{SenderFirstName}}.
+Describe the OPEN POSITION from the job description — never confuse candidate's current title/company with the role you are hiring for.
+Write on behalf of the hiring team: use "we", "our", "us" — not "I/me/my".
+Reply questions: concise, conversational, under 120 words each.`;
 
 const REPLY_LABELS = [
   "Reply question 1",
@@ -24,32 +34,41 @@ const REPLY_LABELS = [
 ];
 
 function buildWhatsAppJdPrompt(jobDescription, planNameHint) {
-  return `Create a WhatsApp outreach sequence based on this job description.
+  return `Create a WhatsApp outreach sequence configuration based on this job description.
 
 Job description:
 """
 ${jobDescription}
 """
 
-Requirements:
-1. openingMessage: warm intro to the role; invite a reply (no screening questions yet).
-2. noReplyFollowUp1: friendly bump if they did not reply to the opening (48h later).
-3. noReplyFollowUp2: polite final nudge if still no reply (96h after follow-up 1).
-4. replyQuestions: exactly 4 short questions sent only after the candidate replies, in order:
-   - years of relevant experience
-   - notice period and work location preference
-   - core skills/tools for the role
-   - interest in a short interview call
+Pre-approved templates (pick exactly one id per step — do NOT write message bodies for these):
 
-Each message must stand alone and stay low-pressure.
+Opening (step 1) — choose one:
+- opening_message_01 — professional shortlisted intro for {{2}} position
+- role_opportunity — direct role opportunity, warmer tone
+
+No-reply follow-up 1 (step 2, 48h later) — choose one:
+- no_reply_1_bump — light reminder
+- no_reply_1_value — reinforces fit using candidate company
+
+No-reply follow-up 2 (step 3, 96h after step 2) — choose one:
+- no_reply_2_final — polite last note
+- no_reply_2_door_open — leaves door open without pressure
+
+You must also write replyQuestions: exactly 4 short questions sent only after the candidate replies:
+1. years of relevant experience
+2. notice period and work location preference
+3. core skills/tools for the role
+4. interest in a short interview call
+
 ${planNameHint ? `Suggested plan name: ${planNameHint}` : "Include a short planName based on the role."}
 
-Return JSON only in this shape:
+Return JSON only:
 {
   "planName": "string",
-  "openingMessage": "string",
-  "noReplyFollowUp1": "string",
-  "noReplyFollowUp2": "string",
+  "openingTemplateId": "opening_message_01" | "role_opportunity",
+  "noReply1TemplateId": "no_reply_1_bump" | "no_reply_1_value",
+  "noReply2TemplateId": "no_reply_2_final" | "no_reply_2_door_open",
   "replyQuestions": ["q1", "q2", "q3", "q4"]
 }`;
 }
@@ -87,36 +106,49 @@ function normalizeReplyQuestions(rawList) {
 }
 
 function buildTouchpoints(parsed) {
-  const opening = requireMessage(parsed.openingMessage, "opening message");
-  const noReply1 = requireMessage(parsed.noReplyFollowUp1, "no-reply follow-up 1");
-  const noReply2 = requireMessage(parsed.noReplyFollowUp2, "no-reply follow-up 2");
+  const openingId = resolveOpeningTemplateId(parsed.openingTemplateId);
+  const noReply1Id = resolveNoReply1TemplateId(parsed.noReply1TemplateId);
+  const noReply2Id = resolveNoReply2TemplateId(parsed.noReply2TemplateId);
+
+  const openingTpl = findOpeningTemplate(openingId) || findOpeningTemplate(DEFAULT_OPENING_TEMPLATE_ID);
+  const noReply1Tpl =
+    findNoReplyTemplate(1, noReply1Id) || findNoReplyTemplate(1, DEFAULT_NO_REPLY_1_TEMPLATE_ID);
+  const noReply2Tpl =
+    findNoReplyTemplate(2, noReply2Id) || findNoReplyTemplate(2, DEFAULT_NO_REPLY_2_TEMPLATE_ID);
+
+  if (!openingTpl || !noReply1Tpl || !noReply2Tpl) {
+    const err = new Error("Approved WhatsApp template catalog is misconfigured.");
+    err.statusCode = 500;
+    throw err;
+  }
+
   const replyQuestions = normalizeReplyQuestions(parsed.replyQuestions);
 
   return [
     {
       order: 1,
       label: "Opening message",
-      body: opening,
+      body: openingTpl.body,
       waitHours: 0,
-      templateId: OPENING_TEMPLATE_ID,
+      templateId: openingTpl.id,
       isNoReplyFallback: false,
       isReplyFollowUp: false,
     },
     {
       order: 2,
       label: "No-reply follow-up 1",
-      body: noReply1,
+      body: noReply1Tpl.body,
       waitHours: 48,
-      templateId: NO_REPLY_1_TEMPLATE_ID,
+      templateId: noReply1Tpl.id,
       isNoReplyFallback: true,
       isReplyFollowUp: false,
     },
     {
       order: 3,
       label: "No-reply follow-up 2",
-      body: noReply2,
+      body: noReply2Tpl.body,
       waitHours: 96,
-      templateId: NO_REPLY_2_TEMPLATE_ID,
+      templateId: noReply2Tpl.id,
       isNoReplyFallback: true,
       isReplyFollowUp: false,
     },
@@ -133,7 +165,7 @@ function buildTouchpoints(parsed) {
 }
 
 /**
- * Generate a WhatsApp outreach sequence (opening, no-reply fallbacks, reply questions).
+ * Generate a WhatsApp outreach sequence: approved templates for steps 1–3, AI reply questions only.
  */
 async function generateWhatsAppSequenceFromJd({ jobDescription, planName = "" }) {
   const jd = String(jobDescription || "").trim();
@@ -167,4 +199,7 @@ async function generateWhatsAppSequenceFromJd({ jobDescription, planName = "" })
 module.exports = {
   generateWhatsAppSequenceFromJd,
   buildWhatsAppJdPrompt,
+  OPENING_TEMPLATE_IDS,
+  NO_REPLY_1_TEMPLATE_IDS,
+  NO_REPLY_2_TEMPLATE_IDS,
 };

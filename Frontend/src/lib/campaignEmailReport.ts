@@ -36,14 +36,32 @@ export type ReportMetricCandidate = {
 
 export type ReportMetricBreakdown = Record<ReportMetricKey, ReportMetricCandidate[]>;
 
+export type EmailReportUnveilActivityMeta = {
+  revealTypes: ("EMAIL" | "PHONE")[];
+  emailStatus: string;
+  phoneStatus: string;
+  email: string;
+  phone: string;
+  isActive: boolean;
+  jobId?: string;
+};
+
 export type EmailReportActivity = {
-  type: "sent" | "reply" | "interested" | "not_interested" | "failed" | "skipped";
+  type:
+    | "sent"
+    | "reply"
+    | "interested"
+    | "not_interested"
+    | "failed"
+    | "skipped"
+    | "unveil";
   candidateKey: string;
   contactName: string;
   contactEmail: string;
   contactPhone: string;
   at: string;
   detail: string;
+  unveil?: EmailReportUnveilActivityMeta;
 };
 
 export type ReportActivityPagination = {
@@ -169,6 +187,25 @@ function parseMatrixRow(raw: unknown): EmailReportMatrixRow | null {
   };
 }
 
+function parseUnveilMeta(raw: unknown): EmailReportUnveilActivityMeta | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const o = raw as Record<string, unknown>;
+  const revealTypes: ("EMAIL" | "PHONE")[] = Array.isArray(o.revealTypes)
+    ? o.revealTypes
+        .map((t) => String(t).toUpperCase())
+        .filter((t): t is "EMAIL" | "PHONE" => t === "EMAIL" || t === "PHONE")
+    : ["EMAIL", "PHONE"];
+  return {
+    revealTypes,
+    emailStatus: typeof o.emailStatus === "string" ? o.emailStatus : "queued",
+    phoneStatus: typeof o.phoneStatus === "string" ? o.phoneStatus : "queued",
+    email: typeof o.email === "string" ? o.email : "",
+    phone: typeof o.phone === "string" ? o.phone : "",
+    isActive: Boolean(o.isActive),
+    jobId: typeof o.jobId === "string" ? o.jobId : undefined,
+  };
+}
+
 function parseActivity(raw: unknown): EmailReportActivity | null {
   if (!raw || typeof raw !== "object") return null;
   const o = raw as Record<string, unknown>;
@@ -179,7 +216,8 @@ function parseActivity(raw: unknown): EmailReportActivity | null {
     type !== "interested" &&
     type !== "not_interested" &&
     type !== "failed" &&
-    type !== "skipped"
+    type !== "skipped" &&
+    type !== "unveil"
   ) {
     return null;
   }
@@ -197,6 +235,7 @@ function parseActivity(raw: unknown): EmailReportActivity | null {
     contactPhone: typeof o.contactPhone === "string" ? o.contactPhone : "",
     at,
     detail: typeof o.detail === "string" ? o.detail : "",
+    ...(type === "unveil" ? { unveil: parseUnveilMeta(o.unveil) } : {}),
   };
 }
 
@@ -307,7 +346,7 @@ export async function fetchCampaignEmailReportActivity(
   });
   const res = await fetch(
     `${apiBase()}/api/campaigns/${encodeURIComponent(campaignId)}/email-report/activity?${q}`,
-    { headers: authHeaders(token) }
+    { headers: authHeaders(token), cache: "no-store" }
   );
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.success) {

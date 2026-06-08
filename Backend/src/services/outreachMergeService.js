@@ -7,12 +7,14 @@ function firstNameFromFullName(name) {
 /** `{{token}}` or `{{token|fallback if empty}}` */
 const MERGE_TAG_RE = /\{\{\s*([a-zA-Z][a-zA-Z0-9_]*)\s*(?:\|\s*([^}]*?))?\s*\}\}/g;
 
-function buildReplacementMap(contact, senderFirstName) {
+function buildReplacementMap(contact, senderFirstName, options = {}) {
   const firstName = firstNameFromFullName(contact?.name);
   const email = String(contact?.email || "").trim();
   const phone = String(contact?.phone || "").trim();
   const company = String(contact?.company || "").trim();
-  const jobTitle = String(contact?.role || "").trim();
+  const candidateRole = String(contact?.role || "").trim();
+  const openRoleTitle = String(options.openRoleTitle || "").trim();
+  const jobTitle = openRoleTitle || candidateRole;
   const sender = String(senderFirstName || "").trim();
 
   return {
@@ -78,6 +80,64 @@ function sanitizeMergedOutreachText(text) {
     .trim();
 }
 
+function resolveCampaignOpenRoleTitle(campaign) {
+  const name = String(campaign?.name || "").trim();
+  if (name) return name;
+  const jd = String(campaign?.jobDescription || "").trim();
+  if (!jd) return "";
+  const firstLine = jd
+    .split(/\n/)
+    .map((line) => line.trim())
+    .find(Boolean);
+  return firstLine && firstLine.length <= 160 ? firstLine : "";
+}
+
+function applyNumericMetaPlaceholders(text, templateName, replacements) {
+  const { getWhatsAppMetaTemplateBodyFields, resolveMetaTemplateName } = require("../constants/whatsappMetaTemplates");
+  const fieldKeys = getWhatsAppMetaTemplateBodyFields(resolveMetaTemplateName(templateName));
+  if (!fieldKeys?.length) return text;
+
+  let merged = String(text || "");
+  fieldKeys.forEach((key, index) => {
+    const value =
+      String(lookupReplacementValue(key, replacements) ?? "").trim() || "—";
+    const num = index + 1;
+    merged = merged.replace(new RegExp(`\\{\\{\\s*${num}\\s*\\}\\}`, "g"), value);
+  });
+  return merged;
+}
+
+function buildWhatsAppReplacementMap(contact, senderFirstName, campaign) {
+  return buildReplacementMap(contact, senderFirstName, {
+    openRoleTitle: resolveCampaignOpenRoleTitle(campaign),
+  });
+}
+
+/**
+ * WhatsApp sequence merge: open role from campaign; supports Meta numeric {{1}} placeholders.
+ */
+function applyWhatsAppMergeFields(
+  text,
+  { contact, senderFirstName = "", campaign, templateId = "" } = {}
+) {
+  const raw = String(text || "");
+  if (!raw) return raw;
+
+  const replacements = buildWhatsAppReplacementMap(contact, senderFirstName, campaign);
+
+  let merged = raw.replace(MERGE_TAG_RE, (match, key, fallback) => {
+    const resolved = resolveMergeToken(key, fallback, replacements);
+    if (resolved === null) return match;
+    return resolved;
+  });
+
+  if (templateId) {
+    merged = applyNumericMetaPlaceholders(merged, templateId, replacements);
+  }
+
+  return sanitizeMergedOutreachText(merged);
+}
+
 /**
  * Replace merge tokens in subject/body.
  * Candidate tokens: FirstName, CurrentCompany (employer today), JobTitle (title today), candidate_email, candidate_phone.
@@ -102,6 +162,10 @@ function applyMergeFields(text, { contact, senderFirstName = "" }) {
 
 module.exports = {
   applyMergeFields,
+  applyWhatsAppMergeFields,
+  applyNumericMetaPlaceholders,
+  buildWhatsAppReplacementMap,
+  resolveCampaignOpenRoleTitle,
   firstNameFromFullName,
   buildReplacementMap,
   sanitizeMergedOutreachText,

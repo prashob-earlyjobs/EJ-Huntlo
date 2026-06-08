@@ -27,9 +27,9 @@ export const WHATSAPP_OPENING_TEMPLATES: WhatsAppMessageTemplate[] = [
     id: "opening_message_01",
     name: "Professional introduction",
     description: "Shortlisted candidate invite to review the role and reply for next steps.",
-    body: `Hi {{1}},
+    body: `Hi {{FirstName}},
 
-Your profile has been shortlisted through our candidate matching process for the {{2}} position.
+Your profile has been shortlisted through our candidate matching process for the {{JobTitle}} position.
 
 To review the opportunity details and next steps, please reply to this message.`,
   },
@@ -93,7 +93,11 @@ export function getWhatsAppNoReplyTemplate(slot: 1 | 2, id: string | undefined) 
 }
 
 export type WhatsAppOutreachChannel = "whatsapp";
-const MIN_REPLY_FOLLOWUPS = 4;
+
+export type EnsureWhatsAppSequenceOptions = {
+  /** Pad missing reply follow-ups (AI generation). Scratch flows use 0. */
+  minReplyFollowups?: number;
+};
 
 function createDefaultReplyQuestion(slot: number): string {
   if (slot === 1) return "Thanks for your response. Could you share your total years of relevant experience for this role?";
@@ -123,11 +127,21 @@ export function createNoReplyFallback(slot: 1 | 2): WhatsAppTouchpointDraft {
   };
 }
 
-/** Ensures opening + 2 no-reply fallbacks + 4 reply-driven questions. */
+/** Ensures opening + 2 no-reply fallbacks; optionally pads reply follow-ups (AI). */
 export function ensureWhatsAppSequenceWithFallbacks(
-  touchpoints: WhatsAppTouchpointDraft[]
+  touchpoints: WhatsAppTouchpointDraft[],
+  options: EnsureWhatsAppSequenceOptions = {}
 ): WhatsAppTouchpointDraft[] {
-  const opening = touchpoints.find((t) => t.order === 1) ?? createEmptyWhatsAppStep(1);
+  const minReplyFollowups = Math.max(0, options.minReplyFollowups ?? 0);
+  const openingRaw = touchpoints.find((t) => t.order === 1) ?? createEmptyWhatsAppStep(1);
+  const defaultOpeningTpl = WHATSAPP_OPENING_TEMPLATES[0];
+  const opening = {
+    ...openingRaw,
+    order: 1,
+    label: "Opening message",
+    templateId: openingRaw.templateId?.trim() || defaultOpeningTpl.id,
+    body: openingRaw.body.trim() || defaultOpeningTpl.body,
+  };
   const existingFb = touchpoints.filter((t) => t.isNoReplyFallback);
   const resolveFallback = (slot: 1 | 2, raw: WhatsAppTouchpointDraft | undefined) => {
     const base = raw ?? createNoReplyFallback(slot);
@@ -157,7 +171,7 @@ export function ensureWhatsAppSequenceWithFallbacks(
     .sort((a, b) => a.order - b.order);
 
   const normalizedExtra = [...extra];
-  while (normalizedExtra.length < MIN_REPLY_FOLLOWUPS) {
+  while (minReplyFollowups > 0 && normalizedExtra.length < minReplyFollowups) {
     const slot = normalizedExtra.length + 1;
     normalizedExtra.push({
       ...createEmptyWhatsAppStep(4 + normalizedExtra.length),
@@ -171,7 +185,7 @@ export function ensureWhatsAppSequenceWithFallbacks(
   }
 
   return [
-    { ...opening, order: 1, label: "Opening message" },
+    opening,
     { ...fb1, order: 2, isNoReplyFallback: true, label: "No-reply follow-up 1" },
     { ...fb2, order: 3, isNoReplyFallback: true, label: "No-reply follow-up 2" },
     ...normalizedExtra.map((t, idx) => ({

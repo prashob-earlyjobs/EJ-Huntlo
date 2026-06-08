@@ -26,8 +26,14 @@ export const CAMPAIGN_WORKSPACE_TABS: CampaignWorkspaceTab[] = [
   "WhatsApp",
   "Activity",
   "Report",
-  "Settings",
+  // "Settings",
 ];
+
+/** Shorter tab labels for narrow screens. */
+export function campaignWorkspaceTabShortLabel(tab: CampaignWorkspaceTab): string {
+  if (tab === "Job description") return "Job";
+  return tab;
+}
 
 export type CampaignOutreachChannel = "gmail" | "whatsapp";
 
@@ -133,6 +139,9 @@ export function normalizeCampaignWorkspaceTab(
 ): CampaignWorkspaceTab {
   if (tab === "Contacts") {
     return contactsWorkspaceTabForChannel(outreachChannel);
+  }
+  if (tab === "Settings") {
+    return "Editor";
   }
   return tab;
 }

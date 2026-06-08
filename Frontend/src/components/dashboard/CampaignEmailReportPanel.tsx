@@ -1,10 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { getStoredAuth } from "@/lib/auth";
+import {
+  activityToFeedItem,
+  sortFeedItems,
+  unveilFieldStatusClass,
+  unveilFieldStatusLabel,
+  type CampaignFeedItem,
+} from "@/lib/campaignActivityFeed";
+import type { CampaignRevealFieldStatus, CampaignRevealJob } from "@/lib/campaignRevealJob";
 import {
   CAMPAIGN_ACTIVITY_PAGE_SIZE,
   fetchCampaignEmailReport,
@@ -23,6 +31,9 @@ import { dashboardBtnSecondaryClass } from "@/lib/dashboardStyles";
 type Props = {
   campaignId: string;
   variant: "report" | "activity";
+  revealInProgress?: boolean;
+  revealJob?: CampaignRevealJob | null;
+  reloadRevealJob?: () => void | Promise<unknown>;
   /** When set, show full-screen candidate list for this metric (URL-driven). */
   reportMetric?: ReportMetricKey | null;
   onOpenReportMetric?: (metric: ReportMetricKey) => void;
@@ -46,6 +57,8 @@ function formatWhen(iso: string) {
 
 function activityIcon(type: EmailReportActivity["type"]) {
   switch (type) {
+    case "unveil":
+      return { name: "visibility", tone: "primary" as const };
     case "interested":
       return { name: "thumb_up", tone: "positive" as const };
     case "not_interested":
@@ -59,6 +72,36 @@ function activityIcon(type: EmailReportActivity["type"]) {
     default:
       return { name: "send", tone: "muted" as const };
   }
+}
+
+function feedItemIcon(item: CampaignFeedItem) {
+  if (item.kind === "unveil") {
+    if (item.unveil?.isActive) {
+      return { name: "visibility", tone: "primary" as const };
+    }
+    return { name: "visibility", tone: "positive" as const };
+  }
+  return activityIcon(item.outreachType || "sent");
+}
+
+function UnveilStatusBadge({
+  label,
+  status,
+  value,
+}: {
+  label: string;
+  status: CampaignRevealFieldStatus;
+  value: string;
+}) {
+  if (status === "not_requested") return null;
+  return (
+    <span className={`dashboard-campaign-unveil-status ${unveilFieldStatusClass(status)}`}>
+      <span className="dashboard-campaign-unveil-status-label">{label}</span>
+      <span className="dashboard-campaign-unveil-status-value">
+        {status === "revealed" && value ? value : unveilFieldStatusLabel(status)}
+      </span>
+    </span>
+  );
 }
 
 function matrixMeta(key: string): {
@@ -94,19 +137,20 @@ function outreachStatusClass(status: string) {
   return "dashboard-campaign-report-status-pill--idle";
 }
 
-function ActivityList({
-  activities,
+function UnifiedActivityList({
+  items,
   loading,
 }: {
-  activities: EmailReportActivity[];
+  items: CampaignFeedItem[];
   loading?: boolean;
 }) {
-  if (activities.length === 0 && !loading) {
+  if (items.length === 0 && !loading) {
     return (
       <div className="dashboard-campaign-report-empty">
         <MaterialIcon name="history" className="text-4xl text-[#80868b]" aria-hidden />
         <p className="dashboard-campaign-workspace-placeholder">
-          No activity yet. Launch the sequence to start sending.
+          No activity yet. Unveil contacts when adding from search, or launch the sequence to
+          start outreach.
         </p>
       </div>
     );
@@ -116,24 +160,52 @@ function ActivityList({
     <ul
       className={`dashboard-campaign-report-activity-list${loading ? " dashboard-campaign-report-activity-list--loading" : ""}`}
       aria-busy={loading}
+      aria-live="polite"
     >
-      {activities.map((item, index) => {
-        const icon = activityIcon(item.type);
+      {items.map((item) => {
+        const icon = feedItemIcon(item);
+        const isUnveilActive = item.kind === "unveil" && item.unveil?.isActive;
         return (
           <li
-            key={`${item.candidateKey}-${item.type}-${item.at}-${index}`}
-            className={`dashboard-campaign-report-activity-item dashboard-campaign-report-activity-item--${icon.tone}`}
+            key={item.id}
+            className={`dashboard-campaign-report-activity-item dashboard-campaign-report-activity-item--${icon.tone}${
+              isUnveilActive ? " dashboard-campaign-report-activity-item--unveil-active" : ""
+            }`}
           >
             <span
               className={`dashboard-campaign-report-activity-icon dashboard-campaign-report-activity-icon--${icon.tone}`}
               aria-hidden
             >
-              <MaterialIcon name={icon.name} className="text-[20px]" />
+              {isUnveilActive ? (
+                <span className="dashboard-reveal-spinner" />
+              ) : (
+                <MaterialIcon name={icon.name} className="text-[20px]" />
+              )}
             </span>
             <div className="min-w-0 flex-1">
               <p className="dashboard-campaign-report-activity-name">{item.contactName}</p>
-              <p className="dashboard-campaign-report-activity-detail">{item.detail}</p>
-              {item.contactPhone || item.contactEmail ? (
+              {item.kind === "unveil" && item.unveil ? (
+                <div className="dashboard-campaign-report-activity-unveil-badges">
+                  {item.unveil.revealTypes.includes("EMAIL") ? (
+                    <UnveilStatusBadge
+                      label="Email"
+                      status={item.unveil.emailStatus}
+                      value={item.unveil.email}
+                    />
+                  ) : null}
+                  {item.unveil.revealTypes.includes("PHONE") ? (
+                    <UnveilStatusBadge
+                      label="Phone"
+                      status={item.unveil.phoneStatus}
+                      value={item.unveil.phone}
+                    />
+                  ) : null}
+                </div>
+              ) : null}
+              {item.detail ? (
+                <p className="dashboard-campaign-report-activity-detail">{item.detail}</p>
+              ) : null}
+              {item.kind === "outreach" && (item.contactPhone || item.contactEmail) ? (
                 <p className="dashboard-campaign-report-activity-contact truncate">
                   {item.contactPhone || item.contactEmail}
                 </p>
@@ -152,7 +224,85 @@ function ActivityList({
   );
 }
 
-function CampaignActivityPanel({ campaignId }: { campaignId: string }) {
+function isUnveilJobActive(job: CampaignRevealJob | null | undefined): job is CampaignRevealJob {
+  return job?.status === "pending" || job?.status === "running";
+}
+
+function unveilTypesLabel(revealTypes: CampaignRevealJob["revealTypes"]): string {
+  const labels = revealTypes.map((type) => (type === "EMAIL" ? "Email" : "Phone"));
+  if (labels.length === 0) return "Contact details";
+  if (labels.length === 1) return labels[0];
+  return `${labels[0]} & ${labels[1]}`;
+}
+
+function unveilFoundSummary(job: CampaignRevealJob): string {
+  const parts: string[] = [];
+  if (job.revealTypes.includes("EMAIL")) {
+    parts.push(
+      `${job.revealedEmailCount} email${job.revealedEmailCount === 1 ? "" : "s"} found`
+    );
+  }
+  if (job.revealTypes.includes("PHONE")) {
+    parts.push(
+      `${job.revealedPhoneCount} phone${job.revealedPhoneCount === 1 ? "" : "s"} found`
+    );
+  }
+  return parts.length > 0 ? parts.join(" · ") : "Looking up contact details…";
+}
+
+function ActivityUnveilProgressBanner({ job }: { job: CampaignRevealJob }) {
+  const total = Math.max(job.total, 1);
+  const processed = Math.min(Math.max(job.processed, 0), total);
+  const progressPct = Math.round((processed / total) * 100);
+
+  return (
+    <div
+      className="dashboard-campaign-unveil-panel dashboard-campaign-unveil-panel--activity"
+      role="status"
+      aria-live="polite"
+    >
+      <div className="dashboard-campaign-unveil-panel-head">
+        <div className="min-w-0">
+          <h3 className="dashboard-campaign-unveil-panel-title inline-flex items-center gap-2">
+            <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
+            Unveiling contacts
+          </h3>
+          <p className="dashboard-campaign-unveil-panel-subtitle">
+            {unveilTypesLabel(job.revealTypes)} · {unveilFoundSummary(job)}
+          </p>
+        </div>
+        <span className="dashboard-campaign-unveil-panel-count shrink-0 tabular-nums">
+          {processed} of {job.total}
+        </span>
+      </div>
+      <div
+        className="dashboard-campaign-unveil-progress-track"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={job.total}
+        aria-valuenow={processed}
+        aria-label={`Unveil progress: ${processed} of ${job.total} contacts processed`}
+      >
+        <span
+          className="dashboard-campaign-unveil-progress-bar"
+          style={{ width: `${progressPct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function CampaignActivityPanel({
+  campaignId,
+  revealInProgress = false,
+  revealJob = null,
+  reloadRevealJob,
+}: {
+  campaignId: string;
+  revealInProgress?: boolean;
+  revealJob?: CampaignRevealJob | null;
+  reloadRevealJob?: () => void | Promise<unknown>;
+}) {
   const [data, setData] = useState<CampaignEmailReportActivityResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [pageLoading, setPageLoading] = useState(false);
@@ -197,6 +347,15 @@ function CampaignActivityPanel({ campaignId }: { campaignId: string }) {
   const pagination = data?.pagination;
   const totalPages = pagination?.totalPages ?? 1;
   const page = pagination?.page ?? 1;
+
+  useEffect(() => {
+    if (!revealInProgress) return;
+    const interval = window.setInterval(() => {
+      void load(page, { soft: true });
+      void reloadRevealJob();
+    }, 2000);
+    return () => window.clearInterval(interval);
+  }, [revealInProgress, page, load, reloadRevealJob]);
   const total = pagination?.total ?? 0;
   const isWhatsApp = data?.channel === "whatsapp";
   const outreachStatus = data?.outreachStatus ?? "idle";
@@ -205,6 +364,11 @@ function CampaignActivityPanel({ campaignId }: { campaignId: string }) {
     if (pageLoading || nextPage < 1 || nextPage > totalPages || nextPage === page) return;
     void load(nextPage, { soft: true });
   };
+
+  const feedItems = useMemo(
+    () => sortFeedItems((data?.activities ?? []).map(activityToFeedItem)),
+    [data?.activities]
+  );
 
   if (loading) {
     return (
@@ -241,19 +405,22 @@ function CampaignActivityPanel({ campaignId }: { campaignId: string }) {
   return (
     <div className="dashboard-campaign-report-panel flex min-h-0 flex-1 flex-col">
       <ReportToolbar
-        title="Recent activity"
+        title="Activity"
         subtitle={
           isWhatsApp
-            ? "WhatsApp sends, replies, and qualification outcomes"
-            : "Email sends, replies, and delivery events"
+            ? "Contact unveil, WhatsApp sends, replies, and outcomes"
+            : "Contact unveil, email sends, replies, and delivery events"
         }
         isWhatsApp={isWhatsApp}
         outreachStatus={outreachStatus}
         onRefresh={() => void load(page)}
       />
       <div className="dashboard-campaign-report-body dashboard-outreach-scroll min-h-0 flex-1 overflow-y-auto">
-        <div className="dashboard-campaign-report-inner">
-          <ActivityList activities={data.activities} loading={pageLoading} />
+        <div className="dashboard-campaign-report-inner dashboard-campaign-report-inner--activity">
+          {isUnveilJobActive(revealJob) ? (
+            <ActivityUnveilProgressBanner job={revealJob} />
+          ) : null}
+          <UnifiedActivityList items={feedItems} loading={pageLoading || revealInProgress} />
         </div>
       </div>
       {totalPages > 1 ? (
@@ -931,9 +1098,23 @@ function CampaignReportPanel({
   );
 }
 
-export function CampaignEmailReportPanel({ variant, campaignId, ...rest }: Props) {
+export function CampaignEmailReportPanel({
+  variant,
+  campaignId,
+  revealInProgress,
+  revealJob,
+  reloadRevealJob,
+  ...rest
+}: Props) {
   if (variant === "activity") {
-    return <CampaignActivityPanel campaignId={campaignId} />;
+    return (
+      <CampaignActivityPanel
+        campaignId={campaignId}
+        revealInProgress={revealInProgress}
+        revealJob={revealJob}
+        reloadRevealJob={reloadRevealJob}
+      />
+    );
   }
   return <CampaignReportPanel campaignId={campaignId} {...rest} />;
 }

@@ -43,7 +43,8 @@ export function parseApiError(
     body.code === "OUTREACH_CREDITS_EXCEEDED" ||
     (res.status === 403 &&
       (/plan quota|quota exceeded/i.test(message) ||
-        /no credits for (email|whatsapp)/i.test(message)));
+        /no credits for (email|whatsapp)/i.test(message) ||
+        /(email|mobile|phone) unveil/i.test(message)));
 
   return { message, isQuotaExceeded, isFutureJobsUpstream };
 }
@@ -88,7 +89,8 @@ export function quotaAlertFromMessage(message: string): UserActionAlertState | n
   if (
     !trimmed ||
     (!/plan quota|quota exceeded/i.test(trimmed) &&
-      !/no credits for (email|whatsapp)/i.test(trimmed))
+      !/no credits for (email|whatsapp)/i.test(trimmed) &&
+      !/(email|mobile|phone) unveil/i.test(trimmed))
   ) {
     return null;
   }

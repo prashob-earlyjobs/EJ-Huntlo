@@ -13,10 +13,10 @@ const NAV_BOOK_DEMO_MOBILE_CLASS =
   "rounded-full bg-[#0050cb] px-6 py-2.5 text-center text-sm font-medium text-white";
 
 const NAV_LINKS = [
-  { href: "#product", label: "Platform" },
-  { href: "#solutions", label: "Solutions" },
-  { href: "#resources", label: "Resources" },
-  { href: "#pricing", label: "Pricing" },
+  { href: "/platform", label: "Platform" },
+  { href: "/solutions", label: "Solutions" },
+  { href: "/resources", label: "Resources" },
+  { href: "/pricing", label: "Pricing" },
 ] as const;
 
 export function LandingNav() {

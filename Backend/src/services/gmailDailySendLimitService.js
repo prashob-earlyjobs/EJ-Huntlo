@@ -145,7 +145,7 @@ async function assertGmailLaunchCapacity(userId, contacts) {
 
   if (totalContacts > 0 && enrollable === 0) {
     const err = new Error(
-      "No contacts have an email address yet. Wait for contact reveal to finish, or add contacts with email before launching."
+      "No contacts have an email address yet. Unveil email when adding candidates to the campaign, or add contacts that already include email."
     );
     err.statusCode = 400;
     throw err;
