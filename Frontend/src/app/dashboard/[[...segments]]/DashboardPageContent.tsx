@@ -100,6 +100,7 @@ import {
   createCampaign,
   fetchCampaignsPage,
 } from "@/lib/campaignsApi";
+import { rememberCampaignRevealJobHint } from "@/lib/campaignRevealJob";
 import {
   lookupRevealedContacts,
   mergeRevealedLookupIntoContacts,
@@ -4042,7 +4043,11 @@ export function UserDashboardPage() {
   }, []);
 
   const handleAddToCampaignConfirm = useCallback(
-    async (payload: { campaignId: string } | { newCampaignName: string }) => {
+    async (
+      payload:
+        | { campaignId: string; revealTypes: ("EMAIL" | "PHONE")[] }
+        | { newCampaignName: string; revealTypes: ("EMAIL" | "PHONE")[] }
+    ) => {
       if (addToCampaignBusy) return;
       const auth = getStoredAuth();
       if (!auth?.token) {
@@ -4065,21 +4070,22 @@ export function UserDashboardPage() {
             setDashboardToast({ message: batchCheck.message, variant: "warning" });
             throw new Error(batchCheck.message);
           }
-          const { campaign: record } = await createCampaign(
+          const { campaign: record, revealJobId } = await createCampaign(
             auth.token,
             payload.newCampaignName,
-            incoming
+            incoming,
+            { revealTypes: payload.revealTypes }
           );
+          if (revealJobId) rememberCampaignRevealJobHint(record.id, revealJobId);
           setCampaigns((prev) => [record, ...prev]);
           setAddToCampaignOpen(false);
           const createdCount = record.contactCount ?? incoming.length;
           setSessionResultNotice(
-            `Added ${createdCount} candidate${createdCount === 1 ? "" : "s"} to "${record.name}". Email and phone will be revealed when you launch the campaign.`
+            `Added ${createdCount} candidate${createdCount === 1 ? "" : "s"} to "${record.name}". Unveiling started — open Activity to track progress.`
           );
           navigateToTab("Campaigns", {
             campaignId: record.id,
-            campaignWorkspaceTab:
-              record.outreachChannel === "whatsapp" ? "WhatsApp" : "Emails",
+            campaignWorkspaceTab: "Activity",
           });
           return;
         }
@@ -4099,8 +4105,11 @@ export function UserDashboardPage() {
           throw new Error(batchCheck.message);
         }
 
-        const { campaign, addedCount, skippedCount, limitSkippedCount } =
-          await addContactsToCampaignApi(auth.token, payload.campaignId, incoming);
+        const { campaign, addedCount, skippedCount, limitSkippedCount, revealJobId } =
+          await addContactsToCampaignApi(auth.token, payload.campaignId, incoming, {
+            revealTypes: payload.revealTypes,
+          });
+        if (revealJobId) rememberCampaignRevealJobHint(campaign.id, revealJobId);
         setCampaigns((prev) =>
           prev.map((c) => (c.id === campaign.id ? campaign : c))
         );
@@ -4110,17 +4119,16 @@ export function UserDashboardPage() {
           setSessionResultNotice(`All selected candidates are already in "${campaignName}".`);
         } else if (skippedCount > 0) {
           setSessionResultNotice(
-            `Added ${addedCount} to "${campaignName}". ${skippedCount} duplicate${skippedCount === 1 ? " was" : "s were"} skipped. Email and phone will be revealed when you launch the campaign.`
+            `Added ${addedCount} to "${campaignName}". ${skippedCount} duplicate${skippedCount === 1 ? " was" : "s were"} skipped. Unveiling started — open Activity to track progress.`
           );
         } else {
           setSessionResultNotice(
-            `Added ${addedCount} candidate${addedCount === 1 ? "" : "s"} to "${campaignName}". Email and phone will be revealed when you launch the campaign.`
+            `Added ${addedCount} candidate${addedCount === 1 ? "" : "s"} to "${campaignName}". Unveiling started — open Activity to track progress.`
           );
         }
         navigateToTab("Campaigns", {
           campaignId: campaign.id,
-          campaignWorkspaceTab:
-            campaign.outreachChannel === "whatsapp" ? "WhatsApp" : "Emails",
+          campaignWorkspaceTab: "Activity",
         });
       } catch (err) {
         if (!userActionAlert.fromThrown(err)) {

@@ -532,11 +532,13 @@ export async function fetchCampaignsPage(
   };
 }
 
+export type CampaignRevealTypeOption = "EMAIL" | "PHONE";
+
 export async function createCampaign(
   token: string,
   name: string,
   contacts: CampaignContact[] = [],
-  options?: { revealInBackground?: boolean }
+  options?: { revealInBackground?: boolean; revealTypes?: CampaignRevealTypeOption[] }
 ): Promise<{
   campaign: CampaignRecord;
   revealJobId: string | null;
@@ -548,7 +550,11 @@ export async function createCampaign(
     body: JSON.stringify({
       name,
       contacts,
-      revealInBackground: options?.revealInBackground === true,
+      ...(options?.revealTypes && options.revealTypes.length > 0
+        ? { revealTypes: options.revealTypes }
+        : options?.revealInBackground === true
+          ? { revealInBackground: true }
+          : {}),
     }),
   });
   const data = await res.json().catch(() => ({}));
@@ -570,7 +576,7 @@ export async function addContactsToCampaignApi(
   token: string,
   campaignId: string,
   contacts: CampaignContact[],
-  options?: { revealInBackground?: boolean }
+  options?: { revealInBackground?: boolean; revealTypes?: CampaignRevealTypeOption[] }
 ): Promise<{
   campaign: CampaignRecord;
   addedCount: number;
@@ -583,7 +589,11 @@ export async function addContactsToCampaignApi(
     headers: authHeaders(token),
     body: JSON.stringify({
       contacts,
-      revealInBackground: options?.revealInBackground === true,
+      ...(options?.revealTypes && options.revealTypes.length > 0
+        ? { revealTypes: options.revealTypes }
+        : options?.revealInBackground === true
+          ? { revealInBackground: true }
+          : {}),
     }),
   });
   const data = await res.json().catch(() => ({}));

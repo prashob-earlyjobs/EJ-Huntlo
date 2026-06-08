@@ -14,6 +14,7 @@ const {
 } = require("../services/campaignService");
 const {
   createAndStartCampaignRevealJob,
+  getLatestRevealJobForCampaign,
   getActiveRevealJobForCampaign,
   startCampaignRevealJob,
   getCampaignRevealJob,
@@ -109,12 +110,28 @@ const listCampaignContactsHandler = async (req, res) => {
   }
 };
 
+function parseRevealTypesFromBody(body) {
+  const raw = body?.revealTypes;
+  if (Array.isArray(raw)) {
+    const types = [
+      ...new Set(
+        raw.map((t) => String(t).toUpperCase()).filter((t) => t === "EMAIL" || t === "PHONE")
+      ),
+    ];
+    if (types.length > 0) return types;
+  }
+  if (body?.revealInBackground === true) {
+    return ["EMAIL", "PHONE"];
+  }
+  return null;
+}
+
 const createCampaignHandler = async (req, res) => {
   try {
     const uid = req.auth?.userId;
     if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
     const contacts = Array.isArray(req.body?.contacts) ? req.body.contacts : [];
-    const revealInBackground = req.body?.revealInBackground === true;
+    const revealTypes = parseRevealTypesFromBody(req.body);
     const { campaign, limitSkippedCount } = await createCampaign(uid, {
       name: req.body?.name,
       contacts,
@@ -122,7 +139,7 @@ const createCampaignHandler = async (req, res) => {
 
     let revealJob = null;
     let revealJobError = null;
-    if (revealInBackground && contacts.length > 0) {
+    if (revealTypes && contacts.length > 0) {
       const candidateKeys = contacts
         .map((c) => String(c?.candidateKey || "").trim())
         .filter(Boolean);
@@ -131,7 +148,8 @@ const createCampaignHandler = async (req, res) => {
           revealJob = await createAndStartCampaignRevealJob(
             uid,
             campaign.id,
-            candidateKeys
+            candidateKeys,
+            revealTypes
           );
         } catch (revealErr) {
           revealJobError =
@@ -160,7 +178,7 @@ const addContactsHandler = async (req, res) => {
     const uid = req.auth?.userId;
     if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
     const contacts = Array.isArray(req.body?.contacts) ? req.body.contacts : [];
-    const revealInBackground = req.body?.revealInBackground === true;
+    const revealTypes = parseRevealTypesFromBody(req.body);
     const result = await addContactsToCampaign(uid, req.params.id, contacts);
     let sequenceEnroll = null;
     let sequenceEnrollError = null;
@@ -185,12 +203,13 @@ const addContactsHandler = async (req, res) => {
       result.addedCount > 0 && Array.isArray(result.addedCandidateKeys)
         ? result.addedCandidateKeys
         : [];
-    if (revealInBackground && keysToReveal.length > 0) {
+    if (revealTypes && keysToReveal.length > 0) {
       try {
         revealJob = await createAndStartCampaignRevealJob(
           uid,
           req.params.id,
-          keysToReveal
+          keysToReveal,
+          revealTypes
         );
       } catch (revealErr) {
         revealJobError =
@@ -240,6 +259,7 @@ const getCampaignRevealJobHandler = async (req, res) => {
   try {
     const uid = req.auth?.userId;
     if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
+    res.set("Cache-Control", "no-store");
     const job = await getCampaignRevealJob(uid, req.params.jobId);
     return res.status(200).json({ success: true, job });
   } catch (error) {
@@ -252,7 +272,21 @@ const getActiveCampaignRevealJobHandler = async (req, res) => {
     const uid = req.auth?.userId;
     if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
     await getCampaign(uid, req.params.id);
+    res.set("Cache-Control", "no-store");
     const job = await getActiveRevealJobForCampaign(uid, req.params.id);
+    return res.status(200).json({ success: true, job });
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
+const getLatestCampaignRevealJobHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
+    await getCampaign(uid, req.params.id);
+    res.set("Cache-Control", "no-store");
+    const job = await getLatestRevealJobForCampaign(uid, req.params.id);
     return res.status(200).json({ success: true, job });
   } catch (error) {
     return handleError(res, error);
@@ -275,7 +309,8 @@ const startCampaignRevealJobHandler = async (req, res) => {
     const candidateKeys = Array.isArray(req.body?.candidateKeys)
       ? req.body.candidateKeys.map((k) => String(k).trim()).filter(Boolean)
       : [];
-    const job = await startCampaignRevealJob(uid, req.params.id, candidateKeys);
+    const revealTypes = parseRevealTypesFromBody(req.body) || ["EMAIL", "PHONE"];
+    const job = await startCampaignRevealJob(uid, req.params.id, candidateKeys, revealTypes);
     return res.status(200).json({
       success: true,
       job,
@@ -438,6 +473,7 @@ const getCampaignEmailReportActivityHandler = async (req, res) => {
   try {
     const uid = req.auth?.userId;
     if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
+    res.set("Cache-Control", "no-store");
     const data = await getEmailCampaignReportActivity(uid, req.params.id, {
       page: req.query?.page,
       limit: req.query?.limit,
@@ -586,6 +622,7 @@ module.exports = {
   removeCampaignContactHandler,
   getCampaignRevealJobHandler,
   getActiveCampaignRevealJobHandler,
+  getLatestCampaignRevealJobHandler,
   startCampaignRevealJobHandler,
   syncCampaignContactsHandler,
   setCampaignOutreachPlanHandler,

@@ -63,6 +63,7 @@ import {
   syncCampaignReplies,
 } from "@/lib/campaignEmailThread";
 import { useCampaignThreadRealtime } from "@/lib/realtime/useCampaignThreadRealtime";
+import { useCampaignRevealJob } from "@/lib/useCampaignRevealJob";
 import {
   dashboardBtnPrimaryClass,
   dashboardBtnSecondaryClass,
@@ -185,10 +186,10 @@ function emailEmptyLabel(
   campaignLaunched: boolean
 ) {
   if (revealInProgress) {
-    return "Revealing email and phone…";
+    return "Unveiling contact details…";
   }
   if (!campaignLaunched) {
-    return "Launch the campaign to reveal email.";
+    return "Unveil email when adding from search, or reveal in Session Results.";
   }
   if (!contact.linkedinUrl.trim() || !contact.sourcingSessionId.trim()) {
     return "Missing LinkedIn — open this person in Session Results and use Reveal Email";
@@ -369,7 +370,7 @@ export function CampaignWorkspace({
   const [contactsListTotalPages, setContactsListTotalPages] = useState(1);
   const [removeContactBusyKey, setRemoveContactBusyKey] = useState("");
   const [removeContactConfirm, setRemoveContactConfirm] = useState<CampaignContact | null>(null);
-  const [revealInProgress, setRevealInProgress] = useState(false);
+  const unveilCompleteRef = useRef<(() => void) | undefined>(undefined);
   const [waCommsRefreshKey, setWaCommsRefreshKey] = useState(0);
   const [contactViewsRevision, setContactViewsRevision] = useState(0);
   const [csvImportBusy, setCsvImportBusy] = useState(false);
@@ -380,6 +381,15 @@ export function CampaignWorkspace({
 
   const onCampaignUpdatedRef = useRef(onCampaignUpdated);
   onCampaignUpdatedRef.current = onCampaignUpdated;
+
+  const { job: revealJob, revealInProgress, reload: reloadRevealJob } = useCampaignRevealJob(
+    campaign.id,
+    {
+      onComplete: () => unveilCompleteRef.current?.(),
+    }
+  );
+  const unveilJobActive =
+    revealJob?.status === "pending" || revealJob?.status === "running";
 
   const contactsFetchKeyRef = useRef<string | null>(null);
 
@@ -773,6 +783,13 @@ export function CampaignWorkspace({
         setSaveToast({ message: "Please sign in again.", variant: "error" });
         return;
       }
+      if (unveilJobActive) {
+        setSaveToast({
+          message: "Wait for contact unveil to finish before launching.",
+          variant: "error",
+        });
+        return;
+      }
       try {
         const updated = await setCampaignOutreachPlan(
           auth.token,
@@ -804,7 +821,7 @@ export function CampaignWorkspace({
         throw err;
       }
     },
-    [campaign.id]
+    [campaign.id, unveilJobActive]
   );
 
   const handleSaveCampaignCalendly = useCallback(
@@ -1110,10 +1127,13 @@ export function CampaignWorkspace({
   const handleLaunchSequence = useCallback(async () => {
     const auth = getStoredAuth();
     if (!auth?.token || launchBusy) return;
+    if (unveilJobActive) {
+      setLaunchError("Wait for contact unveil to finish before launching.");
+      return;
+    }
     setLaunchError("");
     setLaunchNotice("");
     setLaunchBusy(true);
-    setRevealInProgress(true);
     try {
       const result = await launchCampaignSequence(auth.token, campaign.id);
       onCampaignUpdatedRef.current?.(result.campaign);
@@ -1139,10 +1159,9 @@ export function CampaignWorkspace({
         );
       }
     } finally {
-      setRevealInProgress(false);
       setLaunchBusy(false);
     }
-  }, [campaign.id, launchBusy]);
+  }, [campaign.id, launchBusy, unveilJobActive]);
 
   const handlePauseSequence = useCallback(async () => {
     const auth = getStoredAuth();
@@ -1253,6 +1272,16 @@ export function CampaignWorkspace({
     void loadContactsListPage(1);
     void loadEmailListPage(1);
   }, [loadContactsListPage, loadEmailListPage]);
+
+  const handleUnveilComplete = useCallback(() => {
+    contactsFetchKeyRef.current = null;
+    void reloadContacts();
+    refreshContactDependentViews();
+  }, [reloadContacts, refreshContactDependentViews]);
+
+  useEffect(() => {
+    unveilCompleteRef.current = handleUnveilComplete;
+  }, [handleUnveilComplete]);
 
   const handleRemoveContactFromCampaign = useCallback(
     async (contact: CampaignContact) => {
@@ -1832,6 +1861,7 @@ export function CampaignWorkspace({
               hasCampaignContacts={hasContacts}
               hasSequence={hasSequence}
               launchBusy={launchBusy}
+              unveilInProgress={unveilJobActive}
               onLaunchCampaign={() => void handleLaunchSequence()}
               onPauseCampaign={() => void handlePauseSequence()}
               onResumeCampaign={() => void handleResumeSequence()}
@@ -1861,6 +1891,7 @@ export function CampaignWorkspace({
               onResumeCampaign={() => handleResumeSequence()}
               campaignOutreachStatus={outreachStatus}
               hasCampaignContacts={hasContacts}
+              unveilInProgress={unveilJobActive}
               onLaunchComplete={() => {
                 onWorkspaceTabChange("WhatsApp");
                 setWaCommsRefreshKey((k) => k + 1);
@@ -2334,7 +2365,13 @@ export function CampaignWorkspace({
             }
           />
         ) : activeTab === "Activity" ? (
-          <CampaignEmailReportPanel campaignId={campaign.id} variant="activity" />
+          <CampaignEmailReportPanel
+            campaignId={campaign.id}
+            variant="activity"
+            revealInProgress={revealInProgress}
+            revealJob={revealJob}
+            reloadRevealJob={reloadRevealJob}
+          />
         ) : COMING_SOON_TABS.has(activeTab) ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-12 text-center">
             <MaterialIcon name="construction" className="text-4xl text-slate-400" />

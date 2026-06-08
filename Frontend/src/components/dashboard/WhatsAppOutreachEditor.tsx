@@ -69,6 +69,7 @@ type Props = {
   onResumeCampaign?: () => void | Promise<void>;
   campaignOutreachStatus?: "idle" | "active" | "paused" | "completed";
   hasCampaignContacts?: boolean;
+  unveilInProgress?: boolean;
   /** Called after launch API + overlay animation finish (e.g. switch workspace tab). */
   onLaunchComplete?: () => void;
 };
@@ -259,6 +260,7 @@ export function WhatsAppOutreachEditor({
   onResumeCampaign,
   campaignOutreachStatus = "idle",
   hasCampaignContacts = true,
+  unveilInProgress = false,
   onLaunchComplete,
 }: Props) {
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
@@ -880,8 +882,14 @@ export function WhatsAppOutreachEditor({
               <button
                 type="button"
                 onClick={() => void launchCampaign()}
-                disabled={actionBusy || !hasCampaignContacts}
-                title={!hasCampaignContacts ? "Add contacts to this campaign first" : "Launch campaign"}
+                disabled={actionBusy || unveilInProgress || !hasCampaignContacts}
+                title={
+                  unveilInProgress
+                    ? "Wait for contact unveil to finish"
+                    : !hasCampaignContacts
+                      ? "Add contacts to this campaign first"
+                      : "Launch campaign"
+                }
                 className="dashboard-campaign-wa-launch-btn inline-flex items-center gap-1.5 px-4 py-1.5 text-sm disabled:opacity-55"
               >
                 {launching ? (
