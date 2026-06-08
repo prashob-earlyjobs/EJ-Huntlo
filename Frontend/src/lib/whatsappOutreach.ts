@@ -27,9 +27,9 @@ export const WHATSAPP_OPENING_TEMPLATES: WhatsAppMessageTemplate[] = [
     id: "opening_message_01",
     name: "Professional introduction",
     description: "Shortlisted candidate invite to review the role and reply for next steps.",
-    body: `Hi {{1}},
+    body: `Hi {{FirstName}},
 
-Your profile has been shortlisted through our candidate matching process for the {{2}} position.
+Your profile has been shortlisted through our candidate matching process for the {{JobTitle}} position.
 
 To review the opportunity details and next steps, please reply to this message.`,
   },

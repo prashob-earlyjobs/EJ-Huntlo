@@ -59,6 +59,7 @@ type Props = {
   routeReportMetric?: ReportMetricKey | null;
   routeWhatsAppContactKey?: string | null;
   onAddFromSearchHistory?: () => void;
+  onRevealQuotaExceeded?: (message: string) => void;
 };
 
 export function CampaignsPanel({
@@ -82,6 +83,7 @@ export function CampaignsPanel({
   routeReportMetric = null,
   routeWhatsAppContactKey = null,
   onAddFromSearchHistory,
+  onRevealQuotaExceeded,
 }: Props) {
   const router = useRouter();
   const planAccessOpts = { plansReady: pricingPlansReady };
@@ -404,6 +406,7 @@ export function CampaignsPanel({
             onCampaignUpdated={handleCampaignUpdated}
             onGoToIntegrations={onGoToIntegrations}
             onAddFromSearchHistory={onAddFromSearchHistory}
+            onRevealQuotaExceeded={onRevealQuotaExceeded}
           />
         </section>
         {createModal}

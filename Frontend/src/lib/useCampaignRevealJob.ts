@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { getStoredAuth } from "@/lib/auth";
 import {
@@ -14,10 +14,11 @@ import {
 
 export function useCampaignRevealJob(
   campaignId: string,
-  options?: { onComplete?: () => void }
+  options?: { onComplete?: () => void; onQuotaExceeded?: (message: string) => void }
 ) {
   const [job, setJob] = useState<CampaignRevealJob | null>(null);
   const [loading, setLoading] = useState(true);
+  const quotaAlertedRef = useRef(false);
 
   const resolveJob = useCallback(async (): Promise<CampaignRevealJob | null> => {
     const auth = getStoredAuth();
@@ -72,9 +73,24 @@ export function useCampaignRevealJob(
     loading || job?.status === "pending" || job?.status === "running";
 
   useEffect(() => {
+    quotaAlertedRef.current = false;
+  }, [campaignId]);
+
+  useEffect(() => {
+    if (!job || job.status !== "quota_exceeded" || quotaAlertedRef.current) return;
+    const hintedJobId = readCampaignRevealJobHint(campaignId);
+    if (!hintedJobId || hintedJobId !== job.id) return;
+    quotaAlertedRef.current = true;
+    options?.onQuotaExceeded?.(
+      job.errorMessage?.trim() ||
+        "Plan quota exceeded for contact unveil. Upgrade or contact support."
+    );
+    clearCampaignRevealJobHint(campaignId);
+  }, [job, campaignId, options?.onQuotaExceeded]);
+
+  useEffect(() => {
     if (!job) return;
     if (job.status !== "pending" && job.status !== "running") {
-      clearCampaignRevealJobHint(campaignId);
       return;
     }
 
@@ -86,6 +102,13 @@ export function useCampaignRevealJob(
         try {
           const next = await getCampaignRevealJob(auth.token!, job.id);
           setJob(next);
+          if (next.status === "quota_exceeded" && !quotaAlertedRef.current) {
+            quotaAlertedRef.current = true;
+            options?.onQuotaExceeded?.(
+              next.errorMessage?.trim() ||
+                "Plan quota exceeded for contact unveil. Upgrade or contact support."
+            );
+          }
           if (
             next.status === "completed" ||
             next.status === "failed" ||
@@ -102,7 +125,7 @@ export function useCampaignRevealJob(
     }, 2000);
 
     return () => window.clearInterval(interval);
-  }, [job, campaignId, options?.onComplete, resolveJob]);
+  }, [job, campaignId, options?.onComplete, options?.onQuotaExceeded, resolveJob]);
 
   useEffect(() => {
     if (job) return;

@@ -5168,6 +5168,7 @@ export function UserDashboardPage() {
                 routeWorkspaceTab={campaignWorkspaceTab}
                 routeReportMetric={campaignReportMetric ?? null}
                 routeWhatsAppContactKey={campaignWhatsAppContactKey || null}
+                onRevealQuotaExceeded={userActionAlert.showQuota}
               />
             ) : activeTab === "Integrations" ? (
               <IntegrationsPanel

@@ -168,6 +168,7 @@ type Props = {
   onCampaignUpdated?: (campaign: CampaignRecord) => void;
   onGoToIntegrations?: () => void;
   onAddFromSearchHistory?: () => void;
+  onRevealQuotaExceeded?: (message: string) => void;
 };
 
 function contactInitial(name: string) {
@@ -305,6 +306,7 @@ export function CampaignWorkspace({
   onCampaignUpdated,
   onGoToIntegrations,
   onAddFromSearchHistory,
+  onRevealQuotaExceeded,
 }: Props) {
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
   const [launchBusy, setLaunchBusy] = useState(false);
@@ -386,6 +388,7 @@ export function CampaignWorkspace({
     campaign.id,
     {
       onComplete: () => unveilCompleteRef.current?.(),
+      onQuotaExceeded: onRevealQuotaExceeded,
     }
   );
   const unveilJobActive =

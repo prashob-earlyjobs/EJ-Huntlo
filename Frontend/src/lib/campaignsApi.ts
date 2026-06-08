@@ -1,4 +1,5 @@
 import { authHeaders } from "@/lib/auth";
+import { parseApiError } from "@/lib/apiErrors";
 import type {
   CampaignContact,
   CampaignOutreachStatus,
@@ -559,7 +560,7 @@ export async function createCampaign(
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.success) {
-    throw new Error(typeof data.message === "string" ? data.message : "Failed to create campaign");
+    throw new Error(parseApiError(res, data, "Failed to create campaign").message);
   }
   const campaign = parseCampaign(data.campaign);
   if (!campaign) throw new Error("Invalid campaign response");
@@ -598,7 +599,7 @@ export async function addContactsToCampaignApi(
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.success) {
-    throw new Error(typeof data.message === "string" ? data.message : "Failed to add contacts");
+    throw new Error(parseApiError(res, data, "Failed to add contacts").message);
   }
   const campaign = parseCampaign(data.campaign);
   if (!campaign) throw new Error("Invalid campaign response");

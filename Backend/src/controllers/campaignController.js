@@ -13,12 +13,14 @@ const {
   updateCampaignCalendlyAutomation,
 } = require("../services/campaignService");
 const {
+  assertCampaignRevealQuotaAvailable,
   createAndStartCampaignRevealJob,
   getLatestRevealJobForCampaign,
   getActiveRevealJobForCampaign,
   startCampaignRevealJob,
   getCampaignRevealJob,
 } = require("../services/campaignRevealJobService");
+const { getExistingCandidateKeys } = require("../services/campaignContactService");
 const {
   launchCampaignSequence,
   enrollAddedContactsIfCampaignActive,
@@ -132,6 +134,9 @@ const createCampaignHandler = async (req, res) => {
     if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
     const contacts = Array.isArray(req.body?.contacts) ? req.body.contacts : [];
     const revealTypes = parseRevealTypesFromBody(req.body);
+    if (revealTypes && contacts.length > 0) {
+      await assertCampaignRevealQuotaAvailable(uid, contacts, revealTypes);
+    }
     const { campaign, limitSkippedCount } = await createCampaign(uid, {
       name: req.body?.name,
       contacts,
@@ -179,6 +184,16 @@ const addContactsHandler = async (req, res) => {
     if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
     const contacts = Array.isArray(req.body?.contacts) ? req.body.contacts : [];
     const revealTypes = parseRevealTypesFromBody(req.body);
+    if (revealTypes && contacts.length > 0) {
+      const existingKeys = await getExistingCandidateKeys(req.params.id);
+      const newContacts = contacts.filter((c) => {
+        const key = String(c?.candidateKey || "").trim();
+        return key && !existingKeys.has(key);
+      });
+      if (newContacts.length > 0) {
+        await assertCampaignRevealQuotaAvailable(uid, newContacts, revealTypes);
+      }
+    }
     const result = await addContactsToCampaign(uid, req.params.id, contacts);
     let sequenceEnroll = null;
     let sequenceEnrollError = null;

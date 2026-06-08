@@ -35,6 +35,51 @@ function normalizeRevealTypes(raw) {
   return types.length > 0 ? types : ["EMAIL", "PHONE"];
 }
 
+function normalizeContactForRevealCheck(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  return {
+    linkedinUrl: String(raw.linkedinUrl || raw.linkedin_profile_url || "").trim(),
+    sourcingSessionId: String(raw.sourcingSessionId || "").trim(),
+    email: String(raw.email || "").trim(),
+    phone: String(raw.phone || "").trim(),
+  };
+}
+
+function countRevealQuotaNeeds(contacts, revealTypes) {
+  const types = normalizeRevealTypes(revealTypes);
+  let emailNeeded = 0;
+  let phoneNeeded = 0;
+  if (!Array.isArray(contacts)) return { emailNeeded, phoneNeeded };
+
+  for (const raw of contacts) {
+    const contact = normalizeContactForRevealCheck(raw);
+    if (!contact) continue;
+    if (!contact.linkedinUrl || !contact.sourcingSessionId) continue;
+    if (types.includes("EMAIL") && !contact.email) emailNeeded += 1;
+    if (types.includes("PHONE") && !contact.phone) phoneNeeded += 1;
+  }
+
+  return { emailNeeded, phoneNeeded };
+}
+
+/**
+ * Fail before add/create when requested unveil types exceed plan quota for this batch.
+ */
+async function assertCampaignRevealQuotaAvailable(userId, contacts, revealTypes) {
+  if (!userId || !Array.isArray(contacts) || contacts.length === 0) return;
+
+  const { emailNeeded, phoneNeeded } = countRevealQuotaNeeds(contacts, revealTypes);
+  if (emailNeeded <= 0 && phoneNeeded <= 0) return;
+
+  const { assertQuotaAvailableByUserId } = require("./planQuotas");
+  if (emailNeeded > 0) {
+    await assertQuotaAvailableByUserId(userId, "emailUnveils", emailNeeded);
+  }
+  if (phoneNeeded > 0) {
+    await assertQuotaAvailableByUserId(userId, "mobileUnveils", phoneNeeded);
+  }
+}
+
 function formatJob(doc) {
   if (!doc) return null;
   const o = typeof doc.toObject === "function" ? doc.toObject() : doc;
@@ -252,6 +297,8 @@ async function getCampaignRevealJob(actorUserId, jobId) {
 }
 
 module.exports = {
+  assertCampaignRevealQuotaAvailable,
+  countRevealQuotaNeeds,
   createAndStartCampaignRevealJob,
   revealCampaignContactsForLaunch,
   listRevealJobsForCampaign,

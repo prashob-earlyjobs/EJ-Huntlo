@@ -5,7 +5,7 @@ const UserIntegration = require("../models/UserIntegration");
 const OutreachPlan = require("../models/OutreachPlan");
 const WhatsAppOutreachPlan = require("../models/WhatsAppOutreachPlan");
 const { sendGmailMessage } = require("./gmailSendService");
-const { applyMergeFields } = require("./outreachMergeService");
+const { applyMergeFields, applyWhatsAppMergeFields } = require("./outreachMergeService");
 const {
   assertWhatsAppReadyForSend,
   sendWhatsAppMessage,
@@ -817,9 +817,11 @@ async function processWhatsAppEnrollmentDoc(enrollment, campaign) {
   };
 
   const templateId = String(touchpoint.templateId || "").trim();
-  const body = applyMergeFields(String(touchpoint.body || ""), {
+  const body = applyWhatsAppMergeFields(String(touchpoint.body || ""), {
     contact,
     senderFirstName,
+    campaign,
+    templateId,
   }).trim();
 
   if (!templateId && !body) {
@@ -843,6 +845,7 @@ async function processWhatsAppEnrollmentDoc(enrollment, campaign) {
       templateId,
       contact,
       senderFirstName,
+      campaign,
     });
   } catch (err) {
     await logCampaignWhatsAppMessage({
