@@ -1,15 +1,24 @@
+export const FUTURE_JOBS_UPSTREAM_ERROR_MESSAGE =
+  "We couldn't complete the search right now. Please try again shortly.";
+
+export const FUTURE_JOBS_UPSTREAM_ERROR_CODE = "FUTURE_JOBS_UPSTREAM_ERROR";
+
 export type ApiErrorInfo = {
   message: string;
   isQuotaExceeded: boolean;
+  isFutureJobsUpstream: boolean;
 };
+
+function apiErrorBody(data: unknown): Record<string, unknown> {
+  return data && typeof data === "object" ? (data as Record<string, unknown>) : {};
+}
 
 export function parseApiError(
   res: Response,
   data: unknown,
   fallback = "Request failed"
 ): ApiErrorInfo {
-  const body =
-    data && typeof data === "object" ? (data as Record<string, unknown>) : {};
+  const body = apiErrorBody(data);
   const details =
     body.details && typeof body.details === "object"
       ? (body.details as Record<string, unknown>)
@@ -17,8 +26,11 @@ export function parseApiError(
   const detailsMessage =
     details && typeof details.message === "string" ? details.message.trim() : "";
 
-  const message =
-    typeof body.message === "string" && body.message.trim()
+  const isFutureJobsUpstream = isFutureJobsUpstreamApiError(res, data);
+
+  const message = isFutureJobsUpstream
+    ? FUTURE_JOBS_UPSTREAM_ERROR_MESSAGE
+    : typeof body.message === "string" && body.message.trim()
       ? body.message.trim()
       : detailsMessage
         ? detailsMessage
@@ -34,7 +46,26 @@ export function parseApiError(
         /no credits for (email|whatsapp)/i.test(message) ||
         /(email|mobile|phone) unveil/i.test(message)));
 
-  return { message, isQuotaExceeded };
+  return { message, isQuotaExceeded, isFutureJobsUpstream };
+}
+
+export function isFutureJobsUpstreamApiError(res: Response, data: unknown): boolean {
+  const body = apiErrorBody(data);
+  if (body.code === FUTURE_JOBS_UPSTREAM_ERROR_CODE) return true;
+
+  const message = typeof body.message === "string" ? body.message : "";
+  return (
+    [502, 503, 504].includes(res.status) &&
+    (message === FUTURE_JOBS_UPSTREAM_ERROR_MESSAGE || /future jobs/i.test(message))
+  );
+}
+
+export function isFutureJobsUpstreamThrown(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const code = "code" in err ? (err as { code?: unknown }).code : undefined;
+  if (code === FUTURE_JOBS_UPSTREAM_ERROR_CODE) return true;
+  const message = err instanceof Error ? err.message : "";
+  return message === FUTURE_JOBS_UPSTREAM_ERROR_MESSAGE;
 }
 
 export function quotaExceededTitle(): string {

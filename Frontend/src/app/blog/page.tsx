@@ -5,13 +5,17 @@ import { LandingFooter } from "@/components/landing/LandingFooter";
 import { LandingNav } from "@/components/landing/LandingNav";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 
+import { buildPageMetadata, OG_IMAGES } from "@/lib/siteMetadata";
+
 import { BlogIndexContent } from "./BlogIndexContent";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = buildPageMetadata({
   title: "Blog | Huntlo — AI Recruiting & Outbound Hiring",
   description:
     "Guides on AI candidate sourcing, outbound recruiting, People Scout, campaigns, and modern hiring workflows from the Huntlo team.",
-};
+  ogImage: OG_IMAGES.blog,
+  path: "/blog",
+});
 
 function BlogIndexFallback() {
   return (

@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { lockPageScroll, unlockPageScroll } from "@/lib/lockPageScroll";
 import { quotaExceededTitle } from "@/lib/apiErrors";
 
 type Props = {
@@ -20,25 +22,31 @@ export function UserActionAlertModal({
   onClose,
   onViewPlans,
 }: Props) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKeyDown);
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    lockPageScroll();
+
     return () => {
       window.removeEventListener("keydown", onKeyDown);
-      document.body.style.overflow = prevOverflow;
+      unlockPageScroll();
     };
   }, [open, onClose]);
 
-  if (!open || !message.trim()) return null;
+  if (!open || !message.trim() || !mounted) return null;
 
-  return (
+  return createPortal(
     <div
-      className="dashboard-modal-overlay"
+      className="dashboard-modal-overlay dashboard-user-action-modal-overlay"
       role="dialog"
       aria-modal="true"
       aria-labelledby="user-action-alert-title"
@@ -46,7 +54,7 @@ export function UserActionAlertModal({
     >
       <button
         type="button"
-        className="absolute inset-0 cursor-default"
+        className="dashboard-user-action-modal-backdrop"
         aria-label="Close dialog"
         onClick={onClose}
       />
@@ -95,7 +103,8 @@ export function UserActionAlertModal({
             </button>
           ) : null}
         </div>
-        </div>
-    </div>
+      </div>
+    </div>,
+    document.body
   );
 }

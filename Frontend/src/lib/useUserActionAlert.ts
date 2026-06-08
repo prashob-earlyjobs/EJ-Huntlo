@@ -4,6 +4,9 @@ import { useCallback, useState } from "react";
 
 import {
   CLOSED_USER_ACTION_ALERT,
+  FUTURE_JOBS_UPSTREAM_ERROR_MESSAGE,
+  isFutureJobsUpstreamApiError,
+  isFutureJobsUpstreamThrown,
   parseApiError,
   quotaAlertFromMessage,
   type UserActionAlertState,
@@ -22,6 +25,20 @@ export function useUserActionAlert() {
     setAlert({ open: true, message: trimmed, isQuotaExceeded: true });
   }, []);
 
+  const showFutureJobsUpstream = useCallback(() => {
+    setAlert({
+      open: true,
+      message: FUTURE_JOBS_UPSTREAM_ERROR_MESSAGE,
+      isQuotaExceeded: false,
+    });
+  }, []);
+
+  const showError = useCallback((message: string) => {
+    const trimmed = message.trim();
+    if (!trimmed) return;
+    setAlert({ open: true, message: trimmed, isQuotaExceeded: false });
+  }, []);
+
   const fromApi = useCallback(
     (res: Response, data: unknown, fallback: string): boolean => {
       const info = parseApiError(res, data, fallback);
@@ -36,13 +53,36 @@ export function useUserActionAlert() {
     return parseApiError(res, data, fallback).message;
   }, []);
 
+  const fromFutureJobsApi = useCallback(
+    (res: Response, data: unknown): boolean => {
+      if (!isFutureJobsUpstreamApiError(res, data)) return false;
+      showFutureJobsUpstream();
+      return true;
+    },
+    [showFutureJobsUpstream]
+  );
+
   const fromThrown = useCallback((err: unknown): boolean => {
+    if (isFutureJobsUpstreamThrown(err)) {
+      showFutureJobsUpstream();
+      return true;
+    }
     const message = err instanceof Error ? err.message : "";
     const state = quotaAlertFromMessage(message);
     if (!state) return false;
     setAlert(state);
     return true;
-  }, []);
+  }, [showFutureJobsUpstream]);
 
-  return { alert, close, showQuota, fromApi, apiMessage, fromThrown };
+  return {
+    alert,
+    close,
+    showQuota,
+    showFutureJobsUpstream,
+    showError,
+    fromApi,
+    fromFutureJobsApi,
+    apiMessage,
+    fromThrown,
+  };
 }

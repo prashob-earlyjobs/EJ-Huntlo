@@ -88,6 +88,7 @@ const publicAnnotateSearchPrompt = async (req, res) => {
     });
     return res.status(status).json({
       success: false,
+      code: error.code,
       message: error.message || "Failed to analyze search prompt",
       details: error.details,
     });
