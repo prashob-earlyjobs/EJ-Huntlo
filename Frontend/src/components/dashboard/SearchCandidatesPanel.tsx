@@ -63,8 +63,6 @@ type Props = {
   onAiPromptChange: (value: string) => void;
   onSearch: () => void;
   searchLoading: boolean;
-  searchError: string;
-  profilesWarning: string;
   recentSearches: RecentAiSearchItem[];
   recentLoading: boolean;
   onOpenRecent: (item: RecentAiSearchItem) => void;
@@ -77,8 +75,6 @@ export function SearchCandidatesPanel({
   onAiPromptChange,
   onSearch,
   searchLoading,
-  searchError,
-  profilesWarning,
   recentSearches,
   recentLoading,
   onOpenRecent,
@@ -221,13 +217,6 @@ export function SearchCandidatesPanel({
               onSearch();
             }}
           />
-
-          {searchError ? <p className="mt-3 dashboard-alert-error">{searchError}</p> : null}
-          {profilesWarning ? (
-            <p className="mt-3 dashboard-alert-warning">
-              Session created, but profiles could not be loaded: {profilesWarning}
-            </p>
-          ) : null}
 
           {searchLoading ? (
             <div className="dashboard-people-scout-loading mt-4" role="status" aria-live="polite">
