@@ -1,8 +1,15 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
+import {
+  detectHeroQueryDimensions,
+  hasMinimumHeroQueryDimensions,
+  HERO_TAG_TO_DIMENSION,
+} from "@/lib/heroQueryDimensions";
+import { checkHeroPromptWithBackend } from "@/lib/heroPromptCheckApi";
+import { HeroSearchPromptWarningModal } from "./HeroSearchPromptWarningModal";
 import { MaterialIcon } from "./MaterialIcon";
 
 const HERO_FILTER_TAGS = ["Roles", "Skills", "Location", "Experience"] as const;
@@ -71,16 +78,46 @@ export function HeroSearchTyping() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [userValue, setUserValue] = useState("");
   const [isEditing, setIsEditing] = useState(false);
+  const [incompleteWarningOpen, setIncompleteWarningOpen] = useState(false);
+  const [promptCheckLoading, setPromptCheckLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const phrase = phrases[phraseIndex] ?? phrases[0];
   const hasUserQuery = Boolean(userValue.trim());
   const showTyping = !isEditing && !userValue;
-
-  const goToCandidates = () => {
+  const queryDimensions = useMemo(
+    () => detectHeroQueryDimensions(userValue),
+    [userValue]
+  );
+  const navigateToCandidates = () => {
     const q = userValue.trim();
     if (!q) return;
     router.push(`/candidates?q=${encodeURIComponent(q)}`);
+  };
+
+  const requestSearch = async () => {
+    const q = userValue.trim();
+    if (!q || promptCheckLoading) return;
+
+    if (!hasMinimumHeroQueryDimensions(queryDimensions)) {
+      setIncompleteWarningOpen(true);
+      return;
+    }
+
+    setPromptCheckLoading(true);
+    try {
+      const result = await checkHeroPromptWithBackend(q);
+      if (result.allPresent) {
+        navigateToCandidates();
+        return;
+      }
+      setIncompleteWarningOpen(true);
+    } catch {
+      // If AI verification is unavailable, proceed — FE rule-based check already passed.
+      navigateToCandidates();
+    } finally {
+      setPromptCheckLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -149,7 +186,9 @@ export function HeroSearchTyping() {
             value={userValue}
             onChange={(e) => setUserValue(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && hasUserQuery) goToCandidates();
+              if (e.key === "Enter" && hasUserQuery && !promptCheckLoading) {
+                void requestSearch();
+              }
             }}
             onFocus={() => setIsEditing(true)}
             onBlur={() => {
@@ -166,24 +205,44 @@ export function HeroSearchTyping() {
 
       <div className="landing-hero-search-footer px-3 py-3 md:px-4 md:py-3.5">
         <div className="flex flex-wrap items-center gap-2">
-          {HERO_FILTER_TAGS.map((tag) => (
-            <span
-              key={tag}
-              className="rounded-full bg-[#f1f3ff] px-3 py-1 text-xs font-medium text-[#434654]"
-            >
-              {tag}
-            </span>
-          ))}
+          {HERO_FILTER_TAGS.map((tag) => {
+            const dimension = HERO_TAG_TO_DIMENSION[tag];
+            const detected = dimension ? queryDimensions[dimension] : false;
+            return (
+              <span
+                key={tag}
+                className={`landing-hero-search-chip rounded-full px-3 py-1 text-xs ${
+                  detected
+                    ? "landing-hero-search-chip--detected"
+                    : "landing-hero-search-chip--default"
+                }`}
+              >
+                {tag}
+              </span>
+            );
+          })}
         </div>
         <button
           type="button"
-          onClick={goToCandidates}
-          disabled={!hasUserQuery}
+          onClick={() => void requestSearch()}
+          disabled={!hasUserQuery || promptCheckLoading}
           className="landing-hero-search-footer-cta shrink-0 rounded-full bg-[#0050cb] px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-[#0050cb]/25 transition-colors hover:bg-[#003fa4] disabled:cursor-not-allowed disabled:bg-[#c3c6d6] disabled:text-white/90 disabled:shadow-none disabled:hover:bg-[#c3c6d6]"
         >
-          Find Candidates
+          {promptCheckLoading ? "Checking…" : "Find Candidates"}
         </button>
       </div>
+
+      <HeroSearchPromptWarningModal
+        open={incompleteWarningOpen}
+        onEdit={() => {
+          setIncompleteWarningOpen(false);
+          requestAnimationFrame(() => inputRef.current?.focus());
+        }}
+        onContinue={() => {
+          setIncompleteWarningOpen(false);
+          navigateToCandidates();
+        }}
+      />
     </div>
   );
 }

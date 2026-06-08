@@ -46,7 +46,39 @@ function publicSearchRateLimit(req, res, next) {
   return next();
 }
 
+/**
+ * Separate bucket for lightweight Gemini prompt checks on the landing hero.
+ */
+function publicPromptCheckRateLimit(req, res, next) {
+  const limit = parsePositiveInt(process.env.PUBLIC_PROMPT_CHECK_RATE_LIMIT_PER_HOUR, 60);
+  const windowMs = 60 * 60 * 1000;
+  const ip = getClientIp(req);
+  const now = Date.now();
+  const key = `public-prompt-check:${ip}`;
+
+  let entry = buckets.get(key);
+  if (!entry || now >= entry.resetAt) {
+    entry = { count: 0, resetAt: now + windowMs };
+    buckets.set(key, entry);
+  }
+
+  entry.count += 1;
+  if (entry.count > limit) {
+    const retryAfterSec = Math.max(1, Math.ceil((entry.resetAt - now) / 1000));
+    res.setHeader("Retry-After", String(retryAfterSec));
+    return res.status(429).json({
+      success: false,
+      code: "PUBLIC_PROMPT_CHECK_RATE_LIMIT",
+      message: "Too many prompt checks. Please try again shortly.",
+      retryAfterSec,
+    });
+  }
+
+  return next();
+}
+
 module.exports = {
   publicSearchRateLimit,
+  publicPromptCheckRateLimit,
   getClientIp,
 };
