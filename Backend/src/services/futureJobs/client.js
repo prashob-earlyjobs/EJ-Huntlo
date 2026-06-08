@@ -1,5 +1,9 @@
 const { getFutureJobsConfig } = require("./config");
 const {
+  createFutureJobsUpstreamError,
+  throwIfFjHttpNotOk,
+} = require("./errors");
+const {
   logOutbound,
   safeJsonPreview,
   payloadForSupportLog,
@@ -47,7 +51,12 @@ async function futureJobsHttpRequest({
       requestBody: payloadForSupportLog(hasBody ? body : undefined),
       responseBody: null,
     });
-    throw networkErr;
+    throw createFutureJobsUpstreamError({
+      details: { networkError: networkErr?.message || String(networkErr) },
+      fjHttpStatus: 0,
+      fjOperation,
+      statusCode: 503,
+    });
   }
 
   const elapsedMs = Date.now() - started;
@@ -75,18 +84,10 @@ async function futureJobsHttpRequest({
     ),
   });
 
-  if (!res.ok) {
-    const msg =
-      data.message ||
-      data.status ||
-      data.error ||
-      `${defaultErrorPrefix} HTTP ${res.status}`;
-    const err = new Error(msg);
-    err.statusCode = res.status === 404 ? 404 : 502;
-    err.details = data;
-    err.fjOperation = fjOperation;
-    throw err;
-  }
+  throwIfFjHttpNotOk(res, data, {
+    label: `${fjOperation || defaultErrorPrefix} HTTP ${res.status}`,
+    fjOperation,
+  });
 
   return data;
 }
@@ -128,11 +129,11 @@ async function futureJobsFetch(url, options = {}, dedupe = false) {
 
 function assertFutureJobsApiKey(apiKey) {
   if (!apiKey) {
-    const err = new Error(
-      "FUTURE_JOBS_API_KEY is not configured in environment",
-    );
-    err.statusCode = 503;
-    throw err;
+    throw createFutureJobsUpstreamError({
+      details: { reason: "FUTURE_JOBS_API_KEY is not configured in environment" },
+      fjHttpStatus: 503,
+      statusCode: 503,
+    });
   }
 }
 
@@ -290,24 +291,10 @@ const getSourcingSessionCandidateDetails = async (candidateId) => {
     data = { raw: text, parseError: true };
   }
 
-  if (!res.ok) {
-    logOutbound("futurejobs", "candidate details response error", {
-      httpStatus: res.status,
-      elapsedMs,
-      candidateId: cid,
-      message: data.message || data.status || data.error,
-      responseBody: data,
-    });
-    const msg =
-      data.message ||
-      data.status ||
-      data.error ||
-      `Future Jobs candidate details HTTP ${res.status}`;
-    const err = new Error(msg);
-    err.statusCode = res.status === 404 ? 404 : 502;
-    err.details = data;
-    throw err;
-  }
+  throwIfFjHttpNotOk(res, data, {
+    label: "candidate details response error",
+    extra: { elapsedMs, candidateId: cid },
+  });
 
   logOutbound("futurejobs", "candidate details response ok", {
     httpStatus: res.status,
@@ -386,24 +373,10 @@ const getSourcingSessionProfiles = async (
     data = { raw: text, parseError: true };
   }
 
-  if (!res.ok) {
-    logOutbound("futurejobs", "profiles response error", {
-      httpStatus: res.status,
-      elapsedMs,
-      message: data.message || data.status || data.error,
-      responseBody: data,
-      responseBodyJson: JSON.stringify(data),
-    });
-    const msg =
-      data.message ||
-      data.status ||
-      data.error ||
-      `Future Jobs profiles HTTP ${res.status}`;
-    const err = new Error(msg);
-    err.statusCode = 502;
-    err.details = data;
-    throw err;
-  }
+  throwIfFjHttpNotOk(res, data, {
+    label: "profiles response error",
+    extra: { elapsedMs },
+  });
 
   logOutbound("futurejobs", "profiles response ok", {
     httpStatus: res.status,
@@ -575,24 +548,10 @@ const fetchMoreSourcingSession = async (sessionId, body = {}) => {
     data = { raw: text, parseError: true };
   }
 
-  if (!res.ok) {
-    logOutbound("futurejobs", "fetch-more response error", {
-      httpStatus: res.status,
-      elapsedMs,
-      message: data.message || data.status || data.error,
-      responseBody: data,
-      responseBodyJson: JSON.stringify(data),
-    });
-    const msg =
-      data.message ||
-      data.status ||
-      data.error ||
-      `Future Jobs fetch-more HTTP ${res.status}`;
-    const err = new Error(msg);
-    err.statusCode = 502;
-    err.details = data;
-    throw err;
-  }
+  throwIfFjHttpNotOk(res, data, {
+    label: "fetch-more response error",
+    extra: { elapsedMs },
+  });
 
   logOutbound("futurejobs", "fetch-more response ok", {
     httpStatus: res.status,
@@ -674,23 +633,10 @@ const revealSourcingSessionContact = async (
     data = { raw: text, parseError: true };
   }
 
-  if (!res.ok) {
-    logOutbound("futurejobs", "reveal contact response error", {
-      httpStatus: res.status,
-      elapsedMs,
-      message: data.message || data.status || data.error,
-      bodyPreview: safeJsonPreview(data),
-    });
-    const msg =
-      data.message ||
-      data.status ||
-      data.error ||
-      `Future Jobs reveal contact HTTP ${res.status}`;
-    const err = new Error(msg);
-    err.statusCode = 502;
-    err.details = data;
-    throw err;
-  }
+  throwIfFjHttpNotOk(res, data, {
+    label: "reveal contact response error",
+    extra: { elapsedMs },
+  });
 
   logOutbound("futurejobs", "reveal contact response ok", {
     httpStatus: res.status,
@@ -769,24 +715,10 @@ const scoutPeopleLookup = async (body) => {
     data = { raw: text, parseError: true };
   }
 
-  if (!res.ok) {
-    logOutbound("futurejobs", "scout-people lookup response error", {
-      httpStatus: res.status,
-      elapsedMs,
-      message: data.message || data.status || data.error,
-      responseBody: data,
-      responseBodyJson: JSON.stringify(data),
-    });
-    const msg =
-      data.message ||
-      data.status ||
-      data.error ||
-      `Future Jobs scout-people lookup HTTP ${res.status}`;
-    const err = new Error(msg);
-    err.statusCode = 502;
-    err.details = data;
-    throw err;
-  }
+  throwIfFjHttpNotOk(res, data, {
+    label: "scout-people lookup response error",
+    extra: { elapsedMs },
+  });
 
   logOutbound("futurejobs", "scout-people lookup response ok", {
     httpStatus: res.status,
@@ -868,23 +800,10 @@ const scoutPeopleRevealContact = async (linkedinProfileUrl, revealType) => {
     data = { raw: text, parseError: true };
   }
 
-  if (!res.ok) {
-    logOutbound("futurejobs", "scout reveal-contacts response error", {
-      httpStatus: res.status,
-      elapsedMs,
-      message: data.message || data.status || data.error,
-      bodyPreview: safeJsonPreview(data),
-    });
-    const msg =
-      data.message ||
-      data.status ||
-      data.error ||
-      `Future Jobs scout reveal-contacts HTTP ${res.status}`;
-    const err = new Error(msg);
-    err.statusCode = 502;
-    err.details = data;
-    throw err;
-  }
+  throwIfFjHttpNotOk(res, data, {
+    label: "scout reveal-contacts response error",
+    extra: { elapsedMs },
+  });
 
   logOutbound("futurejobs", "scout reveal-contacts response ok", {
     httpStatus: res.status,
@@ -956,23 +875,10 @@ const getSourcingSessionAnnotation = async (body) => {
     data = { raw: text, parseError: true };
   }
 
-  if (!res.ok) {
-    logOutbound("futurejobs", "get-annotation response error", {
-      httpStatus: res.status,
-      elapsedMs,
-      message: data.message || data.status || data.error,
-      responseBody: data,
-    });
-    const msg =
-      data.message ||
-      data.status ||
-      data.error ||
-      `Future Jobs get-annotation HTTP ${res.status}`;
-    const err = new Error(msg);
-    err.statusCode = 502;
-    err.details = data;
-    throw err;
-  }
+  throwIfFjHttpNotOk(res, data, {
+    label: "get-annotation response error",
+    extra: { elapsedMs },
+  });
 
   logOutbound("futurejobs", "get-annotation response ok", {
     httpStatus: res.status,

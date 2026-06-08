@@ -69,6 +69,7 @@ type Props = {
   onResumeCampaign?: () => void | Promise<void>;
   campaignOutreachStatus?: "idle" | "active" | "paused" | "completed";
   hasCampaignContacts?: boolean;
+  unveilInProgress?: boolean;
   /** Called after launch API + overlay animation finish (e.g. switch workspace tab). */
   onLaunchComplete?: () => void;
 };
@@ -259,6 +260,7 @@ export function WhatsAppOutreachEditor({
   onResumeCampaign,
   campaignOutreachStatus = "idle",
   hasCampaignContacts = true,
+  unveilInProgress = false,
   onLaunchComplete,
 }: Props) {
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
@@ -449,10 +451,19 @@ export function WhatsAppOutreachEditor({
     if (editorLocked) return;
     const maxOrder = Math.max(...touchpoints.map((t) => t.order), 3);
     const nextOrder = maxOrder + 1;
+    const replyCount = touchpoints.filter((t) => t.isReplyFollowUp).length;
     setTouchpoints((prev) =>
       ensureWhatsAppSequenceWithFallbacks([
         ...prev,
-        { ...createEmptyWhatsAppStep(nextOrder), order: nextOrder, isNoReplyFallback: false },
+        {
+          ...createEmptyWhatsAppStep(nextOrder),
+          order: nextOrder,
+          isNoReplyFallback: false,
+          isReplyFollowUp: true,
+          label: `Reply question ${replyCount + 1}`,
+          body: "",
+          waitHours: 0,
+        },
       ])
     );
     setWaitMeta((prev) => ({
@@ -464,7 +475,7 @@ export function WhatsAppOutreachEditor({
 
   const removeStep = (order: number) => {
     if (editorLocked) return;
-    if (order <= 7) return;
+    if (order <= 3) return;
     setTouchpoints((prev) =>
       ensureWhatsAppSequenceWithFallbacks(prev.filter((tp) => tp.order !== order))
     );
@@ -871,8 +882,14 @@ export function WhatsAppOutreachEditor({
               <button
                 type="button"
                 onClick={() => void launchCampaign()}
-                disabled={actionBusy || !hasCampaignContacts}
-                title={!hasCampaignContacts ? "Add contacts to this campaign first" : "Launch campaign"}
+                disabled={actionBusy || unveilInProgress || !hasCampaignContacts}
+                title={
+                  unveilInProgress
+                    ? "Wait for contact unveil to finish"
+                    : !hasCampaignContacts
+                      ? "Add contacts to this campaign first"
+                      : "Launch campaign"
+                }
                 className="dashboard-campaign-wa-launch-btn inline-flex items-center gap-1.5 px-4 py-1.5 text-sm disabled:opacity-55"
               >
                 {launching ? (
@@ -1097,7 +1114,7 @@ export function WhatsAppOutreachEditor({
                   <h4 className="text-sm font-semibold text-[#141b2b]">
                     {activeTouchpoint.label}
                   </h4>
-                  {activeTouchpoint.order > 7 ? (
+                  {activeTouchpoint.order > 3 ? (
                     <button
                       type="button"
                       onClick={() => removeStep(activeTouchpoint.order)}

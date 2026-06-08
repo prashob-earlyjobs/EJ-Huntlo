@@ -4,7 +4,7 @@ const {
   getWhatsAppMetaTemplateBodyFields,
   resolveMetaTemplateName,
 } = require("../constants/whatsappMetaTemplates");
-const { buildReplacementMap } = require("./outreachMergeService");
+const { buildReplacementMap, buildWhatsAppReplacementMap } = require("./outreachMergeService");
 
 /** Dev-only override: META_WHATSAPP_FORCE_TEST_TEMPLATE=true */
 const META_TEST_TEMPLATE_NAME = "hello_world";
@@ -28,11 +28,13 @@ function lookupReplacementValue(key, replacements) {
   return "";
 }
 
-function buildTemplateBodyComponents(templateName, { contact, senderFirstName } = {}) {
+function buildTemplateBodyComponents(templateName, { contact, senderFirstName, campaign } = {}) {
   const fieldKeys = getWhatsAppMetaTemplateBodyFields(templateName);
   if (!fieldKeys?.length) return null;
 
-  const replacements = buildReplacementMap(contact, senderFirstName);
+  const replacements = campaign
+    ? buildWhatsAppReplacementMap(contact, senderFirstName, campaign)
+    : buildReplacementMap(contact, senderFirstName);
   const parameters = fieldKeys.map((key) => {
     const value = String(lookupReplacementValue(key, replacements) ?? "").trim() || "—";
     return { type: "text", text: value.slice(0, 1024) };
@@ -158,7 +160,10 @@ async function sendMetaWhatsAppSessionText(creds, { to, body }) {
  * Campaign / sequence send: approved template (cold) or session text when allowed.
  * templateId must match an approved template name in the user's Meta Business account.
  */
-async function sendMetaWhatsAppMessage(creds, { to, body, templateId, contact, senderFirstName }) {
+async function sendMetaWhatsAppMessage(
+  creds,
+  { to, body, templateId, contact, senderFirstName, campaign }
+) {
   const recipient = normalizeToMetaRecipient(to);
   if (!recipient || recipient.length < 10) {
     const err = new Error("Invalid recipient phone for Meta API.");
@@ -184,7 +189,7 @@ async function sendMetaWhatsAppMessage(creds, { to, body, templateId, contact, s
     const components =
       templateName === META_TEST_TEMPLATE_NAME
         ? undefined
-        : buildTemplateBodyComponents(templateName, { contact, senderFirstName });
+        : buildTemplateBodyComponents(templateName, { contact, senderFirstName, campaign });
     const template = {
       name: templateName,
       language: { code: languageCode },

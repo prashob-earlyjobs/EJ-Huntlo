@@ -12,8 +12,22 @@ import {
 } from "@/lib/dashboardStyles";
 import type { CampaignRecord } from "@/lib/campaigns";
 import { isCampaignLaunched } from "@/lib/campaignContactLimits";
+import type { CampaignRevealType } from "@/lib/campaignRevealJob";
 
 const NEW_CAMPAIGN_VALUE = "__new__";
+
+function sortCampaignsUnlockedFirst(list: CampaignRecord[]): CampaignRecord[] {
+  return [...list].sort((a, b) => {
+    const aLocked = isCampaignLaunched(a.outreachStatus);
+    const bLocked = isCampaignLaunched(b.outreachStatus);
+    if (aLocked !== bLocked) return aLocked ? 1 : -1;
+    return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+  });
+}
+
+type RevealConfirmPayload = {
+  revealTypes: CampaignRevealType[];
+};
 
 type Props = {
   open: boolean;
@@ -22,9 +36,61 @@ type Props = {
   submitting?: boolean;
   onClose: () => void;
   onConfirm: (
-    payload: { campaignId: string } | { newCampaignName: string }
+    payload:
+      | ({ campaignId: string } & RevealConfirmPayload)
+      | ({ newCampaignName: string } & RevealConfirmPayload)
   ) => void | Promise<void>;
 };
+
+function CreateNewCampaignOption({
+  active,
+  nameAttr,
+  value,
+  onSelect,
+  disabled,
+}: {
+  active: boolean;
+  nameAttr: string;
+  value: string;
+  onSelect: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <label
+      className={`dashboard-add-campaign-create-option flex w-full cursor-pointer items-center gap-2 rounded-lg border-2 border-dashed px-3 py-2 text-left transition has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[#0050cb]/35${
+        active
+          ? " dashboard-add-campaign-create-option--active"
+          : " border-[#0050cb]/35 bg-gradient-to-r from-[#f0f6ff] to-[#f8f9ff] hover:border-[#0050cb]/55 hover:from-[#e8f1ff] hover:to-[#f3f7ff]"
+      }${disabled ? " cursor-not-allowed opacity-55" : ""}`}
+    >
+      <input
+        type="radio"
+        name={nameAttr}
+        value={value}
+        checked={active}
+        onChange={onSelect}
+        disabled={disabled}
+        className="sr-only"
+      />
+      <span className="dashboard-add-campaign-create-option-icon shrink-0" aria-hidden>
+        <MaterialIcon name="add" className="text-[20px]" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-semibold text-[#141b2b]">Create new campaign</span>
+          <span className="dashboard-add-campaign-create-badge">New</span>
+        </span>
+      </span>
+      {active ? (
+        <span className="dashboard-add-campaign-cell-check shrink-0" aria-hidden>
+          <MaterialIcon name="check_circle" className="text-lg text-[#0050cb]" />
+        </span>
+      ) : (
+        <MaterialIcon name="chevron_right" className="shrink-0 text-lg text-[#0050cb]/55" aria-hidden />
+      )}
+    </label>
+  );
+}
 
 function CampaignGridCell({
   active,
@@ -35,7 +101,6 @@ function CampaignGridCell({
   nameAttr,
   onSelect,
   disabled,
-  variant = "campaign",
 }: {
   active: boolean;
   icon: string;
@@ -45,17 +110,14 @@ function CampaignGridCell({
   nameAttr: string;
   onSelect: () => void;
   disabled?: boolean;
-  variant?: "campaign" | "create";
 }) {
   return (
     <label
-      className={`dashboard-add-campaign-cell flex min-h-[4.25rem] cursor-pointer items-center gap-2.5 rounded-lg border bg-white px-3 py-2.5 text-left transition has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[#0050cb]/30 ${
+      className={`dashboard-add-campaign-cell flex min-h-[3.25rem] cursor-pointer items-center gap-2 rounded-lg border bg-white px-2.5 py-1.5 text-left transition has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[#0050cb]/30 ${
         active
           ? "border-[#0050cb]/45 bg-[#f8f9ff] shadow-[0_0_0_1px_rgba(0,80,203,0.14)]"
           : "border-slate-200 hover:border-[#0050cb]/35 hover:bg-[#f8f9ff]"
-      }${disabled ? " cursor-not-allowed opacity-55" : ""}${
-        variant === "create" ? " dashboard-add-campaign-cell--create" : ""
-      }`}
+      }${disabled ? " cursor-not-allowed opacity-55" : ""}`}
     >
       <input
         type="radio"
@@ -67,11 +129,7 @@ function CampaignGridCell({
         className="sr-only"
       />
       <span
-        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border text-[#0050cb] ${
-          variant === "create"
-            ? "border-[#0050cb]/25 bg-[#0050cb]/12"
-            : "border-[#0050cb]/15 bg-[#0050cb]/10"
-        }`}
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#0050cb]/15 bg-[#0050cb]/10 text-[#0050cb]"
         aria-hidden
       >
         <MaterialIcon name={icon} className="text-[18px]" />
@@ -102,7 +160,8 @@ export function AddToCampaignModal({
   const [mounted, setMounted] = useState(false);
   const [choice, setChoice] = useState("");
   const [newName, setNewName] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [revealEmail, setRevealEmail] = useState(true);
+  const [revealPhone, setRevealPhone] = useState(true);
   const [submitError, setSubmitError] = useState("");
   const wasOpenRef = useRef(false);
 
@@ -112,24 +171,19 @@ export function AddToCampaignModal({
     if (!open) {
       setChoice("");
       setNewName("");
-      setSearchQuery("");
+      setRevealEmail(true);
+      setRevealPhone(true);
       setSubmitError("");
       wasOpenRef.current = false;
       return;
     }
     if (!wasOpenRef.current) {
-      const openCampaigns = campaigns.filter((c) => !isCampaignLaunched(c.outreachStatus));
-      setChoice(
-        campaigns.length === 0
-          ? NEW_CAMPAIGN_VALUE
-          : (openCampaigns[0]?.id ?? NEW_CAMPAIGN_VALUE)
-      );
+      setChoice(NEW_CAMPAIGN_VALUE);
       wasOpenRef.current = true;
       return;
     }
-    if (!choice && campaigns.length > 0) {
-      const openCampaigns = campaigns.filter((c) => !isCampaignLaunched(c.outreachStatus));
-      setChoice(openCampaigns[0]?.id ?? NEW_CAMPAIGN_VALUE);
+    if (!choice) {
+      setChoice(NEW_CAMPAIGN_VALUE);
     }
   }, [open, campaigns, choice]);
 
@@ -147,32 +201,29 @@ export function AddToCampaignModal({
     };
   }, [open, onClose, submitting]);
 
-  const filteredCampaigns = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return campaigns;
-    return campaigns.filter((c) => c.name.toLowerCase().includes(q));
-  }, [campaigns, searchQuery]);
+  const campaignsToShow = useMemo(
+    () => sortCampaignsUnlockedFirst(campaigns),
+    [campaigns]
+  );
 
-  const campaignsToShow = useMemo(() => {
-    if (!choice || choice === NEW_CAMPAIGN_VALUE) return filteredCampaigns;
-    const selected = campaigns.find((c) => c.id === choice);
-    if (!selected || filteredCampaigns.some((c) => c.id === choice)) {
-      return filteredCampaigns;
-    }
-    return [selected, ...filteredCampaigns];
-  }, [filteredCampaigns, campaigns, choice]);
+  const revealTypes = useMemo(() => {
+    const types: CampaignRevealType[] = [];
+    if (revealEmail) types.push("EMAIL");
+    if (revealPhone) types.push("PHONE");
+    return types;
+  }, [revealEmail, revealPhone]);
 
   if (!open || !mounted) return null;
 
   const isNew = choice === NEW_CAMPAIGN_VALUE;
-  const showCampaignSearch = campaigns.length > 0;
-  const searchActive = searchQuery.trim().length > 0;
   const trimmedNew = newName.trim();
   const selectedCampaign = campaigns.find((c) => c.id === choice);
   const selectedCampaignLaunched =
     Boolean(selectedCampaign) && isCampaignLaunched(selectedCampaign?.outreachStatus);
   const canSubmit =
-    (isNew ? Boolean(trimmedNew) : Boolean(choice) && !selectedCampaignLaunched) && !submitting;
+    revealTypes.length > 0 &&
+    (isNew ? Boolean(trimmedNew) : Boolean(choice) && !selectedCampaignLaunched) &&
+    !submitting;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -180,9 +231,9 @@ export function AddToCampaignModal({
     setSubmitError("");
     try {
       if (isNew) {
-        await onConfirm({ newCampaignName: trimmedNew });
+        await onConfirm({ newCampaignName: trimmedNew, revealTypes });
       } else {
-        await onConfirm({ campaignId: choice });
+        await onConfirm({ campaignId: choice, revealTypes });
       }
     } catch (err) {
       setSubmitError(
@@ -193,7 +244,7 @@ export function AddToCampaignModal({
 
   const content = (
     <div
-      className="dashboard-modal-overlay z-[120] py-6"
+      className="dashboard-modal-overlay dashboard-add-campaign-overlay z-[120]"
       role="presentation"
       onClick={(e) => {
         if (e.target === e.currentTarget && !submitting) onClose();
@@ -206,12 +257,12 @@ export function AddToCampaignModal({
         aria-labelledby="add-to-campaign-title"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-200 px-6 py-4">
+        <div className="dashboard-add-campaign-header flex shrink-0 items-start justify-between border-b border-slate-200">
           <div className="min-w-0">
             <h3 id="add-to-campaign-title" className="dashboard-section-title text-lg">
               Add to campaign
             </h3>
-            <p className="dashboard-text-body mt-1 text-sm">
+            <p className="dashboard-text-body dashboard-add-campaign-subtitle text-sm">
               Add {selectedCount} selected candidate{selectedCount === 1 ? "" : "s"} to a campaign.
             </p>
           </div>
@@ -226,126 +277,122 @@ export function AddToCampaignModal({
           </button>
         </div>
 
-        <form
-          onSubmit={handleSubmit}
-          className="flex min-h-0 flex-1 flex-col overflow-hidden"
-        >
-          <div className="shrink-0 space-y-3 px-6 pt-5">
-            {showCampaignSearch ? (
-              <label className="dashboard-campaign-wa-comms-search relative block">
-                <MaterialIcon
-                  name="search"
-                  className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-base text-slate-400"
-                />
+        <form onSubmit={handleSubmit} className="dashboard-add-campaign-form flex min-h-0 flex-1 flex-col">
+          <div className="dashboard-add-campaign-scroll min-h-0 flex-1 overflow-y-auto">
+            <div className="dashboard-add-campaign-scroll-inner">
+              <div role="radiogroup" aria-label="Campaign destination" className="dashboard-add-campaign-choices">
+                {campaigns.length > 0 ? (
+                  <p className="dashboard-add-campaign-existing-label">Choose a campaign</p>
+                ) : null}
+                <div className="dashboard-add-campaign-grid">
+                  <CreateNewCampaignOption
+                    active={isNew}
+                    value={NEW_CAMPAIGN_VALUE}
+                    nameAttr="campaign-target"
+                    onSelect={() => setChoice(NEW_CAMPAIGN_VALUE)}
+                    disabled={submitting}
+                  />
+                  {campaignsToShow.map((campaign) => {
+                    const launched = isCampaignLaunched(campaign.outreachStatus);
+                    const count = campaign.contactCount ?? campaign.contacts.length;
+                    return (
+                      <CampaignGridCell
+                        key={campaign.id}
+                        active={choice === campaign.id}
+                        icon="flag"
+                        name={campaign.name}
+                        meta={
+                          launched
+                            ? "Launched — locked"
+                            : `${count.toLocaleString()} contact${count === 1 ? "" : "s"}`
+                        }
+                        value={campaign.id}
+                        nameAttr="campaign-target"
+                        onSelect={() => setChoice(campaign.id)}
+                        disabled={submitting || launched}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="dashboard-add-campaign-footer shrink-0">
+            <div className="dashboard-add-campaign-footer-section">
+              <p className="dashboard-add-campaign-footer-hint">
+                Choose what to unveil. Progress appears in the campaign Activity tab.
+              </p>
+              <div className="dashboard-add-campaign-reveal-checkboxes">
+                <label className="dashboard-add-campaign-reveal-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={revealEmail}
+                    disabled={submitting}
+                    onChange={(e) => setRevealEmail(e.target.checked)}
+                  />
+                  <span>Email</span>
+                </label>
+                <label className="dashboard-add-campaign-reveal-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={revealPhone}
+                    disabled={submitting}
+                    onChange={(e) => setRevealPhone(e.target.checked)}
+                  />
+                  <span>Phone</span>
+                </label>
+              </div>
+              {revealTypes.length === 0 ? (
+                <p className="dashboard-add-campaign-footer-warning">Select at least one unveil type.</p>
+              ) : null}
+            </div>
+
+            {isNew ? (
+              <label className={`${dashboardLabelClass} dashboard-add-campaign-footer-section block`}>
+                Campaign name
                 <input
-                  type="search"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search campaigns…"
-                  className="dashboard-campaign-wa-comms-search-input w-full"
+                  type="text"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  className={`${dashboardInputClass} dashboard-add-campaign-field dashboard-add-campaign-name-input mt-1 w-full`}
+                  placeholder="e.g. Q2 Engineering outreach"
+                  autoFocus
                   disabled={submitting}
-                  aria-label="Search campaigns"
                 />
               </label>
             ) : null}
 
-            {searchActive && filteredCampaigns.length === 0 ? (
-              <p className="text-sm text-slate-500">
-                No campaigns match &ldquo;{searchQuery.trim()}&rdquo;.
+            {submitError ? (
+              <p className="dashboard-alert-warning" role="alert">
+                {submitError}
               </p>
             ) : null}
-          </div>
 
-          <div className="dashboard-add-campaign-grid-scroll min-h-0 flex-1 overflow-y-auto px-6 py-3">
-            <div
-              className="dashboard-add-campaign-grid grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3"
-              role="radiogroup"
-              aria-label="Campaigns"
-            >
-              <CampaignGridCell
-                active={isNew}
-                icon="add"
-                name="Create new campaign"
-                meta="Start fresh"
-                value={NEW_CAMPAIGN_VALUE}
-                nameAttr="campaign-target"
-                onSelect={() => setChoice(NEW_CAMPAIGN_VALUE)}
+            <div className="dashboard-confirm-modal-footer dashboard-add-campaign-actions">
+              <button
+                type="button"
+                onClick={onClose}
                 disabled={submitting}
-                variant="create"
-              />
-
-              {campaignsToShow.map((campaign) => {
-                const launched = isCampaignLaunched(campaign.outreachStatus);
-                const count = campaign.contactCount ?? campaign.contacts.length;
-                return (
-                  <CampaignGridCell
-                    key={campaign.id}
-                    active={choice === campaign.id}
-                    icon="flag"
-                    name={campaign.name}
-                    meta={
-                      launched
-                        ? "Launched — locked"
-                        : `${count.toLocaleString()} contact${count === 1 ? "" : "s"}`
-                    }
-                    value={campaign.id}
-                    nameAttr="campaign-target"
-                    onSelect={() => setChoice(campaign.id)}
-                    disabled={submitting || launched}
-                  />
-                );
-              })}
+                className={`${dashboardBtnSecondaryClass} dashboard-add-campaign-btn`}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={!canSubmit}
+                className={`${dashboardBtnPrimaryClass} dashboard-add-campaign-btn`}
+              >
+                {submitting ? (
+                  <>
+                    <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
+                    Adding…
+                  </>
+                ) : (
+                  "Add to campaign"
+                )}
+              </button>
             </div>
-          </div>
-
-          {isNew || submitError ? (
-            <div className="shrink-0 space-y-4 border-t border-slate-200 px-6 py-4">
-              {isNew ? (
-                <label className={`${dashboardLabelClass} block`}>
-                  Campaign name
-                  <input
-                    type="text"
-                    value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                    className={`${dashboardInputClass} mt-2 w-full`}
-                    placeholder="e.g. Q2 Engineering outreach"
-                    autoFocus
-                    disabled={submitting}
-                  />
-                </label>
-              ) : null}
-
-              {submitError ? (
-                <p className="dashboard-alert-warning" role="alert">
-                  {submitError}
-                </p>
-              ) : null}
-            </div>
-          ) : null}
-
-          <div className="dashboard-confirm-modal-footer shrink-0">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={submitting}
-              className={dashboardBtnSecondaryClass}
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={!canSubmit}
-              className={dashboardBtnPrimaryClass}
-            >
-              {submitting ? (
-                <>
-                  <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-                  Adding…
-                </>
-              ) : (
-                "Add to campaign"
-              )}
-            </button>
           </div>
         </form>
       </div>

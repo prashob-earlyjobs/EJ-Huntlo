@@ -279,6 +279,7 @@ async function removeContactFromCampaignCollection(campaignId, candidateKey) {
 
 async function updateCampaignContactFields(campaignId, candidateKey, email, phone) {
   await ensureContactsMigrated(campaignId);
+  const normalizedPhone = normalizeContactPhone(phone);
   await CampaignContact.updateOne(
     {
       campaignId: campaignOid(campaignId),
@@ -287,7 +288,7 @@ async function updateCampaignContactFields(campaignId, candidateKey, email, phon
     {
       $set: {
         email: String(email || "").trim(),
-        phone: String(phone || "").trim(),
+        phone: normalizedPhone,
       },
     }
   );

@@ -7,7 +7,11 @@ import { FOOTER_LEGAL_LINKS, legalPageHref } from "@/lib/legalPages";
 import { LandingLogo } from "./LandingLogo";
 
 const FOOTER_LINK_HREFS: Record<string, string> = {
+  Documentation: "/docs",
   Blog: "/blog",
+  FAQs: "/faqs",
+  About: "/about",
+  Careers: "/careers",
   ...Object.fromEntries(COMPARISON_FOOTER_LINKS.map((item) => [item.label, item.href])),
 };
 

@@ -113,6 +113,7 @@ type Props = {
   hasCampaignContacts?: boolean;
   hasSequence?: boolean;
   launchBusy?: boolean;
+  unveilInProgress?: boolean;
   onLaunchCampaign?: () => void | Promise<void>;
   onPauseCampaign?: () => void | Promise<void>;
   onResumeCampaign?: () => void | Promise<void>;
@@ -251,6 +252,7 @@ export function OutreachPlanEditor({
   hasCampaignContacts = true,
   hasSequence = true,
   launchBusy = false,
+  unveilInProgress = false,
   onLaunchCampaign,
   onPauseCampaign,
   onResumeCampaign,
@@ -1091,15 +1093,19 @@ export function OutreachPlanEditor({
                 <button
                   type="button"
                   onClick={() => void launchCampaign()}
-                  disabled={launchActionBusy || !hasSequence || !hasCampaignContacts}
+                  disabled={
+                    launchActionBusy || unveilInProgress || !hasSequence || !hasCampaignContacts
+                  }
                   title={
-                    launching
-                      ? "Launching…"
-                      : !hasSequence
-                        ? "Save a sequence first"
-                        : !hasCampaignContacts
-                          ? "Add contacts to this campaign first"
-                          : "Launch campaign"
+                    unveilInProgress
+                      ? "Wait for contact unveil to finish"
+                      : launching
+                        ? "Launching…"
+                        : !hasSequence
+                          ? "Save a sequence first"
+                          : !hasCampaignContacts
+                            ? "Add contacts to this campaign first"
+                            : "Launch campaign"
                   }
                   className={`${dashboardBtnPrimaryClass} dashboard-outreach-save-btn inline-flex h-[38px] items-center justify-center gap-1.5 whitespace-nowrap px-4 py-1.5 text-sm disabled:opacity-55`}
                 >

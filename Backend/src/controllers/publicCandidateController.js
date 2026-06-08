@@ -3,6 +3,12 @@ const {
   annotatePublicSearchPrompt,
   runPublicCandidateSearch,
 } = require("../services/publicCandidateSearchService");
+const { checkHeroPromptWithGemini } = require("../services/heroPromptCheckService");
+const {
+  HERO_MIN_DIMENSIONS,
+  detectHeroQueryDimensions,
+  hasMinimumHeroQueryDimensions,
+} = require("../lib/heroQueryDimensions");
 const { logApi, safeJsonPreview } = require("../utils/logger");
 const { getClientIp } = require("../middleware/publicSearchRateLimit");
 
@@ -82,6 +88,7 @@ const publicAnnotateSearchPrompt = async (req, res) => {
     });
     return res.status(status).json({
       success: false,
+      code: error.code,
       message: error.message || "Failed to analyze search prompt",
       details: error.details,
     });
@@ -176,7 +183,83 @@ const publicSearchCandidates = async (req, res) => {
   }
 };
 
+/**
+ * POST /api/public-candidates/check-prompt
+ * Body: { prompt: string, feCheckPassed: boolean }
+ * Gemini verification — only runs when the frontend rule-based check passed.
+ */
+const publicCheckHeroPrompt = async (req, res) => {
+  const clientIp = getClientIp(req);
+
+  try {
+    const prompt =
+      typeof req.body?.prompt === "string" ? req.body.prompt.trim() : "";
+
+    if (!prompt) {
+      return res.status(400).json({ success: false, message: "prompt is required" });
+    }
+
+    if (prompt.length > 500) {
+      return res.status(400).json({
+        success: false,
+        message: "prompt must be 500 characters or fewer",
+      });
+    }
+
+    if (req.body?.feCheckPassed !== true) {
+      return res.status(400).json({
+        success: false,
+        code: "FE_CHECK_REQUIRED",
+        message: "Frontend prompt check must pass before AI verification.",
+      });
+    }
+
+    const feDimensions = detectHeroQueryDimensions(prompt);
+    if (!hasMinimumHeroQueryDimensions(feDimensions)) {
+      return res.status(400).json({
+        success: false,
+        code: "FE_CHECK_REQUIRED",
+        message: `Prompt must include at least ${HERO_MIN_DIMENSIONS} of: role, skills, location, experience.`,
+        dimensions: feDimensions,
+      });
+    }
+
+    logApi("public-candidates/check-prompt", "incoming", {
+      clientIp,
+      promptLength: prompt.length,
+    });
+
+    const result = await checkHeroPromptWithGemini(prompt);
+
+    logApi("public-candidates/check-prompt", "success", {
+      clientIp,
+      allPresent: result.allPresent,
+      dimensions: result.dimensions,
+    });
+
+    return res.status(200).json({
+      success: true,
+      allPresent: result.allPresent,
+      dimensions: result.dimensions,
+    });
+  } catch (error) {
+    const status = error.statusCode || 500;
+    logApi("public-candidates/check-prompt", "error", {
+      clientIp,
+      status,
+      message: error.message,
+      code: error.code,
+    });
+    return res.status(status).json({
+      success: false,
+      code: error.code,
+      message: error.message || "Failed to verify search prompt",
+    });
+  }
+};
+
 module.exports = {
   publicAnnotateSearchPrompt,
   publicSearchCandidates,
+  publicCheckHeroPrompt,
 };

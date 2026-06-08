@@ -8,18 +8,18 @@ const WHATSAPP_OPENING_TEMPLATES = [
   {
     id: "opening_message_01",
     name: "Professional introduction",
-    body: `Hi {{1}},
+    body: `Hi {{FirstName}},
 
-Your profile has been shortlisted through our candidate matching process for the {{2}} position.
+Your profile has been shortlisted through our candidate matching process for the {{JobTitle}} position.
 
 To review the opportunity details and next steps, please reply to this message.`,
   },
   {
     id: "role_opportunity",
     name: "Role opportunity",
-    body: `Hello {{1}} 👋
+    body: `Hello {{FirstName}} 👋
 
-We're actively looking for a {{2}}, and your background looks like a strong match.
+We're actively looking for a {{JobTitle}}, and your background looks like a strong match.
 
 Happy to share more details if you're interested — would that work for you?`,
   },

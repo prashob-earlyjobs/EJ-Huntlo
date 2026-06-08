@@ -5,7 +5,7 @@ const UserIntegration = require("../models/UserIntegration");
 const OutreachPlan = require("../models/OutreachPlan");
 const WhatsAppOutreachPlan = require("../models/WhatsAppOutreachPlan");
 const { sendGmailMessage } = require("./gmailSendService");
-const { applyMergeFields } = require("./outreachMergeService");
+const { applyMergeFields, applyWhatsAppMergeFields } = require("./outreachMergeService");
 const {
   assertWhatsAppReadyForSend,
   sendWhatsAppMessage,
@@ -21,6 +21,8 @@ const {
 
 const { notifyCampaignThreadUpdated } = require("../realtime/notify");
 const { recordOutboundSentMessage } = require("./campaignReplySyncService");
+const { buildUnveilActivitiesForCampaign } = require("./campaignRevealActivityService");
+const { getActiveRevealJobForCampaign } = require("./campaignRevealJobService");
 
 const SEND_BATCH_SIZE = Math.max(
   1,
@@ -37,7 +39,6 @@ const {
   scheduledSendAt,
 } = require("../utils/outreachScheduleUtils");
 const { syncEnrollmentSchedulesForPlan } = require("./campaignEnrollmentScheduleSync");
-const { revealCampaignContactsForLaunch } = require("./campaignRevealJobService");
 const {
   assertGmailLaunchCapacity,
   reserveGmailDailySends,
@@ -243,6 +244,16 @@ async function getSequenceStatus(actorUserId, campaignId) {
  * Enroll all campaign contacts with an email and start the sequence clock.
  */
 async function launchCampaignSequence(actorUserId, campaignId) {
+  const activeRevealJob = await getActiveRevealJobForCampaign(actorUserId, campaignId);
+  if (activeRevealJob) {
+    const err = new Error(
+      "Contact unveil is still in progress. Wait for it to finish before launching."
+    );
+    err.code = "REVEAL_IN_PROGRESS";
+    err.statusCode = 409;
+    throw err;
+  }
+
   let { campaign, plan, touchpoints, channel, ownerUserId } = await loadCampaignAndPlan(
     actorUserId,
     campaignId
@@ -250,19 +261,6 @@ async function launchCampaignSequence(actorUserId, campaignId) {
   const isWhatsApp = channel === "whatsapp";
   if (isWhatsApp) {
     await assertWhatsAppReadyForSend(ownerUserId);
-  }
-
-  let revealJob = null;
-  if (!isWhatsApp) {
-    try {
-      revealJob = await revealCampaignContactsForLaunch(actorUserId, campaignId);
-    } catch (revealErr) {
-      console.error(
-        "[outreach-send] pre-launch contact reveal failed:",
-        revealErr?.message || revealErr
-      );
-    }
-    campaign = await findCampaignInScope(actorUserId, campaignId);
   }
 
   const now = new Date();
@@ -342,7 +340,7 @@ async function launchCampaignSequence(actorUserId, campaignId) {
     skipped,
     touchpointCount: touchpoints.length,
     outreachStatus: "active",
-    revealJob,
+    revealJob: null,
   };
 }
 
@@ -819,9 +817,11 @@ async function processWhatsAppEnrollmentDoc(enrollment, campaign) {
   };
 
   const templateId = String(touchpoint.templateId || "").trim();
-  const body = applyMergeFields(String(touchpoint.body || ""), {
+  const body = applyWhatsAppMergeFields(String(touchpoint.body || ""), {
     contact,
     senderFirstName,
+    campaign,
+    templateId,
   }).trim();
 
   if (!templateId && !body) {
@@ -845,6 +845,7 @@ async function processWhatsAppEnrollmentDoc(enrollment, campaign) {
       templateId,
       contact,
       senderFirstName,
+      campaign,
     });
   } catch (err) {
     await logCampaignWhatsAppMessage({
@@ -1382,7 +1383,11 @@ async function getEmailCampaignReport(userId, campaignId) {
 async function getEmailCampaignReportActivity(userId, campaignId, options = {}) {
   const { page, limit } = parseActivityPagination(options);
   const ctx = await loadCampaignReportEnrollments(userId, campaignId);
-  const allActivities = buildRecentActivityFromEnrollments(ctx.enrollments, ctx.channel);
+  const outreachActivities = buildRecentActivityFromEnrollments(ctx.enrollments, ctx.channel);
+  const unveilActivities = await buildUnveilActivitiesForCampaign(userId, campaignId);
+  const allActivities = [...outreachActivities, ...unveilActivities].sort(
+    (a, b) => new Date(b.at).getTime() - new Date(a.at).getTime()
+  );
   const { activities, pagination } = paginateActivityList(allActivities, page, limit);
 
   return {

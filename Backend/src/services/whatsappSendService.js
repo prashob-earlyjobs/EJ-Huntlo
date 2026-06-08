@@ -62,7 +62,7 @@ async function assertWhatsAppReadyForSend(userId) {
   return { provider: "meta" };
 }
 
-async function sendWhatsAppMessage(userId, { to, body, templateId, contact, senderFirstName }) {
+async function sendWhatsAppMessage(userId, { to, body, templateId, contact, senderFirstName, campaign }) {
   const platformChannel = await resolvePlatformChannel();
 
   if (platformChannel === "gupshup") {
@@ -73,6 +73,7 @@ async function sendWhatsAppMessage(userId, { to, body, templateId, contact, send
       templateId,
       contact,
       senderFirstName,
+      campaign,
     });
   }
 
@@ -83,6 +84,7 @@ async function sendWhatsAppMessage(userId, { to, body, templateId, contact, send
     templateId,
     contact,
     senderFirstName,
+    campaign,
   });
 }
 

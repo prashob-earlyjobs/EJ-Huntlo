@@ -8,6 +8,7 @@ import {
   detailedComparisonBySlug,
   DETAILED_COMPARISON_SLUGS,
 } from "@/lib/comparisonDetailed";
+import { buildPageMetadata, OG_IMAGES } from "@/lib/siteMetadata";
 
 type PageProps = {
   params: Promise<{ slug: string }>;
@@ -23,10 +24,12 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   if (!page) {
     return { title: "Comparison not found | Huntlo" };
   }
-  return {
+  return buildPageMetadata({
     title: page.metaTitle,
     description: page.metaDescription,
-  };
+    ogImage: OG_IMAGES.solutions,
+    path: `/compare/${slug}`,
+  });
 }
 
 export default async function CompareSlugPage({ params }: PageProps) {
