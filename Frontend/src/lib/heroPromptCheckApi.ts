@@ -37,9 +37,13 @@ export async function checkHeroPromptWithBackend(
     body: JSON.stringify({ prompt: trimmed, feCheckPassed: true }),
   });
 
-  const data = (await res.json().catch(() => ({}))) as
-    | HeroPromptCheckResponse
-    | HeroPromptCheckError;
+  const data = (await res.json().catch(() => ({}))) as {
+    success?: boolean;
+    message?: string;
+    code?: string;
+    allPresent?: boolean;
+    dimensions?: HeroPromptDimensions;
+  };
 
   if (!res.ok || data.success === false) {
     const message =
@@ -47,8 +51,7 @@ export async function checkHeroPromptWithBackend(
         ? data.message
         : "Could not verify your search prompt.";
     const err = new Error(message);
-    (err as Error & { code?: string }).code =
-      "code" in data && typeof data.code === "string" ? data.code : undefined;
+    (err as Error & { code?: string }).code = data.code;
     throw err;
   }
 
