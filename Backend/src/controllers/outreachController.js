@@ -49,8 +49,7 @@ const listSavedOutreachPlansHandler = async (req, res) => {
 
 const getPlanHandler = async (req, res) => {
   try {
-    const uid = r
-    eq.auth?.userId;
+    const uid = req.auth?.userId;
     if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
     const plan = await getOutreachPlan(uid, req.params.id);
     return res.status(200).json({ success: true, plan });
