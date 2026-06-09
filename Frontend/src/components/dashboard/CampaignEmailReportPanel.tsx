@@ -352,7 +352,7 @@ function CampaignActivityPanel({
     if (!revealInProgress) return;
     const interval = window.setInterval(() => {
       void load(page, { soft: true });
-      void reloadRevealJob();
+      void reloadRevealJob?.();
     }, 2000);
     return () => window.clearInterval(interval);
   }, [revealInProgress, page, load, reloadRevealJob]);
