@@ -448,7 +448,7 @@ async function enrollAddedContactsIfCampaignActive(actorUserId, campaignId, cand
   if (keys.length === 0) return { enrolled: 0, skipped: 0, active: false };
 
   const campaign = await findCampaignInScope(actorUserId, campaignId);
-  if (campaign.outreachStatus !== "active") {
+  if (!["active", "completed"].includes(campaign.outreachStatus || "idle")) {
     return { enrolled: 0, skipped: 0, active: false };
   }
   if (!campaign.outreachPlanId) {
@@ -573,7 +573,8 @@ async function resumeCampaignSequence(actorUserId, campaignId) {
 
 async function processEnrollmentDoc(enrollment) {
   const campaign = await Campaign.findById(enrollment.campaignId).lean();
-  if (!campaign || campaign.outreachStatus !== "active") {
+  const status = campaign?.outreachStatus || "idle";
+  if (!campaign || !["active", "completed"].includes(status)) {
     return;
   }
 
@@ -695,6 +696,7 @@ async function processGmailEnrollmentDoc(enrollment, campaign) {
     body,
     toEmail: email,
   });
+  await maybeCompleteCampaign(campaignId);
 
   const now = new Date();
   const sentCount = (enrollment.sentCount || 0) + 1;
@@ -716,7 +718,6 @@ async function processGmailEnrollmentDoc(enrollment, campaign) {
         },
       }
     );
-    await maybeCompleteCampaign(campaignId);
     notifyCampaignThreadUpdated(userId, {
       campaignId,
       candidateKey,
@@ -776,7 +777,6 @@ async function processWhatsAppEnrollmentDoc(enrollment, campaign) {
       { _id: enrollmentId },
       { $set: { status: "completed", lastError: "" } }
     );
-    await maybeCompleteCampaign(campaignId);
     return;
   }
 
@@ -892,6 +892,7 @@ async function processWhatsAppEnrollmentDoc(enrollment, campaign) {
     errorMessage: "",
     sentAt: new Date(),
   });
+  await maybeCompleteCampaign(campaignId);
 
   const now = new Date();
   const sentCount = (enrollment.sentCount || 0) + 1;
@@ -911,7 +912,6 @@ async function processWhatsAppEnrollmentDoc(enrollment, campaign) {
         },
       }
     );
-    await maybeCompleteCampaign(campaignId);
     notifyCampaignThreadUpdated(userId, {
       campaignId,
       candidateKey,
@@ -949,31 +949,19 @@ async function processWhatsAppEnrollmentDoc(enrollment, campaign) {
 }
 
 /**
- * Mark campaign completed when:
- * 1) No enrollments still queued for automated sends (active/deferred).
- * 2) Every contact who replied has a final result (interested / not_interested).
+ * Mark campaign completed on the first successful email/WhatsApp send from the sequence.
+ * Follow-up steps continue while status is completed (see processDueEnrollments).
  */
 async function maybeCompleteCampaign(campaignId) {
   const campaignOid = new mongoose.Types.ObjectId(campaignId);
-  const campaign = await Campaign.findById(campaignOid)
-    .select("outreachChannel outreachStatus userId")
-    .lean();
-  if (!campaign || campaign.outreachStatus !== "active") return false;
+  const result = await Campaign.updateOne(
+    { _id: campaignOid, outreachStatus: "active" },
+    { $set: { outreachStatus: "completed" } }
+  );
+  if (!result.modifiedCount) return false;
 
-  const pendingAutomation = await CampaignSequenceEnrollment.countDocuments({
-    campaignId: campaignOid,
-    status: { $in: ["active", "deferred"] },
-  });
-  if (pendingAutomation > 0) return false;
-
-  const pendingFinalResults = await CampaignSequenceEnrollment.countDocuments({
-    campaignId: campaignOid,
-    hasReply: true,
-    replyDisposition: { $nin: ["interested", "not_interested"] },
-  });
-  if (pendingFinalResults > 0) return false;
-
-  await Campaign.updateOne({ _id: campaignOid }, { $set: { outreachStatus: "completed" } });
+  const campaign = await Campaign.findById(campaignOid).select("userId").lean();
+  if (!campaign) return false;
 
   const { notifyCampaignThreadUpdated } = require("../realtime/notify");
   notifyCampaignThreadUpdated(String(campaign.userId), {
@@ -993,15 +981,17 @@ async function maybeCompleteCampaign(campaignId) {
  */
 async function processDueEnrollments() {
   const now = new Date();
-  const activeCampaignIds = await Campaign.find({ outreachStatus: "active" })
+  const runningCampaignIds = await Campaign.find({
+    outreachStatus: { $in: ["active", "completed"] },
+  })
     .distinct("_id")
     .lean();
-  if (activeCampaignIds.length === 0) return 0;
+  if (runningCampaignIds.length === 0) return 0;
 
   const due = await CampaignSequenceEnrollment.find({
     status: "active",
     nextSendAt: { $lte: now },
-    campaignId: { $in: activeCampaignIds },
+    campaignId: { $in: runningCampaignIds },
   })
     .sort({ nextSendAt: 1 })
     .limit(SEND_BATCH_SIZE)

@@ -98,8 +98,10 @@ import {
 import {
   addContactsToCampaignApi,
   createCampaign,
+  fetchCampaign,
   fetchCampaignsPage,
 } from "@/lib/campaignsApi";
+import { realtimeClient } from "@/lib/realtime/client";
 import { rememberCampaignRevealJobHint } from "@/lib/campaignRevealJob";
 import {
   lookupRevealedContacts,
@@ -4039,8 +4041,43 @@ export function UserDashboardPage() {
   );
 
   const handleCampaignUpdated = useCallback((updated: CampaignRecord) => {
-    setCampaigns((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+    setCampaigns((prev) => {
+      const prior = prev.find((c) => c.id === updated.id);
+      if (prior) {
+        const wasActive = prior.outreachStatus === "active";
+        const isActive = updated.outreachStatus === "active";
+        if (wasActive && !isActive) {
+          setCampaignsSummary((s) => ({ ...s, active: Math.max(0, s.active - 1) }));
+        } else if (!wasActive && isActive) {
+          setCampaignsSummary((s) => ({ ...s, active: s.active + 1 }));
+        }
+      }
+      return prev.map((c) => (c.id === updated.id ? updated : c));
+    });
   }, []);
+
+  useEffect(() => {
+    const unsubscribe = realtimeClient.subscribeThreadUpdated((payload) => {
+      if (payload.source !== "campaign_completed" && payload.outreachStatus !== "completed") {
+        return;
+      }
+      const campaignId = payload.campaignId?.trim();
+      if (!campaignId) return;
+
+      const auth = getStoredAuth();
+      if (!auth?.token) return;
+
+      void fetchCampaign(auth.token, campaignId)
+        .then((updated) => {
+          handleCampaignUpdated(updated);
+        })
+        .catch(() => {
+          void loadCampaignsList({ page: campaignsPage });
+        });
+    });
+
+    return unsubscribe;
+  }, [campaignsPage, handleCampaignUpdated, loadCampaignsList]);
 
   const handleAddToCampaignConfirm = useCallback(
     async (
