@@ -376,7 +376,7 @@ async function syncEnrollmentReplies(enrollment, integrationEmail) {
  */
 async function syncDueEnrollmentReplies() {
   const liveCampaignIds = await Campaign.find({
-    outreachStatus: { $in: ["active", "paused"] },
+    outreachStatus: { $in: ["active", "paused", "completed"] },
   })
     .distinct("_id")
     .lean();

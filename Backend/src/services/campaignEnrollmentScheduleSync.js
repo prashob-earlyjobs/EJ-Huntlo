@@ -28,7 +28,7 @@ async function syncEnrollmentSchedulesForPlan(planId, { triggerSend = true } = {
 
   const campaigns = await Campaign.find({
     outreachPlanId: new mongoose.Types.ObjectId(planId),
-    outreachStatus: "active",
+    outreachStatus: { $in: ["active", "completed"] },
     outreachChannel: { $ne: "whatsapp" },
   })
     .select("_id")
