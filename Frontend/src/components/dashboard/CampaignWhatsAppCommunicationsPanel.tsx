@@ -110,7 +110,7 @@ function sessionWindowNote(thread: WhatsAppContactThread | null): string {
     const expires = formatWhatsAppMessageTime(thread.sessionWindow.expiresAt);
     return `Free-form replies allowed until ${expires} (24 hours after their last message).`;
   }
-  return "The 24-hour reply window has expired. Use your outreach sequence templates to message again.";
+  return "The 24-hour reply window has expired.";
 }
 
 function threadStatusLabel(status: WhatsAppContactThread["threadStatus"]) {
@@ -545,7 +545,7 @@ export function CampaignWhatsAppCommunicationsPanel({
   return (
     <div className="dashboard-campaign-wa-comms flex min-h-0 flex-1 flex-col">
       <div className="dashboard-campaign-wa-comms-toolbar shrink-0">
-        <div className="dashboard-outreach-gmail-bar shrink-0 border-b-0">
+        <div className="dashboard-outreach-gmail-bar dashboard-campaign-wa-comms-bar shrink-0 border-b-0">
           <div className="dashboard-outreach-gmail-bar-heading flex min-w-0 items-center gap-2.5">
             <span className="dashboard-campaign-sequence-toolbar-icon shrink-0" aria-hidden>
               <IntegrationBrandLogo
@@ -587,7 +587,7 @@ export function CampaignWhatsAppCommunicationsPanel({
             </button>
           </div>
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
+        <div className="mt-0 flex flex-wrap items-center gap-2 sm:mt-2">
           <label className="dashboard-campaign-wa-comms-search relative min-w-48 flex-1">
             <MaterialIcon
               name="search"
@@ -775,7 +775,7 @@ export function CampaignWhatsAppCommunicationsPanel({
 
               <footer className="dashboard-campaign-wa-comms-composer shrink-0">
                 <p className="dashboard-campaign-wa-comms-composer-note">
-                  <MaterialIcon name="info" className="text-base shrink-0" />
+                  <MaterialIcon name="info" className="dashboard-campaign-wa-comms-composer-note-icon shrink-0" />
                   {sessionWindowNote(activeThread)}
                 </p>
                 {sendError ? (
@@ -812,7 +812,6 @@ export function CampaignWhatsAppCommunicationsPanel({
                   >
                     <MaterialIcon
                       name={sending ? "hourglass_empty" : "send"}
-                      className="text-lg"
                     />
                   </button>
                 </div>

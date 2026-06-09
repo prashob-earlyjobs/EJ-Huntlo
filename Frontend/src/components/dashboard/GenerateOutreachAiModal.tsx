@@ -146,7 +146,7 @@ export function GenerateOutreachAiModal({
             </div>
             <p className="dashboard-text-body mt-2 text-sm text-slate-600">
               {isWhatsApp
-                ? "Paste the job description. We'll create a WhatsApp sequence with an opening message, no-reply follow-ups, and reply-based screening questions."
+                ? "Paste the job description. We'll pick approved opening and follow-up templates (same options as Start from scratch) and generate 4 reply-based screening questions tailored to the role."
                 : "Paste the job description. We'll create a 4-step email sequence tailored to the role—interest, experience, salary, and a final follow-up."}
             </p>
           </div>

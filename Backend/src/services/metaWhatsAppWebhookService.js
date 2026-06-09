@@ -35,7 +35,8 @@ function parseMetaStatusError(entry) {
   const arr = toArray(entry?.errors);
   if (arr.length === 0) return "";
   const first = arr[0];
-  return String(first?.title || first?.message || "").trim();
+  const code = first?.code != null ? `[${first.code}] ` : "";
+  return `${code}${String(first?.title || first?.message || "").trim()}`.trim();
 }
 
 async function handleInboundMessage({ metadataPhoneNumberId, message }) {
@@ -77,6 +78,12 @@ async function handleDeliveryStatus(statusEntry) {
   }
 
   const errorMessage = parseMetaStatusError(statusEntry);
+  if (statusEntry?.status === "failed" && errorMessage) {
+    console.warn("[meta-webhook] delivery failed", {
+      externalMessageId: statusEntry?.id,
+      error: errorMessage,
+    });
+  }
   const sentAt = parseTimestampSeconds(statusEntry?.timestamp);
 
   const outcome = await updateOutboundDeliveryStatus({

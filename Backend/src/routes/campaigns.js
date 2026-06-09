@@ -9,6 +9,7 @@ const {
   removeCampaignContactHandler,
   getCampaignRevealJobHandler,
   getActiveCampaignRevealJobHandler,
+  getLatestCampaignRevealJobHandler,
   startCampaignRevealJobHandler,
   syncCampaignContactsHandler,
   setCampaignOutreachPlanHandler,
@@ -36,6 +37,7 @@ router.get("/", authenticate, listCampaignsHandler);
 router.post("/", authenticate, createCampaignHandler);
 router.get("/reveal-jobs/:jobId", authenticate, getCampaignRevealJobHandler);
 router.get("/:id/reveal-job/active", authenticate, getActiveCampaignRevealJobHandler);
+router.get("/:id/reveal-job/latest", authenticate, getLatestCampaignRevealJobHandler);
 router.post("/:id/reveal-contacts", authenticate, startCampaignRevealJobHandler);
 router.post("/:id/launch-sequence", authenticate, launchCampaignSequenceHandler);
 router.post("/:id/pause-sequence", authenticate, pauseCampaignSequenceHandler);

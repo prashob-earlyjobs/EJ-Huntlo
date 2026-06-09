@@ -8,6 +8,7 @@ import { LandingFooter } from "@/components/landing/LandingFooter";
 import { LandingNav } from "@/components/landing/LandingNav";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { blogCategoryLabel, fetchPublicBlogPost, formatBlogDate } from "@/lib/blog";
+import { absoluteOgImage, buildPageMetadata, OG_IMAGES } from "@/lib/siteMetadata";
 
 type PageProps = {
   params: Promise<{ slug: string }>;
@@ -22,17 +23,26 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const { post } = data;
   const title = post.seoTitle?.trim() || post.title;
   const description = post.seoDescription?.trim() || post.excerpt;
-  const ogImage = post.ogImageUrl?.trim() || post.coverImageUrl?.trim() || undefined;
-
-  return {
+  const postImage = post.ogImageUrl?.trim() || post.coverImageUrl?.trim() || "";
+  const ogImage = postImage || absoluteOgImage(OG_IMAGES.blog);
+  const meta = buildPageMetadata({
     title: `${title} | Huntlo Blog`,
     description,
+    ogImage: postImage || OG_IMAGES.blog,
+    path: `/blog/${slug}`,
+  });
+
+  return {
+    ...meta,
     openGraph: {
-      title,
-      description,
+      ...meta.openGraph,
       type: "article",
       publishedTime: post.publishedAt || undefined,
-      ...(ogImage ? { images: [{ url: ogImage }] } : {}),
+      images: [{ url: ogImage, alt: title }],
+    },
+    twitter: {
+      ...meta.twitter,
+      images: [ogImage],
     },
   };
 }

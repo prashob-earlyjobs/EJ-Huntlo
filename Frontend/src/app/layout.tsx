@@ -4,7 +4,8 @@ import { Inter, Syne } from "next/font/google";
 import "./globals.css";
 import "./landing.css";
 import "./dashboard.css";
-import {GoogleOAuthProvider} from "@react-oauth/google";
+import { GoogleOAuthProvider } from "@react-oauth/google";
+import { buildPageMetadata, OG_IMAGES, SITE_URL } from "@/lib/siteMetadata";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -28,15 +29,25 @@ const syne = Syne({
   weight: ["600", "700", "800"],
 });
 
+const defaultTitle =
+  "AI Recruiting OS for Sourcing, Outreach & Hiring Automation | Huntlo AI";
+const defaultDescription =
+  "Hire faster with Agentic AI candidate sourcing, automated outreach across email and WhatsApp, AI voice screening, interview scheduling, and access to the EarlyJobs recruiter network.";
+
 export const metadata: Metadata = {
-  title: "Huntlo | AI-Powered Outbound Recruiting",
-  description:
-    "Stop posting jobs and waiting. Reach top talent in seconds with AI-powered sourcing, outreach, and contact reveal.",
+  metadataBase: new URL(SITE_URL),
+  title: defaultTitle,
+  description: defaultDescription,
   icons: {
     icon: [{ url: "/favicon.png", type: "image/png" }],
     shortcut: "/favicon.png",
     apple: "/favicon.png",
   },
+  ...buildPageMetadata({
+    title: defaultTitle,
+    description: defaultDescription,
+    ogImage: OG_IMAGES.platform,
+  }),
 };
 
 export default function RootLayout({

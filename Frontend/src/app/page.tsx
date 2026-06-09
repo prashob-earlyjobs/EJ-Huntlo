@@ -1,13 +1,20 @@
 import type { Metadata } from "next";
 
 import { LandingPage } from "@/components/landing/LandingPage";
+import { buildPageMetadata, OG_IMAGES } from "@/lib/siteMetadata";
 import { fetchPublicPricingPlans } from "@/lib/pricingPlans";
 
-export const metadata: Metadata = {
-  title: "Huntlo | AI-Powered Outbound Recruiting",
-  description:
-    "Stop posting jobs and waiting. Reach top talent in seconds with AI-powered sourcing, outreach, and contact reveal.",
-};
+const title =
+  "AI Recruiting OS for Sourcing, Outreach & Hiring Automation | Huntlo AI";
+const description =
+  "Hire faster with Agentic AI candidate sourcing, automated outreach across email and WhatsApp, AI voice screening, interview scheduling, and access to the EarlyJobs recruiter network.";
+
+export const metadata: Metadata = buildPageMetadata({
+  title,
+  description,
+  ogImage: OG_IMAGES.platform,
+  path: "/",
+});
 
 export default async function Home() {
   const pricingPlans = await fetchPublicPricingPlans();
