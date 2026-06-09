@@ -94,6 +94,61 @@ function calendlyMeetingFromAutomation(
   };
 }
 
+function buildPlanSaveSnapshot(input: {
+  planName: string;
+  touchpoints: OutreachTouchpointDraft[];
+  startSchedule: OutreachStartScheduleDraft;
+  stepScheduleMeta: Record<number, { time: string; tz: string }>;
+  selectedCalendlyMeeting: CalendlyMeetingOption | null;
+}): string {
+  const calendlyAutomation = input.selectedCalendlyMeeting
+    ? {
+        enabled: true,
+        meetingUri: input.selectedCalendlyMeeting.uri,
+        meetingName: input.selectedCalendlyMeeting.name,
+        schedulingUrl: input.selectedCalendlyMeeting.schedulingUrl,
+        durationMinutes: input.selectedCalendlyMeeting.durationMinutes,
+        kind: input.selectedCalendlyMeeting.kind,
+      }
+    : { enabled: false };
+
+  return JSON.stringify({
+    name: input.planName.trim() || "Untitled outreach",
+    touchpoints: touchpointsWithScheduleForSave(
+      input.touchpoints,
+      input.startSchedule,
+      input.stepScheduleMeta
+    ),
+    startSchedule: input.startSchedule,
+    calendlyAutomation,
+  });
+}
+
+function initialEditorSaveSnapshot(
+  planName: string,
+  touchpoints: OutreachTouchpointDraft[],
+  startSchedule: OutreachStartScheduleDraft | null | undefined,
+  calendlyAutomation?: CalendlyAutomationDraft
+): string {
+  const normalizedTouchpoints =
+    touchpoints.length > 0
+      ? touchpoints.map((tp) => ({
+          ...tp,
+          waitHours: Math.max(0, Number(tp.waitHours) || 0),
+        }))
+      : [createEmptyTouchpoint(1)];
+  const resolvedStart = resolveEditorStartSchedule(startSchedule, touchpoints);
+  const firstWaitDays = Math.max(0, Number(normalizedTouchpoints[0]?.waitDays) || 0);
+  const normalizedStart = normalizeStartSchedule(resolvedStart, firstWaitDays);
+  return buildPlanSaveSnapshot({
+    planName,
+    touchpoints: normalizedTouchpoints,
+    startSchedule: normalizedStart,
+    stepScheduleMeta: stepScheduleFromTouchpoints(normalizedTouchpoints),
+    selectedCalendlyMeeting: calendlyMeetingFromAutomation(calendlyAutomation),
+  });
+}
+
 type Props = {
   planId?: string | "new";
   initialPlanName: string;
@@ -135,6 +190,7 @@ type Props = {
 function SaveSequenceButton({
   saving,
   saveSucceeded,
+  hasUnsavedChanges,
   onClick,
   compact = false,
   label = "Save sequence",
@@ -143,6 +199,7 @@ function SaveSequenceButton({
 }: {
   saving: boolean;
   saveSucceeded: boolean;
+  hasUnsavedChanges: boolean;
   onClick: () => void;
   compact?: boolean;
   label?: string;
@@ -153,7 +210,7 @@ function SaveSequenceButton({
     <button
       type="button"
       onClick={onClick}
-      disabled={disabled || saving || saveSucceeded}
+      disabled={disabled || saving || !hasUnsavedChanges}
       className={[
         "dashboard-btn-primary dashboard-outreach-save-btn disabled:opacity-55",
         compact ? "px-3 py-1.5 text-xs" : "dashboard-outreach-builder-save",
@@ -307,6 +364,16 @@ export function OutreachPlanEditor({
   );
   const [saving, setSaving] = useState(false);
   const [saveSucceeded, setSaveSucceeded] = useState(false);
+  const [savedSnapshot, setSavedSnapshot] = useState<string | null>(() =>
+    planId === "new"
+      ? null
+      : initialEditorSaveSnapshot(
+          initialPlanName,
+          initialTouchpoints,
+          initialStartSchedule,
+          initialCalendlyAutomation
+        )
+  );
   const [error, setError] = useState("");
   const [pendingDelete, setPendingDelete] = useState<{
     order: number;
@@ -349,6 +416,19 @@ export function OutreachPlanEditor({
     },
     []
   );
+
+  useEffect(() => {
+    setSavedSnapshot(
+      planId === "new"
+        ? null
+        : initialEditorSaveSnapshot(
+            initialPlanName,
+            initialTouchpoints,
+            initialStartSchedule,
+            initialCalendlyAutomation
+          )
+    );
+  }, [planId, initialPlanName, initialTouchpoints, initialStartSchedule, initialCalendlyAutomation]);
 
   useEffect(() => {
     const resolved = resolveEditorStartSchedule(initialStartSchedule, initialTouchpoints);
@@ -755,6 +835,21 @@ export function OutreachPlanEditor({
     );
   }, [startMode, scheduledAt, startSendTime, startTimezone, touchpoints]);
 
+  const currentSaveSnapshot = useMemo(
+    () =>
+      buildPlanSaveSnapshot({
+        planName,
+        touchpoints,
+        startSchedule,
+        stepScheduleMeta,
+        selectedCalendlyMeeting,
+      }),
+    [planName, touchpoints, startSchedule, stepScheduleMeta, selectedCalendlyMeeting]
+  );
+
+  const hasUnsavedChanges =
+    savedSnapshot === null || currentSaveSnapshot !== savedSnapshot;
+
   const updateStepWait = (
     order: number,
     patch: Partial<{ amount: number; unit: GmailWaitUnit }>
@@ -826,7 +921,7 @@ export function OutreachPlanEditor({
   };
 
   const savePlan = async () => {
-    if (editorLocked) return;
+    if (editorLocked || !hasUnsavedChanges) return;
     if (!auth?.token) return;
     setSaving(true);
     setError("");
@@ -936,6 +1031,30 @@ export function OutreachPlanEditor({
             }
           : undefined
       );
+      const savedStartSchedule = saved?.startSchedule
+        ? normalizeStartSchedule(saved.startSchedule)
+        : startSchedule;
+      let savedCalendlyMeeting = selectedCalendlyMeeting;
+      if (savedCalendly?.enabled && savedCalendly.meetingUri && savedCalendly.meetingName) {
+        savedCalendlyMeeting = {
+          uri: savedCalendly.meetingUri,
+          name: savedCalendly.meetingName,
+          schedulingUrl: savedCalendly.schedulingUrl || "",
+          durationMinutes: Number(savedCalendly.durationMinutes || 0),
+          kind: savedCalendly.kind || "",
+        };
+      } else if (saved && savedCalendly && !savedCalendly.enabled) {
+        savedCalendlyMeeting = null;
+      }
+      setSavedSnapshot(
+        buildPlanSaveSnapshot({
+          planName: saved?.name || planName.trim() || "Untitled outreach",
+          touchpoints,
+          startSchedule: savedStartSchedule,
+          stepScheduleMeta,
+          selectedCalendlyMeeting: savedCalendlyMeeting,
+        })
+      );
       flashSaveSuccess();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save outreach plan.");
@@ -1040,6 +1159,7 @@ export function OutreachPlanEditor({
                 compact
                 saving={saving}
                 saveSucceeded={saveSucceeded}
+                hasUnsavedChanges={hasUnsavedChanges}
                 disabled={editorLocked}
                 onClick={() => void savePlan()}
                 className="h-[38px] w-[137px] justify-center px-4 py-1.5 text-sm"
@@ -1139,6 +1259,7 @@ export function OutreachPlanEditor({
               <SaveSequenceButton
                 saving={saving}
                 saveSucceeded={saveSucceeded}
+                hasUnsavedChanges={hasUnsavedChanges}
                 disabled={editorLocked}
                 onClick={() => void savePlan()}
                 label="Save"
