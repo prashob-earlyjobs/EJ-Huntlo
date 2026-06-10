@@ -17,6 +17,9 @@ export const OG_IMAGES = {
   login: "/og_image/Login.jpg",
 } as const;
 
+/** Fallback when a page has no dedicated OG image in `public/og_image/`. */
+export const DEFAULT_OG_IMAGE = OG_IMAGES.platform;
+
 export type OgImageKey = keyof typeof OG_IMAGES;
 
 export function absoluteUrl(path = ""): string {
@@ -31,7 +34,8 @@ export function absoluteOgImage(ogImagePath: string): string {
 type PageMetadataInput = {
   title: string;
   description: string;
-  ogImage: string;
+  /** Defaults to `DEFAULT_OG_IMAGE` (`/og_image/Platform.jpg`). */
+  ogImage?: string;
   path?: string;
 };
 
@@ -42,7 +46,8 @@ export function buildPageMetadata({
   path = "",
 }: PageMetadataInput): Metadata {
   const url = absoluteUrl(path);
-  const imageUrl = absoluteOgImage(ogImage);
+  const imagePath = String(ogImage || "").trim() || DEFAULT_OG_IMAGE;
+  const imageUrl = absoluteOgImage(imagePath);
 
   return {
     title,
