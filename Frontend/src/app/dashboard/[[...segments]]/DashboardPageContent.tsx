@@ -111,11 +111,6 @@ import {
 } from "@/lib/campaignsApi";
 import { realtimeClient } from "@/lib/realtime/client";
 import { rememberCampaignRevealJobHint } from "@/lib/campaignRevealJob";
-import {
-  lookupRevealedContacts,
-  mergeRevealedLookupIntoContacts,
-  normalizeLinkedinUrl,
-} from "@/lib/revealContactsApi";
 import type { CampaignWorkspaceTab } from "@/lib/campaignRoutes";
 import {
   pathForDashboardTab,
@@ -3883,84 +3878,6 @@ export function UserDashboardPage() {
     sessionResultDocs.length === 0 && (searchLoading || sessionResultsOutOfSync);
   const showSessionResultsGrid =
     sessionResultDocs.length > 0 && !searchLoading && !sessionResultsOutOfSync;
-
-  const applyRevealedLookupToCandidateRows = useCallback(async (rows: CandidateRow[]) => {
-    const auth = getStoredAuth();
-    if (!auth?.token || rows.length === 0) return;
-
-    const rowKeyByLinkedin = new Map<string, string>();
-    const urls: string[] = [];
-    for (const row of rows) {
-      const linkedin = normalizeLinkedinUrl(row.linkedin_profile_url || "");
-      if (!linkedin) continue;
-      urls.push(linkedin);
-      rowKeyByLinkedin.set(linkedin, candidateRowKey(row));
-    }
-    if (urls.length === 0) return;
-
-    const lookup = await lookupRevealedContacts(auth.token, urls);
-    if (Object.keys(lookup).length === 0) return;
-
-    setRevealedContactValues((prev) => {
-      const next = { ...prev };
-      for (const [linkedin, cached] of Object.entries(lookup)) {
-        const rowKey = rowKeyByLinkedin.get(linkedin);
-        if (!rowKey) continue;
-        const email = cached.email?.trim() || "";
-        const phone = cached.phone?.trim() || "";
-        if (!email && !phone) continue;
-        next[rowKey] = {
-          email: email || next[rowKey]?.email,
-          phone: phone || next[rowKey]?.phone,
-        };
-      }
-      return next;
-    });
-
-    setRevealedEmail((prev) => {
-      const next = new Set(prev);
-      for (const [linkedin, cached] of Object.entries(lookup)) {
-        if (!cached.email?.trim()) continue;
-        const rowKey = rowKeyByLinkedin.get(linkedin);
-        if (rowKey) next.add(rowKey);
-      }
-      return [...next];
-    });
-
-    setRevealedPhone((prev) => {
-      const next = new Set(prev);
-      for (const [linkedin, cached] of Object.entries(lookup)) {
-        if (!cached.phone?.trim()) continue;
-        const rowKey = rowKeyByLinkedin.get(linkedin);
-        if (rowKey) next.add(rowKey);
-      }
-      return [...next];
-    });
-  }, []);
-
-  const hydrateSessionRevealedContacts = useCallback(async () => {
-    if (sessionResultDocs.length === 0) return;
-    const sessionId = searchSummary?.sessionId ?? null;
-    const rows = sessionResultDocs.map((doc, idx) =>
-      sessionDocToCandidateRow(doc, idx, sessionId)
-    );
-    await applyRevealedLookupToCandidateRows(rows);
-  }, [sessionResultDocs, searchSummary?.sessionId, applyRevealedLookupToCandidateRows]);
-
-  useEffect(() => {
-    if (activeTab !== "Session Results") return;
-    void hydrateSessionRevealedContacts();
-  }, [activeTab, hydrateSessionRevealedContacts]);
-
-  useEffect(() => {
-    if (activeTab !== "Candidates" || workspaceCandidates.length === 0) return;
-    void applyRevealedLookupToCandidateRows(workspaceCandidates);
-  }, [activeTab, workspaceCandidates, applyRevealedLookupToCandidateRows]);
-
-  useEffect(() => {
-    if (activeTab !== "Saved" || savedCandidatesList.length === 0) return;
-    void applyRevealedLookupToCandidateRows(savedCandidatesList);
-  }, [activeTab, savedCandidatesList, applyRevealedLookupToCandidateRows]);
 
   const resolveSelectedSessionContacts = useCallback((): CampaignContact[] => {
     const sessionId = searchSummary?.sessionId ?? null;
