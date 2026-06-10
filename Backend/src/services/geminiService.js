@@ -57,15 +57,15 @@ const WHATSAPP_OUTREACH_SEQUENCE_RESPONSE_SCHEMA = {
     planName: { type: SchemaType.STRING },
     openingTemplateId: {
       type: SchemaType.STRING,
-      description: "opening_message_01 or role_opportunity",
+      description: "profile_review_reminder_v1 or role_alignment_review",
     },
     noReply1TemplateId: {
       type: SchemaType.STRING,
-      description: "no_reply_1_bump or no_reply_1_value",
+      description: "profile_review_reminder_v1 or recruitment_update_reminder_v1",
     },
     noReply2TemplateId: {
       type: SchemaType.STRING,
-      description: "no_reply_2_final or no_reply_2_door_open",
+      description: "final_profile_follow_up_v1 or profile_review_closure_v1",
     },
     replyQuestions: {
       type: SchemaType.ARRAY,

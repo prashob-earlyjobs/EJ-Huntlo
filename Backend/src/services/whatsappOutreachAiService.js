@@ -44,16 +44,16 @@ ${jobDescription}
 Pre-approved templates (pick exactly one id per step — do NOT write message bodies for these):
 
 Opening (step 1) — choose one:
-- opening_message_01 — professional shortlisted intro for {{2}} position
-- role_opportunity — direct role opportunity, warmer tone
+- profile_review_reminder_v1 — profile review follow-up for {{2}} requirement
+- role_alignment_review — experience identified as relevant for {{2}} role
 
 No-reply follow-up 1 (step 2, 48h later) — choose one:
-- no_reply_1_bump — light reminder
-- no_reply_1_value — reinforces fit using candidate company
+- profile_review_reminder_v1 — reminder on profile review communication
+- recruitment_update_reminder_v1 — follow-up on previous profile review communication
 
 No-reply follow-up 2 (step 3, 96h after step 2) — choose one:
-- no_reply_2_final — polite last note
-- no_reply_2_door_open — leaves door open without pressure
+- final_profile_follow_up_v1 — final follow-up on profile review
+- profile_review_closure_v1 — closure with option to reconnect later
 
 You must also write replyQuestions: exactly 4 short questions sent only after the candidate replies:
 1. years of relevant experience
@@ -66,9 +66,9 @@ ${planNameHint ? `Suggested plan name: ${planNameHint}` : "Include a short planN
 Return JSON only:
 {
   "planName": "string",
-  "openingTemplateId": "opening_message_01" | "role_opportunity",
-  "noReply1TemplateId": "no_reply_1_bump" | "no_reply_1_value",
-  "noReply2TemplateId": "no_reply_2_final" | "no_reply_2_door_open",
+  "openingTemplateId": "profile_review_reminder_v1" | "role_alignment_review",
+  "noReply1TemplateId": "profile_review_reminder_v1" | "recruitment_update_reminder_v1",
+  "noReply2TemplateId": "final_profile_follow_up_v1" | "profile_review_closure_v1",
   "replyQuestions": ["q1", "q2", "q3", "q4"]
 }`;
 }

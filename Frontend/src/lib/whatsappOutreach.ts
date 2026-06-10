@@ -4,6 +4,8 @@ export type WhatsAppTouchpointDraft = {
   body: string;
   /** Hours to wait after the previous message (0 for the first step). */
   waitHours: number;
+  /** QA testing — sub-hour delays (minutes). */
+  waitMinutes?: number;
   /** Approved template id (opening or no-reply fallback). */
   templateId?: string;
   /** Auto-sent if the candidate does not reply (steps 2 & 3 in default sequence). */
@@ -24,60 +26,84 @@ export type WhatsAppOpeningTemplate = WhatsAppMessageTemplate;
 
 export const WHATSAPP_OPENING_TEMPLATES: WhatsAppMessageTemplate[] = [
   {
-    id: "opening_message_01",
-    name: "Professional introduction",
-    description: "Shortlisted candidate invite to review the role and reply for next steps.",
+    id: "profile_review_reminder_v1",
+    name: "Profile review reminder",
+    description: "Follow-up on profile review communication for the open requirement.",
     body: `Hi {{FirstName}},
 
-Your profile has been shortlisted through our candidate matching process for the {{JobTitle}} position.
+This is a follow-up regarding the profile review communication shared earlier for the {{JobTitle}} requirement.
 
-To review the opportunity details and next steps, please reply to this message.`,
+If you would like to receive additional information regarding the recruitment process and next steps, please reply to this message.
+
+Thank you.`,
   },
   {
-    id: "role_opportunity",
-    name: "Role opportunity",
-    description: "Direct message focused on the open position and candidate fit.",
-    body: `Hello {{FirstName}} 👋
+    id: "role_alignment_review",
+    name: "Role alignment review",
+    description: "Identifies relevant experience for a current role requirement.",
+    body: `Hi {{FirstName}},
 
-We're actively looking for a {{JobTitle}}, and your background looks like a strong match.
+During our recruitment review process, your professional experience was identified as relevant to a current requirement for a {{JobTitle}} role.
 
-Happy to share more details if you're interested — would that work for you?`,
+If you would like to receive more information regarding the opportunity and process, please reply to this message.
+
+Thank you.`,
   },
 ];
 
 export const WHATSAPP_NO_REPLY_TEMPLATES: Record<1 | 2, WhatsAppMessageTemplate[]> = {
   1: [
     {
-      id: "no_reply_1_bump",
-      name: "Friendly bump",
-      description: "Light reminder in case the first message was missed.",
-      body: `Hi {{FirstName}}, just bumping this in case my earlier message got buried.
+      id: "profile_review_reminder_v1",
+      name: "Profile review reminder",
+      description: "Reminder about profile review communication for the requirement.",
+      body: `Hi {{FirstName}},
 
-Are you still open to a quick chat about the {{JobTitle}} opportunity?`,
+This is a follow-up regarding the profile review communication shared earlier for the {{JobTitle}} requirement.
+
+If you would like to receive additional information regarding the recruitment process and next steps, please reply to this message.
+
+Thank you.`,
     },
     {
-      id: "no_reply_1_value",
-      name: "Value reminder",
-      description: "Reinforces why the role could be a fit.",
-      body: `Hi {{FirstName}}, wanted to follow up — we're hiring for {{JobTitle}} and your background at {{CurrentCompany}} still looks like a strong match.
+      id: "recruitment_update_reminder_v1",
+      name: "Recruitment update reminder",
+      description: "Follow-up on previous profile review communication.",
+      body: `Hi {{FirstName}},
 
-Would a 10-minute call work this week?`,
+We are following up regarding the previous communication about the review of your profile for the {{JobTitle}} requirement.
+
+If you would like further information or wish to continue the recruitment process, please reply to this message.
+
+Thank you for your time.`,
     },
   ],
   2: [
     {
-      id: "no_reply_2_final",
-      name: "Final note",
-      description: "Polite last outreach before closing the loop.",
-      body: `Hi {{FirstName}} — last quick note from me.
+      id: "final_profile_follow_up_v1",
+      name: "Final profile follow-up",
+      description: "Last follow-up before closing the profile review loop.",
+      body: `Hi {{FirstName}},
 
-Happy to share more details whenever works for you. Should I close the loop on this side?`,
+This is the final follow-up regarding the profile review for the {{JobTitle}} requirement.
+
+If you would like to receive additional information or continue with the recruitment process, please reply to this message.
+
+Thank you for your time and consideration.`,
     },
     {
-      id: "no_reply_2_door_open",
-      name: "Door open",
-      description: "Leaves the conversation open without pressure.",
-      body: `Hi {{FirstName}}, I don't want to crowd your inbox — I'll pause here unless you'd like to hear more about the {{JobTitle}} opportunity. Just reply anytime.`,
+      id: "profile_review_closure_v1",
+      name: "Profile review closure",
+      description: "Final update leaving the door open to reconnect later.",
+      body: `Hi {{FirstName}},
+
+This is a final update regarding the profile review communication shared earlier for the {{JobTitle}} requirement.
+
+We understand that you may not be available to continue the process at this time.
+
+Should your availability or circumstances change, you may reply to this message to reconnect regarding your profile review.
+
+Thank you for your time.`,
     },
   ],
 };
@@ -219,24 +245,8 @@ export const WHATSAPP_MERGE_TAGS = [
 
 export const WHATSAPP_MESSAGE_MAX_LENGTH = 4096;
 
-export function formatWhatsAppWaitLabel(waitHours: number): string {
-  if (waitHours <= 0) return "Send immediately";
-  if (waitHours < 24) {
-    return waitHours === 1 ? "1 hour later" : `${waitHours} hours later`;
-  }
-  const days = Math.round(waitHours / 24);
-  return days === 1 ? "1 day later" : `${days} days later`;
-}
-
-export function waitHoursFromDisplay(amount: number, unit: "hours" | "days"): number {
-  const n = Math.max(0, Math.floor(amount) || 0);
-  return unit === "days" ? n * 24 : n;
-}
-
-export function inferWaitDisplay(waitHours: number): { amount: number; unit: "hours" | "days" } {
-  if (waitHours <= 0) return { amount: 0, unit: "hours" };
-  if (waitHours >= 24 && waitHours % 24 === 0) {
-    return { amount: waitHours / 24, unit: "days" };
-  }
-  return { amount: waitHours, unit: "hours" };
-}
+export {
+  formatWhatsAppWaitLabel,
+  inferWhatsAppWaitDisplay as inferWaitDisplay,
+  whatsAppWaitFromDisplay as waitFieldsFromDisplay,
+} from "@/lib/whatsappWait";

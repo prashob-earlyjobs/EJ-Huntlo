@@ -6,6 +6,7 @@ const whatsAppTouchpointSchema = new mongoose.Schema(
     label: { type: String, trim: true, default: "" },
     body: { type: String, default: "" },
     waitHours: { type: Number, default: 0, min: 0 },
+    waitMinutes: { type: Number, default: 0, min: 0 },
     templateId: { type: String, trim: true, default: "" },
     isNoReplyFallback: { type: Boolean, default: false },
     isReplyFollowUp: { type: Boolean, default: false },

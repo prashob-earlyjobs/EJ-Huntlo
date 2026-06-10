@@ -373,11 +373,10 @@ const updateCampaignJobDescriptionHandler = async (req, res) => {
   try {
     const uid = req.auth?.userId;
     if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
-    const campaign = await updateCampaignJobDescription(
-      uid,
-      req.params.id,
-      req.body?.jobDescription
-    );
+    const campaign = await updateCampaignJobDescription(uid, req.params.id, {
+      jobDescription: req.body?.jobDescription,
+      jobTitle: req.body?.jobTitle,
+    });
     return res.status(200).json({
       success: true,
       campaign,

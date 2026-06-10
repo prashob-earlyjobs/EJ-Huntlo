@@ -338,6 +338,9 @@ export function CampaignWorkspace({
   const [threadReloadByKey, setThreadReloadByKey] = useState<Record<string, number>>({});
   const [editorPhase, setEditorPhase] = useState<"choose" | "editing">("choose");
   const [editor, setEditor] = useState<ActiveEditor | null>(null);
+  const [standaloneJobTitle, setStandaloneJobTitle] = useState(
+    () => campaign.jobTitle?.trim() || ""
+  );
   const [standaloneJobDescription, setStandaloneJobDescription] = useState(
     () => campaign.jobDescription?.trim() || ""
   );
@@ -705,7 +708,10 @@ export function CampaignWorkspace({
         );
         onCampaignUpdatedRef.current?.(updated);
         if (jd) {
-          updated = await updateCampaignJobDescription(auth.token, campaign.id, jd);
+          updated = await updateCampaignJobDescription(auth.token, campaign.id, {
+            jobDescription: jd,
+            jobTitle: standaloneJobTitle.trim() || campaign.jobTitle?.trim() || "",
+          });
           onCampaignUpdatedRef.current?.(updated);
         }
         const calendlyToSync = savedPlan.calendlyAutomation?.enabled
@@ -989,11 +995,21 @@ export function CampaignWorkspace({
   );
 
   useEffect(() => {
+    const fromCampaignTitle = campaign.jobTitle?.trim() || "";
+    if (fromCampaignTitle && !standaloneJobTitle.trim()) {
+      setStandaloneJobTitle(fromCampaignTitle);
+    }
     const fromCampaign = campaign.jobDescription?.trim() || "";
     if (fromCampaign && !standaloneJobDescription.trim()) {
       setStandaloneJobDescription(fromCampaign);
     }
-  }, [campaign.id, campaign.jobDescription, standaloneJobDescription]);
+  }, [
+    campaign.id,
+    campaign.jobTitle,
+    campaign.jobDescription,
+    standaloneJobTitle,
+    standaloneJobDescription,
+  ]);
 
   useEffect(() => {
     if (activeTab !== "Job description") return;
@@ -1057,22 +1073,35 @@ export function CampaignWorkspace({
     whatsappJobDescriptionEditing,
   ]);
 
-  const persistCampaignJobDescription = useCallback(
-    async (jobDescription: string) => {
-      const jd = jobDescription.trim();
-      if (!jd) return;
+  const persistCampaignRole = useCallback(
+    async (payload: { jobDescription: string; jobTitle?: string }) => {
+      const jd = payload.jobDescription.trim();
+      const title = String(payload.jobTitle ?? standaloneJobTitle).trim();
+      if (!jd && !title) return;
       const auth = getStoredAuth();
       if (!auth?.token) return;
-      const updated = await updateCampaignJobDescription(auth.token, campaign.id, jd);
+      const updated = await updateCampaignJobDescription(auth.token, campaign.id, {
+        jobDescription: jd,
+        jobTitle: title,
+      });
       onCampaignUpdatedRef.current?.(updated);
-      setStandaloneJobDescription(jd);
+      if (title) setStandaloneJobTitle(title);
+      if (jd) setStandaloneJobDescription(jd);
     },
-    [campaign.id]
+    [campaign.id, standaloneJobTitle]
   );
+
+  const whatsappJobTitleValue =
+    standaloneJobTitle.trim() || campaign.jobTitle?.trim() || "";
 
   const handleSaveJobDescription = useCallback(async () => {
     if (campaignFieldsLocked) return;
+    const title = whatsappJobTitleValue.trim();
     const jd = whatsappJobDescriptionValue.trim();
+    if (!title) {
+      setJobDescriptionNotice("Enter a job title before saving.");
+      return;
+    }
     if (!jd) {
       setJobDescriptionNotice("Enter a job description before saving.");
       return;
@@ -1087,8 +1116,12 @@ export function CampaignWorkspace({
     setJobDescriptionSaving(true);
     setJobDescriptionNotice("");
     try {
-      const updatedCampaign = await updateCampaignJobDescription(auth.token, campaign.id, jd);
+      const updatedCampaign = await updateCampaignJobDescription(auth.token, campaign.id, {
+        jobDescription: jd,
+        jobTitle: title,
+      });
       onCampaignUpdatedRef.current?.(updatedCampaign);
+      setStandaloneJobTitle(title);
       setStandaloneJobDescription(jd);
       if (whatsappJobDescriptionEditing) {
         setEditor((prev) =>
@@ -1125,6 +1158,7 @@ export function CampaignWorkspace({
     campaignFieldsLocked,
     whatsappJobDescriptionEditing,
     whatsappJobDescriptionValue,
+    whatsappJobTitleValue,
   ]);
 
   const handleLaunchSequence = useCallback(async () => {
@@ -1599,14 +1633,16 @@ export function CampaignWorkspace({
 
   const handleSequenceChoice = async (choice: CreateOutreachChoice) => {
     if (choice.type === "scratch") {
-      const jd = choice.jobDescription?.trim() || "";
-      if (jd) {
-        setStandaloneJobDescription(jd);
+      const title = choice.jobTitle.trim();
+      const jd = choice.jobDescription.trim();
+      if (title) setStandaloneJobTitle(title);
+      if (jd) setStandaloneJobDescription(jd);
+      if (title || jd) {
         try {
-          await persistCampaignJobDescription(jd);
+          await persistCampaignRole({ jobTitle: title, jobDescription: jd });
         } catch (err) {
           setEditorNotice(
-            err instanceof Error ? err.message : "Could not save job description."
+            err instanceof Error ? err.message : "Could not save role details."
           );
         }
       }
@@ -1662,14 +1698,16 @@ export function CampaignWorkspace({
 
     if (choice.type === "ai") {
       if (choice.channel === "whatsapp") {
+        const title = choice.jobTitle.trim();
         const jd = choice.jobDescription.trim();
-        if (jd) {
-          setStandaloneJobDescription(jd);
+        if (title) setStandaloneJobTitle(title);
+        if (jd) setStandaloneJobDescription(jd);
+        if (title || jd) {
           try {
-            await persistCampaignJobDescription(jd);
+            await persistCampaignRole({ jobTitle: title, jobDescription: jd });
           } catch (err) {
             setEditorNotice(
-              err instanceof Error ? err.message : "Could not save job description."
+              err instanceof Error ? err.message : "Could not save role details."
             );
           }
         }
@@ -1936,6 +1974,9 @@ export function CampaignWorkspace({
                 <div className="dashboard-campaign-editor-inner">
                   <OutreachSequencePicker
                     variant="campaign"
+                    initialJobTitle={
+                      campaign.jobTitle?.trim() || standaloneJobTitle.trim() || ""
+                    }
                     initialJobDescription={
                       campaign.jobDescription?.trim() ||
                       standaloneJobDescription.trim() ||
@@ -1960,6 +2001,8 @@ export function CampaignWorkspace({
           )
         ) : activeTab === "Job description" ? (
           <CampaignJobDescriptionPanel
+            jobTitle={whatsappJobTitleValue}
+            onJobTitleChange={setStandaloneJobTitle}
             value={whatsappJobDescriptionValue}
             onChange={setWhatsappJobDescriptionValue}
             onSave={() => void handleSaveJobDescription()}

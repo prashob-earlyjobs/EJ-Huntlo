@@ -4,11 +4,14 @@ import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLog
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import {
   dashboardBtnPrimaryClass,
+  dashboardInputClass,
   dashboardLabelClass,
   dashboardTextareaClass,
 } from "@/lib/dashboardStyles";
 
 type Props = {
+  jobTitle: string;
+  onJobTitleChange: (value: string) => void;
   value: string;
   onChange: (value: string) => void;
   onSave: () => void;
@@ -41,6 +44,8 @@ function outreachStatusClass(status: string) {
 }
 
 export function CampaignJobDescriptionPanel({
+  jobTitle,
+  onJobTitleChange,
   value,
   onChange,
   onSave,
@@ -53,9 +58,10 @@ export function CampaignJobDescriptionPanel({
   showEditorTabHint,
   isWhatsApp = true,
 }: Props) {
+  const trimmedTitle = jobTitle.trim();
   const trimmed = value.trim();
   const charCount = trimmed.length;
-  const aiReady = charCount >= MIN_RECOMMENDED_CHARS;
+  const aiReady = trimmedTitle.length > 0 && charCount >= MIN_RECOMMENDED_CHARS;
 
   return (
     <div className="dashboard-campaign-jd-panel flex min-h-0 flex-1 flex-col">
@@ -145,6 +151,17 @@ export function CampaignJobDescriptionPanel({
 
                 <div className="dashboard-campaign-jd-editor-card">
                   <label className={`${dashboardLabelClass} dashboard-campaign-jd-editor-label`}>
+                    Job title
+                    <input
+                      type="text"
+                      value={jobTitle}
+                      onChange={(e) => onJobTitleChange(e.target.value)}
+                      disabled={locked}
+                      placeholder="e.g. Senior Software Engineer"
+                      className={`${dashboardInputClass} mt-2 w-full`}
+                    />
+                  </label>
+                  <label className={`${dashboardLabelClass} dashboard-campaign-jd-editor-label mt-4`}>
                     Job description
                     <textarea
                       value={value}
@@ -167,9 +184,11 @@ export function CampaignJobDescriptionPanel({
                     />
                     {aiReady
                       ? "Enough detail for AI to answer candidate questions."
-                      : charCount > 0
-                        ? `${MIN_RECOMMENDED_CHARS - charCount} more character${MIN_RECOMMENDED_CHARS - charCount === 1 ? "" : "s"} recommended.`
-                        : "Start typing to enable AI role answers."}
+                      : !trimmedTitle
+                        ? "Add a job title and description for outreach and AI replies."
+                        : charCount > 0
+                          ? `${MIN_RECOMMENDED_CHARS - charCount} more character${MIN_RECOMMENDED_CHARS - charCount === 1 ? "" : "s"} recommended.`
+                          : "Start typing to enable AI role answers."}
                   </p>
                 </div>
               </section>
@@ -211,7 +230,7 @@ export function CampaignJobDescriptionPanel({
                 <button
                   type="button"
                   className={`${dashboardBtnPrimaryClass} dashboard-campaign-jd-save-btn shrink-0 disabled:opacity-55`}
-                  disabled={saving || locked || !trimmed}
+                  disabled={saving || locked || !trimmedTitle || !trimmed}
                   onClick={onSave}
                 >
                   {saving ? "Saving…" : "Save job description"}

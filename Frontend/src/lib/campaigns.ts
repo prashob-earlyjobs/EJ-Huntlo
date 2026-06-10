@@ -26,6 +26,8 @@ export type CampaignCalendlyAutomation = {
 export type CampaignRecord = {
   id: string;
   name: string;
+  /** Open role title for outreach merge tags and AI context. */
+  jobTitle?: string;
   /** Role context for AI and the Job description tab. */
   jobDescription?: string;
   /** Per-campaign interview link for email AI auto-replies. */

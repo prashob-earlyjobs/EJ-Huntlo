@@ -3,19 +3,22 @@
  * Keys match outreachMergeService replacement map (FirstName, JobTitle, …).
  */
 const WHATSAPP_META_TEMPLATE_BODY_FIELDS = {
-  opening_message_01: ["FirstName", "JobTitle"],
-  /** @deprecated Saved plans may still reference the old Huntlo id */
-  professional_intro: ["FirstName", "JobTitle"],
-  role_opportunity: ["FirstName", "JobTitle"],
-  no_reply_1_bump: ["FirstName", "JobTitle"],
-  no_reply_1_value: ["FirstName", "JobTitle", "CurrentCompany"],
-  no_reply_2_final: ["FirstName"],
-  no_reply_2_door_open: ["FirstName", "JobTitle"],
+  profile_review_reminder_v1: ["FirstName", "JobTitle"],
+  role_alignment_review: ["FirstName", "JobTitle"],
+  recruitment_update_reminder_v1: ["FirstName", "JobTitle"],
+  final_profile_follow_up_v1: ["FirstName", "JobTitle"],
+  profile_review_closure_v1: ["FirstName", "JobTitle"],
 };
 
 /** Legacy Huntlo ids → approved Meta template names */
 const META_TEMPLATE_NAME_ALIASES = {
-  professional_intro: "opening_message_01",
+  professional_intro: "profile_review_reminder_v1",
+  opening_message_01: "profile_review_reminder_v1",
+  role_opportunity: "role_alignment_review",
+  no_reply_1_bump: "profile_review_reminder_v1",
+  no_reply_1_value: "recruitment_update_reminder_v1",
+  no_reply_2_final: "final_profile_follow_up_v1",
+  no_reply_2_door_open: "profile_review_closure_v1",
 };
 
 function resolveMetaTemplateName(templateId) {

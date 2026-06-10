@@ -6,12 +6,11 @@ const {
 
 /** Huntlo template id → Gupshup-approved template id (override via env). */
 const GUPSHUP_TEMPLATE_ID_ENV_KEYS = {
-  opening_message_01: "GUPSHUP_TEMPLATE_OPENING_MESSAGE_01",
-  role_opportunity: "GUPSHUP_TEMPLATE_ROLE_OPPORTUNITY",
-  no_reply_1_bump: "GUPSHUP_TEMPLATE_NO_REPLY_1_BUMP",
-  no_reply_1_value: "GUPSHUP_TEMPLATE_NO_REPLY_1_VALUE",
-  no_reply_2_final: "GUPSHUP_TEMPLATE_NO_REPLY_2_FINAL",
-  no_reply_2_door_open: "GUPSHUP_TEMPLATE_NO_REPLY_2_DOOR_OPEN",
+  profile_review_reminder_v1: "GUPSHUP_TEMPLATE_PROFILE_REVIEW_REMINDER_V1",
+  role_alignment_review: "GUPSHUP_TEMPLATE_ROLE_ALIGNMENT_REVIEW",
+  recruitment_update_reminder_v1: "GUPSHUP_TEMPLATE_RECRUITMENT_UPDATE_REMINDER_V1",
+  final_profile_follow_up_v1: "GUPSHUP_TEMPLATE_FINAL_PROFILE_FOLLOW_UP_V1",
+  profile_review_closure_v1: "GUPSHUP_TEMPLATE_PROFILE_REVIEW_CLOSURE_V1",
 };
 
 function resolveGupshupTemplateId(templateId) {

@@ -38,6 +38,8 @@ const campaignSchema = new mongoose.Schema(
       index: true,
     },
     name: { type: String, trim: true, required: true },
+    /** Open role title for outreach merge tags ({{JobTitle}}) and AI context. */
+    jobTitle: { type: String, default: "", trim: true },
     /** Role context for AI replies and the Job description workspace tab. */
     jobDescription: { type: String, default: "" },
     /** Per-campaign Calendly link for AI auto-replies (email interested flow). */
