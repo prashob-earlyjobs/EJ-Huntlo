@@ -8,6 +8,7 @@ import {
 } from "@/components/dashboard/CampaignLaunchAgentOverlay";
 import { ConfirmModal } from "@/components/dashboard/ConfirmModal";
 import { DashboardToast } from "@/components/dashboard/DashboardToast";
+import { GmailSetupWarningModal } from "@/components/dashboard/GmailSetupWarningModal";
 import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
 import { OutreachFieldSelect } from "@/components/dashboard/OutreachFieldSelect";
 import { OutreachPillSelect } from "@/components/dashboard/OutreachPillSelect";
@@ -382,6 +383,7 @@ export function OutreachPlanEditor({
     label: string;
   } | null>(null);
   const [launching, setLaunching] = useState(false);
+  const [gmailSetupWarningOpen, setGmailSetupWarningOpen] = useState(false);
   const [testPreviewStep, setTestPreviewStep] = useState<{
     order: number;
     subject: string;
@@ -456,18 +458,25 @@ export function OutreachPlanEditor({
     return part || "You";
   }, [auth?.fullName, createdMeta.name]);
 
-  const loadGmailStatus = useCallback(async () => {
-    if (!auth?.token) return;
+  const loadGmailStatus = useCallback(async (): Promise<boolean> => {
+    if (!auth?.token) {
+      setGmailConnected(false);
+      setGmailEmail("");
+      return false;
+    }
     try {
       const res = await fetch(`${apiBase}/api/integrations/gmail/status`, {
         headers: authHeaders(auth.token),
       });
       const data = await res.json();
-      setGmailConnected(Boolean(data.success && data.connected));
+      const connected = Boolean(data.success && data.connected);
+      setGmailConnected(connected);
       setGmailEmail(typeof data.email === "string" ? data.email : "");
+      return connected;
     } catch {
       setGmailConnected(false);
       setGmailEmail("");
+      return false;
     }
   }, [apiBase, auth?.token]);
 
@@ -1111,8 +1120,17 @@ export function OutreachPlanEditor({
     </div>
   );
 
+  const promptGmailIfDisconnected = useCallback(async (): Promise<boolean> => {
+    const connected = await loadGmailStatus();
+    if (connected) return true;
+    setGmailSetupWarningOpen(true);
+    return false;
+  }, [loadGmailStatus]);
+
   const launchCampaign = useCallback(async () => {
     if (!onLaunchCampaign || launching) return;
+    const gmailReady = await promptGmailIfDisconnected();
+    if (!gmailReady) return;
     setLaunching(true);
     const overlayStartedAt = Date.now();
     try {
@@ -1126,7 +1144,7 @@ export function OutreachPlanEditor({
     } finally {
       setLaunching(false);
     }
-  }, [launching, onLaunchCampaign]);
+  }, [launching, onLaunchCampaign, promptGmailIfDisconnected]);
 
   if (touchpoints.length === 0) return null;
 
@@ -1138,6 +1156,14 @@ export function OutreachPlanEditor({
         embedded ? " dashboard-outreach-builder--embedded" : " dashboard-card dashboard-card--fill max-w-full bg-[#f8f9fc]"
       }${launching ? " dashboard-outreach-builder--launching" : ""}`}
     >
+      <GmailSetupWarningModal
+        open={gmailSetupWarningOpen}
+        onClose={() => setGmailSetupWarningOpen(false)}
+        onConnectGmail={() => {
+          setGmailSetupWarningOpen(false);
+          onGoToIntegrations?.();
+        }}
+      />
       <CampaignLaunchAgentOverlay open={launching && Boolean(onLaunchCampaign)} channel="gmail" />
       {embedded ? (
         <>
