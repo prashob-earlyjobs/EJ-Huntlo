@@ -3,7 +3,7 @@ import type { MetadataRoute } from "next";
 import { fetchBlogSitemapEntries } from "@/lib/blog";
 import { COMPARISON_HUB_ENTRIES } from "@/lib/comparisons";
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://huntlo.ai";
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://www.huntlo.ai";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const blogPosts = await fetchBlogSitemapEntries();
