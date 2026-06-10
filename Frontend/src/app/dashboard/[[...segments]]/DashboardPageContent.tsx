@@ -76,10 +76,13 @@ import {
   type UserUtilisationStats,
   type UtilisationHistoryRow,
 } from "@/lib/planUtilisation";
+import type { PricingPlansPayload } from "@/lib/pricingPlans";
 import {
-  parsePricingPlansFromApi,
-  type PricingPlansPayload,
-} from "@/lib/pricingPlans";
+  fetchMyDashboard,
+  fetchMyProfile,
+  fetchPricingPlans,
+  invalidateDashboardSessionCaches,
+} from "@/lib/dashboardSessionApi";
 import { hasCampaignsAccess } from "@/lib/planAccess";
 import { mergeStoredAuthUser, postAuthPath } from "@/lib/onboarding";
 import { isBlockedAccountResponse, isBlockedMemberStatus } from "@/lib/sessionLogout";
@@ -948,6 +951,45 @@ const emptyMyProfileForm: MyProfileFormState = {
   profilePhotoUrl: "",
 };
 
+function hydrateMyProfileFromMeData(data: Record<string, unknown>) {
+  const user =
+    data.user && typeof data.user === "object"
+      ? (data.user as Record<string, unknown>)
+      : null;
+  if (!data.success || !user) return null;
+
+  const security =
+    data.security && typeof data.security === "object"
+      ? (data.security as Record<string, unknown>)
+      : null;
+
+  return {
+    form: {
+      fullName: typeof user.fullName === "string" ? user.fullName : "",
+      companyName: typeof user.companyName === "string" ? user.companyName : "",
+      email: typeof user.email === "string" ? user.email : "",
+      phone: typeof user.mobile === "string" ? user.mobile : "",
+      location: typeof user.location === "string" ? user.location : "",
+      role: user.role === "admin" ? "Admin" : "User",
+      profilePhotoUrl:
+        typeof user.profilePhotoUrl === "string" ? user.profilePhotoUrl : "",
+    } satisfies MyProfileFormState,
+    accountRole: typeof user.accountRole === "string" ? user.accountRole : null,
+    workspaceOwner: parseWorkspaceOwner(data.workspaceOwner),
+    security: {
+      passwordChangedAt:
+        typeof security?.passwordChangedAt === "string"
+          ? security.passwordChangedAt
+          : "",
+      activeSessions:
+        typeof security?.activeSessions === "number" &&
+        Number.isFinite(security.activeSessions)
+          ? Math.max(1, Math.floor(security.activeSessions))
+          : 1,
+    } satisfies MyProfileSecurityState,
+  };
+}
+
 function sidebarProfileIcon(fullName: string, profilePhotoUrl: string) {
   const photoSrc = resolveProfilePhotoUrl(profilePhotoUrl);
   if (photoSrc) {
@@ -1372,6 +1414,7 @@ export function UserDashboardPage() {
     confirmPassword: "",
   });
   const [passwordUpdateLoading, setPasswordUpdateLoading] = useState(false);
+  const myProfileHydratedRef = useRef(false);
 
   useEffect(() => {
     try {
@@ -1383,6 +1426,120 @@ export function UserDashboardPage() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+
+    const auth = getStoredAuth();
+    if (!auth) {
+      router.replace("/login");
+      return;
+    }
+    if (
+      !auth.onboardingCompleted &&
+      auth.role !== "admin" &&
+      auth.accountRole !== "member"
+    ) {
+      router.replace("/onboarding");
+      return;
+    }
+
+    setAccountRole(
+      auth.accountRole === "owner" || auth.accountRole === "member"
+        ? auth.accountRole
+        : null
+    );
+    if (isBlockedMemberStatus(auth.memberStatus)) {
+      setAccountBlocked(true);
+    }
+    setShowAdminLink(auth.role === "admin");
+    setMyProfileForm((prev) => ({
+      ...prev,
+      fullName: auth.fullName || "",
+      companyName: auth.companyName || "",
+      email: auth.email || "",
+      phone: auth.mobile || "",
+      location: auth.location || "",
+      role: auth.role === "admin" ? "Admin" : "User",
+      profilePhotoUrl:
+        typeof auth.profilePhotoUrl === "string" ? auth.profilePhotoUrl : "",
+    }));
+
+    if (!auth.token) {
+      setUserPlanReady(true);
+      setUserPricingPlansReady(true);
+      return;
+    }
+
+    void (async () => {
+      try {
+        const [meResult, pricingResult] = await Promise.all([
+          fetchMyProfile(auth.token),
+          fetchPricingPlans(),
+        ]);
+        if (cancelled) return;
+
+        const blockedRes = { status: meResult.status } as Response;
+        if (isBlockedAccountResponse(blockedRes, meResult.data)) {
+          setAccountBlocked(true);
+          return;
+        }
+
+        const meData = meResult.data;
+        if (meData.success && meData.user && typeof meData.user === "object") {
+          const user = meData.user as Record<string, unknown>;
+          if (isBlockedMemberStatus(user.memberStatus)) {
+            setAccountBlocked(true);
+          }
+          const role =
+            user.accountRole === "owner" || user.accountRole === "member"
+              ? user.accountRole
+              : null;
+          setAccountRole(role as "owner" | "member" | null);
+          mergeStoredAuthUser({
+            accountRole: role as "owner" | "member" | null,
+            organizationId:
+              typeof user.organizationId === "string" ? user.organizationId : null,
+            ownerUserId:
+              typeof user.ownerUserId === "string" ? user.ownerUserId : null,
+            memberStatus:
+              typeof user.memberStatus === "string" ? user.memberStatus : undefined,
+          });
+
+          const profile = hydrateMyProfileFromMeData(meData);
+          if (profile) {
+            setMyProfileForm(profile.form);
+            setMyProfileAccountRole(profile.accountRole);
+            setMyProfileWorkspaceOwner(profile.workspaceOwner);
+            setMyProfileSecurity(profile.security);
+            persistAuthProfilePhoto(profile.form.profilePhotoUrl);
+            myProfileHydratedRef.current = true;
+          }
+        }
+
+        const snapshot = parsePlanFromMeResponse(meData);
+        if (snapshot) {
+          setUserPlanId(snapshot.planId);
+          setUserPlanName(snapshot.planName);
+          if (snapshot.utilisation) setPlanUtilisation(snapshot.utilisation);
+          if (snapshot.outreachThreads) setPlanOutreachThreads(snapshot.outreachThreads);
+        }
+
+        setUserPricingPlans(pricingResult.plans);
+      } catch {
+        /* keep defaults */
+      } finally {
+        if (!cancelled) {
+          setUserPlanReady(true);
+          setUserPricingPlansReady(true);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
+
+  useEffect(() => {
     if (activeTab !== "Dashboard") return;
     const auth = getStoredAuth();
     if (!auth?.token) {
@@ -1390,22 +1547,19 @@ export function UserDashboardPage() {
       setDashboardOverviewLoading(false);
       return;
     }
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+
+    let cancelled = false;
     setDashboardOverviewLoading(true);
     setDashboardOverviewError("");
-    fetch(`${apiBase}/api/users/me/dashboard`, {
-      headers: authHeaders(auth.token),
-    })
-      .then(async (res) => {
-        const data = await res.json().catch(() => ({}));
-        if (isBlockedAccountResponse(res, data)) {
-          setAccountBlocked(true);
-          return null;
-        }
-        return { data, status: res.status, ok: res.ok };
-      })
+
+    void fetchMyDashboard(auth.token)
       .then((result) => {
-        if (!result) return;
+        if (cancelled) return;
+        const blockedRes = { status: result.status } as Response;
+        if (isBlockedAccountResponse(blockedRes, result.data)) {
+          setAccountBlocked(true);
+          return;
+        }
         const { data, status, ok } = result;
         if (!ok || !data.success) {
           const err = new Error(
@@ -1422,16 +1576,15 @@ export function UserDashboardPage() {
         setUserPlanId(parsed.plan.planId);
         setUserPlanName(parsed.plan.planName);
         setPlanOutreachThreads(parsed.outreachThreads);
-        setUserPlanReady(true);
       })
       .catch((err) => {
+        if (cancelled) return;
         const statusCode =
           typeof (err as { statusCode?: unknown })?.statusCode === "number"
             ? Number((err as { statusCode?: number }).statusCode)
             : 0;
         const msg = err instanceof Error ? err.message : "Could not load dashboard";
-        const authExpired = statusCode === 401;
-        if (authExpired) {
+        if (statusCode === 401) {
           try {
             window.localStorage.removeItem("authUser");
           } catch {
@@ -1444,33 +1597,13 @@ export function UserDashboardPage() {
         setDashboardOverviewError(msg);
       })
       .finally(() => {
-        setDashboardOverviewLoading(false);
+        if (!cancelled) setDashboardOverviewLoading(false);
       });
-  }, [activeTab, router]);
 
-  useEffect(() => {
-    const auth = getStoredAuth();
-    if (!auth?.token) {
-      setUserPlanReady(true);
-      return;
-    }
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
-    fetch(`${apiBase}/api/users/me`, { headers: authHeaders(auth.token) })
-      .then((res) => res.json())
-      .then((data) => {
-        const snapshot = parsePlanFromMeResponse(data);
-        if (snapshot) {
-          setUserPlanId(snapshot.planId);
-          setUserPlanName(snapshot.planName);
-          if (snapshot.utilisation) setPlanUtilisation(snapshot.utilisation);
-          if (snapshot.outreachThreads) setPlanOutreachThreads(snapshot.outreachThreads);
-        }
-        setUserPlanReady(true);
-      })
-      .catch(() => {
-        setUserPlanReady(true);
-      });
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, router]);
 
   const loadCampaignsList = useCallback(async (opts?: { page?: number }) => {
     const auth = getStoredAuth();
@@ -1519,26 +1652,28 @@ export function UserDashboardPage() {
     [campaignsLoading, campaignsPage, campaignsTotalPages, loadCampaignsList]
   );
 
-  useEffect(() => {
-    if (!hasCampaignsAccess(userPlanId, userPricingPlans, planAccessOpts)) return;
-    void loadCampaignsList({ page: 1 });
-  }, [userPlanId, userPricingPlans, userPricingPlansReady, planAccessOpts, loadCampaignsList]);
+  const shouldLoadCampaigns =
+    userPricingPlansReady &&
+    hasCampaignsAccess(userPlanId, userPricingPlans, planAccessOpts) &&
+    (activeTab === "Campaigns" || addToCampaignOpen || Boolean(routeCampaignId));
 
   useEffect(() => {
-    if (!hasCampaignsAccess(userPlanId, userPricingPlans, planAccessOpts)) return;
-    if (activeTab !== "Campaigns" && !addToCampaignOpen && !routeCampaignId) return;
-    setCampaignsLoading(true);
+    if (!shouldLoadCampaigns) {
+      if (
+        userPricingPlansReady &&
+        !hasCampaignsAccess(userPlanId, userPricingPlans, planAccessOpts)
+      ) {
+        setCampaigns([]);
+        setCampaignsLoading(false);
+        setCampaignsPage(1);
+        setCampaignsTotal(0);
+        setCampaignsTotalPages(1);
+        setCampaignsSummary({ total: 0, active: 0, contacts: 0 });
+      }
+      return;
+    }
     void loadCampaignsList({ page: 1 });
-  }, [
-    activeTab,
-    addToCampaignOpen,
-    userPlanId,
-    userPricingPlans,
-    userPricingPlansReady,
-    planAccessOpts,
-    loadCampaignsList,
-    routeCampaignId,
-  ]);
+  }, [shouldLoadCampaigns, userPlanId, userPricingPlans, userPricingPlansReady, planAccessOpts, loadCampaignsList]);
 
   useEffect(() => {
     if (activeTab !== "Saved" && activeTab !== "Session Results" && activeTab !== "Candidates") return;
@@ -1581,132 +1716,48 @@ export function UserDashboardPage() {
   }, [saveLists, saveTargetListId]);
 
   useEffect(() => {
-    const auth = getStoredAuth();
-    if (!auth) {
-      router.replace("/login");
-      return;
-    }
-    if (
-      !auth.onboardingCompleted &&
-      auth.role !== "admin" &&
-      auth.accountRole !== "member"
-    ) {
-      router.replace("/onboarding");
-      return;
-    }
-    setAccountRole(
-      auth.accountRole === "owner" || auth.accountRole === "member"
-        ? auth.accountRole
-        : null
-    );
-    if (isBlockedMemberStatus(auth.memberStatus)) {
-      setAccountBlocked(true);
-    }
-    setShowAdminLink(auth.role === "admin");
-
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
-    fetch(`${apiBase}/api/users/me`, { headers: authHeaders(auth.token) })
-      .then(async (res) => {
-        const data = await res.json().catch(() => ({}));
-        if (isBlockedAccountResponse(res, data)) {
-          setAccountBlocked(true);
-          return null;
-        }
-        return data;
-      })
-      .then((data) => {
-        if (!data) return;
-        if (data?.success && data.user) {
-          if (isBlockedMemberStatus(data.user.memberStatus)) {
-            setAccountBlocked(true);
-          }
-          const role =
-            data.user.accountRole === "owner" || data.user.accountRole === "member"
-              ? data.user.accountRole
-              : null;
-          setAccountRole(role);
-          mergeStoredAuthUser({
-            accountRole: role,
-            organizationId:
-              typeof data.user.organizationId === "string"
-                ? data.user.organizationId
-                : null,
-            ownerUserId:
-              typeof data.user.ownerUserId === "string" ? data.user.ownerUserId : null,
-            memberStatus:
-              typeof data.user.memberStatus === "string" ? data.user.memberStatus : undefined,
-          });
-        }
-      })
-      .catch(() => {});
-    setMyProfileForm((prev) => ({
-      ...prev,
-      fullName: auth.fullName || "",
-      companyName: auth.companyName || "",
-      email: auth.email || "",
-      phone: auth.mobile || "",
-      location: auth.location || "",
-      role: auth.role === "admin" ? "Admin" : "User",
-      profilePhotoUrl:
-        typeof auth.profilePhotoUrl === "string" ? auth.profilePhotoUrl : "",
-    }));
-  }, [router]);
-
-  useEffect(() => {
     if (activeTab !== "My Profile") return;
     const auth = getStoredAuth();
     if (!auth?.token) return;
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
 
+    if (myProfileHydratedRef.current) {
+      setMyProfileLoading(false);
+      return;
+    }
+
+    let cancelled = false;
     setMyProfileLoading(true);
     setMyProfileError("");
-    fetch(`${apiBase}/api/users/me`, {
-      headers: authHeaders(auth.token),
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        if (!data.success || !data.user) {
+
+    void fetchMyProfile(auth.token)
+      .then(({ data }) => {
+        if (cancelled) return;
+        const profile = hydrateMyProfileFromMeData(data);
+        if (!profile) {
           throw new Error(
             typeof data.message === "string" ? data.message : "Failed to load profile"
           );
         }
-        setMyProfileAccountRole(
-          typeof data.user.accountRole === "string" ? data.user.accountRole : null
-        );
-        setMyProfileWorkspaceOwner(parseWorkspaceOwner(data.workspaceOwner));
-        setMyProfileForm({
-          fullName: typeof data.user.fullName === "string" ? data.user.fullName : "",
-          companyName:
-            typeof data.user.companyName === "string" ? data.user.companyName : "",
-          email: typeof data.user.email === "string" ? data.user.email : "",
-          phone: typeof data.user.mobile === "string" ? data.user.mobile : "",
-          location: typeof data.user.location === "string" ? data.user.location : "",
-          role: data.user.role === "admin" ? "Admin" : "User",
-          profilePhotoUrl:
-            typeof data.user.profilePhotoUrl === "string" ? data.user.profilePhotoUrl : "",
-        });
-        persistAuthProfilePhoto(
-          typeof data.user.profilePhotoUrl === "string" ? data.user.profilePhotoUrl : ""
-        );
-        const passwordChangedAt =
-          typeof data.security?.passwordChangedAt === "string"
-            ? data.security.passwordChangedAt
-            : "";
-        const activeSessions =
-          typeof data.security?.activeSessions === "number" &&
-          Number.isFinite(data.security.activeSessions)
-            ? Math.max(1, Math.floor(data.security.activeSessions))
-            : 1;
-        setMyProfileSecurity({ passwordChangedAt, activeSessions });
+        setMyProfileAccountRole(profile.accountRole);
+        setMyProfileWorkspaceOwner(profile.workspaceOwner);
+        setMyProfileForm(profile.form);
+        setMyProfileSecurity(profile.security);
+        persistAuthProfilePhoto(profile.form.profilePhotoUrl);
+        myProfileHydratedRef.current = true;
       })
       .catch((err) => {
+        if (cancelled) return;
         setMyProfileError(
           err instanceof Error ? err.message : "Could not load profile details"
         );
       })
       .finally(() => {
-        setMyProfileLoading(false);
+        if (!cancelled) setMyProfileLoading(false);
       });
+
+    return () => {
+      cancelled = true;
+    };
   }, [activeTab]);
 
   useEffect(() => {
@@ -1867,19 +1918,17 @@ export function UserDashboardPage() {
   }, [activeTab]);
 
   const reloadUserPlanSnapshot = useCallback(async () => {
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
     const auth = getStoredAuth();
     if (!auth?.token) return;
     try {
-      const res = await fetch(`${apiBase}/api/users/me`, {
-        headers: authHeaders(auth.token),
-      });
-      const data = await res.json();
+      invalidateDashboardSessionCaches(auth.token);
+      const { data } = await fetchMyProfile(auth.token, { force: true });
       const snapshot = parsePlanFromMeResponse(data);
       if (snapshot) {
         setUserPlanId(snapshot.planId);
         setUserPlanName(snapshot.planName);
         if (snapshot.utilisation) setPlanUtilisation(snapshot.utilisation);
+        if (snapshot.outreachThreads) setPlanOutreachThreads(snapshot.outreachThreads);
       }
       setUserPlanReady(true);
     } catch {
@@ -1894,85 +1943,6 @@ export function UserDashboardPage() {
     },
     [reloadUserPlanSnapshot]
   );
-
-  useEffect(() => {
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
-    let cancelled = false;
-    fetch(`${apiBase}/api/pricing-plans`)
-      .then((r) => r.json())
-      .then((data: { success?: boolean; plans?: unknown }) => {
-        if (cancelled) return;
-        if (data.success && data.plans) {
-          setUserPricingPlans(parsePricingPlansFromApi(data.plans));
-        } else {
-          setUserPricingPlans(null);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setUserPricingPlans(null);
-      })
-      .finally(() => {
-        if (!cancelled) setUserPricingPlansReady(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (activeTab !== "Plans and pricing" && activeTab !== "Dashboard") return;
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
-    const auth = getStoredAuth();
-    setUserPricingPlansLoading(true);
-    setPlanUtilisation({
-      candidateSearches: 0,
-      emailUnveils: 0,
-      candidateUnveils: 0,
-      mobileUnveils: 0,
-      linkedinLookups: 0,
-    });
-
-    const pricingReq = fetch(`${apiBase}/api/pricing-plans`).then((r) => r.json());
-    const meReq =
-      auth?.token != null
-        ? fetch(`${apiBase}/api/users/me`, { headers: authHeaders(auth.token) }).then((r) =>
-            r.json()
-          )
-        : Promise.resolve(null);
-
-    Promise.allSettled([pricingReq, meReq])
-      .then((results) => {
-        const [priceResult, meResult] = results;
-
-        if (priceResult.status === "fulfilled") {
-          const data = priceResult.value as {
-            success?: boolean;
-            plans?: unknown;
-          };
-          if (data.success && data.plans) {
-            setUserPricingPlans(parsePricingPlansFromApi(data.plans));
-          } else {
-            setUserPricingPlans(null);
-          }
-        } else {
-          setUserPricingPlans(null);
-        }
-
-        if (meResult.status === "fulfilled" && meResult.value) {
-          const snapshot = parsePlanFromMeResponse(meResult.value);
-          if (snapshot) {
-            setUserPlanId(snapshot.planId);
-            setUserPlanName(snapshot.planName);
-            if (snapshot.utilisation) setPlanUtilisation(snapshot.utilisation);
-            if (snapshot.outreachThreads) setPlanOutreachThreads(snapshot.outreachThreads);
-          }
-        }
-      })
-      .catch(() => {
-        setUserPricingPlans(null);
-      })
-      .finally(() => setUserPricingPlansLoading(false));
-  }, [activeTab]);
 
   useEffect(() => {
     if (activeTab !== "Plans and pricing") return;
