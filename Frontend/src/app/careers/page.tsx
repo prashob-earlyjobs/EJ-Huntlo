@@ -1,16 +1,7 @@
-import { MarketingPageShell } from "@/components/landing/MarketingPageShell";
-import { MARKETING_PAGES, marketingPageMetadata } from "@/lib/marketingPages";
+import { redirect } from "next/navigation";
 
-const page = MARKETING_PAGES.careers;
-
-export const metadata = marketingPageMetadata("careers");
+const EARLYJOBS_JOBS_URL = "https://www.earlyjobs.ai/jobs";
 
 export default function CareersPage() {
-  return (
-    <MarketingPageShell
-      eyebrow={page.eyebrow}
-      title={page.title}
-      description={page.description}
-    />
-  );
+  redirect(EARLYJOBS_JOBS_URL);
 }

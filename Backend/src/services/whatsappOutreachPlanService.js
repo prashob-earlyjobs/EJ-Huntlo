@@ -34,6 +34,8 @@ function normalizeTouchpoints(raw) {
       const label = typeof tp?.label === "string" ? tp.label.trim() : "";
       const body = typeof tp?.body === "string" ? tp.body : "";
       const waitHours = Math.max(0, Number(tp?.waitHours) || 0);
+      const waitMinutes = Math.max(0, Number(tp?.waitMinutes) || 0);
+      const usesMinuteWait = waitMinutes > 0 && waitHours === 0;
       const templateId = typeof tp?.templateId === "string" ? tp.templateId.trim() : "";
       const isNoReplyFallback = Boolean(tp?.isNoReplyFallback);
       const isReplyFollowUp = Boolean(tp?.isReplyFollowUp);
@@ -50,7 +52,8 @@ function normalizeTouchpoints(raw) {
         order: Number.isFinite(order) && order > 0 ? order : index + 1,
         label,
         body: trimmedBody,
-        waitHours,
+        waitHours: usesMinuteWait ? 0 : waitHours,
+        waitMinutes: usesMinuteWait ? waitMinutes : 0,
         templateId,
         isNoReplyFallback,
         isReplyFollowUp,
@@ -107,6 +110,7 @@ function formatPlan(doc) {
       label: tp.label || "",
       body: tp.body || "",
       waitHours: tp.waitHours ?? 0,
+      waitMinutes: tp.waitMinutes ?? 0,
       templateId: tp.templateId || undefined,
       isNoReplyFallback: Boolean(tp.isNoReplyFallback),
       isReplyFollowUp: Boolean(tp.isReplyFollowUp),

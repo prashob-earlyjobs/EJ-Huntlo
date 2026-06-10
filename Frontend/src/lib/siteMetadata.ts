@@ -53,6 +53,13 @@ export function buildPageMetadata({
   return {
     title,
     description,
+    alternates: {
+      canonical: url,
+    },
+    robots: {
+      index: true,
+      follow: true,
+    },
     openGraph: {
       title,
       description,

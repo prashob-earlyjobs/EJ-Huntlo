@@ -18,6 +18,7 @@ import {
 type Props = {
   open: boolean;
   channel?: GenerateOutreachChannel;
+  initialJobTitle?: string;
   initialJobDescription?: string;
   onClose: () => void;
   onBack?: () => void;
@@ -27,12 +28,14 @@ type Props = {
 export function GenerateOutreachAiModal({
   open,
   channel = "gmail",
+  initialJobTitle = "",
   initialJobDescription = "",
   onClose,
   onBack,
   onGenerated,
 }: Props) {
   const [mounted, setMounted] = useState(false);
+  const [jobTitle, setJobTitle] = useState(() => initialJobTitle.trim());
   const [jobDescription, setJobDescription] = useState(
     () => initialJobDescription.trim()
   );
@@ -66,14 +69,20 @@ export function GenerateOutreachAiModal({
 
   useEffect(() => {
     if (!open) return;
+    const nextTitle = initialJobTitle.trim();
+    if (nextTitle) setJobTitle((prev) => (prev.trim() ? prev : nextTitle));
     const next = initialJobDescription.trim();
-    if (!next) return;
-    setJobDescription((prev) => (prev.trim() ? prev : next));
-  }, [open, initialJobDescription]);
+    if (next) setJobDescription((prev) => (prev.trim() ? prev : next));
+  }, [open, initialJobTitle, initialJobDescription]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const title = jobTitle.trim();
     const jd = jobDescription.trim();
+    if (!title) {
+      setError("Enter a job title.");
+      return;
+    }
     if (jd.length < 20) {
       setError("Paste a job description (at least 20 characters).");
       return;
@@ -89,8 +98,10 @@ export function GenerateOutreachAiModal({
       const result = await generateOutreachSequenceFromJd(auth.token, jd, {
         planName: planName.trim() || undefined,
         channel,
+        jobTitle: title,
       });
       onGenerated(result);
+      setJobTitle("");
       setJobDescription("");
       setPlanName("");
       onClose();
@@ -155,15 +166,27 @@ export function GenerateOutreachAiModal({
         <form onSubmit={(e) => void handleSubmit(e)} className="flex min-h-0 flex-1 flex-col">
           <div className="dashboard-outreach-scroll min-h-0 flex-1 overflow-y-auto px-6 py-5">
             <label className={`${dashboardLabelClass} block`}>
-              Job description
+              Job title <span className="text-red-600">*</span>
+              <input
+                type="text"
+                value={jobTitle}
+                onChange={(e) => setJobTitle(e.target.value)}
+                className={`${dashboardInputClass} mt-2 w-full`}
+                placeholder="e.g. Senior Software Engineer"
+                disabled={generating}
+                autoFocus
+              />
+            </label>
+
+            <label className={`${dashboardLabelClass} mt-4 block`}>
+              Job description <span className="text-red-600">*</span>
               <textarea
                 value={jobDescription}
                 onChange={(e) => setJobDescription(e.target.value)}
                 rows={12}
                 className={`${dashboardInputClass} mt-2 w-full resize-y font-normal leading-relaxed`}
-                placeholder="Paste the full JD: role title, responsibilities, requirements, location, company, compensation hints…"
+                placeholder="Paste responsibilities, requirements, location, company, compensation hints…"
                 disabled={generating}
-                autoFocus
               />
             </label>
 
@@ -202,7 +225,7 @@ export function GenerateOutreachAiModal({
             </button>
             <button
               type="submit"
-              disabled={generating || jobDescription.trim().length < 20}
+              disabled={generating || !jobTitle.trim() || jobDescription.trim().length < 20}
               className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border border-[#0050cb] bg-[#0050cb] px-5 text-sm font-medium text-white transition hover:bg-[#003d99] disabled:opacity-55"
             >
               {generating ? (

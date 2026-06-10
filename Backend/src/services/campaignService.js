@@ -165,6 +165,7 @@ function formatCampaign(doc, listStats, options = {}) {
   return {
     id: String(doc._id),
     name: doc.name || "",
+    jobTitle: String(doc.jobTitle || "").trim(),
     jobDescription: String(doc.jobDescription || "").trim(),
     calendlyAutomation: normalizeCalendlyAutomation(doc.calendlyAutomation),
     outreachPlanId: doc.outreachPlanId ? String(doc.outreachPlanId) : "",
@@ -591,9 +592,18 @@ async function setCampaignOutreachPlan(
   return formatCampaign(refreshed, null, { contactCount });
 }
 
-async function updateCampaignJobDescription(actorUserId, campaignId, jobDescription) {
+async function updateCampaignJobDescription(actorUserId, campaignId, payload = {}) {
   const doc = await findCampaignDocumentInScope(actorUserId, campaignId);
-  doc.jobDescription = String(jobDescription || "").trim();
+  if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+    if (payload.jobDescription !== undefined) {
+      doc.jobDescription = String(payload.jobDescription || "").trim();
+    }
+    if (payload.jobTitle !== undefined) {
+      doc.jobTitle = String(payload.jobTitle || "").trim();
+    }
+  } else {
+    doc.jobDescription = String(payload || "").trim();
+  }
   await doc.save();
   const contactCount = await countContactsForCampaign(campaignId);
   const refreshed = doc.toObject();

@@ -10,6 +10,7 @@ export type GenerateOutreachChannel = "gmail" | "whatsapp";
 export type GenerateGmailOutreachFromJdResult = {
   channel: "gmail";
   planName: string;
+  jobTitle: string;
   jobDescription: string;
   touchpoints: OutreachTouchpointDraft[];
   touchpointCount: number;
@@ -18,6 +19,7 @@ export type GenerateGmailOutreachFromJdResult = {
 export type GenerateWhatsAppOutreachFromJdResult = {
   channel: "whatsapp";
   planName: string;
+  jobTitle: string;
   jobDescription: string;
   touchpoints: WhatsAppTouchpointDraft[];
   touchpointCount: number;
@@ -62,10 +64,11 @@ function parseWhatsAppTouchpoint(raw: unknown, index: number): WhatsAppTouchpoin
 export async function generateOutreachSequenceFromJd(
   token: string,
   jobDescription: string,
-  options?: { planName?: string; channel?: GenerateOutreachChannel }
+  options?: { planName?: string; channel?: GenerateOutreachChannel; jobTitle?: string }
 ): Promise<GenerateOutreachFromJdResult> {
   const channel = options?.channel === "whatsapp" ? "whatsapp" : "gmail";
   const trimmedJd = jobDescription.trim();
+  const jobTitle = String(options?.jobTitle || "").trim();
   const res = await fetch(`${apiBase()}/api/outreach/ai/generate-sequence`, {
     method: "POST",
     headers: authHeaders(token),
@@ -99,6 +102,7 @@ export async function generateOutreachSequenceFromJd(
     return {
       channel: "whatsapp",
       planName,
+      jobTitle,
       jobDescription: trimmedJd,
       touchpoints,
       touchpointCount:
@@ -117,6 +121,7 @@ export async function generateOutreachSequenceFromJd(
   return {
     channel: "gmail",
     planName,
+    jobTitle,
     jobDescription: trimmedJd,
     touchpoints,
     touchpointCount:
