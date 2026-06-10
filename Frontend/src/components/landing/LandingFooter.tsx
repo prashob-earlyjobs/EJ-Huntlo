@@ -19,7 +19,8 @@ const FOOTER_LINK_HREFS: Record<string, string> = {
   Blog: "/blog",
   FAQs: "/faqs",
   About: "/about",
-  Careers: "/careers",
+  Careers: "https://www.earlyjobs.ai/jobs",
+  Contact: "/contact",
   ...Object.fromEntries(COMPARISON_FOOTER_LINKS.map((item) => [item.label, item.href])),
 };
 

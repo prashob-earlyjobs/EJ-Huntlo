@@ -4,9 +4,9 @@ export const MARKETING_PAGES = {
   about: {
     path: "/about",
     eyebrow: "Company",
-    title: "About Huntlo",
+    title: "About Huntlo.ai",
     description:
-      "Huntlo is an AI-native Hiring OS helping recruiting teams source talent, automate outreach, and scale hiring workflows.",
+      "Huntlo.ai is an AI Recruiting OS designed for modern hiring teams, staffing firms, recruitment agencies, startups, enterprises, and Global Capability Centers (GCCs).",
     ogImage: OG_IMAGES.about,
   },
   careers: {
@@ -16,6 +16,14 @@ export const MARKETING_PAGES = {
     description:
       "Join the team building recruiting infrastructure for the AI era — sourcing, engagement, and hiring automation.",
     ogImage: OG_IMAGES.careers,
+  },
+  contact: {
+    path: "/contact",
+    eyebrow: "Company",
+    title: "Contact us",
+    description:
+      "Get in touch with Huntlo for sales, support, partnerships, and security inquiries. Book a demo or email our team.",
+    ogImage: OG_IMAGES.platform,
   },
   faqs: {
     path: "/faqs",
