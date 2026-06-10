@@ -27,14 +27,18 @@ import {
   createEmptyWhatsAppStep,
   createInitialWhatsAppSequence,
   ensureWhatsAppSequenceWithFallbacks,
-  formatWhatsAppWaitLabel,
   getNoReplyFallbacks,
   getWhatsAppOpeningTemplate,
   inferWaitDisplay,
-  waitHoursFromDisplay,
   type WhatsAppMessageTemplate,
   type WhatsAppTouchpointDraft,
 } from "@/lib/whatsappOutreach";
+import {
+  formatWhatsAppWaitLabel,
+  getWhatsAppWaitUnitOptions,
+  whatsAppWaitFromDisplay,
+  type WhatsAppWaitUnit,
+} from "@/lib/whatsappWait";
 import {
   saveWhatsAppOutreachPlan,
   type WhatsAppOutreachPlanRecord,
@@ -80,11 +84,6 @@ type CalendlyMeetingLink = {
   slug?: string;
   durationMinutes?: number | null;
 };
-
-const WAIT_UNIT_OPTIONS = [
-  { value: "hours" as const, label: "hours" },
-  { value: "days" as const, label: "days" },
-];
 
 function openingPreviewLabel(tp: WhatsAppTouchpointDraft): string {
   if (tp.order !== 1) return tp.body.trim() || "Empty message";
@@ -168,9 +167,9 @@ function NoReplyFallbackField({
 }: {
   slot: 1 | 2;
   touchpoint: WhatsAppTouchpointDraft;
-  waitMeta: { amount: number; unit: "hours" | "days" };
+  waitMeta: { amount: number; unit: WhatsAppWaitUnit };
   onSelectTemplate: (template: WhatsAppMessageTemplate) => void;
-  onWaitChange: (patch: Partial<{ amount: number; unit: "hours" | "days" }>) => void;
+  onWaitChange: (patch: Partial<{ amount: number; unit: WhatsAppWaitUnit }>) => void;
   disabled?: boolean;
 }) {
   const templates = WHATSAPP_NO_REPLY_TEMPLATES[slot];
@@ -196,7 +195,7 @@ function NoReplyFallbackField({
         />
         <OutreachPillSelect
           value={waitMeta.unit}
-          options={WAIT_UNIT_OPTIONS}
+          options={getWhatsAppWaitUnitOptions()}
           onChange={(unit) => onWaitChange({ unit })}
           ariaLabel={`Follow-up ${slot} wait unit`}
           disabled={disabled}
@@ -273,15 +272,15 @@ export function WhatsAppOutreachEditor({
     )
   );
   const [activeIndex, setActiveIndex] = useState(1);
-  const [waitMeta, setWaitMeta] = useState<Record<number, { amount: number; unit: "hours" | "days" }>>(
-    () => {
-      const meta: Record<number, { amount: number; unit: "hours" | "days" }> = {};
-      for (const tp of ensureWhatsAppSequenceWithFallbacks(initialTouchpoints)) {
-        if (tp.order > 1) meta[tp.order] = inferWaitDisplay(tp.waitHours);
-      }
-      return meta;
+  const [waitMeta, setWaitMeta] = useState<
+    Record<number, { amount: number; unit: WhatsAppWaitUnit }>
+  >(() => {
+    const meta: Record<number, { amount: number; unit: WhatsAppWaitUnit }> = {};
+    for (const tp of ensureWhatsAppSequenceWithFallbacks(initialTouchpoints)) {
+      if (tp.order > 1) meta[tp.order] = inferWaitDisplay(tp);
     }
-  );
+    return meta;
+  });
 
   const railTouchpoints = useMemo(() => touchpoints, [touchpoints]);
 
@@ -437,14 +436,16 @@ export function WhatsAppOutreachEditor({
     );
   };
 
-  const updateStepWait = (order: number, patch: Partial<{ amount: number; unit: "hours" | "days" }>) => {
+  const updateStepWait = (
+    order: number,
+    patch: Partial<{ amount: number; unit: WhatsAppWaitUnit }>
+  ) => {
     if (editorLocked) return;
-    const current = waitMeta[order] ?? inferWaitDisplay(
-      touchpoints.find((t) => t.order === order)?.waitHours ?? 24
-    );
+    const tp = touchpoints.find((t) => t.order === order);
+    const current = waitMeta[order] ?? inferWaitDisplay(tp ?? { waitHours: 24, waitMinutes: 0 });
     const next = { ...current, ...patch };
     setWaitMeta((prev) => ({ ...prev, [order]: next }));
-    updateTouchpoint(order, { waitHours: waitHoursFromDisplay(next.amount, next.unit) });
+    updateTouchpoint(order, whatsAppWaitFromDisplay(next.amount, next.unit));
   };
 
   const addStep = () => {
@@ -545,7 +546,7 @@ export function WhatsAppOutreachEditor({
 
   const updateFallbackWait = (
     order: 2 | 3,
-    patch: Partial<{ amount: number; unit: "hours" | "days" }>
+    patch: Partial<{ amount: number; unit: WhatsAppWaitUnit }>
   ) => {
     updateStepWait(order, patch);
   };
@@ -594,6 +595,7 @@ export function WhatsAppOutreachEditor({
         label: tp.label,
         body: tp.body.trim(),
         waitHours: tp.waitHours,
+        ...(tp.waitMinutes ? { waitMinutes: tp.waitMinutes } : {}),
         ...(tp.templateId ? { templateId: tp.templateId } : {}),
         ...(tp.isNoReplyFallback ? { isNoReplyFallback: true } : {}),
         ...(tp.isReplyFollowUp ? { isReplyFollowUp: true } : {}),
@@ -1018,7 +1020,7 @@ export function WhatsAppOutreachEditor({
                         nextRail.order > 1 ? " dashboard-wa-outreach-flow-wait--sub" : ""
                       }`}
                     >
-                      {formatWhatsAppWaitLabel(nextRail.waitHours)}
+                      {formatWhatsAppWaitLabel(nextRail)}
                     </p>
                   ) : null}
                 </li>
@@ -1145,8 +1147,7 @@ export function WhatsAppOutreachEditor({
                     slot={activeTouchpoint.order === 2 ? 1 : 2}
                     touchpoint={activeTouchpoint}
                     waitMeta={
-                      waitMeta[activeTouchpoint.order] ??
-                      inferWaitDisplay(activeTouchpoint.waitHours)
+                      waitMeta[activeTouchpoint.order] ?? inferWaitDisplay(activeTouchpoint)
                     }
                     onSelectTemplate={(template) =>
                       updateTouchpoint(activeTouchpoint.order, {
@@ -1196,7 +1197,7 @@ export function WhatsAppOutreachEditor({
                       min={0}
                       value={
                         waitMeta[activeTouchpoint.order]?.amount ??
-                        inferWaitDisplay(activeTouchpoint.waitHours).amount
+                        inferWaitDisplay(activeTouchpoint).amount
                       }
                       onChange={(e) =>
                         updateStepWait(activeTouchpoint.order, {
@@ -1210,9 +1211,9 @@ export function WhatsAppOutreachEditor({
                     <OutreachPillSelect
                       value={
                         waitMeta[activeTouchpoint.order]?.unit ??
-                        inferWaitDisplay(activeTouchpoint.waitHours).unit
+                        inferWaitDisplay(activeTouchpoint).unit
                       }
-                      options={WAIT_UNIT_OPTIONS}
+                      options={getWhatsAppWaitUnitOptions()}
                       onChange={(unit) => updateStepWait(activeTouchpoint.order, { unit })}
                       ariaLabel="Wait unit"
                       disabled={editorLocked}

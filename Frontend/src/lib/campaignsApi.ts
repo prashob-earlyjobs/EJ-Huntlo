@@ -88,6 +88,7 @@ function parseCampaign(raw: unknown): CampaignRecord | null {
       : o.lastActivityAt
         ? new Date(String(o.lastActivityAt)).toISOString()
         : null;
+  const jobTitle = typeof o.jobTitle === "string" ? o.jobTitle.trim() : "";
   const jobDescription =
     typeof o.jobDescription === "string" ? o.jobDescription.trim() : "";
 
@@ -113,6 +114,7 @@ function parseCampaign(raw: unknown): CampaignRecord | null {
     createdAt,
     contactCount,
     contacts,
+    ...(jobTitle ? { jobTitle } : {}),
     jobDescription,
     ...(calendlyAutomation ? { calendlyAutomation } : {}),
     ...(outreachPlanId ? { outreachPlanId } : {}),
@@ -313,15 +315,27 @@ export async function setCampaignOutreachPlan(
   return campaign;
 }
 
+export type CampaignRoleContextPayload = {
+  jobDescription: string;
+  jobTitle?: string;
+};
+
 export async function updateCampaignJobDescription(
   token: string,
   campaignId: string,
-  jobDescription: string
+  payload: string | CampaignRoleContextPayload
 ): Promise<CampaignRecord> {
+  const body =
+    typeof payload === "string"
+      ? { jobDescription: payload.trim() }
+      : {
+          jobDescription: payload.jobDescription.trim(),
+          ...(payload.jobTitle !== undefined ? { jobTitle: payload.jobTitle.trim() } : {}),
+        };
   const res = await fetch(`${apiBase()}/api/campaigns/${campaignId}/job-description`, {
     method: "PATCH",
     headers: authHeaders(token),
-    body: JSON.stringify({ jobDescription: jobDescription.trim() }),
+    body: JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.success) {

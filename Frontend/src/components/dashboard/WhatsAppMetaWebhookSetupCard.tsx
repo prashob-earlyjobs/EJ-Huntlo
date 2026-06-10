@@ -143,7 +143,7 @@ export function WhatsAppMetaWebhookSetupCard({ setup, loading, compact }: Props)
         </p>
         <p className="text-xs text-slate-600">
           Approved template names in your WhatsApp sequence must match templates in your Meta
-          Business account (e.g. <span className="font-mono">opening_message_01</span>).
+          Business account (e.g. <span className="font-mono">profile_review_reminder_v1</span>).
         </p>
       </div>
     </div>

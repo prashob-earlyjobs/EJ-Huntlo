@@ -6,92 +6,133 @@
 
 const WHATSAPP_OPENING_TEMPLATES = [
   {
-    id: "opening_message_01",
-    name: "Professional introduction",
-    body: `Hi {{FirstName}},
+    id: "profile_review_reminder_v1",
+    name: "Profile review reminder",
+    body: `Hi {{1}},
 
-Your profile has been shortlisted through our candidate matching process for the {{JobTitle}} position.
+This is a follow-up regarding the profile review communication shared earlier for the {{2}} requirement.
 
-To review the opportunity details and next steps, please reply to this message.`,
+If you would like to receive additional information regarding the recruitment process and next steps, please reply to this message.
+
+Thank you.`,
   },
   {
-    id: "role_opportunity",
-    name: "Role opportunity",
-    body: `Hello {{FirstName}} 👋
+    id: "role_alignment_review",
+    name: "Role alignment review",
+    body: `Hi {{1}},
 
-We're actively looking for a {{JobTitle}}, and your background looks like a strong match.
+During our recruitment review process, your professional experience was identified as relevant to a current requirement for a {{2}} role.
 
-Happy to share more details if you're interested — would that work for you?`,
+If you would like to receive more information regarding the opportunity and process, please reply to this message.
+
+Thank you.`,
   },
 ];
 
 const WHATSAPP_NO_REPLY_TEMPLATES = {
   1: [
     {
-      id: "no_reply_1_bump",
-      name: "Friendly bump",
-      body: `Hi {{1}}, just bumping this in case my earlier message got buried.
+      id: "profile_review_reminder_v1",
+      name: "Profile review reminder",
+      body: `Hi {{1}},
 
-Are you still open to a quick chat about the {{2}} opportunity?`,
+This is a follow-up regarding the profile review communication shared earlier for the {{2}} requirement.
+
+If you would like to receive additional information regarding the recruitment process and next steps, please reply to this message.
+
+Thank you.`,
     },
     {
-      id: "no_reply_1_value",
-      name: "Value reminder",
-      body: `Hi {{1}}, wanted to follow up — we're hiring for {{2}} and your background at {{3}} still looks like a strong match.
+      id: "recruitment_update_reminder_v1",
+      name: "Recruitment update reminder",
+      body: `Hi {{1}},
 
-Would a 10-minute call work this week?`,
+We are following up regarding the previous communication about the review of your profile for the {{2}} requirement.
+
+If you would like further information or wish to continue the recruitment process, please reply to this message.
+
+Thank you for your time.`,
     },
   ],
   2: [
     {
-      id: "no_reply_2_final",
-      name: "Final note",
-      body: `Hi {{1}} — last quick note from me.
+      id: "final_profile_follow_up_v1",
+      name: "Final profile follow-up",
+      body: `Hi {{1}},
 
-Happy to share more details whenever works for you. Should I close the loop on this side?`,
+This is the final follow-up regarding the profile review for the {{2}} requirement.
+
+If you would like to receive additional information or continue with the recruitment process, please reply to this message.
+
+Thank you for your time and consideration.`,
     },
     {
-      id: "no_reply_2_door_open",
-      name: "Door open",
-      body: `Hi {{1}}, I don't want to crowd your inbox — I'll pause here unless you'd like to hear more about the {{2}} opportunity. Just reply anytime.`,
+      id: "profile_review_closure_v1",
+      name: "Profile review closure",
+      body: `Hi {{1}},
+
+This is a final update regarding the profile review communication shared earlier for the {{2}} requirement.
+
+We understand that you may not be available to continue the process at this time.
+
+Should your availability or circumstances change, you may reply to this message to reconnect regarding your profile review.
+
+Thank you for your time.`,
     },
   ],
 };
 
-const DEFAULT_OPENING_TEMPLATE_ID = "opening_message_01";
-const DEFAULT_NO_REPLY_1_TEMPLATE_ID = "no_reply_1_bump";
-const DEFAULT_NO_REPLY_2_TEMPLATE_ID = "no_reply_2_final";
+const DEFAULT_OPENING_TEMPLATE_ID = "profile_review_reminder_v1";
+const DEFAULT_NO_REPLY_1_TEMPLATE_ID = "profile_review_reminder_v1";
+const DEFAULT_NO_REPLY_2_TEMPLATE_ID = "final_profile_follow_up_v1";
 
 const OPENING_TEMPLATE_IDS = WHATSAPP_OPENING_TEMPLATES.map((t) => t.id);
 const NO_REPLY_1_TEMPLATE_IDS = WHATSAPP_NO_REPLY_TEMPLATES[1].map((t) => t.id);
 const NO_REPLY_2_TEMPLATE_IDS = WHATSAPP_NO_REPLY_TEMPLATES[2].map((t) => t.id);
 
-function findOpeningTemplate(id) {
+/** Saved plans may still reference pre-v1 Huntlo template ids. */
+const LEGACY_TEMPLATE_ID_ALIASES = {
+  professional_intro: "profile_review_reminder_v1",
+  opening_message_01: "profile_review_reminder_v1",
+  role_opportunity: "role_alignment_review",
+  no_reply_1_bump: "profile_review_reminder_v1",
+  no_reply_1_value: "recruitment_update_reminder_v1",
+  no_reply_2_final: "final_profile_follow_up_v1",
+  no_reply_2_door_open: "profile_review_closure_v1",
+};
+
+function normalizeTemplateId(id) {
   const key = String(id || "").trim();
+  if (!key) return "";
+  return LEGACY_TEMPLATE_ID_ALIASES[key] || key;
+}
+
+function findOpeningTemplate(id) {
+  const key = normalizeTemplateId(id);
   return WHATSAPP_OPENING_TEMPLATES.find((t) => t.id === key) || null;
 }
 
 function findNoReplyTemplate(slot, id) {
   const s = slot === 2 ? 2 : 1;
-  const key = String(id || "").trim();
+  const key = normalizeTemplateId(id);
   const list = WHATSAPP_NO_REPLY_TEMPLATES[s] || [];
   return list.find((t) => t.id === key) || null;
 }
 
 function resolveOpeningTemplateId(id) {
-  const key = String(id || "").trim();
+  const key = normalizeTemplateId(id);
   if (OPENING_TEMPLATE_IDS.includes(key)) return key;
   return DEFAULT_OPENING_TEMPLATE_ID;
 }
 
 function resolveNoReply1TemplateId(id) {
-  const key = String(id || "").trim();
+  const key = normalizeTemplateId(id);
   if (NO_REPLY_1_TEMPLATE_IDS.includes(key)) return key;
   return DEFAULT_NO_REPLY_1_TEMPLATE_ID;
 }
 
 function resolveNoReply2TemplateId(id) {
-  const key = String(id || "").trim();
+  const key = normalizeTemplateId(id);
   if (NO_REPLY_2_TEMPLATE_IDS.includes(key)) return key;
   return DEFAULT_NO_REPLY_2_TEMPLATE_ID;
 }

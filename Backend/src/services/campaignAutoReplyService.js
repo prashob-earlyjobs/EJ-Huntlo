@@ -80,7 +80,7 @@ function ensureCalendlyLinkInReply(replyBody, calendlyAutomation) {
 async function loadAutoReplyContext(enrollment) {
   const userId = String(enrollment.userId);
   const campaign = await Campaign.findById(enrollment.campaignId)
-    .select("name outreachPlanId calendlyAutomation jobDescription")
+    .select("name jobTitle outreachPlanId calendlyAutomation jobDescription")
     .lean();
 
   let planSummary = "";
@@ -120,6 +120,7 @@ async function loadAutoReplyContext(enrollment) {
   return {
     userId,
     campaignName: campaign?.name || "",
+    jobTitle: String(campaign?.jobTitle || "").trim(),
     jobDescription: String(campaign?.jobDescription || "").trim(),
     contactName: enrollment.contactName || "",
     contactRole: enrollment.contactRole || "",

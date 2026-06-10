@@ -34,6 +34,7 @@ function parseTouchpoint(raw: unknown): WhatsAppTouchpointDraft | null {
     label: typeof o.label === "string" ? o.label : "",
     body: typeof o.body === "string" ? o.body : "",
     waitHours: Math.max(0, Number(o.waitHours) || 0),
+    ...(Number(o.waitMinutes) > 0 ? { waitMinutes: Math.max(0, Number(o.waitMinutes) || 0) } : {}),
     ...(typeof o.templateId === "string" && o.templateId.trim()
       ? { templateId: o.templateId.trim() }
       : {}),

@@ -81,6 +81,8 @@ function sanitizeMergedOutreachText(text) {
 }
 
 function resolveCampaignOpenRoleTitle(campaign) {
+  const jobTitle = String(campaign?.jobTitle || "").trim();
+  if (jobTitle) return jobTitle;
   const name = String(campaign?.name || "").trim();
   if (name) return name;
   const jd = String(campaign?.jobDescription || "").trim();

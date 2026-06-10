@@ -26,13 +26,19 @@ export type ExistingOutreachPlanOption = {
 };
 
 export type CreateOutreachChoice =
-  | { type: "scratch"; channel: "gmail" | "whatsapp"; jobDescription?: string }
+  | {
+      type: "scratch";
+      channel: "gmail" | "whatsapp";
+      jobTitle: string;
+      jobDescription: string;
+    }
   | { type: "template"; templateId: string }
   | { type: "clone"; planId: string; channel: OutreachPlanChannel }
   | {
       type: "ai";
       channel: "gmail";
       planName: string;
+      jobTitle: string;
       jobDescription: string;
       touchpoints: OutreachTouchpointDraft[];
     }
@@ -40,6 +46,7 @@ export type CreateOutreachChoice =
       type: "ai";
       channel: "whatsapp";
       planName: string;
+      jobTitle: string;
       jobDescription: string;
       touchpoints: WhatsAppTouchpointDraft[];
     };
@@ -90,7 +97,8 @@ type Props = {
   lead?: string;
   /** Disable all picker actions (e.g. active or completed campaign). */
   readOnly?: boolean;
-  /** Pre-fill JD fields (e.g. from campaign Job description tab). */
+  /** Pre-fill role fields (e.g. from campaign Job description tab). */
+  initialJobTitle?: string;
   initialJobDescription?: string;
   onChoose: (choice: CreateOutreachChoice) => void;
 };
@@ -280,6 +288,7 @@ export function OutreachSequencePicker({
   optionsReady,
   lead = "Choose how to build your sequence",
   readOnly = false,
+  initialJobTitle = "",
   initialJobDescription = "",
   onChoose,
 }: Props) {
@@ -287,10 +296,17 @@ export function OutreachSequencePicker({
   const [cloneSelection, setCloneSelection] = useState("");
   const [aiModalOpen, setAiModalOpen] = useState(false);
   const [aiChannel, setAiChannel] = useState<"gmail" | "whatsapp">("gmail");
+  const [jobTitle, setJobTitle] = useState(() => initialJobTitle.trim());
   const [jobDescription, setJobDescription] = useState(
     () => initialJobDescription.trim()
   );
   const [scratchChannel, setScratchChannel] = useState<"gmail" | "whatsapp" | "">("");
+
+  useEffect(() => {
+    const next = initialJobTitle.trim();
+    if (!next) return;
+    setJobTitle((prev) => (prev.trim() ? prev : next));
+  }, [initialJobTitle]);
 
   useEffect(() => {
     const next = initialJobDescription.trim();
@@ -300,10 +316,11 @@ export function OutreachSequencePicker({
 
   useEffect(() => {
     if (step !== "scratchChannel") return;
-    const next = initialJobDescription.trim();
-    if (!next) return;
-    setJobDescription((prev) => (prev.trim() ? prev : next));
-  }, [step, initialJobDescription]);
+    const nextTitle = initialJobTitle.trim();
+    if (nextTitle) setJobTitle((prev) => (prev.trim() ? prev : nextTitle));
+    const nextJd = initialJobDescription.trim();
+    if (nextJd) setJobDescription((prev) => (prev.trim() ? prev : nextJd));
+  }, [step, initialJobTitle, initialJobDescription]);
 
   const handleAiGenerated = (result: GenerateOutreachFromJdResult) => {
     if (result.channel === "whatsapp") {
@@ -311,6 +328,7 @@ export function OutreachSequencePicker({
         type: "ai",
         channel: "whatsapp",
         planName: result.planName,
+        jobTitle: result.jobTitle,
         jobDescription: result.jobDescription,
         touchpoints: result.touchpoints,
       });
@@ -320,6 +338,7 @@ export function OutreachSequencePicker({
       type: "ai",
       channel: "gmail",
       planName: result.planName,
+      jobTitle: result.jobTitle,
       jobDescription: result.jobDescription,
       touchpoints: result.touchpoints,
     });
@@ -357,10 +376,25 @@ export function OutreachSequencePicker({
     globalTemplates.length > 0 || userTemplates.length > 0 || savedPlansCount > 0;
 
   if (step === "scratchChannel") {
+    const normalizedJobTitle = jobTitle.trim();
     const normalizedJobDescription = jobDescription.trim();
-    const canContinue = Boolean(normalizedJobDescription) && Boolean(scratchChannel);
+    const canContinue =
+      Boolean(normalizedJobTitle) &&
+      Boolean(normalizedJobDescription) &&
+      Boolean(scratchChannel);
     return (
       <div className={`${s.root}${s.subpanel ? ` ${s.subpanel}` : ""}`}>
+        <label className={`${dashboardLabelClass} mb-3 block`}>
+          Job title <span className="text-red-600">*</span>
+          <input
+            type="text"
+            value={jobTitle}
+            onChange={(e) => setJobTitle(e.target.value)}
+            disabled={pickerDisabled}
+            placeholder="e.g. Senior Software Engineer"
+            className={`${dashboardInputClass} mt-2 w-full`}
+          />
+        </label>
         <label className={`${dashboardLabelClass} mb-3 block`}>
           Job description <span className="text-red-600">*</span>
           <textarea
@@ -458,6 +492,7 @@ export function OutreachSequencePicker({
               onChoose({
                 type: "scratch",
                 channel: scratchChannel as "gmail" | "whatsapp",
+                jobTitle: normalizedJobTitle,
                 jobDescription: normalizedJobDescription,
               })
             }
@@ -582,6 +617,7 @@ export function OutreachSequencePicker({
         <GenerateOutreachAiModal
           open={aiModalOpen}
           channel={aiChannel}
+          initialJobTitle={jobTitle || initialJobTitle}
           initialJobDescription={jobDescription || initialJobDescription}
           onClose={() => setAiModalOpen(false)}
           onGenerated={handleAiGenerated}
@@ -778,6 +814,7 @@ export function OutreachSequencePicker({
       <GenerateOutreachAiModal
         open={aiModalOpen}
         channel={aiChannel}
+        initialJobTitle={jobTitle || initialJobTitle}
         initialJobDescription={jobDescription || initialJobDescription}
         onClose={() => setAiModalOpen(false)}
         onBack={() => {

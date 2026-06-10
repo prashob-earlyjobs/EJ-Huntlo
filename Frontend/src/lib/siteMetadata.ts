@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
-export const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://huntlo.ai";
+/** Canonical origin (www) — apex huntlo.ai redirects here; OG URLs must not 307-redirect for WhatsApp. */
+export const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://www.huntlo.ai";
 
 /** OG images in `public/og_image/` — filenames with spaces are URL-encoded. */
 export const OG_IMAGES = {
@@ -52,13 +53,20 @@ export function buildPageMetadata({
   return {
     title,
     description,
+    alternates: {
+      canonical: url,
+    },
+    robots: {
+      index: true,
+      follow: true,
+    },
     openGraph: {
       title,
       description,
       url,
       siteName: "Huntlo",
       type: "website",
-      images: [{ url: imageUrl, width: 1200, height: 630, alt: title }],
+      images: [{ url: imageUrl, width: 1200, height: 626, alt: title }],
     },
     twitter: {
       card: "summary_large_image",
