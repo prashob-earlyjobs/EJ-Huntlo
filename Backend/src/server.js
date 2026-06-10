@@ -3,6 +3,8 @@ const dotenv = require("dotenv");
 
 dotenv.config();
 
+require("./config/performanceLogging");
+
 const app = require("./app");
 const connectDB = require("./config/db");
 const { seedGlobalTemplates } = require("./services/outreachTemplateService");

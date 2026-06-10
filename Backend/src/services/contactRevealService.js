@@ -51,7 +51,7 @@ async function upsertSharedContactCache(
   return CandidateContactCache.findOneAndUpdate(
     { linkedinProfileUrl, revealType },
     update,
-    { upsert: true, new: true, setDefaultsOnInsert: true }
+    { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
   ).lean();
 }
 
@@ -134,7 +134,7 @@ async function recordUserContactUnlock(
       revealType,
     },
     { $set: set },
-    { upsert: true, new: true, setDefaultsOnInsert: true }
+    { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
   ).lean();
 }
 

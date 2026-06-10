@@ -227,7 +227,7 @@ async function getPublicPostBySlug(slug) {
   const doc = await BlogPost.findOneAndUpdate(
     { slug: key, status: "published" },
     { $inc: { viewCount: 1 } },
-    { new: true }
+    { returnDocument: "after" }
   ).lean();
 
   if (!doc) {

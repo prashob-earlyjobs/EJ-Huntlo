@@ -287,7 +287,7 @@ async function upsertPricingPlanFromNormalized(t, sortOrder) {
         popularBadge: t.popularBadge,
       },
     },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: "after" }
   );
 }
 
@@ -306,7 +306,7 @@ async function migrateFromLegacyIfNeeded() {
   await PricingPlansMeta.findOneAndUpdate(
     { key: "singleton" },
     { $set: { key: "singleton", intro: normalized.intro } },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: "after" }
   );
 
   for (let i = 0; i < normalized.tiers.length; i += 1) {
@@ -395,7 +395,7 @@ const updatePricingPlans = async (req, res) => {
     await PricingPlansMeta.findOneAndUpdate(
       { key: "singleton" },
       { $set: { key: "singleton", intro: normalized.intro } },
-      { upsert: true, new: true }
+      { upsert: true, returnDocument: "after" }
     );
 
     const validIds = normalized.tiers.map((t) => t.id);

@@ -82,7 +82,7 @@ async function claimEnrollmentForSend(enrollment) {
   const claimed = await CampaignSequenceEnrollment.findOneAndUpdate(
     claimFilter,
     { $set: { nextSendAt: processingUntil } },
-    { new: true }
+    { returnDocument: "after" }
   ).lean();
 
   return claimed;
@@ -387,7 +387,7 @@ async function upsertEnrollmentForContact({
           nextSendAt: now,
         },
       },
-      { upsert: true, new: true }
+      { upsert: true, returnDocument: "after" }
     );
     return "skipped";
   }
@@ -432,7 +432,7 @@ async function upsertEnrollmentForContact({
         lastWhatsAppAiHandledMessageId: 1,
       },
     },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: "after" }
   );
   return "enrolled";
 }
