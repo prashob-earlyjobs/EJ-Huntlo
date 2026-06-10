@@ -6,6 +6,8 @@ import {
   dashboardGreetingName,
   formatDashboardWhen,
   quotaRemainingLabel,
+  planOutreachMetersEnabled,
+  shouldShowOutreachQuotaMeter,
   type DashboardOverviewData,
   type DashboardRecentSession,
 } from "@/lib/dashboardOverview";
@@ -131,15 +133,35 @@ export function DashboardOverviewPanel({
 }: Props) {
   const firstName = data ? dashboardGreetingName(data.greeting.fullName) : "";
   const planId = data?.plan.planId || currentPlanId;
-  const showOutreachMeters = hasOutreachThreadUtilisation(planId, pricingPlans);
-  const emailOutreach =
-    data && showOutreachMeters
-      ? resolveOutreachMeter(data, currentPlanId, outreachThreads, pricingPlans, "email")
-      : null;
-  const whatsappOutreach =
-    data && showOutreachMeters
-      ? resolveOutreachMeter(data, currentPlanId, outreachThreads, pricingPlans, "whatsapp")
-      : null;
+  const outreachMetersEnabled =
+    (data ? planOutreachMetersEnabled(data) : false) ||
+    hasOutreachThreadUtilisation(planId, pricingPlans);
+  const emailOutreachMeter = data
+    ? resolveOutreachMeter(data, currentPlanId, outreachThreads, pricingPlans, "email")
+    : null;
+  const whatsappOutreachMeter = data
+    ? resolveOutreachMeter(data, currentPlanId, outreachThreads, pricingPlans, "whatsapp")
+    : null;
+  const showEmailOutreach =
+    outreachMetersEnabled ||
+    Boolean(
+      data &&
+        emailOutreachMeter &&
+        shouldShowOutreachQuotaMeter("email", data, {
+          used: emailOutreachMeter.used,
+          limit: emailOutreachMeter.limit,
+        })
+    );
+  const showWhatsappOutreach =
+    outreachMetersEnabled ||
+    Boolean(
+      data &&
+        whatsappOutreachMeter &&
+        shouldShowOutreachQuotaMeter("whatsapp", data, {
+          used: whatsappOutreachMeter.used,
+          limit: whatsappOutreachMeter.limit,
+        })
+    );
 
   return (
     <section className="dashboard-card flex min-w-0 max-w-full w-full flex-col p-6">
@@ -295,20 +317,20 @@ export function DashboardOverviewPanel({
                   used={data.quotaSummary.phoneNumbers.used}
                   limit={data.quotaSummary.phoneNumbers.limit}
                 />
-                {emailOutreach ? (
+                {showEmailOutreach && emailOutreachMeter ? (
                   <CompactQuotaMeter
                     label="Email outreach"
                     icon="forward_to_inbox"
-                    used={emailOutreach.used}
-                    limit={emailOutreach.limit}
+                    used={emailOutreachMeter.used}
+                    limit={emailOutreachMeter.limit}
                   />
                 ) : null}
-                {whatsappOutreach ? (
+                {showWhatsappOutreach && whatsappOutreachMeter ? (
                   <CompactQuotaMeter
                     label="WhatsApp outreach"
                     icon="chat"
-                    used={whatsappOutreach.used}
-                    limit={whatsappOutreach.limit}
+                    used={whatsappOutreachMeter.used}
+                    limit={whatsappOutreachMeter.limit}
                   />
                 ) : null}
               </div>

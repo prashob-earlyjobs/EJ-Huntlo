@@ -34,6 +34,8 @@ export type DashboardOverviewData = {
   plan: {
     planId: string;
     planName: string;
+    campaignsEnabled: boolean;
+    outreachesEnabled: boolean;
     limits: {
       searches: number | null;
       candidateUnlocks: number | null;
@@ -197,6 +199,8 @@ export function parseDashboardOverviewPayload(raw: unknown): DashboardOverviewDa
     plan: {
       planId: typeof plan.planId === "string" ? plan.planId : "trial",
       planName: typeof plan.planName === "string" ? plan.planName : "Trial",
+      campaignsEnabled: Boolean(plan.campaignsEnabled),
+      outreachesEnabled: Boolean(plan.outreachesEnabled),
       limits: {
         searches:
           typeof limitsRaw.searches === "number" ? limitsRaw.searches : null,
@@ -263,4 +267,22 @@ export function quotaRemainingLabel(used: number, limit: number | null): string 
     return `${Math.max(0, limit - used)}/${limit}`;
   }
   return "—/—";
+}
+
+/** Admin enabled Campaigns or Outreaches on the user's plan — show both outreach meters. */
+export function planOutreachMetersEnabled(data: DashboardOverviewData): boolean {
+  return Boolean(data.plan.campaignsEnabled) || Boolean(data.plan.outreachesEnabled);
+}
+
+export function shouldShowOutreachQuotaMeter(
+  channel: keyof DashboardOutreachThreads,
+  data: DashboardOverviewData,
+  meter: DashboardQuotaSlot
+): boolean {
+  const limitKey = channel === "email" ? "emailOutreaches" : "whatsappOutreaches";
+  const planLimit = data.plan.limits[limitKey];
+  if (typeof planLimit === "number" && planLimit > 0) return true;
+  if (typeof meter.limit === "number" && meter.limit > 0) return true;
+  if (meter.used > 0) return true;
+  return false;
 }
