@@ -7,6 +7,14 @@ import { FOOTER_LEGAL_LINKS, legalPageHref } from "@/lib/legalPages";
 import { LandingLogo } from "./LandingLogo";
 
 const FOOTER_LINK_HREFS: Record<string, string> = {
+  Sourcing: "/sourcing",
+  Screening: "/screening",
+  Assessments: "/assessments",
+  Interview: "/interview",
+  "Source Candidates": "/sourcing",
+  "People Scout": "/people-scout",
+  "Candidate Pool": "/candidate-pool",
+  Integrations: "/integrations",
   Documentation: "/docs",
   Blog: "/blog",
   FAQs: "/faqs",
