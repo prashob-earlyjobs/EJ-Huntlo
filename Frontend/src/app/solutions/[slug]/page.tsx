@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
-import { MarketingPageShell } from "@/components/landing/MarketingPageShell";
 import { SolutionPageContent } from "@/components/landing/SolutionPageContent";
+import { SolutionPageLayout } from "@/components/landing/SolutionPageLayout";
 import {
   getSolutionPage,
   SOLUTION_PAGE_SLUGS,
@@ -37,12 +37,15 @@ export default async function SolutionSlugPage({ params }: PageProps) {
   if (!page) notFound();
 
   return (
-    <MarketingPageShell
-      eyebrow="Solutions"
-      title={page.title}
-      description={page.description}
+    <SolutionPageLayout
+      page={page}
+      breadcrumbItems={[
+        { label: "Home", href: "/" },
+        { label: "Solutions", href: "/solutions" },
+        { label: page.title.replace(/^For /, "") },
+      ]}
     >
       <SolutionPageContent page={page} />
-    </MarketingPageShell>
+    </SolutionPageLayout>
   );
 }
