@@ -16,7 +16,7 @@ export function PeopleScoutPageContent() {
       <main className="overflow-hidden pt-16">
         <HeroSection />
         <ValueSection />
-        <section className="py-16 px-6 max-w-5xl mx-auto">
+        <section className="px-4 py-12 sm:px-6 max-w-5xl mx-auto">
           <LandingPeopleScoutPanel />
         </section>
         <FeaturesGrid />

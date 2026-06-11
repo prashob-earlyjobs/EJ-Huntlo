@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { Inter, Syne } from "next/font/google";
+import { Epilogue, Inter } from "next/font/google";
 import "./globals.css";
 import "./landing.css";
 import "./dashboard.css";
@@ -23,8 +23,8 @@ const inter = Inter({
   weight: ["400", "500", "600"],
 });
 
-const syne = Syne({
-  variable: "--font-syne",
+const epilogue = Epilogue({
+  variable: "--font-epilogue",
   subsets: ["latin"],
   weight: ["600", "700", "800"],
 });
@@ -58,7 +58,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} ${inter.variable} ${syne.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${inter.variable} ${epilogue.variable} h-full antialiased`}
       suppressHydrationWarning
     >
       <head>
