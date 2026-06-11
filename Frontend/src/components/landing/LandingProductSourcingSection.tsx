@@ -110,7 +110,7 @@ export function LandingProductSourcingSection() {
   return (
     <section
       ref={sectionRef}
-      className={`bg-white px-4 md:px-8 lg:px-12 ${
+      className={`scroll-mt-24 bg-white px-4 md:px-8 lg:px-12 ${
         scrollDriven ? "landing-sourcing-scroll-section" : "py-20"
       }`}
       id="product"

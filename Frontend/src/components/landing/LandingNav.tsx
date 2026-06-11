@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { useState } from "react";
 import { BookDemoLink } from "./BookDemoLink";
+import { HomeSectionLink } from "./HomeSectionLink";
 import { LandingLogo } from "./LandingLogo";
 import { MaterialIcon } from "./MaterialIcon";
+import { HOME_NAV_LINKS } from "@/lib/landingNavSections";
 import { SOLUTIONS_NAV_COLUMNS, SOLUTIONS_NAV_ITEMS } from "@/lib/solutionsNav";
 
 const NAV_BOOK_DEMO_CLASS =
@@ -15,12 +17,6 @@ const NAV_BOOK_DEMO_MOBILE_CLASS =
 
 const NAV_LINK_CLASS =
   "text-sm font-medium text-[#434654] transition-colors hover:text-[#0050cb]";
-
-const SIMPLE_NAV_LINKS = [
-  { href: "/platform", label: "Platform" },
-  { href: "/resources", label: "Resources" },
-  { href: "/pricing", label: "Pricing" },
-] as const;
 
 function SolutionsNavDropdown() {
   return (
@@ -78,14 +74,18 @@ export function LandingNav() {
         </Link>
 
         <div className="hidden min-w-0 flex-1 items-center justify-center gap-8 md:flex">
-          <Link href="/platform" className={NAV_LINK_CLASS}>
-            Platform
-          </Link>
+          <HomeSectionLink sectionId={HOME_NAV_LINKS[0].sectionId} className={NAV_LINK_CLASS}>
+            {HOME_NAV_LINKS[0].label}
+          </HomeSectionLink>
           <SolutionsNavDropdown />
-          {SIMPLE_NAV_LINKS.slice(1).map((link) => (
-            <Link key={link.href} href={link.href} className={NAV_LINK_CLASS}>
+          {HOME_NAV_LINKS.slice(1).map((link) => (
+            <HomeSectionLink
+              key={link.sectionId}
+              sectionId={link.sectionId}
+              className={NAV_LINK_CLASS}
+            >
               {link.label}
-            </Link>
+            </HomeSectionLink>
           ))}
         </div>
 
@@ -112,13 +112,13 @@ export function LandingNav() {
       {mobileOpen ? (
         <div className="border-t border-[#c3c6d6]/25 px-4 py-4 md:hidden">
           <div className="flex flex-col gap-3">
-            <Link
-              href="/platform"
+            <HomeSectionLink
+              sectionId={HOME_NAV_LINKS[0].sectionId}
               className="text-sm font-medium text-[#434654]"
-              onClick={() => setMobileOpen(false)}
+              onNavigate={() => setMobileOpen(false)}
             >
-              Platform
-            </Link>
+              {HOME_NAV_LINKS[0].label}
+            </HomeSectionLink>
 
             <div>
               <button
@@ -154,16 +154,17 @@ export function LandingNav() {
               ) : null}
             </div>
 
-            {SIMPLE_NAV_LINKS.slice(1).map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
+            {HOME_NAV_LINKS.slice(1).map((link) => (
+              <HomeSectionLink
+                key={link.sectionId}
+                sectionId={link.sectionId}
                 className="text-sm font-medium text-[#434654]"
-                onClick={() => setMobileOpen(false)}
+                onNavigate={() => setMobileOpen(false)}
               >
                 {link.label}
-              </Link>
+              </HomeSectionLink>
             ))}
+
             <Link href="/login" className="text-sm font-medium text-[#141b2b]">
               Login
             </Link>
