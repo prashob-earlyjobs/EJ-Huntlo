@@ -136,7 +136,7 @@ async function markCampaignWhatsAppThreadRead(actorUserId, campaignId, candidate
       candidateKey: key,
     },
     { $set: { lastReadAt } },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: "after" }
   );
 
   const messages = await CampaignWhatsAppMessage.find({

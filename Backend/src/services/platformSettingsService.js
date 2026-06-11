@@ -28,7 +28,7 @@ async function getPlatformSettings() {
         messagingChannel: DEFAULT_MESSAGING_CHANNEL,
       },
     },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: "after" }
   );
   return toSettingsPayload(doc);
 }
@@ -48,7 +48,7 @@ async function setMessagingChannel(messagingChannel) {
       $set: { messagingChannel },
       $setOnInsert: { key: SINGLETON_KEY },
     },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: "after" }
   );
   return toSettingsPayload(doc);
 }

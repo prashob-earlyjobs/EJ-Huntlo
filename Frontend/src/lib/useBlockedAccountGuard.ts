@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { authHeaders, getStoredAuth } from "@/lib/auth";
+import { getStoredAuth } from "@/lib/auth";
+import { fetchMyProfile } from "@/lib/dashboardSessionApi";
 import { isBlockedAccountResponse, isBlockedMemberStatus } from "@/lib/sessionLogout";
 
 export function useBlockedAccountGuard() {
@@ -26,10 +27,9 @@ export function useBlockedAccountGuard() {
       return;
     }
 
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
-    fetch(`${apiBase}/api/users/me`, { headers: authHeaders(auth.token) })
-      .then(async (res) => {
-        const data = await res.json().catch(() => ({}));
+    void fetchMyProfile(auth.token)
+      .then(({ status, data }) => {
+        const res = { status } as Response;
         if (onApiResponse(res, data)) return;
         const user =
           data && typeof data === "object" && "user" in data

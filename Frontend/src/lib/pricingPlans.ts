@@ -145,9 +145,9 @@ export function planCtaLabel(tier: PricingTier): string {
   return "Start deploying";
 }
 
-const LANDING_PLAN_IDS = ["trial", "starter", "growth"] as const;
+const LANDING_PLAN_IDS = ["trial", "starter", "enterprise"] as const;
 
-/** Landing page: trial, starter, growth (fixed order). */
+/** Landing page: trial, starter, enterprise (fixed order). */
 export function landingDisplayTiers(tiers: PricingTier[]): PricingTier[] {
   const byId = new Map(
     tiers

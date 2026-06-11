@@ -38,7 +38,7 @@ export function ValueSection() {
             whileInView={{ opacity: 1 }}
             viewport={{ once: true }}
             transition={{ duration: 0.8 }}
-            className="relative h-[400px] md:h-[500px] flex items-center justify-center"
+            className="relative h-[280px] sm:h-[360px] md:h-[500px] flex items-center justify-center overflow-hidden md:overflow-visible scale-[0.72] sm:scale-90 md:scale-100 origin-center"
           >
             {/* Orbits */}
             <div className="absolute w-[300px] h-[300px] border border-slate-100 rounded-full" />

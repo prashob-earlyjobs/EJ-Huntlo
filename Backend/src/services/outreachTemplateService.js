@@ -74,7 +74,7 @@ async function seedGlobalTemplates() {
           createdBy: null,
         },
       },
-      { upsert: true, new: true }
+      { upsert: true, returnDocument: "after" }
     );
   }
 }

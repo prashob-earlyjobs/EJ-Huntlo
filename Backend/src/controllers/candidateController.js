@@ -436,7 +436,7 @@ async function persistSourcingSessionRow({
             : null,
       },
     },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: "after" }
   );
 
   return doc?._id?.toString() ?? null;
@@ -3009,7 +3009,7 @@ const saveCandidate = async (req, res) => {
           saveListId: saveListIdToSet,
         },
       },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
+      { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
     );
 
     if (userId && mongoose.Types.ObjectId.isValid(String(userId))) {

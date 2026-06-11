@@ -46,6 +46,16 @@ const logApi = (handler, event, meta = {}) => {
   console.log(`[${ts()}] [api:${handler}] ${event}`, meta);
 };
 
+/** Inbound HTTP request completed (method, path, status, duration, optional DB stats). */
+const logRequestTiming = (meta = {}) => {
+  console.log(`[${ts()}] [api:timing] request completed`, meta);
+};
+
+/** MongoDB operation (collection, operation, duration). */
+const logDbQuery = (meta = {}) => {
+  console.log(`[${ts()}] [db:query]`, meta);
+};
+
 function stringifyForFjLog(obj) {
   if (obj === undefined) return "";
   try {
@@ -104,5 +114,7 @@ module.exports = {
   payloadForSupportLog,
   logOutbound,
   logApi,
+  logRequestTiming,
+  logDbQuery,
   logFutureJobsExchange,
 };

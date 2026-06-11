@@ -136,7 +136,7 @@ async function recordOutboundSentMessage({
         isFromCandidate: false,
       },
     },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: "after" }
   );
 }
 

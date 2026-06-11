@@ -66,7 +66,7 @@ export function WorkflowVisualization() {
         />
         <text
           fill="#0050CB"
-          fontFamily="Syne, sans-serif"
+          fontFamily="Epilogue, sans-serif"
           fontSize="14"
           fontWeight="600"
           textAnchor="middle"

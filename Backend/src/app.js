@@ -26,8 +26,10 @@ function parseCorsOrigins() {
 
 const app = express();
 const { handleDodoWebhook } = require("./controllers/billingController");
+const requestTiming = require("./middleware/requestTiming");
 
 app.use(morgan("dev"));
+app.use(requestTiming);
 app.use(
   cors({
     origin: parseCorsOrigins(),

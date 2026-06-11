@@ -8,7 +8,7 @@ import { BookDemoLink } from "@/components/landing/BookDemoLink";
 
 export function HeroSection() {
   return (
-    <section className="pt-32 pb-20 px-6 max-w-7xl mx-auto">
+    <section className="px-4 pt-24 pb-16 sm:px-6 sm:pt-28 sm:pb-20 md:pt-32 max-w-7xl mx-auto">
       <div className="flex flex-col lg:flex-row items-center gap-16">
         <div className="w-full lg:w-[55%] space-y-8 relative z-10">
           <motion.div
@@ -28,7 +28,7 @@ export function HeroSection() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.1 }}
-            className="text-[56px] leading-[1.1] md:text-[72px] font-black text-slate-900 tracking-tight"
+            className="text-4xl sm:text-5xl md:text-[56px] lg:text-[72px] leading-[1.1] font-black text-slate-900 tracking-tight"
           >
             Find Any Candidate.
             <br />
@@ -49,7 +49,7 @@ export function HeroSection() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.3 }}
-            className="flex flex-wrap items-center gap-4 pt-4"
+            className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-4 pt-4"
           >
             <Link
               href="/signup"
@@ -97,10 +97,10 @@ export function HeroSection() {
                 whileHover={{ y: -4 }}
                 className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 space-y-3"
               >
-                <div className="flex items-center gap-2 text-sm text-slate-600">
-                  <Mail className="w-4 h-4 text-blue-600" />
-                  <span>alex.martinez@email.com</span>
-                  <span className="text-xs text-emerald-600 font-medium ml-auto">Verified</span>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-600">
+                  <Mail className="w-4 h-4 shrink-0 text-blue-600" />
+                  <span className="min-w-0 truncate">alex.martinez@email.com</span>
+                  <span className="text-xs text-emerald-600 font-medium sm:ml-auto">Verified</span>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {["Python", "Distributed Systems", "Kubernetes"].map((skill) => (
