@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { PricingPlansPayload } from "@/lib/pricingPlans";
 
 import { BookDemoLink } from "./BookDemoLink";
+import { LandingHashScroll } from "./LandingHashScroll";
 import { LandingProductSourcingSection } from "./LandingProductSourcingSection";
 import { LandingWorkflowSteps } from "./LandingWorkflowSteps";
 import { HeroSearchTyping } from "./HeroSearchTyping";
@@ -89,6 +90,7 @@ const bookDemoButtonClass =
 export function LandingPage({ pricingPlans = null }: LandingPageProps) {
   return (
     <div className="landing-page selection:bg-[#0050cb] selection:text-[#c1cfff]">
+      <LandingHashScroll />
       <LandingNav />
 
       {/* Hero */}
@@ -219,7 +221,7 @@ export function LandingPage({ pricingPlans = null }: LandingPageProps) {
       </section>
 
       {/* Bento — high volume hiring */}
-      <section className="px-4 py-20 md:px-8 lg:px-12" id="resources">
+      <section className="scroll-mt-24 px-4 py-20 md:px-8 lg:px-12" id="resources">
         <div className="mx-auto max-w-7xl">
           <h2 className="mb-10 text-center text-3xl font-bold tracking-tight text-[#141b2b] md:text-4xl">
             Built for High-Volume Hiring Teams
