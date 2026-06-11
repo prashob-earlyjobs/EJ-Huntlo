@@ -8,14 +8,14 @@ import { BookDemoLink } from "@/components/landing/BookDemoLink";
 
 export function HeroSection() {
   return (
-    <section className="relative pt-32 pb-24 lg:pt-40 lg:pb-32 overflow-hidden">
+    <section className="relative overflow-hidden px-4 pt-24 pb-16 sm:px-6 sm:pt-28 sm:pb-20 lg:pt-40 lg:pb-32">
       {/* Background Gradients */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[600px] opacity-30 pointer-events-none">
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-[1000px] h-[600px] opacity-30 pointer-events-none">
         <div className="absolute inset-0 bg-blue-400 rounded-full blur-[100px] mix-blend-multiply" />
       </div>
 
-      <div className="max-w-7xl mx-auto px-6 relative z-10">
-        <div className="grid lg:grid-cols-[55%_45%] gap-16 items-center">
+      <div className="max-w-7xl mx-auto relative z-10">
+        <div className="grid lg:grid-cols-[55%_45%] gap-10 lg:gap-16 items-center">
           {/* Left Content */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -28,7 +28,7 @@ export function HeroSection() {
               HUNTLO SOURCE
             </div>
             
-            <h1 className="text-6xl lg:text-7xl font-black text-slate-900 leading-[1.1] mb-6 tracking-tight">
+            <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-black text-slate-900 leading-[1.1] mb-6 tracking-tight">
               Describe Talent.<br />
               <span className="text-blue-600">Find Candidates.</span>
             </h1>
@@ -37,14 +37,14 @@ export function HeroSection() {
               Turn hiring intent into qualified candidates with AI-powered sourcing, enrichment, and talent discovery workflows.
             </p>
             
-            <div className="flex items-center gap-4">
+            <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-3 sm:gap-4">
               <Link
                 href="/signup"
-                className="px-6 py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-full transition-all shadow-lg shadow-blue-600/25 hover:shadow-blue-600/40 hover:-translate-y-0.5"
+                className="px-6 py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-full transition-all shadow-lg shadow-blue-600/25 hover:shadow-blue-600/40 hover:-translate-y-0.5 text-center"
               >
                 Start Sourcing
               </Link>
-              <BookDemoLink className="px-6 py-3.5 bg-white border border-slate-200 hover:border-slate-300 text-slate-700 font-semibold rounded-full transition-all hover:bg-slate-50">
+              <BookDemoLink className="px-6 py-3.5 bg-white border border-slate-200 hover:border-slate-300 text-slate-700 font-semibold rounded-full transition-all hover:bg-slate-50 text-center">
                 Book Demo
               </BookDemoLink>
             </div>
@@ -55,11 +55,11 @@ export function HeroSection() {
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.8, delay: 0.2 }}
-            className="relative"
+            className="relative overflow-hidden"
           >
             {/* Decorative background circle */}
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] border border-slate-200/50 rounded-full border-dashed animate-[spin_60s_linear_infinite]" />
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[350px] h-[350px] border border-blue-200/30 rounded-full border-dashed animate-[spin_40s_linear_infinite_reverse]" />
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(500px,100vw)] h-[min(500px,100vw)] border border-slate-200/50 rounded-full border-dashed animate-[spin_60s_linear_infinite]" />
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(350px,80vw)] h-[min(350px,80vw)] border border-blue-200/30 rounded-full border-dashed animate-[spin_40s_linear_infinite_reverse]" />
 
             <div className="relative bg-white rounded-3xl border border-slate-200 shadow-[0_20px_40px_-15px_rgba(15,23,42,0.1)] p-6 z-10">
               {/* Fake Search Bar */}
@@ -110,21 +110,21 @@ export function HeroSection() {
 
               {/* Floating Signals */}
               <motion.div 
-                className="absolute -right-12 top-20 bg-white px-4 py-2 rounded-lg shadow-lg border border-slate-100 text-xs font-bold text-slate-700 flex items-center gap-2"
+                className="absolute -right-12 top-20 hidden md:flex bg-white px-4 py-2 rounded-lg shadow-lg border border-slate-100 text-xs font-bold text-slate-700 items-center gap-2"
                 animate={{ y: [0, -10, 0] }}
                 transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
               >
                 <span className="w-2 h-2 rounded-full bg-blue-500" /> Fintech
               </motion.div>
               <motion.div 
-                className="absolute -left-8 bottom-32 bg-white px-4 py-2 rounded-lg shadow-lg border border-slate-100 text-xs font-bold text-slate-700 flex items-center gap-2"
+                className="absolute -left-8 bottom-32 hidden md:flex bg-white px-4 py-2 rounded-lg shadow-lg border border-slate-100 text-xs font-bold text-slate-700 items-center gap-2"
                 animate={{ y: [0, 10, 0] }}
                 transition={{ duration: 5, repeat: Infinity, ease: "easeInOut", delay: 1 }}
               >
                 <span className="w-2 h-2 rounded-full bg-purple-500" /> System Design
               </motion.div>
               <motion.div 
-                className="absolute -right-6 bottom-12 bg-white px-4 py-2 rounded-lg shadow-lg border border-slate-100 text-xs font-bold text-slate-700 flex items-center gap-2"
+                className="absolute -right-6 bottom-12 hidden md:flex bg-white px-4 py-2 rounded-lg shadow-lg border border-slate-100 text-xs font-bold text-slate-700 items-center gap-2"
                 animate={{ y: [0, -8, 0] }}
                 transition={{ duration: 4.5, repeat: Infinity, ease: "easeInOut", delay: 2 }}
               >

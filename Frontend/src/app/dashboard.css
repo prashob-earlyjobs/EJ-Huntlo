@@ -36,7 +36,7 @@
 .dashboard-page h2,
 .dashboard-page h3,
 .dashboard-page h4 {
-  font-family: var(--font-syne), ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-epilogue), ui-sans-serif, system-ui, sans-serif;
 }
 
 .dashboard-page::before {
@@ -4083,7 +4083,7 @@
 }
 
 .dashboard-people-scout-greeting {
-  font-family: var(--font-syne), ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-epilogue), ui-sans-serif, system-ui, sans-serif;
   font-size: 1.25rem;
   font-weight: 600;
   line-height: 1.35;

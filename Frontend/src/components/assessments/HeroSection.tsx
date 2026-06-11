@@ -14,7 +14,7 @@ import { BookDemoLink } from "@/components/landing/BookDemoLink";
 
 export function HeroSection() {
   return (
-    <section className="pt-32 pb-20 px-6 max-w-7xl mx-auto">
+    <section className="px-4 pt-24 pb-16 sm:px-6 sm:pt-28 sm:pb-20 md:pt-32 max-w-7xl mx-auto">
       <div className="flex flex-col lg:flex-row items-center gap-16">
         <div className="w-full lg:w-[55%] space-y-8 relative z-10">
           <motion.div
@@ -34,7 +34,7 @@ export function HeroSection() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.1 }}
-            className="text-[56px] leading-[1.1] md:text-[72px] font-black text-slate-900 tracking-tight"
+            className="text-4xl sm:text-5xl md:text-[56px] lg:text-[72px] leading-[1.1] font-black text-slate-900 tracking-tight"
           >
             Assess Skills.
             <br />
@@ -55,7 +55,7 @@ export function HeroSection() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.3 }}
-            className="flex flex-wrap items-center gap-4 pt-4"
+            className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-4 pt-4"
           >
             <Link
               href="/signup"
@@ -128,7 +128,7 @@ export function HeroSection() {
 
               <motion.div
                 whileHover={{ y: -4 }}
-                className="bg-slate-900 rounded-2xl p-5 shadow-lg flex items-center justify-between mt-auto"
+                className="bg-slate-900 rounded-2xl p-5 shadow-lg flex flex-wrap items-center justify-between gap-3 mt-auto"
               >
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full bg-blue-600/20 flex items-center justify-center">

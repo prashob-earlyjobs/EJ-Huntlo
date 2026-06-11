@@ -16,7 +16,7 @@
 .onboarding-page h2,
 .onboarding-page h3,
 .onboarding-page h4 {
-  font-family: var(--font-syne), ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-epilogue), ui-sans-serif, system-ui, sans-serif;
 }
 
 .onboarding-glow-shadow {

@@ -8,7 +8,7 @@ import { BookDemoLink } from "@/components/landing/BookDemoLink";
 
 export function Hero() {
   return (
-    <section className="pt-32 pb-20 px-6 max-w-7xl mx-auto">
+    <section className="px-4 pt-24 pb-16 sm:px-6 sm:pt-28 sm:pb-20 md:pt-32 max-w-7xl mx-auto">
       <div className="flex flex-col lg:flex-row items-center gap-16">
         {/* Left Content (55%) */}
         <div className="w-full lg:w-[55%] space-y-8 relative z-10">
@@ -29,7 +29,7 @@ export function Hero() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.1 }}
-            className="text-[56px] leading-[1.1] md:text-[72px] font-black text-slate-900 tracking-tight"
+            className="text-4xl sm:text-5xl md:text-[56px] lg:text-[72px] leading-[1.1] font-black text-slate-900 tracking-tight"
           >
             Run Better Interviews.<br />
             <span className="text-blue-600">Make Better Hires.</span>
@@ -48,7 +48,7 @@ export function Hero() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.3 }}
-            className="flex flex-wrap items-center gap-4 pt-4"
+            className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-4 pt-4"
           >
             <Link
               href="/signup"
@@ -97,7 +97,7 @@ export function Hero() {
                 <div>
                   <h3 className="font-semibold text-slate-900">Rahul Sharma</h3>
                   <p className="text-sm text-slate-500">Senior Backend Engineer</p>
-                  <div className="mt-3 flex items-center gap-2">
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
                     <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-amber-50 text-amber-700 text-xs font-medium border border-amber-100">
                       <Calendar className="w-3 h-3" /> Interview Scheduled
                     </span>
@@ -133,7 +133,7 @@ export function Hero() {
               {/* Feedback Panel */}
               <motion.div 
                 whileHover={{ y: -4 }}
-                className="bg-slate-900 rounded-2xl p-5 shadow-lg flex items-center justify-between mt-auto"
+                className="bg-slate-900 rounded-2xl p-5 shadow-lg flex flex-wrap items-center justify-between gap-3 mt-auto"
               >
                 <div>
                   <p className="text-xs text-slate-400 mb-1">Overall Score</p>
