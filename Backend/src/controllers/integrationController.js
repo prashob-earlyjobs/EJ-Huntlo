@@ -1,6 +1,15 @@
 const mongoose = require("mongoose");
 const {
   connectGmail,
+  connectOutlookOAuth,
+  getOutlookOAuthAuthorizePayload,
+  getOutlookStatus,
+  sendOutlookTest,
+  connectZohoMail,
+  verifyZohoMailIntegrationCredentials,
+  getZohoMailOAuthAuthorizePayload,
+  getZohoMailStatus,
+  sendZohoMailTest,
   connectWhatsApp,
   verifyWhatsAppIntegrationCredentials,
   connectCalendly,
@@ -13,6 +22,8 @@ const {
   listCalendlyEventTypesForUser,
   listUserIntegrations,
   disconnectGmail,
+  disconnectOutlook,
+  disconnectZohoMail,
   disconnectWhatsApp,
   disconnectCalendly,
   disconnectIntegration,
@@ -160,6 +171,271 @@ const connectWhatsAppHandler = async (req, res) => {
     return res.status(error.statusCode || 500).json({
       success: false,
       message: error.message || "Failed to connect WhatsApp",
+    });
+  }
+};
+
+const getOutlookStatusHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) {
+      return invalidSession(res);
+    }
+    const status = await getOutlookStatus(uid);
+    return res.status(200).json({ success: true, ...status });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to load Outlook status",
+    });
+  }
+};
+
+const getOutlookOAuthUrlHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) {
+      return invalidSession(res);
+    }
+    const payload = getOutlookOAuthAuthorizePayload();
+    if (!payload.configured || !payload.authorizeUrl) {
+      return res.status(503).json({
+        success: false,
+        message:
+          "Microsoft OAuth is not configured. Set MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET, and redirect URI.",
+      });
+    }
+    return res.status(200).json({ success: true, ...payload });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to build Outlook OAuth URL",
+    });
+  }
+};
+
+/** POST /api/integrations/outlook/callback — OAuth code from frontend callback page */
+const connectOutlookWithAuthCode = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    const code = req.body?.code;
+    const tenantId = req.body?.tenantId;
+
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) {
+      return invalidSession(res);
+    }
+    if (typeof code !== "string" || !code) {
+      return res.status(400).json({ success: false, message: "code is required" });
+    }
+
+    const integration = await connectOutlookOAuth(uid, { code, tenantId });
+    return res.status(200).json({
+      success: true,
+      integration,
+      message: "Outlook connected",
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Failed to connect Outlook",
+    });
+  }
+};
+
+/** POST /api/integrations/outlook/test — send a test email via connected Outlook */
+const testOutlookHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) {
+      return invalidSession(res);
+    }
+
+    const result = await sendOutlookTest(uid, req.body || {});
+    return res.status(200).json({
+      success: true,
+      message: `Test email sent to ${result.to}.`,
+      send: result,
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Failed to send Outlook test email",
+    });
+  }
+};
+
+const disconnectOutlookHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) {
+      return invalidSession(res);
+    }
+    await disconnectOutlook(uid);
+    return res.status(200).json({ success: true, message: "Outlook disconnected" });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to disconnect Outlook",
+    });
+  }
+};
+
+const getZohoMailStatusHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) {
+      return invalidSession(res);
+    }
+    const status = await getZohoMailStatus(uid);
+    return res.status(200).json({ success: true, ...status });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to load Zoho Mail status",
+    });
+  }
+};
+
+const getZohoMailOAuthUrlHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) {
+      return invalidSession(res);
+    }
+    const dataCenter = req.query?.dataCenter || req.query?.dc || "com";
+    const payload = getZohoMailOAuthAuthorizePayload(dataCenter);
+    if (!payload.configured || !payload.authorizeUrl) {
+      return res.status(503).json({
+        success: false,
+        message:
+          "Zoho OAuth is not configured. Set ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, and redirect URI.",
+      });
+    }
+    return res.status(200).json({ success: true, ...payload });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to build Zoho OAuth URL",
+    });
+  }
+};
+
+/** POST /api/integrations/zoho_mail/verify */
+const verifyZohoMailCredentialsHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) {
+      return invalidSession(res);
+    }
+
+    const result = await verifyZohoMailIntegrationCredentials(req.body || {});
+    return res.status(200).json({
+      success: true,
+      verified: result.verified,
+      mode: result.mode || "smtp",
+      message: result.message,
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 400).json({
+      success: false,
+      verified: false,
+      message: error.message || "Credential verification failed",
+    });
+  }
+};
+
+/** POST /api/integrations/zoho_mail/connect */
+const connectZohoMailHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) {
+      return invalidSession(res);
+    }
+
+    const integration = await connectZohoMail(uid, req.body || {});
+    return res.status(200).json({
+      success: true,
+      integration,
+      message: "Zoho Mail connected",
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Failed to connect Zoho Mail",
+    });
+  }
+};
+
+/** POST /api/integrations/zoho_mail/test — send a test email via connected Zoho Mail */
+const testZohoMailHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) {
+      return invalidSession(res);
+    }
+
+    const result = await sendZohoMailTest(uid, req.body || {});
+    return res.status(200).json({
+      success: true,
+      message: `Test email sent to ${result.to}.`,
+      send: result,
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Failed to send Zoho Mail test email",
+    });
+  }
+};
+
+/** POST /api/integrations/zoho_mail/callback — OAuth code from frontend callback page */
+const connectZohoMailWithAuthCode = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    const code = req.body?.code;
+    const dataCenter = req.body?.dataCenter;
+    const location = req.body?.location;
+    const accountsServer = req.body?.accountsServer;
+
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) {
+      return invalidSession(res);
+    }
+    if (typeof code !== "string" || !code) {
+      return res.status(400).json({ success: false, message: "code is required" });
+    }
+
+    const integration = await connectZohoMail(uid, {
+      authMode: "oauth",
+      code,
+      dataCenter,
+      location,
+      accountsServer,
+    });
+    return res.status(200).json({
+      success: true,
+      integration,
+      message: "Zoho Mail connected",
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Failed to connect Zoho Mail",
+    });
+  }
+};
+
+const disconnectZohoMailHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) {
+      return invalidSession(res);
+    }
+    await disconnectZohoMail(uid);
+    return res.status(200).json({ success: true, message: "Zoho Mail disconnected" });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to disconnect Zoho Mail",
     });
   }
 };
@@ -329,6 +605,18 @@ const disconnectIntegrationHandler = async (req, res) => {
 module.exports = {
   listIntegrationsHandler,
   getGmailStatusHandler,
+  getOutlookStatusHandler,
+  getOutlookOAuthUrlHandler,
+  connectOutlookWithAuthCode,
+  testOutlookHandler,
+  disconnectOutlookHandler,
+  getZohoMailStatusHandler,
+  getZohoMailOAuthUrlHandler,
+  verifyZohoMailCredentialsHandler,
+  connectZohoMailHandler,
+  testZohoMailHandler,
+  connectZohoMailWithAuthCode,
+  disconnectZohoMailHandler,
   getWhatsAppStatusHandler,
   getWhatsAppMetaWebhookSetupHandler,
   getCalendlyStatusHandler,

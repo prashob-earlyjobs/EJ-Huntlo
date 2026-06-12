@@ -15,12 +15,14 @@ import {
   type TeamUtilisationRow,
 } from "@/lib/team";
 import { TeamManagementSkeleton } from "@/components/dashboard/TeamManagementSkeleton";
+import { PhoneNumberField } from "@/components/ui/PhoneNumberField";
 import {
   dashboardBtnPrimaryClass,
   dashboardBtnSecondaryClass,
   dashboardInputClass,
   dashboardLabelClass,
 } from "@/lib/dashboardStyles";
+import { validateE164Phone } from "@/lib/phoneCountryCodes";
 
 function utilisationSummary(u: TeamMember["utilisation"]) {
   const searches = u.candidateSearches + u.linkedinLookups;
@@ -82,6 +84,13 @@ export function TeamManagementPanel() {
     e.preventDefault();
     const auth = getStoredAuth();
     if (!auth?.token) return;
+
+    const mobileError = validateE164Phone(form.mobile);
+    if (mobileError) {
+      setError(mobileError);
+      return;
+    }
+
     setCreateBusy(true);
     setError("");
     try {
@@ -294,12 +303,13 @@ export function TeamManagementPanel() {
             </label>
             <label className={dashboardLabelClass}>
               Mobile
-              <input
-                className={`mt-1 w-full ${dashboardInputClass}`}
-                value={form.mobile}
-                onChange={(e) => setForm((f) => ({ ...f, mobile: e.target.value }))}
-                required
-              />
+              <div className="mt-1">
+                <PhoneNumberField
+                  variant="dashboard"
+                  value={form.mobile}
+                  onChange={(e164) => setForm((f) => ({ ...f, mobile: e164 }))}
+                />
+              </div>
             </label>
             <label className={dashboardLabelClass}>
               Temporary password

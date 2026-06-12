@@ -85,6 +85,7 @@ import {
 } from "@/lib/dashboardSessionApi";
 import { hasCampaignsAccess } from "@/lib/planAccess";
 import { mergeStoredAuthUser, postAuthPath } from "@/lib/onboarding";
+import { validateE164Phone } from "@/lib/phoneCountryCodes";
 import { isBlockedAccountResponse, isBlockedMemberStatus } from "@/lib/sessionLogout";
 import {
   revealContactErrorMessage,
@@ -2574,6 +2575,13 @@ export function UserDashboardPage() {
       setMyProfileError("Please sign in again to update profile.");
       return;
     }
+
+    const phoneError = validateE164Phone(myProfileForm.phone);
+    if (phoneError) {
+      setMyProfileError(phoneError);
+      return;
+    }
+
     setMyProfileError("");
     setMyProfileSuccess("");
     setMyProfileSaving(true);
