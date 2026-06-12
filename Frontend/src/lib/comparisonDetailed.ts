@@ -57,10 +57,10 @@ export const DETAILED_COMPARISON_PAGES: DetailedComparisonPage[] = [
   page({
     slug: "prism",
     name: "Prism",
-    metaTitle: "Huntlo vs Prism: Which Recruiting Platform Is Better in 2026?",
+    metaTitle: "Huntlo vs Prism (2026): AI Recruiting Infrastructure Comparison",
     metaDescription:
-      "Compare Huntlo vs Prism across sourcing, candidate engagement, recruiter workflows, communication automation, and hiring infrastructure.",
-    headline: "Huntlo vs Prism: Which Recruiting Platform Is Better in 2026?",
+      "Compare Huntlo vs Prism across agentic sourcing, outreach automation, AI screening, and hiring workflow management. Which platform is right for you?",
+    headline: "Huntlo vs Prism: Agentic AI Recruiting Infrastructure vs Talent Intelligence (2026)",
     intro: [
       "Recruiting teams today need more than candidate sourcing.",
       "They need talent discovery, candidate engagement, recruiter communication workflows, interview automation, and hiring infrastructure that improves recruiting outcomes.",
@@ -211,10 +211,10 @@ export const DETAILED_COMPARISON_PAGES: DetailedComparisonPage[] = [
   page({
     slug: "contrario",
     name: "Contrario",
-    metaTitle: "Huntlo vs Contrario: Which Recruiting Platform Is Better in 2026?",
+    metaTitle: "Huntlo vs Contrario (2026): Agentic AI Recruiting Infrastructure Compared",
     metaDescription:
-      "Compare Huntlo vs Contrario across candidate sourcing, recruiter workflows, candidate engagement, outreach automation, and hiring infrastructure.",
-    headline: "Huntlo vs Contrario: Which Recruiting Platform Is Better in 2026?",
+      "Compare Huntlo vs Contrario on agentic sourcing, autonomous outreach, AI screening, and end-to-end recruiting workflow capabilities.",
+    headline: "Huntlo vs Contrario: Agentic AI Recruiting Infrastructure vs Sourcing Tool (2026)",
     intro: [
       "Recruiting teams today need more than candidate sourcing.",
       "They need candidate discovery, recruiter communication, engagement workflows, interview systems, and hiring infrastructure that helps recruiters move candidates from discovery to placement.",
@@ -364,10 +364,10 @@ export const DETAILED_COMPARISON_PAGES: DetailedComparisonPage[] = [
   page({
     slug: "juicebox",
     name: "Juicebox",
-    metaTitle: "Huntlo vs Juicebox: Which Recruiting Platform Is Better in 2026?",
+    metaTitle: "Huntlo vs Juicebox (2026): Agentic AI Recruiting vs Talent Search",
     metaDescription:
-      "Compare Huntlo vs Juicebox across AI sourcing, recruiter workflows, candidate engagement, outreach automation, and recruiting infrastructure.",
-    headline: "Huntlo vs Juicebox: Which Recruiting Platform Is Better in 2026?",
+      "Compare Huntlo vs Juicebox: Huntlo is end-to-end agentic AI recruiting infrastructure. Juicebox focuses on talent search. See which fits your workflow.",
+    headline: "Huntlo vs Juicebox: End-to-End Recruiting Infrastructure vs AI Talent Search (2026)",
     intro: [
       "Recruiting teams today need more than candidate search.",
       "They need sourcing, communication workflows, candidate engagement, outreach automation, interview systems, and hiring infrastructure that helps recruiters move candidates through the hiring funnel.",
@@ -518,10 +518,10 @@ export const DETAILED_COMPARISON_PAGES: DetailedComparisonPage[] = [
   page({
     slug: "qureos",
     name: "Qureos",
-    metaTitle: "Huntlo vs Qureos: Which Recruiting Platform Is Better in 2026?",
+    metaTitle: "Huntlo vs Qureos (2026): AI Recruiting Infrastructure vs Hiring Platform",
     metaDescription:
-      "Compare Huntlo vs Qureos across AI recruiting, candidate sourcing, outreach automation, recruiter workflows, candidate engagement, and hiring infrastructure.",
-    headline: "Huntlo vs Qureos: Which Recruiting Platform Is Better in 2026?",
+      "Compare Huntlo vs Qureos on candidate sourcing, agentic outreach, AI voice screening, and end-to-end recruiting workflows. Full comparison inside.",
+    headline: "Huntlo vs Qureos: Agentic AI Recruiting Infrastructure vs Hiring Platform (2026)",
     intro: [
       "AI is transforming how recruiting teams discover talent, engage candidates, and manage hiring workflows.",
       "Both Huntlo and Qureos help organizations improve recruiting efficiency using automation and AI. However, they focus on different areas of the hiring process.",

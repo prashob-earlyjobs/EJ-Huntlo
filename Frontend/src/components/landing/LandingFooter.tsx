@@ -35,11 +35,11 @@ const FOOTER_COLUMNS = [
   },
   {
     title: "Resources",
-    links: ["Documentation", "Help Center", "Blog", "FAQs"],
+    links: ["Documentation", "Blog", "FAQs"],
   },
   {
     title: "Company",
-    links: ["About", "Careers", "Contact", "Partnerships"],
+    links: ["About", "Careers", "Contact"],
   },
   {
     title: "Comparison",
