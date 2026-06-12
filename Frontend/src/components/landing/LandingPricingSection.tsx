@@ -157,7 +157,7 @@ export function LandingPricingSection({ pricingPlans }: Props) {
       <div className="mx-auto max-w-7xl">
         <div className="mb-14 text-center">
           <h2 className="text-3xl font-bold tracking-tight text-[#141b2b] md:text-4xl">
-            Simple, Performance-Based Pricing
+            Transparent, Performance-Based Pricing for Every Team Size
           </h2>
           {pricingPlans?.intro ? (
             <p className="mx-auto mt-4 max-w-2xl text-base leading-relaxed text-[#434654]">

@@ -34,7 +34,7 @@ export function SolutionHeroSection({ page, breadcrumbItems }: Props) {
               Solutions · {segmentLabel}
             </p>
             <h1 className="mt-3 text-3xl font-bold leading-[1.1] tracking-tight text-[#141b2b] md:text-4xl lg:text-5xl">
-              {page.title}
+              {page.h1 ?? page.title}
             </h1>
             {page.heroAccent ? (
               <p className="mt-3 text-xl font-bold leading-snug text-[#0050cb] md:text-2xl">

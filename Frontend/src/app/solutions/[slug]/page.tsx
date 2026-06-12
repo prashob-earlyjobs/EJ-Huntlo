@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 
 import { SolutionPageContent } from "@/components/landing/SolutionPageContent";
 import { SolutionPageLayout } from "@/components/landing/SolutionPageLayout";
+import { JsonLd } from "@/components/seo/JsonLd";
+import { breadcrumbJsonLd } from "@/lib/jsonLd";
 import {
   getSolutionPage,
   SOLUTION_PAGE_SLUGS,
@@ -36,16 +38,25 @@ export default async function SolutionSlugPage({ params }: PageProps) {
   const page = getSolutionPage(slug);
   if (!page) notFound();
 
+  const breadcrumbItems = [
+    { label: "Home", href: "/" },
+    { label: "Solutions", href: "/solutions" },
+    { label: page.title.replace(/^For /, "") },
+  ];
+
   return (
-    <SolutionPageLayout
-      page={page}
-      breadcrumbItems={[
-        { label: "Home", href: "/" },
-        { label: "Solutions", href: "/solutions" },
-        { label: page.title.replace(/^For /, "") },
-      ]}
-    >
-      <SolutionPageContent page={page} />
-    </SolutionPageLayout>
+    <>
+      <JsonLd
+        data={breadcrumbJsonLd(
+          breadcrumbItems.map((item) => ({
+            name: item.label,
+            href: item.href,
+          }))
+        )}
+      />
+      <SolutionPageLayout page={page} breadcrumbItems={breadcrumbItems}>
+        <SolutionPageContent page={page} />
+      </SolutionPageLayout>
+    </>
   );
 }

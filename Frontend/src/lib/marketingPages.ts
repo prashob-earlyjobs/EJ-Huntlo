@@ -4,9 +4,9 @@ export const MARKETING_PAGES = {
   about: {
     path: "/about",
     eyebrow: "Company",
-    title: "About Huntlo.ai",
+    title: "About Huntlo — Building Agentic AI Infrastructure for the Future of Recruiting",
     description:
-      "Huntlo.ai is an AI Recruiting OS designed for modern hiring teams, staffing firms, recruitment agencies, startups, enterprises, and Global Capability Centers (GCCs).",
+      "Huntlo is agentic AI recruiting infrastructure built by the EarlyJobs team — helping staffing agencies, enterprises & GCCs hire faster with autonomous AI agents.",
     ogImage: OG_IMAGES.about,
   },
   careers: {
@@ -68,9 +68,9 @@ export const MARKETING_PAGES = {
   pricing: {
     path: "/pricing",
     eyebrow: "Pricing",
-    title: "Pricing",
+    title: "Huntlo Pricing — Agentic AI Recruiting Infrastructure Plans",
     description:
-      "Transparent plans for solo recruiters and growing teams — AI sourcing, outreach, and campaign automation.",
+      "Transparent, performance-based pricing for agentic AI recruiting — free trial, starter plans from $99/seat/month, and enterprise options for high-volume hiring teams.",
     ogImage: OG_IMAGES.pricing,
   },
   bookDemo: {

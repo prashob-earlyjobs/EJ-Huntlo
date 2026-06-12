@@ -12,7 +12,7 @@ const userIntegrationSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
-      enum: ["gmail", "whatsapp", "calendly"],
+      enum: ["gmail", "outlook", "zoho_mail", "whatsapp", "calendly"],
     },
     email: { type: String, trim: true, default: "" },
     senderName: { type: String, trim: true, default: "" },
@@ -38,6 +38,20 @@ const userIntegrationSchema = new mongoose.Schema(
     metaPhoneNumberId: { type: String, trim: true, default: "" },
     /** Optional WhatsApp Business Account ID (WABA). */
     metaWabaId: { type: String, trim: true, default: "" },
+    /** Zoho accounts region: com, eu, in, com.au, jp, ca, sa */
+    zohoDataCenter: { type: String, trim: true, default: "" },
+    /** smtp = app password; oauth = Zoho OAuth tokens */
+    zohoAuthMode: {
+      type: String,
+      enum: ["", "smtp", "oauth"],
+      default: "",
+    },
+    /** Zoho Mail API account id (OAuth sends). */
+    zohoAccountId: { type: String, trim: true, default: "" },
+    /** Microsoft Entra tenant id used for token refresh (default common). */
+    outlookTenantId: { type: String, trim: true, default: "" },
+    /** Microsoft Graph user id from /me. */
+    outlookUserId: { type: String, trim: true, default: "" },
     /** Calendar date (YYYY-MM-DD) for daily Gmail send counters. */
     gmailUsageDate: { type: String, trim: true, default: "" },
     /** Emails actually sent today via this Gmail integration. */

@@ -29,12 +29,14 @@ export function HeroSection() {
             </div>
             
             <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-black text-slate-900 leading-[1.1] mb-6 tracking-tight">
-              Describe Talent.<br />
-              <span className="text-blue-600">Find Candidates.</span>
+              Agentic AI Candidate Sourcing —<br />
+              <span className="text-blue-600">Describe the Role, Get Matched Talent Instantly</span>
             </h1>
             
             <p className="text-xl text-slate-600 leading-relaxed mb-10 max-w-xl">
-              Turn hiring intent into qualified candidates with AI-powered sourcing, enrichment, and talent discovery workflows.
+              Huntlo&apos;s agentic AI searches across 50+ professional platforms using natural
+              language — no Boolean filters required. Candidates are matched, scored, and enriched
+              automatically.
             </p>
             
             <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-3 sm:gap-4">

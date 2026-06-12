@@ -1,5 +1,5 @@
 const mongoose = require("mongoose");
-const { sendGmailMessage } = require("../services/gmailSendService");
+const { sendCampaignEmail } = require("../services/emailSendService");
 const {
   listOutreachPlans,
   getOutreachPlan,
@@ -106,7 +106,7 @@ const sendEmailHandler = async (req, res) => {
     const uid = req.auth?.userId;
     if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
 
-    const result = await sendGmailMessage(uid, {
+    const result = await sendCampaignEmail(uid, {
       to: req.body?.to,
       subject: req.body?.subject,
       body: req.body?.body,

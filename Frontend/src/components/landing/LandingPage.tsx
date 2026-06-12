@@ -8,6 +8,7 @@ import { LandingWorkflowSteps } from "./LandingWorkflowSteps";
 import { HeroSearchTyping } from "./HeroSearchTyping";
 import { LandingFooter } from "./LandingFooter";
 import { LandingNav } from "./LandingNav";
+import { LandingHomeFaqSection } from "./LandingHomeFaqSection";
 import { LandingPricingSection } from "./LandingPricingSection";
 import { MaterialIcon } from "./MaterialIcon";
 
@@ -84,8 +85,11 @@ type LandingPageProps = {
   pricingPlans?: PricingPlansPayload | null;
 };
 
-const bookDemoButtonClass =
+const startTrialButtonClass =
   "flex w-full items-center justify-center gap-2 rounded-full border border-[#c3c6d6]/50 bg-white px-8 py-3.5 text-sm font-semibold text-[#141b2b] transition-all hover:border-[#0050cb]/30 hover:bg-[#f1f3ff] sm:w-auto";
+
+const bookDemoButtonClass =
+  "w-full rounded-full bg-[#0050cb] px-8 py-3.5 text-sm font-semibold text-white shadow-lg shadow-[#0050cb]/25 transition-all hover:bg-[#003fa4] sm:w-auto";
 
 export function LandingPage({ pricingPlans = null }: LandingPageProps) {
   return (
@@ -111,13 +115,10 @@ export function LandingPage({ pricingPlans = null }: LandingPageProps) {
             candidates in days not weeks.
           </p>
           <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-            <Link
-              href="/signup"
-              className="w-full rounded-full bg-[#0050cb] px-8 py-3.5 text-sm font-semibold text-white shadow-lg shadow-[#0050cb]/25 transition-all hover:bg-[#003fa4] sm:w-auto"
-            >
+            <BookDemoLink className={bookDemoButtonClass}>Book Demo</BookDemoLink>
+            <Link href="/signup" className={startTrialButtonClass}>
               Start Free Trial
             </Link>
-            <BookDemoLink className={bookDemoButtonClass}>Book Demo</BookDemoLink>
           </div>
 
           <HeroSearchTyping />
@@ -129,9 +130,11 @@ export function LandingPage({ pricingPlans = null }: LandingPageProps) {
         <div className="mx-auto max-w-7xl">
           <div className="mb-10 text-center">
             <h2 className="text-3xl font-bold tracking-tight text-[#141b2b] md:text-4xl">
-              The Huntlo Advantage
+              Why 200+ Recruiting Teams Run Their Hiring on Huntlo
             </h2>
-            <p className="mt-2 text-[#434654]">Trusted by 200+ recruiting teams.</p>
+            <p className="mt-2 text-[#434654]">
+              Based on aggregate Huntlo customer data across 200+ recruiting teams, 2025.
+            </p>
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {ADVANTAGE_METRICS.map((card) => {
@@ -211,10 +214,10 @@ export function LandingPage({ pricingPlans = null }: LandingPageProps) {
       <section className="bg-[#faf9ff] px-4 py-20 md:px-8 lg:px-12">
         <div className="mx-auto max-w-7xl text-center">
           <h2 className="text-3xl font-bold tracking-tight text-[#141b2b] md:text-4xl">
-            From Description to Offer
+            From First Sourcing Signal to Scheduled Interview — Without the Manual Work
           </h2>
           <p className="mx-auto mt-2 max-w-2xl text-[#434654]">
-            The 4-step workflow that powers high-growth teams.
+            The 4-step agentic AI workflow that powers high-growth hiring teams.
           </p>
           <LandingWorkflowSteps />
         </div>
@@ -224,7 +227,7 @@ export function LandingPage({ pricingPlans = null }: LandingPageProps) {
       <section className="scroll-mt-24 px-4 py-20 md:px-8 lg:px-12" id="resources">
         <div className="mx-auto max-w-7xl">
           <h2 className="mb-10 text-center text-3xl font-bold tracking-tight text-[#141b2b] md:text-4xl">
-            Built for High-Volume Hiring Teams
+            Built for Staffing Agencies, Enterprises, GCCs &amp; High-Growth Teams
           </h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="rounded-2xl border border-[#c3c6d6]/30 bg-[#f1f3ff] p-8">
@@ -253,9 +256,9 @@ export function LandingPage({ pricingPlans = null }: LandingPageProps) {
               <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-white/20">
                 <MaterialIcon name="campaign" />
               </div>
-              <h3 className="text-xl font-bold">Automated Outreach</h3>
+              <h3 className="text-xl font-bold">Autonomous Outreach Across Email &amp; WhatsApp</h3>
               <p className="mt-2 text-sm text-white/85">
-                Sequences that feel personal—email, WhatsApp, and LinkedIn in one flow.
+                Agentic outreach sequences that feel personal — no manual follow-up required.
               </p>
               <div className="mt-6 overflow-hidden rounded-xl border border-white/20 bg-white/10 shadow-sm">
                 <video
@@ -321,9 +324,11 @@ export function LandingPage({ pricingPlans = null }: LandingPageProps) {
         <div className="mx-auto max-w-7xl">
           <div className="mb-12 text-center">
             <h2 className="text-3xl font-bold tracking-tight text-[#141b2b] md:text-4xl">
-              The Complete Recruiting Suite
+              Agentic AI Recruiting Infrastructure — Built for the Modern Hiring Team
             </h2>
-            <p className="mt-2 text-[#434654]">Everything you need to hire at scale.</p>
+            <p className="mt-2 text-[#434654]">
+              Source, engage, screen, and hire from one autonomous recruiting platform.
+            </p>
           </div>
           <div className="grid grid-cols-1 gap-8 md:grid-cols-3">
             {SUITE_COLUMNS.map((col) => (
@@ -357,7 +362,7 @@ export function LandingPage({ pricingPlans = null }: LandingPageProps) {
       <section className="bg-[#f1f3ff] px-4 py-20 md:px-8 lg:px-12">
         <div className="mx-auto max-w-7xl text-center">
           <h2 className="text-3xl font-bold tracking-tight text-[#141b2b] md:text-4xl">
-          The Operating System for Recruiters, Agencies & Hiring Teams
+            Autonomous Candidate Sourcing, Outreach &amp; Screening at Scale
           </h2>
           <div className="mt-12 grid grid-cols-1 gap-8 sm:grid-cols-3">
             {IMPACT_STATS.map((s) => (
@@ -371,6 +376,8 @@ export function LandingPage({ pricingPlans = null }: LandingPageProps) {
       </section>
 
       <LandingPricingSection pricingPlans={pricingPlans} />
+
+      <LandingHomeFaqSection />
 
       {/* Final CTA */}
       <section className="relative overflow-x-clip bg-[#141b2b] px-4 py-24 text-center text-white md:px-8 lg:px-12">
@@ -387,15 +394,15 @@ export function LandingPage({ pricingPlans = null }: LandingPageProps) {
             Join hundreds of companies using Huntlo to hire top talent faster.
           </p>
           <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
+            <BookDemoLink className="w-full rounded-full bg-white px-10 py-4 text-sm font-bold text-[#0050cb] shadow-xl transition-all hover:bg-[#f1f3ff] sm:w-auto">
+              Book a Demo
+            </BookDemoLink>
             <Link
               href="/signup"
-              className="w-full rounded-full bg-white px-10 py-4 text-sm font-bold text-[#0050cb] shadow-xl transition-all hover:bg-[#f1f3ff] sm:w-auto"
+              className="w-full rounded-full border border-white/30 px-10 py-4 text-sm font-semibold text-white transition-all hover:bg-white/10 sm:w-auto"
             >
               Start Free Trial
             </Link>
-            <BookDemoLink className="w-full rounded-full border border-white/30 px-10 py-4 text-sm font-semibold text-white transition-all hover:bg-white/10 sm:w-auto">
-              Book a Demo
-            </BookDemoLink>
           </div>
         </div>
       </section>

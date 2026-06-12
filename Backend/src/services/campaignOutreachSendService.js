@@ -4,7 +4,11 @@ const CampaignSequenceEnrollment = require("../models/CampaignSequenceEnrollment
 const UserIntegration = require("../models/UserIntegration");
 const OutreachPlan = require("../models/OutreachPlan");
 const WhatsAppOutreachPlan = require("../models/WhatsAppOutreachPlan");
-const { sendGmailMessage } = require("./gmailSendService");
+const { sendCampaignEmail } = require("./emailSendService");
+const {
+  resolveEmailProviderForUser,
+  getSenderFirstNameForEmail,
+} = require("./emailIntegrationService");
 const { applyMergeFields, applyWhatsAppMergeFields } = require("./outreachMergeService");
 const {
   assertWhatsAppReadyForSend,
@@ -89,19 +93,7 @@ async function claimEnrollmentForSend(enrollment) {
 }
 
 async function getSenderFirstName(userId) {
-  const doc = await UserIntegration.findOne({
-    userId: userOid(userId),
-    provider: "gmail",
-  })
-    .select("senderName email")
-    .lean();
-  if (doc?.senderName?.trim()) {
-    return doc.senderName.trim().split(/\s+/)[0] || doc.senderName.trim();
-  }
-  if (doc?.email?.includes("@")) {
-    return doc.email.split("@")[0];
-  }
-  return "";
+  return getSenderFirstNameForEmail(userId);
 }
 
 async function getWhatsAppSenderFirstName(userId) {
@@ -669,13 +661,18 @@ async function processGmailEnrollmentDoc(enrollment, campaign) {
 
   let sendResult;
   try {
-    await assertCanSendGmailToday(userId);
-    sendResult = await sendGmailMessage(userId, {
+    const emailProvider = await resolveEmailProviderForUser(userId);
+    if (emailProvider === "gmail") {
+      await assertCanSendGmailToday(userId);
+    }
+    sendResult = await sendCampaignEmail(userId, {
       to: email,
       subject,
       body,
     });
-    await recordGmailSend(userId);
+    if (emailProvider === "gmail") {
+      await recordGmailSend(userId);
+    }
   } catch (err) {
     await CampaignSequenceEnrollment.updateOne(
       { _id: enrollmentId },
