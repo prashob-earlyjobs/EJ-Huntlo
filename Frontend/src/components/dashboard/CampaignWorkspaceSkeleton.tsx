@@ -1,6 +1,8 @@
 "use client";
 
 import {
+  campaignWorkspaceTabLabel,
+  campaignWorkspaceTabShortLabel,
   getVisibleCampaignWorkspaceTabs,
   inferCampaignWorkspaceChannel,
   inferShowJobDescriptionTab,
@@ -179,7 +181,10 @@ export function CampaignWorkspaceSkeleton({
   hasJobDescription = false,
 }: Props) {
   const effectiveChannel = inferCampaignWorkspaceChannel(workspaceTab, outreachChannel);
-  const channelLocked = effectiveChannel === "gmail" || effectiveChannel === "whatsapp";
+  const channelLocked =
+    effectiveChannel === "gmail" ||
+    effectiveChannel === "whatsapp" ||
+    effectiveChannel === "voice_call";
   const showJobDescriptionTab = inferShowJobDescriptionTab(workspaceTab, {
     outreachChannel: effectiveChannel,
     hasJobDescription,
@@ -214,6 +219,7 @@ export function CampaignWorkspaceSkeleton({
         >
           {visibleTabs.map((tab) => {
             const active = tab === skeletonTab;
+            const tabLabel = campaignWorkspaceTabLabel(tab, effectiveChannel);
             return (
               <span
                 key={tab}
@@ -224,7 +230,10 @@ export function CampaignWorkspaceSkeleton({
                 }`}
                 aria-hidden
               >
-                {tab}
+                <span className="sm:hidden">
+                  {campaignWorkspaceTabShortLabel(tab, effectiveChannel)}
+                </span>
+                <span className="hidden sm:inline">{tabLabel}</span>
               </span>
             );
           })}

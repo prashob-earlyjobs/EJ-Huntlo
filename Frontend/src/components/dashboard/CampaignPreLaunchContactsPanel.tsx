@@ -5,7 +5,7 @@ import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLog
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import type { CampaignContact } from "@/lib/campaigns";
 
-type Channel = "gmail" | "whatsapp";
+type Channel = "gmail" | "whatsapp" | "voice_call";
 
 type Props = {
   channel: Channel;
@@ -26,7 +26,7 @@ type Props = {
 };
 
 function contactChannelValue(contact: CampaignContact, channel: Channel): string {
-  return channel === "whatsapp" ? contact.phone.trim() : contact.email.trim();
+  return channel === "gmail" ? contact.email.trim() : contact.phone.trim();
 }
 
 function contactReadinessLabel(
@@ -36,10 +36,14 @@ function contactReadinessLabel(
 ): string {
   const value = contactChannelValue(contact, channel);
   if (value) {
-    return channel === "whatsapp" ? "Ready for WhatsApp" : "Ready for Email";
+    if (channel === "whatsapp") return "Ready for WhatsApp";
+    if (channel === "voice_call") return "Ready for AI voice call";
+    return "Ready for Email";
   }
   if (revealInProgress) return "Revealing...";
-  return channel === "whatsapp" ? "Missing phone" : "Missing email";
+  if (channel === "whatsapp") return "Missing phone";
+  if (channel === "voice_call") return "Missing phone";
+  return "Missing email";
 }
 
 function buildPageNumbers(currentPage: number, totalPages: number): number[] {
@@ -70,9 +74,10 @@ export function CampaignPreLaunchContactsPanel({
   onRemoveContact,
 }: Props) {
   const isWhatsApp = channel === "whatsapp";
+  const isVoiceCall = channel === "voice_call";
   const pageNumbers = buildPageNumbers(page, totalPages);
-  const channelLabel = isWhatsApp ? "WhatsApp" : "Gmail";
-  const contactFieldLabel = isWhatsApp ? "Phone" : "Email";
+  const channelLabel = isVoiceCall ? "AI voice call" : isWhatsApp ? "WhatsApp" : "Gmail";
+  const contactFieldLabel = isVoiceCall || isWhatsApp ? "Phone" : "Email";
 
   if (loading) {
     return (
@@ -94,14 +99,23 @@ export function CampaignPreLaunchContactsPanel({
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3">
         <div className="flex items-center gap-2">
-          <IntegrationBrandLogo
-            provider={isWhatsApp ? "whatsapp" : "gmail"}
-            title={channelLabel}
-            className="h-6 w-6"
-          />
+          {isVoiceCall ? (
+            <span
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-violet-50 text-violet-600"
+              aria-hidden
+            >
+              <MaterialIcon name="record_voice_over" className="text-base" />
+            </span>
+          ) : (
+            <IntegrationBrandLogo
+              provider={isWhatsApp ? "whatsapp" : "gmail"}
+              title={channelLabel}
+              className="h-6 w-6"
+            />
+          )}
           <p className="text-sm font-medium text-slate-700">
             Contacts ({totalContacts.toLocaleString()}) - conversations unlock after campaign{" "}
-            {isWhatsApp ? "start" : "launch"}
+            {isWhatsApp || isVoiceCall ? "start" : "launch"}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -173,9 +187,11 @@ export function CampaignPreLaunchContactsPanel({
           </table>
         </div>
         <p className="mt-3 text-xs text-slate-500">
-          {isWhatsApp
-            ? "Start the campaign sequence from the editor/workspace to activate WhatsApp conversations."
-            : "Launch the campaign sequence from the editor/workspace to activate Gmail conversations."}
+          {isVoiceCall
+            ? "Add contacts with phone numbers, then launch the campaign when you are ready to start AI voice calls."
+            : isWhatsApp
+              ? "Start the campaign sequence from the editor/workspace to activate WhatsApp conversations."
+              : "Launch the campaign sequence from the editor/workspace to activate Gmail conversations."}
         </p>
         {totalPages > 1 && onPageChange ? (
           <div className="mt-4 flex flex-wrap items-center justify-end gap-1.5 border-t border-slate-100 pt-3">

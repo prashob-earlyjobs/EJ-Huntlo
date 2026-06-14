@@ -12,6 +12,7 @@ const campaignContactSchema = new mongoose.Schema(
     location: { type: String, default: "", trim: true },
     linkedinUrl: { type: String, default: "", trim: true },
     sourcingSessionId: { type: String, default: "", trim: true },
+    jd: { type: String, default: "", trim: true },
     addedAt: { type: Date, default: Date.now },
   },
   { _id: true }
@@ -51,10 +52,10 @@ const campaignSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       default: null,
     },
-    /** gmail = OutreachPlan; whatsapp = WhatsAppOutreachPlan */
+    /** gmail = OutreachPlan; whatsapp = WhatsAppOutreachPlan; voice_call = AI voice (no plan) */
     outreachChannel: {
       type: String,
-      enum: ["gmail", "whatsapp"],
+      enum: ["gmail", "whatsapp", "voice_call"],
       default: "gmail",
     },
     outreachStatus: {

@@ -170,7 +170,11 @@ function formatCampaign(doc, listStats, options = {}) {
     calendlyAutomation: normalizeCalendlyAutomation(doc.calendlyAutomation),
     outreachPlanId: doc.outreachPlanId ? String(doc.outreachPlanId) : "",
     outreachChannel:
-      doc.outreachChannel === "whatsapp" ? "whatsapp" : "gmail",
+      doc.outreachChannel === "whatsapp"
+        ? "whatsapp"
+        : doc.outreachChannel === "voice_call"
+          ? "voice_call"
+          : "gmail",
     outreachStatus: doc.outreachStatus || "idle",
     outreachStartedAt: doc.outreachStartedAt
       ? new Date(doc.outreachStartedAt).toISOString()
@@ -536,9 +540,30 @@ async function setCampaignOutreachPlan(
   const doc = await findCampaignDocumentInScope(actorUserId, campaignId);
   const ownerOid = userOid(campaignOwnerUserId(doc));
 
-  const channel = outreachChannel === "whatsapp" ? "whatsapp" : "gmail";
+  const channel =
+    outreachChannel === "whatsapp"
+      ? "whatsapp"
+      : outreachChannel === "voice_call"
+        ? "voice_call"
+        : "gmail";
   const contactCount = await countContactsForCampaign(campaignId);
-  const previousChannel = doc.outreachChannel === "whatsapp" ? "whatsapp" : "gmail";
+  const previousChannel =
+    doc.outreachChannel === "whatsapp"
+      ? "whatsapp"
+      : doc.outreachChannel === "voice_call"
+        ? "voice_call"
+        : "gmail";
+
+  if (channel === "voice_call") {
+    doc.outreachPlanId = null;
+    doc.outreachChannel = "voice_call";
+    await doc.save();
+
+    const refreshed = doc.toObject();
+    refreshed.contactCount = contactCount;
+    return formatCampaign(refreshed, null, { contactCount });
+  }
+
   if (contactCount > 0 && channel !== previousChannel) {
     await assertOutreachCreditsAvailable(
       actorUserId,
@@ -547,6 +572,7 @@ async function setCampaignOutreachPlan(
       { excludeCampaignId: String(doc._id) }
     );
   }
+
   const raw = outreachPlanId === null || outreachPlanId === undefined ? "" : String(outreachPlanId).trim();
   if (!raw) {
     doc.outreachPlanId = null;

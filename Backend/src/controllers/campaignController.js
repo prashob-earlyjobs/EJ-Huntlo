@@ -356,7 +356,11 @@ const setCampaignOutreachPlanHandler = async (req, res) => {
         ? null
         : req.body?.outreachPlanId;
     const outreachChannel =
-      req.body?.outreachChannel === "whatsapp" ? "whatsapp" : "gmail";
+      req.body?.outreachChannel === "whatsapp"
+        ? "whatsapp"
+        : req.body?.outreachChannel === "voice_call"
+          ? "voice_call"
+          : "gmail";
     const campaign = await setCampaignOutreachPlan(
       uid,
       req.params.id,

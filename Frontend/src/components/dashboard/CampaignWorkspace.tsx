@@ -71,6 +71,7 @@ import {
   dashboardInputClass,
 } from "@/lib/dashboardStyles";
 import {
+  campaignWorkspaceTabLabel,
   campaignWorkspaceTabShortLabel,
   getVisibleCampaignWorkspaceTabs,
   inferShowJobDescriptionTab,
@@ -959,17 +960,25 @@ export function CampaignWorkspace({
     outreachStatus === "active" || outreachStatus === "completed";
   /** Sequence email copy stays editable while active; only completed is read-only. */
   const campaignSequenceReadOnly = outreachStatus === "completed";
+  const isVoiceCallCampaign = campaign.outreachChannel === "voice_call";
   const hasLinkedPlan = Boolean(campaign.outreachPlanId?.trim());
-  const channelLocked = hasLinkedPlan || Boolean(editor?.channel);
-  const effectiveChannel: "gmail" | "whatsapp" | null =
-    editor?.channel ||
-    (campaign.outreachChannel === "whatsapp"
-      ? "whatsapp"
-      : campaign.outreachChannel === "gmail"
-        ? "gmail"
-        : null);
-  const allowedPickerChannels: ("gmail" | "whatsapp")[] =
-    channelLocked && effectiveChannel ? [effectiveChannel] : ["gmail", "whatsapp"];
+  const channelLocked =
+    hasLinkedPlan || Boolean(editor?.channel) || isVoiceCallCampaign;
+  const effectiveChannel: "gmail" | "whatsapp" | "voice_call" | null =
+    isVoiceCallCampaign
+      ? "voice_call"
+      : editor?.channel ||
+        (campaign.outreachChannel === "whatsapp"
+          ? "whatsapp"
+          : campaign.outreachChannel === "gmail"
+            ? "gmail"
+            : null);
+  const allowedPickerChannels: ("gmail" | "whatsapp" | "voice_call")[] =
+    isVoiceCallCampaign
+      ? ["voice_call"]
+      : channelLocked && effectiveChannel
+        ? [effectiveChannel]
+        : ["gmail", "whatsapp", "voice_call"];
   const isWhatsAppCampaign =
     campaign.outreachChannel === "whatsapp" ||
     effectiveChannel === "whatsapp" ||
@@ -987,15 +996,19 @@ export function CampaignWorkspace({
     workspaceTab: activeTab,
     hasJobDescription: Boolean(String(campaign.jobDescription || "").trim()),
   });
-  const hasSequence = Boolean(campaign.outreachPlanId?.trim());
+  const hasSequence =
+    Boolean(campaign.outreachPlanId?.trim()) || campaign.outreachChannel === "voice_call";
   const campaignContactCount = campaign.contactCount ?? campaign.contacts.length;
   const hasContacts =
     contacts.length > 0 || contactsListTotal > 0 || campaignContactCount > 0;
 
   useEffect(() => {
     if (!visibleWorkspaceTabs.includes(activeTab)) {
+      const normalized = normalizeCampaignWorkspaceTab(activeTab, effectiveChannel);
       onWorkspaceTabChange(
-        normalizeCampaignWorkspaceTab(activeTab, effectiveChannel)
+        visibleWorkspaceTabs.includes(normalized)
+          ? normalized
+          : (visibleWorkspaceTabs[0] ?? "Emails")
       );
     }
   }, [activeTab, effectiveChannel, onWorkspaceTabChange, visibleWorkspaceTabs]);
@@ -1265,6 +1278,35 @@ export function CampaignWorkspace({
     }
   }, [campaign.id, launchBusy]);
 
+  /** Voice call launch — wire API when product handler is ready. */
+  const handleLaunchVoiceCampaign = useCallback(async () => {
+    if (launchBusy || unveilJobActive) return;
+    setLaunchError("");
+    setLaunchNotice("");
+    setLaunchBusy(true);
+    try {
+      // TODO: voice call launch
+    } catch (err) {
+      setLaunchError(
+        err instanceof Error ? err.message : "Could not launch voice campaign."
+      );
+    } finally {
+      setLaunchBusy(false);
+    }
+  }, [launchBusy, unveilJobActive]);
+
+  const voiceLaunchBlockedReason = !hasSequence
+    ? "Set up this voice campaign first"
+    : !campaign.jobDescription?.trim()
+      ? "Add a job description first"
+      : !hasContacts
+        ? "Add contacts to this campaign first"
+        : unveilJobActive
+          ? "Wait for contact unveil to finish"
+          : launchBusy
+            ? "Launching…"
+            : null;
+
   const loadContactsListPage = useCallback(
     async (page: number) => {
       const auth = getStoredAuth();
@@ -1427,12 +1469,30 @@ export function CampaignWorkspace({
         return;
       }
 
+      const voiceJd =
+        campaign.jobDescription?.trim() || standaloneJobDescription.trim() || "";
+      if (campaign.outreachChannel === "voice_call" && !voiceJd) {
+        setSaveToast({
+          message: "Add a job description before importing contacts for AI voice calls.",
+          variant: "warning",
+        });
+        return;
+      }
+
+      const payload =
+        campaign.outreachChannel === "voice_call" && voiceJd
+          ? contactsToImport.map((contact) => ({
+              ...contact,
+              jd: contact.jd?.trim() || voiceJd,
+            }))
+          : contactsToImport;
+
       setCsvImportBusy(true);
       try {
         const result = await addContactsToCampaignApi(
           auth.token,
           campaign.id,
-          contactsToImport
+          payload
         );
         onCampaignUpdatedRef.current?.(result.campaign);
         contactsFetchKeyRef.current = null;
@@ -1458,10 +1518,13 @@ export function CampaignWorkspace({
     },
     [
       campaign.id,
+      campaign.jobDescription,
+      campaign.outreachChannel,
       campaignContactsLocked,
       contacts.length,
       onRevealQuotaExceeded,
       refreshContactDependentViews,
+      standaloneJobDescription,
     ]
   );
 
@@ -1471,13 +1534,24 @@ export function CampaignWorkspace({
     try {
       const raw = await file.text();
       const { contacts: parsed, errors } = parseCsvContacts(raw);
+      const voiceJd =
+        campaign.jobDescription?.trim() || standaloneJobDescription.trim() || "";
+      if (campaign.outreachChannel === "voice_call" && !voiceJd) {
+        limitErrors.push(
+          "Add a job description on the Job description tab before importing CSV for AI voice calls."
+        );
+      }
+      const contactsForImport =
+        campaign.outreachChannel === "voice_call" && voiceJd
+          ? parsed.map((contact) => ({ ...contact, jd: voiceJd }))
+          : parsed;
       const limitErrors = [...errors];
-      const batchCheck = validateCampaignContactBatch(contacts.length, parsed.length);
+      const batchCheck = validateCampaignContactBatch(contacts.length, contactsForImport.length);
       if (!batchCheck.ok) {
         limitErrors.push(batchCheck.message);
       }
       setCsvFileName(file.name);
-      setCsvParsedContacts(parsed);
+      setCsvParsedContacts(contactsForImport);
       setCsvValidationErrors(limitErrors);
     } catch (err) {
       setCsvFileName(file.name);
@@ -1487,7 +1561,12 @@ export function CampaignWorkspace({
       ]);
     }
   },
-    [contacts.length]
+    [
+      campaign.jobDescription,
+      campaign.outreachChannel,
+      contacts.length,
+      standaloneJobDescription,
+    ]
   );
 
   const downloadSampleCsv = useCallback(() => {
@@ -1679,6 +1758,39 @@ export function CampaignWorkspace({
             err instanceof Error ? err.message : "Could not save role details."
           );
         }
+      }
+      if (choice.channel === "voice_call") {
+        const auth = getStoredAuth();
+        if (!auth?.token) {
+          setEditorNotice("Please sign in again.");
+          return;
+        }
+        setLinkedPlanLoading(true);
+        try {
+          const updated = await setCampaignOutreachPlan(
+            auth.token,
+            campaign.id,
+            null,
+            "voice_call"
+          );
+          onCampaignUpdatedRef.current?.(updated);
+          setBypassLinkedPlan(false);
+          setEditor(null);
+          setEditorPhase("choose");
+          setEditorNotice("");
+          setSaveToast({
+            message: "AI voice call campaign ready.",
+            variant: "success",
+          });
+          onWorkspaceTabChange("Emails");
+        } catch (err) {
+          setEditorNotice(
+            err instanceof Error ? err.message : "Could not set AI voice call channel."
+          );
+        } finally {
+          setLinkedPlanLoading(false);
+        }
+        return;
       }
       if (choice.channel === "whatsapp") {
         await autoSaveWhatsAppSequence({
@@ -1875,6 +1987,81 @@ export function CampaignWorkspace({
           <h1 className="min-w-0 flex-1 truncate text-sm font-semibold leading-none text-[#141b2b] sm:text-base">
             {campaign.name}
           </h1>
+          {isVoiceCallCampaign ? (
+            <div className="flex shrink-0 items-center gap-1 sm:gap-1.5">
+              {outreachStatus === "active" ? (
+                <button
+                  type="button"
+                  onClick={() => void handlePauseSequence()}
+                  disabled={launchBusy}
+                  className={`${dashboardBtnSecondaryClass} inline-flex h-7 items-center px-2.5 text-xs disabled:opacity-55 sm:h-8 sm:px-3 sm:text-sm`}
+                >
+                  Pause
+                </button>
+              ) : outreachStatus === "paused" ? (
+                <button
+                  type="button"
+                  onClick={() => void handleResumeSequence()}
+                  disabled={launchBusy}
+                  title={launchBusy ? "Resuming…" : "Resume campaign"}
+                  className={`${dashboardBtnPrimaryClass} inline-flex h-7 items-center justify-center gap-1 whitespace-nowrap px-2.5 text-xs disabled:opacity-55 sm:h-8 sm:gap-1.5 sm:px-3 sm:text-sm`}
+                >
+                  {launchBusy ? (
+                    <>
+                      <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
+                      <span className="hidden sm:inline">Resuming…</span>
+                    </>
+                  ) : (
+                    <>
+                      <MaterialIcon name="play_circle" className="text-base" />
+                      <span className="hidden sm:inline">Resume</span>
+                    </>
+                  )}
+                </button>
+              ) : outreachStatus === "completed" ? (
+                <button
+                  type="button"
+                  disabled
+                  title="Campaign completed"
+                  aria-label="Campaign completed"
+                  className={`${dashboardBtnSecondaryClass} inline-flex h-7 cursor-not-allowed items-center gap-1 px-2.5 text-xs opacity-60 sm:h-8 sm:px-3 sm:text-sm`}
+                >
+                  <MaterialIcon
+                    name="check_circle"
+                    className="text-base text-slate-500"
+                    aria-hidden
+                  />
+                  <span className="hidden sm:inline">Completed</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void handleLaunchVoiceCampaign()}
+                  disabled={
+                    launchBusy ||
+                    unveilJobActive ||
+                    !hasSequence ||
+                    !hasContacts ||
+                    !campaign.jobDescription?.trim()
+                  }
+                  title={voiceLaunchBlockedReason ?? "Launch campaign"}
+                  className={`${dashboardBtnPrimaryClass} inline-flex h-7 items-center justify-center gap-1 whitespace-nowrap px-2.5 text-xs disabled:opacity-55 sm:h-8 sm:gap-1.5 sm:px-3 sm:text-sm`}
+                >
+                  {launchBusy ? (
+                    <>
+                      <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
+                      <span className="hidden sm:inline">Launching…</span>
+                    </>
+                  ) : (
+                    <>
+                      <MaterialIcon name="rocket_launch" className="text-base" />
+                      <span className="hidden sm:inline">Launch campaign</span>
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+          ) : null}
         </div>
 
         <nav
@@ -1883,14 +2070,15 @@ export function CampaignWorkspace({
         >
           {visibleWorkspaceTabs.map((tab) => {
             const active = activeTab === tab;
+            const tabLabel = campaignWorkspaceTabLabel(tab, effectiveChannel);
             return (
               <button
                 key={tab}
                 type="button"
                 role="tab"
                 aria-selected={active}
-                aria-label={tab}
-                title={tab}
+                aria-label={tabLabel}
+                title={tabLabel}
                 className={`shrink-0 snap-start rounded-md px-2 py-0.5 text-xs font-medium transition sm:rounded-lg sm:px-3 sm:py-1 sm:text-sm ${
                   active
                     ? "bg-[#0050cb]/10 text-[#0050cb]"
@@ -1898,8 +2086,10 @@ export function CampaignWorkspace({
                 }`}
                 onClick={() => onWorkspaceTabChange(tab)}
               >
-                <span className="sm:hidden">{campaignWorkspaceTabShortLabel(tab)}</span>
-                <span className="hidden sm:inline">{tab}</span>
+                <span className="sm:hidden">
+                  {campaignWorkspaceTabShortLabel(tab, effectiveChannel)}
+                </span>
+                <span className="hidden sm:inline">{tabLabel}</span>
               </button>
             );
           })}
@@ -2089,7 +2279,13 @@ export function CampaignWorkspace({
               />
             ) : outreachStatus === "idle" ? (
               <CampaignPreLaunchContactsPanel
-                channel="gmail"
+                channel={
+                  isVoiceCallCampaign
+                    ? "voice_call"
+                    : campaign.outreachChannel === "whatsapp" || effectiveChannel === "whatsapp"
+                      ? "whatsapp"
+                      : "gmail"
+                }
                 contacts={contactsListRows}
                 totalContacts={contactsListTotal}
                 page={contactsListPage}

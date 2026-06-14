@@ -25,6 +25,7 @@ function parseContact(raw: unknown): CampaignContact | null {
     location: typeof o.location === "string" ? o.location : "",
     linkedinUrl: typeof o.linkedinUrl === "string" ? o.linkedinUrl : "",
     sourcingSessionId: typeof o.sourcingSessionId === "string" ? o.sourcingSessionId : "",
+    ...(typeof o.jd === "string" && o.jd.trim() ? { jd: o.jd.trim() } : {}),
     addedAt:
       typeof o.addedAt === "string"
         ? o.addedAt
@@ -60,9 +61,11 @@ function parseCampaign(raw: unknown): CampaignRecord | null {
   const outreachChannel =
     o.outreachChannel === "whatsapp"
       ? "whatsapp"
-      : o.outreachChannel === "gmail"
-        ? "gmail"
-        : undefined;
+      : o.outreachChannel === "voice_call"
+        ? "voice_call"
+        : o.outreachChannel === "gmail"
+          ? "gmail"
+          : undefined;
   const outreachStatus =
     typeof o.outreachStatus === "string" &&
     ["idle", "active", "paused", "completed"].includes(o.outreachStatus)
@@ -297,7 +300,7 @@ export async function setCampaignOutreachPlan(
   token: string,
   campaignId: string,
   outreachPlanId: string | null,
-  outreachChannel: "gmail" | "whatsapp" = "gmail"
+  outreachChannel: "gmail" | "whatsapp" | "voice_call" = "gmail"
 ): Promise<CampaignRecord> {
   const res = await fetch(`${apiBase()}/api/campaigns/${campaignId}/outreach-plan`, {
     method: "PATCH",

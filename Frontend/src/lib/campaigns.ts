@@ -9,6 +9,8 @@ export type CampaignContact = {
   location: string;
   linkedinUrl: string;
   sourcingSessionId: string;
+  /** Per-contact job description (AI voice call campaigns). */
+  jd?: string;
   addedAt: string;
 };
 
@@ -35,8 +37,8 @@ export type CampaignRecord = {
   createdAt: string;
   /** Linked outreach sequence for the campaign editor. */
   outreachPlanId?: string;
-  /** gmail = email sequence; whatsapp = WhatsApp sequence */
-  outreachChannel?: "gmail" | "whatsapp";
+  /** gmail = email sequence; whatsapp = WhatsApp sequence; voice_call = AI voice calls */
+  outreachChannel?: "gmail" | "whatsapp" | "voice_call";
   outreachStatus?: CampaignOutreachStatus;
   outreachStartedAt?: string | null;
   /** Contacts with at least one outreach message sent (list view). */
