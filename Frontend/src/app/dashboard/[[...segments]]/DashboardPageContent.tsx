@@ -135,6 +135,7 @@ import {
 type SourcingSessionRow = {
   id: string;
   futureJobsSessionId: string;
+  searchedByName?: string;
   prompt: string;
   sessionTitle: string;
   usingSessionOverride: boolean;
@@ -4959,6 +4960,7 @@ export function UserDashboardPage() {
                   openingSessionId={openingHistorySessionId}
                   onOpenSession={(row) => void openSessionFromHistory(row)}
                   onGoToSearch={() => navigateToTab("Search Candidates")}
+                  showSearchedBy={showAdminLink}
                 />
                 </div>
 

@@ -306,10 +306,30 @@ const loginUser = async (req, res) => {
 
 const listUsers = async (req, res) => {
   try {
-    const users = await User.find().sort({ createdAt: -1 });
+    const limit = Math.min(
+      100,
+      Math.max(1, parseInt(String(req.query?.limit ?? "20"), 10) || 20)
+    );
+    const requestedPage = Math.max(1, parseInt(String(req.query?.page ?? "1"), 10) || 1);
+    const totalDocs = await User.countDocuments({});
+    const totalPages = Math.max(1, Math.ceil(totalDocs / limit));
+    const page = Math.min(requestedPage, totalPages);
+    const skip = (page - 1) * limit;
+
+    const users = await User.find().sort({ createdAt: -1 }).skip(skip).limit(limit);
     return res.status(200).json({
       success: true,
       users: users.map(sanitizeUser),
+      pagination: {
+        page,
+        limit,
+        totalDocs,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+        nextPage: page < totalPages ? page + 1 : null,
+        prevPage: page > 1 ? page - 1 : null,
+      },
     });
   } catch (error) {
     return res.status(500).json({
