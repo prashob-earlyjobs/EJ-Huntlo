@@ -82,8 +82,9 @@ async function sendZohoApiMessage(
   };
 }
 
-async function sendZohoMailMessage(userId, payload) {
-  const integration = await getZohoMailIntegration(userId);
+async function sendZohoMailMessage(userId, payload, options = {}) {
+  const integration =
+    options.integration || (await getZohoMailIntegration(userId, options.integrationId));
   if (integration.zohoAuthMode === "smtp") {
     return sendZohoSmtpMessage(integration, payload);
   }

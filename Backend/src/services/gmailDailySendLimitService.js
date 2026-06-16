@@ -30,10 +30,22 @@ function getUsageDateKey(date = new Date()) {
   return date.toISOString().slice(0, 10);
 }
 
-async function findGmailIntegration(userId) {
+async function findGmailIntegration(userId, integrationId) {
+  const oid = userOid(userId);
+  if (integrationId && mongoose.Types.ObjectId.isValid(String(integrationId))) {
+    return UserIntegration.findOne({
+      _id: integrationId,
+      userId: oid,
+      provider: "gmail",
+    });
+  }
   return UserIntegration.findOne({
-    userId: userOid(userId),
+    userId: oid,
     provider: "gmail",
+    isDefaultEmail: true,
+  }).then(async (doc) => {
+    if (doc?.accessToken) return doc;
+    return UserIntegration.findOne({ userId: oid, provider: "gmail", accessToken: { $ne: "" } });
   });
 }
 
@@ -93,11 +105,11 @@ function countGmailEnrollableContacts(contacts) {
   return count;
 }
 
-async function assertGmailDailySendCapacity(userId, requestedCount) {
+async function assertGmailDailySendCapacity(userId, requestedCount, integrationId) {
   const requested = Math.max(0, Number(requestedCount) || 0);
   if (requested === 0) return buildLimitSnapshot(null, 0);
 
-  const integration = await findGmailIntegration(userId);
+  const integration = await findGmailIntegration(userId, integrationId);
   if (!integration?.accessToken) {
     const err = new Error("Gmail is not connected. Connect Gmail under Integrations first.");
     err.statusCode = 400;
@@ -115,12 +127,12 @@ async function assertGmailDailySendCapacity(userId, requestedCount) {
 /**
  * Gmail campaign launch: enforce daily cap from enrollable emails and total contacts.
  */
-async function assertGmailLaunchCapacity(userId, contacts) {
+async function assertGmailLaunchCapacity(userId, contacts, integrationId) {
   const list = Array.isArray(contacts) ? contacts : [];
   const totalContacts = list.length;
   const enrollable = countGmailEnrollableContacts(list);
 
-  const integration = await findGmailIntegration(userId);
+  const integration = await findGmailIntegration(userId, integrationId);
   if (!integration?.accessToken) {
     const err = new Error("Gmail is not connected. Connect Gmail under Integrations first.");
     err.statusCode = 400;
@@ -173,11 +185,11 @@ async function assertGmailLaunchCapacity(userId, contacts) {
   return { ...snapshot, totalContacts, enrollable };
 }
 
-async function reserveGmailDailySends(userId, count) {
+async function reserveGmailDailySends(userId, count, integrationId) {
   const n = Math.max(0, Number(count) || 0);
   if (n === 0) return;
 
-  const integration = await findGmailIntegration(userId);
+  const integration = await findGmailIntegration(userId, integrationId);
   if (!integration) return;
 
   await ensureGmailDailyUsageCurrent(integration);
@@ -186,8 +198,8 @@ async function reserveGmailDailySends(userId, count) {
   await integration.save();
 }
 
-async function assertCanSendGmailToday(userId) {
-  const integration = await findGmailIntegration(userId);
+async function assertCanSendGmailToday(userId, integrationId) {
+  const integration = await findGmailIntegration(userId, integrationId);
   if (!integration?.accessToken) {
     const err = new Error("Gmail is not connected.");
     err.statusCode = 400;
@@ -208,8 +220,8 @@ async function assertCanSendGmailToday(userId) {
   return integration;
 }
 
-async function recordGmailSend(userId) {
-  const integration = await findGmailIntegration(userId);
+async function recordGmailSend(userId, integrationId) {
+  const integration = await findGmailIntegration(userId, integrationId);
   if (!integration) return;
 
   await ensureGmailDailyUsageCurrent(integration);

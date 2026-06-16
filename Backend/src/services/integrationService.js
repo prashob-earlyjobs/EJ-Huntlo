@@ -47,11 +47,23 @@ const {
   OUTLOOK_MAIL_SCOPES,
 } = require("./outlookMailConfig");
 const { sendOutlookMessage } = require("./outlookMailSendService");
+const {
+  verifyCustomMailSmtpCredentials,
+  smtpConfigFromBody,
+} = require("./customMailSmtpService");
+const { sendCustomMailMessage } = require("./customMailSendService");
+const {
+  ensureDefaultEmailOnConnect,
+  reassignDefaultEmailIntegration,
+  setDefaultEmailIntegration: setUserDefaultEmailIntegration,
+  EMAIL_PROVIDERS,
+} = require("./emailIntegrationService");
 
 const PROVIDER_LABELS = {
   gmail: { integration: "Gmail", provider: "Google" },
   outlook: { integration: "Outlook", provider: "Microsoft" },
   zoho_mail: { integration: "Zoho Mail", provider: "Zoho" },
+  custom_mail: { integration: "Custom config", provider: "SMTP" },
   whatsapp: { integration: "WhatsApp Business", provider: "Meta" },
   calendly: { integration: "Calendly", provider: "Calendly" },
 };
@@ -83,6 +95,24 @@ function formatIntegrationRow(doc, platformChannel = "huntlo_meta") {
       status: "connected",
       zohoAuthMode: mode,
       zohoDataCenter: doc.zohoDataCenter || "com",
+      isDefaultEmail: Boolean(doc.isDefaultEmail),
+      connectedAt: doc.updatedAt || doc.createdAt,
+    };
+  }
+
+  if (doc.provider === "custom_mail") {
+    return {
+      id: String(doc._id),
+      provider: "custom_mail",
+      integration: "Custom config",
+      providerLabel: "SMTP",
+      senderName: doc.senderName || "",
+      email: doc.email || "",
+      status: "connected",
+      smtpHost: doc.smtpHost || "",
+      smtpPort: doc.smtpPort || 587,
+      smtpSecurity: doc.smtpSecurity || "tls",
+      isDefaultEmail: Boolean(doc.isDefaultEmail),
       connectedAt: doc.updatedAt || doc.createdAt,
     };
   }
@@ -126,6 +156,7 @@ function formatIntegrationRow(doc, platformChannel = "huntlo_meta") {
     senderName: doc.senderName || "",
     email: doc.email || "",
     status: "connected",
+    isDefaultEmail: EMAIL_PROVIDERS.includes(doc.provider) ? Boolean(doc.isDefaultEmail) : false,
     connectedAt: doc.updatedAt || doc.createdAt,
   };
 }
@@ -145,18 +176,24 @@ async function saveGmailIntegration(userOid, email, tokens, senderName) {
     scopes: [...GMAIL_SCOPES],
   };
 
-  let doc = await UserIntegration.findOne({ userId: userOid, provider: "gmail" });
+  let doc = await UserIntegration.findOne({
+    userId: userOid,
+    provider: "gmail",
+    email: email || "",
+  });
   if (doc) {
     Object.assign(doc, patch);
   } else {
     doc = new UserIntegration({
       userId: userOid,
       provider: "gmail",
+      email: email || "",
       ...patch,
     });
   }
 
   await doc.save();
+  await ensureDefaultEmailOnConnect(userOid, doc);
   return doc;
 }
 
@@ -230,8 +267,40 @@ async function getGmailStatus(userId) {
 
 async function disconnectIntegration(userId, provider) {
   const userOid = new mongoose.Types.ObjectId(userId);
-  const result = await UserIntegration.deleteOne({ userId: userOid, provider });
-  return { deleted: result.deletedCount > 0 };
+  const docs = await UserIntegration.find({ userId: userOid, provider });
+  if (docs.length === 0) return { deleted: false };
+  const hadDefault = docs.some((doc) => doc.isDefaultEmail);
+  await UserIntegration.deleteMany({ userId: userOid, provider });
+  if (hadDefault && EMAIL_PROVIDERS.includes(provider)) {
+    await reassignDefaultEmailIntegration(userOid);
+  }
+  return { deleted: true, count: docs.length };
+}
+
+async function disconnectIntegrationById(userId, integrationId) {
+  const userOid = new mongoose.Types.ObjectId(userId);
+  if (!mongoose.Types.ObjectId.isValid(String(integrationId))) {
+    const err = new Error("Invalid integration id");
+    err.statusCode = 400;
+    throw err;
+  }
+  const doc = await UserIntegration.findOne({
+    _id: integrationId,
+    userId: userOid,
+  });
+  if (!doc) return { deleted: false };
+  const wasDefault = doc.isDefaultEmail;
+  const provider = doc.provider;
+  await doc.deleteOne();
+  if (wasDefault && EMAIL_PROVIDERS.includes(provider)) {
+    await reassignDefaultEmailIntegration(userOid);
+  }
+  return { deleted: true, provider };
+}
+
+async function setDefaultEmailIntegration(userId, integrationId) {
+  const doc = await setUserDefaultEmailIntegration(userId, integrationId);
+  return formatIntegrationRow(doc.toObject ? doc.toObject() : doc);
 }
 
 async function disconnectGmail(userId) {
@@ -649,7 +718,12 @@ async function disconnectCalendly(userId) {
 }
 
 async function saveOutlookIntegration(userOid, patch) {
-  let doc = await UserIntegration.findOne({ userId: userOid, provider: "outlook" });
+  const email = String(patch.email || "").trim();
+  let doc = await UserIntegration.findOne({
+    userId: userOid,
+    provider: "outlook",
+    email,
+  });
   if (doc) {
     Object.assign(doc, patch);
   } else {
@@ -660,6 +734,7 @@ async function saveOutlookIntegration(userOid, patch) {
     });
   }
   await doc.save();
+  await ensureDefaultEmailOnConnect(userOid, doc);
   return doc;
 }
 
@@ -756,10 +831,24 @@ async function disconnectOutlook(userId) {
 
 async function sendOutlookTest(userId, body = {}) {
   const userOid = new mongoose.Types.ObjectId(userId);
-  const doc = await UserIntegration.findOne({
-    userId: userOid,
-    provider: "outlook",
-  }).lean();
+  const integrationId = String(body?.integrationId || "").trim();
+  let doc = null;
+  if (integrationId && mongoose.Types.ObjectId.isValid(integrationId)) {
+    doc = await UserIntegration.findOne({
+      _id: integrationId,
+      userId: userOid,
+      provider: "outlook",
+    }).lean();
+  } else {
+    doc = await UserIntegration.findOne({
+      userId: userOid,
+      provider: "outlook",
+      isDefaultEmail: true,
+    }).lean();
+    if (!doc) {
+      doc = await UserIntegration.findOne({ userId: userOid, provider: "outlook" }).lean();
+    }
+  }
 
   if (!doc?.accessToken) {
     const err = new Error("Outlook is not connected. Connect Outlook under Integrations first.");
@@ -776,12 +865,16 @@ async function sendOutlookTest(userId, body = {}) {
     throw err;
   }
 
-  const result = await sendOutlookMessage(userId, {
-    to,
-    subject: "Huntlo — Outlook connection test",
-    body:
-      "This is a test email from Huntlo.\n\nIf you received this, your Outlook integration is working and ready for candidate outreach.",
-  });
+  const result = await sendOutlookMessage(
+    userId,
+    {
+      to,
+      subject: "Huntlo — Outlook connection test",
+      body:
+        "This is a test email from Huntlo.\n\nIf you received this, your Outlook integration is working and ready for candidate outreach.",
+    },
+    { integrationId: doc._id }
+  );
 
   return {
     to: result.to || to,
@@ -791,7 +884,12 @@ async function sendOutlookTest(userId, body = {}) {
 }
 
 async function saveZohoMailIntegration(userOid, patch) {
-  let doc = await UserIntegration.findOne({ userId: userOid, provider: "zoho_mail" });
+  const email = String(patch.email || "").trim();
+  let doc = await UserIntegration.findOne({
+    userId: userOid,
+    provider: "zoho_mail",
+    email,
+  });
   if (doc) {
     Object.assign(doc, patch);
   } else {
@@ -802,6 +900,7 @@ async function saveZohoMailIntegration(userOid, patch) {
     });
   }
   await doc.save();
+  await ensureDefaultEmailOnConnect(userOid, doc);
   return doc;
 }
 
@@ -971,12 +1070,161 @@ async function disconnectZohoMail(userId) {
   return disconnectIntegration(userId, "zoho_mail");
 }
 
-async function sendZohoMailTest(userId, body = {}) {
+async function saveCustomMailIntegration(userOid, patch) {
+  const email = String(patch.email || "").trim();
+  const smtpHost = String(patch.smtpHost || "").trim();
+  let doc = await UserIntegration.findOne({
+    userId: userOid,
+    provider: "custom_mail",
+    email,
+    smtpHost,
+  });
+  if (doc) {
+    Object.assign(doc, patch);
+  } else {
+    doc = new UserIntegration({
+      userId: userOid,
+      provider: "custom_mail",
+      ...patch,
+    });
+  }
+  await doc.save();
+  await ensureDefaultEmailOnConnect(userOid, doc);
+  return doc;
+}
+
+async function verifyCustomMailIntegrationCredentials(body) {
+  return verifyCustomMailSmtpCredentials(body);
+}
+
+async function connectCustomMail(userId, body) {
+  const config = smtpConfigFromBody(body);
+  await verifyCustomMailSmtpCredentials(body);
+
+  const userOid = new mongoose.Types.ObjectId(userId);
+  const user = await User.findById(userOid).select("fullName").lean();
+  const fallbackName =
+    typeof user?.fullName === "string" ? user.fullName.trim() : "";
+
+  const doc = await saveCustomMailIntegration(userOid, {
+    email: config.fromEmail,
+    senderName: config.senderName || fallbackName || config.fromEmail.split("@")[0],
+    accessToken: config.username,
+    refreshToken: config.password,
+    smtpHost: config.smtpHost,
+    smtpPort: config.smtpPort,
+    smtpSecurity: config.security,
+    tokenExpiry: null,
+    scopes: ["custom_smtp"],
+  });
+
+  return formatIntegrationRow(doc.toObject ? doc.toObject() : doc);
+}
+
+async function getCustomMailStatus(userId) {
   const userOid = new mongoose.Types.ObjectId(userId);
   const doc = await UserIntegration.findOne({
     userId: userOid,
-    provider: "zoho_mail",
+    provider: "custom_mail",
   }).lean();
+
+  if (!doc) {
+    return {
+      connected: false,
+      configured: true,
+    };
+  }
+
+  return {
+    connected: true,
+    configured: true,
+    email: doc.email || "",
+    senderName: doc.senderName || "",
+    smtpHost: doc.smtpHost || "",
+    smtpPort: doc.smtpPort || 587,
+    smtpSecurity: doc.smtpSecurity || "tls",
+    connectedAt: doc.updatedAt || doc.createdAt,
+  };
+}
+
+async function disconnectCustomMail(userId) {
+  return disconnectIntegration(userId, "custom_mail");
+}
+
+async function sendCustomMailTest(userId, body = {}) {
+  const userOid = new mongoose.Types.ObjectId(userId);
+  const integrationId = String(body?.integrationId || "").trim();
+  let doc = null;
+  if (integrationId && mongoose.Types.ObjectId.isValid(integrationId)) {
+    doc = await UserIntegration.findOne({
+      _id: integrationId,
+      userId: userOid,
+      provider: "custom_mail",
+    }).lean();
+  } else {
+    doc = await UserIntegration.findOne({
+      userId: userOid,
+      provider: "custom_mail",
+      isDefaultEmail: true,
+    }).lean();
+    if (!doc) {
+      doc = await UserIntegration.findOne({ userId: userOid, provider: "custom_mail" }).lean();
+    }
+  }
+
+  if (!doc) {
+    const err = new Error("Custom mail is not connected. Connect SMTP under Integrations first.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const to = String(body?.to || doc.email || "").trim();
+  if (!to.includes("@")) {
+    const err = new Error(
+      "No recipient for test email. Reconnect custom mail so Huntlo can use your from address."
+    );
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const result = await sendCustomMailMessage(
+    userId,
+    {
+      to,
+      subject: "Huntlo — Custom SMTP connection test",
+      body:
+        "This is a test email from Huntlo.\n\nIf you received this, your custom SMTP integration is working and ready for candidate outreach.",
+    },
+    { integrationId: doc._id }
+  );
+
+  return {
+    to: result.to || to,
+    fromEmail: result.fromEmail || doc.email || "",
+    messageId: result.messageId || "",
+  };
+}
+
+async function sendZohoMailTest(userId, body = {}) {
+  const userOid = new mongoose.Types.ObjectId(userId);
+  const integrationId = String(body?.integrationId || "").trim();
+  let doc = null;
+  if (integrationId && mongoose.Types.ObjectId.isValid(integrationId)) {
+    doc = await UserIntegration.findOne({
+      _id: integrationId,
+      userId: userOid,
+      provider: "zoho_mail",
+    }).lean();
+  } else {
+    doc = await UserIntegration.findOne({
+      userId: userOid,
+      provider: "zoho_mail",
+      isDefaultEmail: true,
+    }).lean();
+    if (!doc) {
+      doc = await UserIntegration.findOne({ userId: userOid, provider: "zoho_mail" }).lean();
+    }
+  }
 
   if (!doc) {
     const err = new Error("Zoho Mail is not connected. Connect Zoho Mail under Integrations first.");
@@ -993,12 +1241,16 @@ async function sendZohoMailTest(userId, body = {}) {
     throw err;
   }
 
-  const result = await sendZohoMailMessage(userId, {
-    to,
-    subject: "Huntlo — Zoho Mail connection test",
-    body:
-      "This is a test email from Huntlo.\n\nIf you received this, your Zoho Mail integration is working and ready for candidate outreach.",
-  });
+  const result = await sendZohoMailMessage(
+    userId,
+    {
+      to,
+      subject: "Huntlo — Zoho Mail connection test",
+      body:
+        "This is a test email from Huntlo.\n\nIf you received this, your Zoho Mail integration is working and ready for candidate outreach.",
+    },
+    { integrationId: doc._id }
+  );
 
   return {
     to: result.to || to,
@@ -1147,6 +1399,13 @@ module.exports = {
   disconnectGmail,
   disconnectOutlook,
   disconnectZohoMail,
+  connectCustomMail,
+  verifyCustomMailIntegrationCredentials,
+  getCustomMailStatus,
+  sendCustomMailTest,
+  disconnectCustomMail,
+  disconnectIntegrationById,
+  setDefaultEmailIntegration,
   disconnectWhatsApp,
   disconnectCalendly,
   disconnectIntegration,

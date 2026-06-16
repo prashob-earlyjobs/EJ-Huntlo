@@ -69,7 +69,7 @@ function ensureCalendlyLinkInReply(replyBody, calendlyAutomation) {
 async function loadAutoReplyContext(enrollment) {
   const userId = String(enrollment.userId);
   const campaign = await Campaign.findById(enrollment.campaignId)
-    .select("name jobTitle outreachPlanId calendlyAutomation jobDescription")
+    .select("name jobTitle outreachPlanId calendlyAutomation jobDescription emailIntegrationId")
     .lean();
 
   let planSummary = "";
@@ -106,8 +106,13 @@ async function loadAutoReplyContext(enrollment) {
     .filter(Boolean)
     .join(" ");
 
+  const integrationId = campaign?.emailIntegrationId
+    ? String(campaign.emailIntegrationId)
+    : null;
+
   return {
     userId,
+    emailIntegrationId: integrationId,
     campaignName: campaign?.name || "",
     jobTitle: String(campaign?.jobTitle || "").trim(),
     jobDescription: String(campaign?.jobDescription || "").trim(),
@@ -118,7 +123,7 @@ async function loadAutoReplyContext(enrollment) {
     threadMessages,
     threadSubject,
     references,
-    senderFirstName: await getSenderFirstName(userId),
+    senderFirstName: await getSenderFirstNameForEmail(userId, integrationId),
     calendlyAutomation,
   };
 }
@@ -241,14 +246,18 @@ async function maybeAutoReplyAfterCandidateMessage({
 
   let sendResult;
   try {
-    sendResult = await sendCampaignEmail(context.userId, {
-      to: contactEmail,
-      subject,
-      body: replyBody,
-      threadId: tid,
-      inReplyTo: inReplyTo || undefined,
-      references: references || undefined,
-    });
+    sendResult = await sendCampaignEmail(
+      context.userId,
+      {
+        to: contactEmail,
+        subject,
+        body: replyBody,
+        threadId: tid,
+        inReplyTo: inReplyTo || undefined,
+        references: references || undefined,
+      },
+      { integrationId: context.emailIntegrationId || undefined }
+    );
   } catch (err) {
     console.error(
       `[outreach-auto-reply] send enrollment ${enrollment._id}:`,

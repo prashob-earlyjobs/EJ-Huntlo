@@ -7,10 +7,13 @@ function stripOutlookIdPrefix(id) {
     .replace(/^outlook:/, "");
 }
 
-async function sendOutlookMessage(userId, { to, subject, body, threadId, inReplyTo, references }) {
+async function sendOutlookMessage(userId, payload, options = {}) {
+  const { to, subject, body, threadId, inReplyTo, references } = payload || {};
   const recipient = String(to || "").trim();
   const mailSubject = String(subject || "").trim();
   const mailBody = String(body || "").trim();
+  const integration =
+    options.integration || (await getOutlookIntegration(userId, options.integrationId));
 
   if (!recipient.includes("@")) {
     const err = new Error("A valid recipient email is required.");
@@ -23,7 +26,6 @@ async function sendOutlookMessage(userId, { to, subject, body, threadId, inReply
     throw err;
   }
 
-  const integration = await getOutlookIntegration(userId);
   const html = bodyToHtml(mailBody);
   const text = bodyToPlainText(mailBody);
   const contentType = html ? "HTML" : "Text";

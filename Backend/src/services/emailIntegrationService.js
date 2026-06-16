@@ -1,8 +1,15 @@
 const mongoose = require("mongoose");
 const UserIntegration = require("../models/UserIntegration");
+const { isCustomMailConnected } = require("./customMailSendService");
+
+const EMAIL_PROVIDERS = ["gmail", "outlook", "zoho_mail", "custom_mail"];
 
 function userOid(userId) {
   return new mongoose.Types.ObjectId(String(userId));
+}
+
+function isEmailProvider(provider) {
+  return EMAIL_PROVIDERS.includes(String(provider || ""));
 }
 
 function isZohoConnected(doc) {
@@ -20,79 +27,117 @@ function isOutlookConnected(doc) {
   return Boolean(doc?.accessToken);
 }
 
-/**
- * Which email provider to use for send + reply sync (Gmail > Outlook > Zoho).
- * @returns {"gmail" | "outlook" | "zoho_mail" | null}
- */
-async function resolveEmailProviderForUser(userId) {
-  const oid = userOid(userId);
-  const [gmail, outlook, zoho] = await Promise.all([
-    UserIntegration.findOne({ userId: oid, provider: "gmail" }).lean(),
-    UserIntegration.findOne({ userId: oid, provider: "outlook" }).lean(),
-    UserIntegration.findOne({ userId: oid, provider: "zoho_mail" }).lean(),
-  ]);
-
-  if (gmail?.accessToken) return "gmail";
-  if (isOutlookConnected(outlook)) return "outlook";
-  if (isZohoConnected(zoho)) return "zoho_mail";
-  return null;
+function isGmailConnected(doc) {
+  return Boolean(doc?.accessToken);
 }
 
-async function getEmailIntegrationDoc(userId, provider) {
+function isEmailIntegrationConnected(doc) {
+  if (!doc || !isEmailProvider(doc.provider)) return false;
+  if (doc.provider === "gmail") return isGmailConnected(doc);
+  if (doc.provider === "outlook") return isOutlookConnected(doc);
+  if (doc.provider === "zoho_mail") return isZohoConnected(doc);
+  if (doc.provider === "custom_mail") return isCustomMailConnected(doc);
+  return false;
+}
+
+async function listConnectedEmailIntegrations(userId) {
+  const docs = await UserIntegration.find({
+    userId: userOid(userId),
+    provider: { $in: EMAIL_PROVIDERS },
+  })
+    .sort({ isDefaultEmail: -1, updatedAt: -1 })
+    .lean();
+  return docs.filter(isEmailIntegrationConnected);
+}
+
+async function resolveEmailIntegration(userId, integrationId) {
   const oid = userOid(userId);
-  if (provider === "gmail") {
-    const doc = await UserIntegration.findOne({ userId: oid, provider: "gmail" });
-    if (!doc?.accessToken) {
-      const err = new Error("Gmail is not connected. Connect Gmail under Integrations first.");
+
+  if (integrationId) {
+    const doc = await UserIntegration.findOne({
+      _id: new mongoose.Types.ObjectId(String(integrationId)),
+      userId: oid,
+      provider: { $in: EMAIL_PROVIDERS },
+    });
+    if (!doc || !isEmailIntegrationConnected(doc)) {
+      const err = new Error("Email integration not found or disconnected.");
       err.statusCode = 400;
       throw err;
     }
     return doc;
   }
 
-  if (provider === "outlook") {
-    const doc = await UserIntegration.findOne({ userId: oid, provider: "outlook" });
-    if (!isOutlookConnected(doc)) {
-      const err = new Error("Outlook is not connected. Connect Outlook under Integrations first.");
-      err.statusCode = 400;
-      throw err;
-    }
-    return doc;
+  const defaultDoc = await UserIntegration.findOne({
+    userId: oid,
+    isDefaultEmail: true,
+    provider: { $in: EMAIL_PROVIDERS },
+  });
+  if (defaultDoc && isEmailIntegrationConnected(defaultDoc)) {
+    return defaultDoc;
   }
 
-  if (provider === "zoho_mail") {
-    const doc = await UserIntegration.findOne({ userId: oid, provider: "zoho_mail" });
-    if (!isZohoConnected(doc)) {
-      const err = new Error(
-        "Zoho Mail is not connected. Connect Zoho Mail under Integrations first."
-      );
-      err.statusCode = 400;
-      throw err;
-    }
-    return doc;
+  const connected = await listConnectedEmailIntegrations(userId);
+  if (connected.length > 0) {
+    return UserIntegration.findById(connected[0]._id);
   }
 
-  const err = new Error("Unknown email provider");
+  const err = new Error(
+    "No email integration connected. Connect Gmail, Outlook, Zoho Mail, or Custom SMTP under Integrations first."
+  );
   err.statusCode = 400;
   throw err;
 }
 
-async function getEmailIntegrationEmail(userId, provider) {
-  const doc = await getEmailIntegrationDoc(userId, provider);
+async function resolveEmailProviderForUser(userId, integrationId) {
+  const doc = await resolveEmailIntegration(userId, integrationId);
+  return doc.provider;
+}
+
+async function getEmailIntegrationDoc(userId, providerOrIntegrationId) {
+  const raw = String(providerOrIntegrationId || "");
+  if (mongoose.Types.ObjectId.isValid(raw)) {
+    return resolveEmailIntegration(userId, raw);
+  }
+  const oid = userOid(userId);
+  const defaultForProvider = await UserIntegration.findOne({
+    userId: oid,
+    provider: raw,
+    isDefaultEmail: true,
+  });
+  if (defaultForProvider && isEmailIntegrationConnected(defaultForProvider)) {
+    return defaultForProvider;
+  }
+  const specific = await UserIntegration.findOne({
+    userId: oid,
+    provider: raw,
+  });
+  if (specific && isEmailIntegrationConnected(specific)) {
+    return specific;
+  }
+  const doc = await resolveEmailIntegration(userId);
+  if (doc.provider === raw) {
+    return doc;
+  }
+  const err = new Error(`${raw} is not connected.`);
+  err.statusCode = 400;
+  throw err;
+}
+
+async function getEmailIntegrationForCampaign(campaign) {
+  const userId = String(campaign?.userId || "");
+  const integrationId = campaign?.emailIntegrationId
+    ? String(campaign.emailIntegrationId)
+    : null;
+  return resolveEmailIntegration(userId, integrationId);
+}
+
+async function getEmailIntegrationEmail(userId, providerOrIntegrationId) {
+  const doc = await getEmailIntegrationDoc(userId, providerOrIntegrationId);
   return String(doc.email || "").trim();
 }
 
-async function getSenderFirstNameForEmail(userId) {
-  const provider = await resolveEmailProviderForUser(userId);
-  if (!provider) return "";
-
-  const doc = await UserIntegration.findOne({
-    userId: userOid(userId),
-    provider,
-  })
-    .select("senderName email")
-    .lean();
-
+async function getSenderFirstNameForEmail(userId, integrationId) {
+  const doc = await resolveEmailIntegration(userId, integrationId);
   if (doc?.senderName?.trim()) {
     return doc.senderName.trim().split(/\s+/)[0] || doc.senderName.trim();
   }
@@ -102,11 +147,66 @@ async function getSenderFirstNameForEmail(userId) {
   return "";
 }
 
+async function ensureDefaultEmailOnConnect(userOid, doc) {
+  if (!isEmailIntegrationConnected(doc)) return doc;
+  const hasDefault = await UserIntegration.exists({
+    userId: userOid,
+    isDefaultEmail: true,
+    provider: { $in: EMAIL_PROVIDERS },
+  });
+  if (!hasDefault) {
+    doc.isDefaultEmail = true;
+    await doc.save();
+  }
+  return doc;
+}
+
+async function reassignDefaultEmailIntegration(userOid, excludeId) {
+  const remaining = await UserIntegration.find({
+    userId: userOid,
+    provider: { $in: EMAIL_PROVIDERS },
+    ...(excludeId ? { _id: { $ne: excludeId } } : {}),
+  })
+    .sort({ updatedAt: -1 })
+    .lean();
+
+  const next = remaining.find(isEmailIntegrationConnected);
+  await UserIntegration.updateMany(
+    { userId: userOid, isDefaultEmail: true },
+    { $set: { isDefaultEmail: false } }
+  );
+  if (next) {
+    await UserIntegration.updateOne({ _id: next._id }, { $set: { isDefaultEmail: true } });
+  }
+}
+
+async function setDefaultEmailIntegration(userId, integrationId) {
+  const doc = await resolveEmailIntegration(userId, integrationId);
+  const oid = userOid(userId);
+  await UserIntegration.updateMany(
+    { userId: oid, isDefaultEmail: true },
+    { $set: { isDefaultEmail: false } }
+  );
+  doc.isDefaultEmail = true;
+  await doc.save();
+  return doc;
+}
+
 module.exports = {
-  resolveEmailProviderForUser,
-  getEmailIntegrationDoc,
-  getEmailIntegrationEmail,
-  getSenderFirstNameForEmail,
+  EMAIL_PROVIDERS,
+  isEmailProvider,
+  isEmailIntegrationConnected,
   isOutlookConnected,
   isZohoConnected,
+  isGmailConnected,
+  listConnectedEmailIntegrations,
+  resolveEmailIntegration,
+  resolveEmailProviderForUser,
+  getEmailIntegrationDoc,
+  getEmailIntegrationForCampaign,
+  getEmailIntegrationEmail,
+  getSenderFirstNameForEmail,
+  ensureDefaultEmailOnConnect,
+  reassignDefaultEmailIntegration,
+  setDefaultEmailIntegration,
 };

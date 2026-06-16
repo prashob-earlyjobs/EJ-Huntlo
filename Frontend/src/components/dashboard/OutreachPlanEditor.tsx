@@ -6,6 +6,7 @@ import {
   CampaignLaunchAgentOverlay,
   LAUNCH_AGENT_MIN_DURATION_MS,
 } from "@/components/dashboard/CampaignLaunchAgentOverlay";
+import { CampaignEmailSenderSelect } from "@/components/dashboard/CampaignEmailSenderSelect";
 import { ConfirmModal } from "@/components/dashboard/ConfirmModal";
 import { DashboardToast } from "@/components/dashboard/DashboardToast";
 import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
@@ -15,10 +16,12 @@ import { OutreachTimePicker } from "@/components/dashboard/OutreachTimePicker";
 import { OutreachTestEmailModal } from "@/components/dashboard/OutreachTestEmailModal";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { authHeaders, getStoredAuth } from "@/lib/auth";
+import type { CampaignEmailSenderOption } from "@/lib/emailIntegrations";
 import {
   dashboardBtnPrimaryClass,
   dashboardBtnSecondaryClass,
   dashboardInputClass,
+  dashboardSelectClass,
 } from "@/lib/dashboardStyles";
 import {
   createEmptyTouchpoint,
@@ -169,6 +172,9 @@ type Props = {
   hasSequence?: boolean;
   launchBusy?: boolean;
   unveilInProgress?: boolean;
+  emailSenders?: CampaignEmailSenderOption[];
+  selectedEmailIntegrationId?: string;
+  onEmailIntegrationChange?: (integrationId: string) => void;
   onLaunchCampaign?: () => void | Promise<void>;
   onPauseCampaign?: () => void | Promise<void>;
   onResumeCampaign?: () => void | Promise<void>;
@@ -310,6 +316,9 @@ export function OutreachPlanEditor({
   hasSequence = true,
   launchBusy = false,
   unveilInProgress = false,
+  emailSenders = [],
+  selectedEmailIntegrationId = "",
+  onEmailIntegrationChange,
   onLaunchCampaign,
   onPauseCampaign,
   onResumeCampaign,
@@ -1156,7 +1165,7 @@ export function OutreachPlanEditor({
             <div className="dashboard-outreach-gmail-bar-meta dashboard-outreach-gmail-plan-meta min-w-0">
               {planTitleEditor(false)}
             </div>
-            <div className="dashboard-outreach-gmail-bar-actions flex shrink-0 flex-wrap items-center justify-end gap-2">
+            <div className="dashboard-outreach-gmail-bar-actions flex shrink-0 flex-wrap items-center justify-end gap-2 lg:flex-nowrap">
               <SaveSequenceButton
                 compact
                 saving={saving}
@@ -1214,7 +1223,11 @@ export function OutreachPlanEditor({
                   type="button"
                   onClick={() => void launchCampaign()}
                   disabled={
-                    launchActionBusy || unveilInProgress || !hasSequence || !hasCampaignContacts
+                    launchActionBusy ||
+                    unveilInProgress ||
+                    !hasSequence ||
+                    !hasCampaignContacts ||
+                    (emailSenders.length > 0 && !selectedEmailIntegrationId)
                   }
                   title={
                     unveilInProgress
@@ -1225,7 +1238,9 @@ export function OutreachPlanEditor({
                           ? "Save a sequence first"
                           : !hasCampaignContacts
                             ? "Add contacts to this campaign first"
-                            : "Launch campaign"
+                            : emailSenders.length > 0 && !selectedEmailIntegrationId
+                              ? "Choose a sender account"
+                              : "Launch campaign"
                   }
                   className={`${dashboardBtnPrimaryClass} dashboard-outreach-save-btn inline-flex h-[38px] items-center justify-center gap-1.5 whitespace-nowrap px-4 py-1.5 text-sm disabled:opacity-55`}
                 >
@@ -1285,6 +1300,20 @@ export function OutreachPlanEditor({
           className="dashboard-outreach-builder-rail dashboard-outreach-scroll flex flex-col"
           aria-label="Outreach sequence"
         >
+          {embedded &&
+          emailSenders.length > 0 &&
+          campaignOutreachStatus === "idle" &&
+          onEmailIntegrationChange ? (
+            <div className="dashboard-outreach-builder-rail-sender">
+              <CampaignEmailSenderSelect
+                className="dashboard-campaign-sender-field--rail"
+                value={selectedEmailIntegrationId}
+                options={emailSenders}
+                onChange={onEmailIntegrationChange}
+                disabled={launchActionBusy || editorLocked}
+              />
+            </div>
+          ) : null}
           <p className="dashboard-outreach-builder-rail-title">Sequence steps</p>
           <ol className="dashboard-outreach-flow" role="tablist" aria-label="Touchpoints">
             {touchpoints.map((tp, index) => {

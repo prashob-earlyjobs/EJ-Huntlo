@@ -8,9 +8,26 @@ function tokenExpiryFromExpiresIn(expiresIn) {
   return Number.isFinite(sec) && sec > 0 ? new Date(Date.now() + sec * 1000) : null;
 }
 
-async function getZohoMailIntegration(userId) {
-  const userOid = new mongoose.Types.ObjectId(userId);
-  const doc = await UserIntegration.findOne({ userId: userOid, provider: "zoho_mail" });
+async function getZohoMailIntegration(userId, integrationId) {
+  const oid = new mongoose.Types.ObjectId(userId);
+  let doc = null;
+
+  if (integrationId && mongoose.Types.ObjectId.isValid(String(integrationId))) {
+    doc = await UserIntegration.findOne({
+      _id: integrationId,
+      userId: oid,
+      provider: "zoho_mail",
+    });
+  } else {
+    doc = await UserIntegration.findOne({
+      userId: oid,
+      provider: "zoho_mail",
+      isDefaultEmail: true,
+    });
+    if (!doc) {
+      doc = await UserIntegration.findOne({ userId: oid, provider: "zoho_mail" });
+    }
+  }
   if (!doc) {
     const err = new Error("Zoho Mail is not connected. Connect Zoho Mail under Integrations first.");
     err.statusCode = 400;
