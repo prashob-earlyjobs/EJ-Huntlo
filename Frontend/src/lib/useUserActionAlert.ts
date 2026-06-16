@@ -7,6 +7,7 @@ import {
   FUTURE_JOBS_UPSTREAM_ERROR_MESSAGE,
   isFutureJobsUpstreamApiError,
   isFutureJobsUpstreamThrown,
+  isNoProfilesSearchError,
   parseApiError,
   quotaAlertFromMessage,
   type UserActionAlertState,
@@ -36,7 +37,12 @@ export function useUserActionAlert() {
   const showError = useCallback((message: string) => {
     const trimmed = message.trim();
     if (!trimmed) return;
-    setAlert({ open: true, message: trimmed, isQuotaExceeded: false });
+    setAlert({
+      open: true,
+      message: trimmed,
+      isQuotaExceeded: false,
+      action: isNoProfilesSearchError(trimmed) ? "searchAgain" : null,
+    });
   }, []);
 
   const fromApi = useCallback(

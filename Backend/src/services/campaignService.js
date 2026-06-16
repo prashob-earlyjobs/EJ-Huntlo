@@ -171,6 +171,7 @@ function formatCampaign(doc, listStats, options = {}) {
     outreachPlanId: doc.outreachPlanId ? String(doc.outreachPlanId) : "",
     outreachChannel:
       doc.outreachChannel === "whatsapp" ? "whatsapp" : "gmail",
+    emailIntegrationId: doc.emailIntegrationId ? String(doc.emailIntegrationId) : "",
     outreachStatus: doc.outreachStatus || "idle",
     outreachStartedAt: doc.outreachStartedAt
       ? new Date(doc.outreachStartedAt).toISOString()

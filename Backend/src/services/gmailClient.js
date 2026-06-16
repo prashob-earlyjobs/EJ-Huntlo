@@ -9,14 +9,39 @@ const GMAIL_SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",
 ];
 
+function userOid(userId) {
+  return new mongoose.Types.ObjectId(String(userId));
+}
+
 function tokenExpiryFromExpiresIn(expiresIn) {
   const sec = Number(expiresIn);
   return Number.isFinite(sec) && sec > 0 ? new Date(Date.now() + sec * 1000) : null;
 }
 
-async function getGmailIntegration(userId) {
-  const userOid = new mongoose.Types.ObjectId(userId);
-  const doc = await UserIntegration.findOne({ userId: userOid, provider: "gmail" });
+async function getGmailIntegration(userId, integrationId) {
+  const oid = userOid(userId);
+  let doc = null;
+
+  if (integrationId && mongoose.Types.ObjectId.isValid(String(integrationId))) {
+    doc = await UserIntegration.findOne({
+      _id: integrationId,
+      userId: oid,
+      provider: "gmail",
+    });
+  } else {
+    doc = await UserIntegration.findOne({
+      userId: oid,
+      provider: "gmail",
+      isDefaultEmail: true,
+    });
+    if (!doc?.accessToken) {
+      doc = await UserIntegration.findOne({ userId: oid, provider: "gmail", accessToken: { $ne: "" } });
+    }
+    if (!doc) {
+      doc = await UserIntegration.findOne({ userId: oid, provider: "gmail" });
+    }
+  }
+
   if (!doc?.accessToken) {
     const err = new Error("Gmail is not connected. Connect Gmail under Integrations first.");
     err.statusCode = 400;
@@ -55,8 +80,8 @@ async function getValidAccessToken(integrationDoc) {
   return doc.accessToken;
 }
 
-async function gmailApiFetch(userId, path, query = {}) {
-  const integration = await getGmailIntegration(userId);
+async function gmailApiFetch(userId, path, query = {}, integrationId) {
+  const integration = await getGmailIntegration(userId, integrationId);
   const accessToken = await getValidAccessToken(integration);
   const qs = new URLSearchParams(query);
   const suffix = qs.toString() ? `?${qs.toString()}` : "";

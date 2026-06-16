@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
 
 import { FaqsPageContent } from "@/components/landing/FaqsPageContent";
+import { JsonLd } from "@/components/seo/JsonLd";
+import { FAQ_SECTIONS } from "@/lib/faqsContent";
+import { faqPageJsonLd, flattenFaqSectionsForSchema } from "@/lib/jsonLd";
 import { buildPageMetadata, OG_IMAGES } from "@/lib/siteMetadata";
 
-const title = "Frequently Asked Questions About Huntlo AI Recruiting OS";
+const title = "Huntlo FAQ — Agentic AI Recruiting, Sourcing & Outreach Explained";
 const description =
-  "Find answers about Huntlo's AI recruiting platform, candidate sourcing, outreach automation, screening, interviews, integrations, pricing, security, and implementation.";
+  "Find answers about Huntlo's agentic AI recruiting infrastructure — candidate sourcing, autonomous outreach, AI voice screening, pricing, and integrations.";
 
 export const metadata: Metadata = buildPageMetadata({
   title,
@@ -15,5 +18,10 @@ export const metadata: Metadata = buildPageMetadata({
 });
 
 export default function FaqsPage() {
-  return <FaqsPageContent />;
+  return (
+    <>
+      <JsonLd data={faqPageJsonLd(flattenFaqSectionsForSchema(FAQ_SECTIONS))} />
+      <FaqsPageContent />
+    </>
+  );
 }

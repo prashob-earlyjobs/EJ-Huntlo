@@ -29,7 +29,7 @@ function isTextMime(mime) {
   return m.includes("text/plain") || m.includes("text/html");
 }
 
-async function fetchAttachmentBody(userId, messageId, attachmentId) {
+async function fetchAttachmentBody(userId, messageId, attachmentId, integrationId) {
   const mid = String(messageId || "").trim();
   const aid = String(attachmentId || "").trim();
   if (!mid || !aid) return "";
@@ -37,7 +37,9 @@ async function fetchAttachmentBody(userId, messageId, attachmentId) {
   try {
     const { data } = await gmailApiFetch(
       userId,
-      `/messages/${encodeURIComponent(mid)}/attachments/${encodeURIComponent(aid)}`
+      `/messages/${encodeURIComponent(mid)}/attachments/${encodeURIComponent(aid)}`,
+      {},
+      integrationId
     );
     return decodeBase64Url(data.data || "");
   } catch {
@@ -48,7 +50,7 @@ async function fetchAttachmentBody(userId, messageId, attachmentId) {
 /**
  * Walk MIME tree; fetch inline body data and text/* attachment parts.
  */
-async function extractBodyFromPayload(userId, messageId, payload) {
+async function extractBodyFromPayload(userId, messageId, payload, integrationId) {
   const plainParts = [];
   const htmlParts = [];
 
@@ -67,7 +69,8 @@ async function extractBodyFromPayload(userId, messageId, payload) {
       const decoded = await fetchAttachmentBody(
         userId,
         messageId,
-        part.body.attachmentId
+        part.body.attachmentId,
+        integrationId
       );
       if (mime.includes("text/plain")) plainParts.push(decoded);
       else if (mime.includes("text/html")) htmlParts.push(decoded);
@@ -95,7 +98,7 @@ function parseEmailAddress(headerValue) {
   return plain ? plain[0].trim().toLowerCase() : raw.toLowerCase();
 }
 
-async function normalizeMessage(userId, msg, { userEmail, contactEmail }) {
+async function normalizeMessage(userId, msg, { userEmail, contactEmail, integrationId }) {
   const headers = msg.payload?.headers || [];
   const fromRaw = getHeader(headers, "From");
   const toRaw = getHeader(headers, "To");
@@ -106,7 +109,8 @@ async function normalizeMessage(userId, msg, { userEmail, contactEmail }) {
   const { text, html } = await extractBodyFromPayload(
     userId,
     gmailMessageId,
-    msg.payload
+    msg.payload,
+    integrationId
   );
 
   let bodyText = text.trim() || stripHtml(html).trim() || String(msg.snippet || "").trim();
@@ -117,9 +121,15 @@ async function normalizeMessage(userId, msg, { userEmail, contactEmail }) {
       const { data } = await gmailApiFetch(
         userId,
         `/messages/${encodeURIComponent(gmailMessageId)}`,
-        { format: "full" }
+        { format: "full" },
+        integrationId
       );
-      const retry = await extractBodyFromPayload(userId, gmailMessageId, data.payload);
+      const retry = await extractBodyFromPayload(
+        userId,
+        gmailMessageId,
+        data.payload,
+        integrationId
+      );
       bodyText =
         retry.text.trim() ||
         stripHtml(retry.html).trim() ||
@@ -159,26 +169,32 @@ async function normalizeMessage(userId, msg, { userEmail, contactEmail }) {
   };
 }
 
-async function fetchThreadMessages(userId, threadId) {
+async function fetchThreadMessages(userId, threadId, integrationId) {
   const id = String(threadId || "").trim();
   if (!id) return [];
 
-  const { data } = await gmailApiFetch(userId, `/threads/${encodeURIComponent(id)}`, {
-    format: "full",
-  });
+  const { data } = await gmailApiFetch(
+    userId,
+    `/threads/${encodeURIComponent(id)}`,
+    {
+      format: "full",
+    },
+    integrationId
+  );
 
   const messages = Array.isArray(data.messages) ? data.messages : [];
   return messages;
 }
 
-async function resolveThreadIdFromMessage(userId, messageId) {
+async function resolveThreadIdFromMessage(userId, messageId, integrationId) {
   const id = String(messageId || "").trim();
   if (!id) return "";
 
   const { data } = await gmailApiFetch(
     userId,
     `/messages/${encodeURIComponent(id)}`,
-    { format: "metadata" }
+    { format: "metadata" },
+    integrationId
   );
   return String(data.threadId || "").trim();
 }

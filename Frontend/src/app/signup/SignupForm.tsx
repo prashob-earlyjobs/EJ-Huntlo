@@ -5,14 +5,15 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { PhoneNumberField } from "@/components/ui/PhoneNumberField";
 import { getStoredAuth } from "@/lib/auth";
 import { resolveAuthRedirect } from "@/lib/claimPublicSearch";
+import { validateE164Phone } from "@/lib/phoneCountryCodes";
 
 type SignupField = "fullName" | "companyName" | "email" | "mobile" | "password" | "confirmPassword";
 type SignupFieldErrors = Partial<Record<SignupField, string>>;
 const lettersAndSpacesOnlyPattern = /^[A-Za-z\s]*$/;
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-const indianMobilePattern = /^[6-9]\d{9}$/;
 const passwordPattern = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/;
 
 export function SignupForm() {
@@ -44,18 +45,6 @@ export function SignupForm() {
       value = value.replace(/\s/g, "");
     }
 
-    if (field === "mobile") {
-      const digitsOnly = value.replace(/\D/g, "").slice(0, 10);
-      setFormData((prev) => ({ ...prev, mobile: digitsOnly }));
-      setFieldErrors((prev) => {
-        if (!prev.mobile) return prev;
-        const next = { ...prev };
-        delete next.mobile;
-        return next;
-      });
-      return;
-    }
-
     if ((field === "fullName" || field === "companyName") && !lettersAndSpacesOnlyPattern.test(value)) {
       return;
     }
@@ -69,12 +58,13 @@ export function SignupForm() {
     });
   };
 
+  const fieldBorderClass = (field: SignupField) =>
+    fieldErrors[field]
+      ? "border-red-300 focus:border-red-500 focus:ring-red-100"
+      : "border-slate-300/90 focus:border-blue-500 focus:ring-blue-200/60";
+
   const inputClassName = (field: SignupField) =>
-    `w-full rounded-xl border bg-white px-4 py-3 text-slate-900 outline-none transition focus:ring-4 ${
-      fieldErrors[field]
-        ? "border-red-300 focus:border-red-500 focus:ring-red-100"
-        : "border-slate-300/90 focus:border-blue-500 focus:ring-blue-200/60"
-    }`;
+    `w-full rounded-xl border bg-white px-4 py-3 text-slate-900 outline-none transition focus:ring-4 ${fieldBorderClass(field)}`;
 
   const handleSignup = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -94,12 +84,8 @@ export function SignupForm() {
     else if (!emailPattern.test(formData.email.trim())) {
       nextFieldErrors.email = "Please enter a valid email address";
     }
-    if (!formData.mobile.trim()) nextFieldErrors.mobile = "Mobile number is required";
-    else if (formData.mobile.trim().length !== 10) {
-      nextFieldErrors.mobile = "Mobile number must be exactly 10 digits";
-    } else if (!indianMobilePattern.test(formData.mobile.trim())) {
-      nextFieldErrors.mobile = "Please enter a valid mobile number";
-    }
+    const mobileError = validateE164Phone(formData.mobile);
+    if (mobileError) nextFieldErrors.mobile = mobileError;
     if (!formData.password) nextFieldErrors.password = "Password is required";
     else if (!passwordPattern.test(formData.password)) {
       nextFieldErrors.password =
@@ -269,19 +255,20 @@ export function SignupForm() {
             >
               Mobile number
             </label>
-            <input
+            <PhoneNumberField
               id="mobile"
-              name="mobile"
-              type="tel"
-              placeholder="+91 98765 43210"
+              variant="signup"
               value={formData.mobile}
-              onChange={(event) => handleChange("mobile", event.target.value)}
-              inputMode="numeric"
-              maxLength={10}
-              pattern="[0-9]{10}"
-              className={inputClassName("mobile")}
-              aria-invalid={Boolean(fieldErrors.mobile)}
-              aria-describedby={fieldErrors.mobile ? "mobile-error" : undefined}
+              onChange={(e164) => {
+                setFormData((prev) => ({ ...prev, mobile: e164 }));
+                setFieldErrors((prev) => {
+                  if (!prev.mobile) return prev;
+                  const next = { ...prev };
+                  delete next.mobile;
+                  return next;
+                });
+              }}
+              error={Boolean(fieldErrors.mobile)}
             />
             {fieldErrors.mobile ? (
               <p id="mobile-error" className="mt-1.5 text-xs font-medium text-red-600">

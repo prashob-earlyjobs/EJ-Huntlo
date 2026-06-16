@@ -76,6 +76,11 @@ export function tierFeatureLines(tier: PricingTier): string[] {
   return [...quotaLines, ...features];
 }
 
+/** Correct common CMS typos in pricing copy (e.g. "Trail" → "Trial"). */
+function normalizePricingCopy(text: string): string {
+  return text.replace(/\bTrail\b/g, "Trial");
+}
+
 export function parsePricingPlansFromApi(plans: unknown): PricingPlansPayload | null {
   if (!plans || typeof plans !== "object") return null;
   const p = plans as Record<string, unknown>;
@@ -88,10 +93,13 @@ export function parsePricingPlansFromApi(plans: unknown): PricingPlansPayload | 
     const features = Array.isArray(t.features) ? t.features : [];
     return {
       id: typeof t.id === "string" ? t.id : undefined,
-      name: typeof t.name === "string" ? t.name : "Plan",
-      primaryPrice: typeof t.primaryPrice === "string" ? t.primaryPrice : "",
-      secondaryPrice: typeof t.secondaryPrice === "string" ? t.secondaryPrice : "",
-      description: typeof t.description === "string" ? t.description : "",
+      name: normalizePricingCopy(typeof t.name === "string" ? t.name : "Plan"),
+      primaryPrice:
+        typeof t.primaryPrice === "string" ? normalizePricingCopy(t.primaryPrice) : "",
+      secondaryPrice:
+        typeof t.secondaryPrice === "string" ? normalizePricingCopy(t.secondaryPrice) : "",
+      description:
+        typeof t.description === "string" ? normalizePricingCopy(t.description) : "",
       searches: parsePricingQuotaFromApi(t.searches),
       candidateUnlocks: parsePricingQuotaFromApi(t.candidateUnlocks),
       verifiedEmails: parsePricingQuotaFromApi(t.verifiedEmails),
@@ -102,7 +110,9 @@ export function parsePricingPlansFromApi(plans: unknown): PricingPlansPayload | 
         t.maxSubUsers === null
           ? null
           : parsePricingQuotaFromApi(t.maxSubUsers),
-      features: features.map((f) => String(f ?? "").trim()).filter((line) => line !== ""),
+      features: features
+        .map((f) => normalizePricingCopy(String(f ?? "").trim()))
+        .filter((line) => line !== ""),
       campaignsEnabled:
         typeof t.campaignsEnabled === "boolean" ? t.campaignsEnabled : undefined,
       integrationsEnabled:

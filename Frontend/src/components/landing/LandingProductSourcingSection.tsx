@@ -110,7 +110,7 @@ export function LandingProductSourcingSection() {
   return (
     <section
       ref={sectionRef}
-      className={`bg-white px-4 md:px-8 lg:px-12 ${
+      className={`scroll-mt-24 bg-white px-4 md:px-8 lg:px-12 ${
         scrollDriven ? "landing-sourcing-scroll-section" : "py-20"
       }`}
       id="product"
@@ -125,7 +125,7 @@ export function LandingProductSourcingSection() {
         <div className="grid gap-12 lg:grid-cols-2 lg:items-center">
           <div>
             <h2 className="text-3xl font-bold tracking-tight text-[#141b2b] md:text-4xl">
-              Find the Right Candidates for Your Role—in Minutes
+              Agentic AI Candidate Sourcing — Describe the Role, Get Matched Talent
             </h2>
             <ul className="mt-8 space-y-4" role="tablist" aria-label="Sourcing features">
               {SOURCING_FEATURES.map((feature, index) => {

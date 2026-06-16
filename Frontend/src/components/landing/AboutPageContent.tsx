@@ -1,6 +1,6 @@
 const DELIVERS = [
   "Agentic AI candidate sourcing across millions of profiles",
-  "Automated outreach via Email, WhatsApp, and LinkedIn workflows",
+  "Autonomous outreach via Email, WhatsApp, and LinkedIn workflows",
   "AI Voice Recruiter for candidate screening and qualification",
   "Automated interview scheduling and follow-ups",
   "Candidate enrichment and contact discovery",
@@ -23,19 +23,32 @@ export function AboutPageContent() {
   return (
     <div className="landing-legal-body mt-8">
       <p>
-        Built to automate the entire recruitment lifecycle, Huntlo combines Agentic AI candidate
-        sourcing, multi-channel outreach, AI-powered screening, interview scheduling, and recruiter
-        collaboration into a single platform.
+        Huntlo is agentic AI recruiting infrastructure — built by the team behind EarlyJobs, one of
+        India&apos;s largest recruiter networks. After seeing firsthand how broken manual recruiting
+        processes were for high-growth teams, the EarlyJobs team built Huntlo to give every hiring
+        organization autonomous AI agents that source, engage, screen, and schedule — without
+        requiring manual recruiter intervention at every step.
       </p>
       <p>
         Instead of relying on job postings and manual sourcing, Huntlo proactively discovers,
-        engages, and qualifies talent through intelligent workflows. Recruiters can source
-        candidates using natural language, automate personalized outreach across Email and
-        WhatsApp, conduct AI voice screenings, schedule interviews automatically, and manage hiring
-        pipelines from one unified system. Huntlo also provides access to the EarlyJobs recruiter
-        network, enabling organizations to scale hiring faster across India, the US, the UK, the
-        Middle East, and global markets.
+        engages, and qualifies talent through agentic AI workflows. Recruiters describe roles in
+        natural language, and Huntlo&apos;s AI searches 50+ platforms, runs autonomous outreach
+        across email and WhatsApp, conducts AI voice screenings, schedules interviews, and manages
+        hiring pipelines from one unified system. Huntlo also provides access to the EarlyJobs
+        recruiter network, enabling organizations to scale hiring faster across India, the US, the
+        UK, the Middle East, and global markets.
       </p>
+
+      <section className="landing-legal-section">
+        <h2>Why We Built Huntlo</h2>
+        <p>
+          Recruiting teams were drowning in manual work — Boolean searches, copy-paste outreach,
+          missed follow-ups, and scheduling back-and-forth. Point-solution tools solved one step but
+          created tool sprawl. ATS platforms tracked applicants but didn&apos;t source passive
+          talent. We believed the answer was agentic AI: autonomous agents that run the full outbound
+          hiring workflow so recruiters can focus on relationships and hiring decisions.
+        </p>
+      </section>
 
       <section className="landing-legal-section">
         <h2>What Huntlo Delivers</h2>

@@ -11,16 +11,20 @@ type Props = {
   open: boolean;
   message: string;
   isQuotaExceeded?: boolean;
+  action?: "searchAgain" | null;
   onClose: () => void;
   onViewPlans?: () => void;
+  onSearchAgain?: () => void;
 };
 
 export function UserActionAlertModal({
   open,
   message,
   isQuotaExceeded = false,
+  action = null,
   onClose,
   onViewPlans,
+  onSearchAgain,
 }: Props) {
   const [mounted, setMounted] = useState(false);
 
@@ -94,14 +98,29 @@ export function UserActionAlertModal({
           </button>
         </div>
         <div className="mt-6 flex flex-wrap justify-end gap-2">
-          <button type="button" onClick={onClose} className="dashboard-btn-secondary px-4 py-2">
-            Close
-          </button>
           {isQuotaExceeded && onViewPlans ? (
-            <button type="button" onClick={onViewPlans} className="dashboard-btn-primary px-4 py-2">
-              View plans &amp; usage
+            <>
+              <button type="button" onClick={onClose} className="dashboard-btn-secondary px-4 py-2">
+                Close
+              </button>
+              <button type="button" onClick={onViewPlans} className="dashboard-btn-primary px-4 py-2">
+                View plans &amp; usage
+              </button>
+            </>
+          ) : action === "searchAgain" && onSearchAgain ? (
+            <button
+              type="button"
+              onClick={onSearchAgain}
+              className="dashboard-btn-primary inline-flex items-center gap-1.5 px-4 py-2"
+            >
+              <MaterialIcon name="edit" className="text-lg" aria-hidden />
+              Search again
             </button>
-          ) : null}
+          ) : (
+            <button type="button" onClick={onClose} className="dashboard-btn-secondary px-4 py-2">
+              Close
+            </button>
+          )}
         </div>
       </div>
     </div>,

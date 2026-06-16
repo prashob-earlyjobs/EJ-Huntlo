@@ -6,6 +6,8 @@ type Props = {
 
 const BRAND_IMAGES: Record<string, { src: string; alt: string }> = {
   gmail: { src: "/integrations/gmail.svg", alt: "Gmail" },
+  outlook: { src: "/integrations/outlook_logo.png", alt: "Outlook" },
+  zoho_mail: { src: "/integrations/zoho_mail_logo.png", alt: "Zoho Mail" },
   whatsapp: { src: "/integrations/whatsapp.svg", alt: "WhatsApp" },
   linkedin: { src: "/integrations/linkedin.svg", alt: "LinkedIn" },
   calendly: { src: "/integrations/calendly_logo.png", alt: "Calendly" },
@@ -30,6 +32,32 @@ function BrandImage({
       className={`dashboard-integration-brand-logo ${className ?? ""}`.trim()}
       title={alt}
     />
+  );
+}
+
+function CustomMailLogo({ className }: { className?: string }) {
+  const shared = `dashboard-integration-brand-logo ${className ?? ""}`.trim();
+  return (
+    <svg
+      className={shared}
+      viewBox="0 0 24 24"
+      xmlns="http://www.w3.org/2000/svg"
+      width="100%"
+      height="100%"
+      preserveAspectRatio="xMidYMid meet"
+      aria-hidden
+    >
+      <rect width="24" height="24" rx="5" fill="#f1f5f9" />
+      <path
+        fill="#475569"
+        d="M7 8h10v1.5H7V8zm0 3.25h10v1.5H7v-1.5zm0 3.25h6.5v1.5H7v-1.5z"
+      />
+      <circle cx="17.5" cy="16.5" r="3.25" fill="#0050cb" />
+      <path
+        fill="#fff"
+        d="M16.35 16.5h.9v1.8h1.8v.9h-1.8v1.8h-.9v-1.8h-1.8v-.9h1.8v-1.8z"
+      />
+    </svg>
   );
 }
 
@@ -66,6 +94,10 @@ export function IntegrationBrandLogo({ provider, className = "", title }: Props)
     return (
       <BrandImage src={brand.src} alt={brand.alt} className={className} />
     );
+  }
+
+  if (provider === "custom_mail") {
+    return <CustomMailLogo className={className} />;
   }
 
   if (provider === "google_calendar") {

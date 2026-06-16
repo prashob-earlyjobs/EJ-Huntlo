@@ -85,6 +85,7 @@ import {
 } from "@/lib/dashboardSessionApi";
 import { hasCampaignsAccess } from "@/lib/planAccess";
 import { mergeStoredAuthUser, postAuthPath } from "@/lib/onboarding";
+import { validateE164Phone } from "@/lib/phoneCountryCodes";
 import { isBlockedAccountResponse, isBlockedMemberStatus } from "@/lib/sessionLogout";
 import {
   revealContactErrorMessage,
@@ -1259,6 +1260,7 @@ export function UserDashboardPage() {
   const [sessionResultsFromDb, setSessionResultsFromDb] = useState(false);
   const [sessionResultsBackTab, setSessionResultsBackTab] = useState("Search Candidates");
   const [isFilterDrawerOpen, setIsFilterDrawerOpen] = useState(false);
+  const [promptFocusSignal, setPromptFocusSignal] = useState(0);
   const [candidateFilterForm, setCandidateFilterForm] = useState<CandidateFilterForm>(
     DEFAULT_CANDIDATE_FILTER_FORM
   );
@@ -2574,6 +2576,13 @@ export function UserDashboardPage() {
       setMyProfileError("Please sign in again to update profile.");
       return;
     }
+
+    const phoneError = validateE164Phone(myProfileForm.phone);
+    if (phoneError) {
+      setMyProfileError(phoneError);
+      return;
+    }
+
     setMyProfileError("");
     setMyProfileSuccess("");
     setMyProfileSaving(true);
@@ -4445,6 +4454,7 @@ export function UserDashboardPage() {
                 recentLoading={recentSearchesLoading}
                 onOpenRecent={openRecentAiSearch}
                 onViewAllHistory={() => navigateToTab("Search history")}
+                focusPromptSignal={promptFocusSignal}
               />
             ) : activeTab === "Session Results" ? (
               <section className="dashboard-card dashboard-card--fill flex h-full min-w-0 max-w-full w-full flex-col p-6">
@@ -5230,10 +5240,18 @@ export function UserDashboardPage() {
         open={userActionAlert.alert.open}
         message={userActionAlert.alert.message}
         isQuotaExceeded={userActionAlert.alert.isQuotaExceeded}
+        action={userActionAlert.alert.action}
         onClose={userActionAlert.close}
         onViewPlans={() => {
           userActionAlert.close();
           navigateToTab("Plans and pricing");
+        }}
+        onSearchAgain={() => {
+          userActionAlert.close();
+          setIsFilterDrawerOpen(false);
+          setApplySessionChoiceOpen(false);
+          navigateToTab("Search Candidates");
+          setPromptFocusSignal((n) => n + 1);
         }}
       />
 
