@@ -27,6 +27,13 @@ async function findSessionInScope(actorUserId, futureJobsSessionId) {
   const ctx = await resolveOrgContext(actorUserId);
   if (!ctx) return null;
 
+  // Platform admins can inspect any persisted sourcing session.
+  if (ctx.isAdmin) {
+    return SourcingSession.findOne({
+      futureJobsSessionId: sid,
+    }).lean();
+  }
+
   const scopeIds = scopeUserObjectIds(ctx.scopeUserIds);
   if (scopeIds.length === 0) return null;
 
