@@ -501,10 +501,6 @@ export function OutreachPlanEditor({
       ? gmailEmail
       : "";
 
-  const composeFromConnected = useCampaignEmailSenders
-    ? Boolean(selectedEmailSender?.email)
-    : gmailConnected;
-
   const loadGmailStatus = useCallback(async () => {
     if (!auth?.token) return;
     try {
@@ -1808,7 +1804,11 @@ export function OutreachPlanEditor({
           body={testPreviewStep.body}
           senderFirstName={senderFirstName}
           authToken={auth.token}
-          gmailConnected={composeFromConnected}
+          gmailConnected={
+            useCampaignEmailSenders
+              ? Boolean(selectedEmailSender?.email)
+              : gmailConnected
+          }
           onGoToIntegrations={onGoToIntegrations}
           onClose={() => setTestPreviewStep(null)}
           onSent={setTestEmailToast}
