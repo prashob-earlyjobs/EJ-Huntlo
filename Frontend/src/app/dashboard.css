@@ -7749,6 +7749,122 @@
   }
 }
 
+.dashboard-campaign-sender-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex-shrink: 0;
+  min-width: 16.5rem;
+  max-width: 19.5rem;
+  width: 16.5rem;
+  text-align: left;
+}
+
+.dashboard-campaign-sender-field__label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.dashboard-campaign-sender-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  width: 100%;
+}
+
+.dashboard-campaign-sender-option--compact {
+  align-items: center;
+}
+
+.dashboard-campaign-sender-option--compact .dashboard-campaign-sender-option__title {
+  font-size: 0.8125rem;
+  line-height: 1.25;
+}
+
+.dashboard-campaign-sender-option--compact .dashboard-campaign-sender-option__email {
+  font-size: 0.6875rem;
+  line-height: 1.2;
+}
+
+.dashboard-campaign-sender-option__logo.dashboard-integration-brand-logo,
+.dashboard-campaign-sender-option__logo.dashboard-integration-brand-logo--sm {
+  width: 1.125rem;
+  height: 1.125rem;
+  flex-shrink: 0;
+}
+
+.dashboard-campaign-sender-option__logo.dashboard-integration-brand-logo--fallback {
+  width: 1.125rem;
+  height: 1.125rem;
+  font-size: 0.5625rem;
+}
+
+.campaign-email-sender__value-container {
+  display: flex !important;
+  align-items: center !important;
+  flex-wrap: nowrap !important;
+  overflow: hidden;
+}
+
+.campaign-email-sender__single-value {
+  position: static !important;
+  top: auto !important;
+  transform: none !important;
+  margin: 0 !important;
+  max-width: 100% !important;
+  width: 100%;
+  color: inherit;
+}
+
+.campaign-email-sender__input-container {
+  margin: 0;
+  padding: 0;
+}
+
+.dashboard-campaign-sender-option__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.0625rem;
+  min-width: 0;
+}
+
+.dashboard-campaign-sender-option__title {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.25;
+  color: #202124;
+}
+
+.dashboard-campaign-sender-option__email {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.75rem;
+  line-height: 1.25;
+  color: #64748b;
+}
+
+.dashboard-campaign-sender-option__badge {
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: #e8f0fe;
+  padding: 0.125rem 0.4375rem;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #0050cb;
+}
+
 .dashboard-outreach-gmail-plan-meta {
   text-align: left;
 }
@@ -8053,6 +8169,80 @@
 .dashboard-outreach-builder--embedded .dashboard-outreach-builder-rail-title {
   margin-bottom: 0.375rem;
   font-size: 0.625rem;
+}
+
+.dashboard-outreach-builder-rail-sender {
+  width: 100%;
+  margin: 0 0 0.625rem;
+  padding: 0 0 0.625rem;
+  border-bottom: 1px solid #e8eaed;
+}
+
+.dashboard-outreach-builder-rail-sender .dashboard-campaign-sender-field,
+.dashboard-campaign-sender-field--rail {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  gap: 0.375rem;
+}
+
+.dashboard-outreach-builder-rail-sender .dashboard-campaign-sender-field__label,
+.dashboard-campaign-sender-field--rail .dashboard-campaign-sender-field__label {
+  margin: 0 0 0 0.375rem;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  line-height: 1;
+  color: var(--dash-on-surface-variant, #64748b);
+}
+
+.dashboard-outreach-builder-rail-sender .dashboard-campaign-sender-option--compact,
+.dashboard-campaign-sender-field--rail .dashboard-campaign-sender-option--compact {
+  gap: 0.375rem;
+}
+
+.dashboard-outreach-builder-rail-sender .dashboard-campaign-sender-option--compact .dashboard-campaign-sender-option__title,
+.dashboard-campaign-sender-field--rail .dashboard-campaign-sender-option--compact .dashboard-campaign-sender-option__title {
+  font-size: 0.75rem;
+  line-height: 1.2;
+}
+
+.dashboard-outreach-builder-rail-sender .campaign-email-sender__control,
+.dashboard-campaign-sender-field--rail .campaign-email-sender__control {
+  min-height: 2.125rem !important;
+  height: 2.125rem !important;
+}
+
+.dashboard-outreach-builder-rail-sender .campaign-email-sender__value-container,
+.dashboard-campaign-sender-field--rail .campaign-email-sender__value-container {
+  display: flex !important;
+  align-items: center !important;
+  flex-wrap: nowrap !important;
+  height: 2rem !important;
+  min-height: 2rem !important;
+  padding: 0 0.125rem 0 0.4375rem !important;
+}
+
+.dashboard-outreach-builder-rail-sender .campaign-email-sender__indicators-container,
+.dashboard-campaign-sender-field--rail .campaign-email-sender__indicators-container {
+  height: 2rem !important;
+  align-items: center !important;
+}
+
+.dashboard-outreach-builder-rail-sender .campaign-email-sender__dropdown-indicator,
+.dashboard-campaign-sender-field--rail .campaign-email-sender__dropdown-indicator {
+  padding: 0 0.1875rem !important;
+}
+
+.dashboard-outreach-builder-rail-sender .campaign-email-sender__dropdown-indicator svg,
+.dashboard-campaign-sender-field--rail .campaign-email-sender__dropdown-indicator svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.dashboard-outreach-builder--embedded .dashboard-outreach-builder-rail-sender {
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.5rem;
 }
 
 .dashboard-outreach-builder--embedded .dashboard-outreach-flow-node {
@@ -9565,6 +9755,18 @@ select.dashboard-outreach-start-chip--select {
   gap: 0.5rem;
 }
 
+.dashboard-outreach-builder-from-value {
+  margin: 0;
+  min-height: 1.625rem;
+  display: flex;
+  align-items: center;
+  cursor: default;
+}
+
+.dashboard-outreach-builder--embedded .dashboard-outreach-builder-from-value {
+  font-size: 0.8125rem;
+}
+
 .dashboard-outreach-builder-cc {
   flex-shrink: 0;
   font-size: 0.75rem;
@@ -9687,6 +9889,68 @@ select.dashboard-outreach-start-chip--select {
   .dashboard-outreach-builder-rail {
     width: 13rem;
   }
+}
+
+.dashboard-table--integrations th.dashboard-table-actions-head,
+.dashboard-table--integrations td.dashboard-table-actions-cell {
+  min-width: 17.5rem;
+  width: 17.5rem;
+}
+
+.dashboard-integration-actions-toolbar {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.375rem;
+  max-width: 100%;
+  border-radius: 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--dash-outline) 50%, transparent);
+  background: rgba(255, 255, 255, 0.9);
+  padding: 0.25rem;
+  box-shadow: 0 1px 2px rgba(20, 27, 43, 0.04);
+}
+
+.dashboard-integration-action-btn {
+  display: inline-flex;
+  height: 2rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  white-space: nowrap;
+  border-radius: 0.375rem;
+  border: none;
+  background: transparent;
+  padding: 0 0.625rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--dash-on-surface-variant);
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.dashboard-integration-action-btn:hover:not(:disabled) {
+  background: var(--dash-surface-low);
+  color: var(--dash-primary);
+}
+
+.dashboard-integration-action-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.dashboard-integration-action-btn--default {
+  background: color-mix(in srgb, var(--dash-primary) 12%, white);
+  color: var(--dash-primary);
+  cursor: default;
+}
+
+.dashboard-integration-action-btn--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, #b91c1c 10%, white);
+  color: #b91c1c;
 }
 
 .dashboard-integration-connect-section {

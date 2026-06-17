@@ -4,6 +4,11 @@ import { useCallback, useEffect, useState } from "react";
 
 import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { getStoredAuth } from "@/lib/auth";
+import {
+  verifyCustomMailCredentials,
+  type CustomMailConnectPayload,
+} from "@/lib/customMailIntegrations";
 import {
   dashboardBtnPrimaryClass,
   dashboardBtnSecondaryClass,
@@ -38,11 +43,19 @@ type Props = {
   open: boolean;
   busy: boolean;
   onClose: () => void;
-  onSubmit: (values: CustomMailConnectFormValues) => void;
+  onSubmit: (values: CustomMailConnectFormValues) => void | Promise<void>;
 };
 
-function delay(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function buildPayload(form: CustomMailConnectFormValues): CustomMailConnectPayload {
+  return {
+    fromEmail: form.fromEmail.trim(),
+    displayName: form.displayName.trim(),
+    smtpHost: form.smtpHost.trim(),
+    smtpPort: form.smtpPort.trim(),
+    security: form.security,
+    username: form.username.trim(),
+    password: form.password.trim(),
+  };
 }
 
 export function CustomMailConnectModal({ open, busy, onClose, onSubmit }: Props) {
@@ -94,16 +107,13 @@ export function CustomMailConnectModal({ open, busy, onClose, onSubmit }: Props)
     setError("");
     setTestSuccessMessage("");
     try {
-      await delay(800);
-      if (!fromEmail.includes("@")) {
-        throw new Error("Enter a valid from email address.");
+      const auth = getStoredAuth();
+      if (!auth?.token) {
+        throw new Error("Please sign in again.");
       }
-      const portNum = Number(smtpPort);
-      if (!Number.isFinite(portNum) || portNum < 1 || portNum > 65535) {
-        throw new Error("SMTP port must be between 1 and 65535.");
-      }
+      const result = await verifyCustomMailCredentials(auth.token, buildPayload(form));
       setCredsVerified(true);
-      setTestSuccessMessage(`SMTP connection to ${smtpHost}:${smtpPort} looks good (UI preview).`);
+      setTestSuccessMessage(result.message);
     } catch (err) {
       setCredsVerified(false);
       setError(err instanceof Error ? err.message : "Connection test failed.");
@@ -112,7 +122,7 @@ export function CustomMailConnectModal({ open, busy, onClose, onSubmit }: Props)
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!fromEmail) {
       setError("From email is required.");
@@ -126,7 +136,8 @@ export function CustomMailConnectModal({ open, busy, onClose, onSubmit }: Props)
       setError("Test the SMTP connection before saving.");
       return;
     }
-    onSubmit({
+    setError("");
+    await onSubmit({
       displayName: form.displayName.trim(),
       fromEmail,
       smtpHost,
@@ -279,7 +290,7 @@ export function CustomMailConnectModal({ open, busy, onClose, onSubmit }: Props)
               autoComplete="off"
             />
             <span className="mt-1 block text-xs leading-relaxed text-slate-500">
-              UI preview only — credentials are not sent to the server yet.
+              Credentials are verified server-side and stored securely for campaign sending.
             </span>
           </label>
 

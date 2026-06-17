@@ -11,7 +11,7 @@ export type UiOnlyIntegrationRow = {
 
 const STORAGE_KEY = "ejhunter_ui_mail_integrations";
 
-export const UI_ONLY_MAIL_PROVIDERS = new Set(["custom_mail"]);
+export const UI_ONLY_MAIL_PROVIDERS = new Set<string>([]);
 
 export function isUiOnlyMailProvider(provider: string): boolean {
   return UI_ONLY_MAIL_PROVIDERS.has(provider);

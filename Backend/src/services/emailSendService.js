@@ -1,27 +1,38 @@
 const { sendGmailMessage } = require("./gmailSendService");
 const { sendOutlookMessage } = require("./outlookMailSendService");
 const { sendZohoMailMessage } = require("./zohoMailSendService");
-const { resolveEmailProviderForUser } = require("./emailIntegrationService");
+const { sendCustomMailMessage } = require("./customMailSendService");
+const { resolveEmailIntegration } = require("./emailIntegrationService");
 
-async function sendCampaignEmail(userId, payload) {
-  const provider = await resolveEmailProviderForUser(userId);
-  if (!provider) {
-    const err = new Error(
-      "No email integration connected. Connect Gmail, Outlook, or Zoho Mail under Integrations first."
-    );
-    err.statusCode = 400;
-    throw err;
-  }
+async function sendCampaignEmail(userId, payload, options = {}) {
+  const integration = options.integration || (await resolveEmailIntegration(userId, options.integrationId));
+  const provider = integration.provider;
+  const sendOptions = { integration, integrationId: String(integration._id) };
+
   if (provider === "outlook") {
-    return sendOutlookMessage(userId, payload);
+    return sendOutlookMessage(userId, payload, sendOptions);
   }
   if (provider === "zoho_mail") {
-    return sendZohoMailMessage(userId, payload);
+    return sendZohoMailMessage(userId, payload, sendOptions);
   }
-  return sendGmailMessage(userId, payload);
+  if (provider === "custom_mail") {
+    return sendCustomMailMessage(userId, payload, sendOptions);
+  }
+  if (provider === "gmail") {
+    return sendGmailMessage(userId, payload, sendOptions);
+  }
+
+  const err = new Error("Unknown email provider.");
+  err.statusCode = 400;
+  throw err;
+}
+
+async function resolveEmailProviderForSend(userId, integrationId) {
+  const integration = await resolveEmailIntegration(userId, integrationId);
+  return integration.provider;
 }
 
 module.exports = {
-  resolveEmailProviderForSend: resolveEmailProviderForUser,
+  resolveEmailProviderForSend,
   sendCampaignEmail,
 };

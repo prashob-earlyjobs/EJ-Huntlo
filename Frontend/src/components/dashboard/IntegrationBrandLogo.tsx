@@ -6,8 +6,8 @@ type Props = {
 
 const BRAND_IMAGES: Record<string, { src: string; alt: string }> = {
   gmail: { src: "/integrations/gmail.svg", alt: "Gmail" },
-  outlook: { src: "/integrations/outlook.svg", alt: "Outlook" },
-  zoho_mail: { src: "/integrations/zoho_mail.svg", alt: "Zoho Mail" },
+  outlook: { src: "/integrations/outlook_logo.png", alt: "Outlook" },
+  zoho_mail: { src: "/integrations/zoho_mail_logo.png", alt: "Zoho Mail" },
   whatsapp: { src: "/integrations/whatsapp.svg", alt: "WhatsApp" },
   linkedin: { src: "/integrations/linkedin.svg", alt: "LinkedIn" },
   calendly: { src: "/integrations/calendly_logo.png", alt: "Calendly" },

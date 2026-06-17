@@ -6,6 +6,7 @@ import { MaterialIcon } from "@/components/landing/MaterialIcon";
 export type SearchHistoryRow = {
   id: string;
   futureJobsSessionId: string;
+  searchedByName?: string;
   prompt: string;
   sessionTitle: string;
   usingSessionOverride: boolean;
@@ -129,7 +130,7 @@ function SessionStatusBadge({
   );
 }
 
-function HistoryTableSkeleton() {
+function HistoryTableSkeleton({ showSearchedBy }: { showSearchedBy: boolean }) {
   return (
     <div className="dashboard-thin-scrollbar mt-6 overflow-x-auto">
     <div className="dashboard-table-wrap">
@@ -137,6 +138,7 @@ function HistoryTableSkeleton() {
         <thead>
           <tr>
             <th>When</th>
+            {showSearchedBy ? <th>Searched by</th> : null}
             <th>Search</th>
             <th>Preview</th>
             <th className="tabular-nums">Results</th>
@@ -150,6 +152,11 @@ function HistoryTableSkeleton() {
                 <div className="dashboard-shimmer h-4 w-20" />
                 <div className="dashboard-shimmer mt-1.5 h-3 w-14" />
               </td>
+              {showSearchedBy ? (
+                <td>
+                  <div className="dashboard-shimmer h-4 w-24 max-w-full" />
+                </td>
+              ) : null}
               <td>
                 <div className="dashboard-shimmer h-4 w-48 max-w-full" />
               </td>
@@ -190,6 +197,7 @@ type Props = {
   openingSessionId: string | null;
   onOpenSession: (row: SearchHistoryRow) => void;
   onGoToSearch: () => void;
+  showSearchedBy?: boolean;
 };
 
 export function SearchHistoryTable({
@@ -200,11 +208,12 @@ export function SearchHistoryTable({
   openingSessionId,
   onOpenSession,
   onGoToSearch,
+  showSearchedBy = false,
 }: Props) {
   const [unavailableRow, setUnavailableRow] = useState<SearchHistoryRow | null>(null);
 
   if (loading && rows.length === 0) {
-    return <HistoryTableSkeleton />;
+    return <HistoryTableSkeleton showSearchedBy={showSearchedBy} />;
   }
 
   if (error) {
@@ -245,6 +254,7 @@ export function SearchHistoryTable({
           <thead>
             <tr>
               <th scope="col">When</th>
+              {showSearchedBy ? <th scope="col">Searched by</th> : null}
               <th scope="col">Search</th>
               <th scope="col">Preview</th>
               <th scope="col" className="tabular-nums">
@@ -315,6 +325,16 @@ export function SearchHistoryTable({
                     <span className="dashboard-table-when-secondary">{when.secondary}</span>
                   ) : null}
                 </td>
+                {showSearchedBy ? (
+                  <td className="max-w-48">
+                    <span
+                      className="dashboard-table-prompt line-clamp-2"
+                      title={row.searchedByName || "—"}
+                    >
+                      {row.searchedByName?.trim() || "—"}
+                    </span>
+                  </td>
+                ) : null}
                 <td className="max-w-[18rem]">
                   <p className="dashboard-table-prompt line-clamp-2" title={label}>
                     {label}

@@ -10,13 +10,85 @@ export type BreadcrumbSchemaItem = {
   href?: string;
 };
 
+export function homeOrganizationSoftwareGraphJsonLd() {
+  const homeUrl = "https://huntlo.ai";
+  return {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Organization",
+        "@id": `${homeUrl}/#organization`,
+        name: "Huntlo AI",
+        alternateName: "Huntlo",
+        url: homeUrl,
+        logo: {
+          "@type": "ImageObject",
+          url: `${homeUrl}/huntlologo.png`,
+        },
+        description:
+          "Huntlo AI is an Agentic AI Hiring OS that automates sourcing, outreach, screening, engagement and recruiting execution for enterprise talent acquisition teams.",
+        founder: {
+          "@type": "Person",
+          name: "Saurav Kumar",
+        },
+        parentOrganization: {
+          "@type": "Organization",
+          name: "EarlyJobs AI",
+          url: "https://www.earlyjobs.ai",
+        },
+        sameAs: ["https://www.linkedin.com/company/earlyjobs"],
+        knowsAbout: [
+          "Agentic AI",
+          "AI Recruiting",
+          "Talent Acquisition",
+          "Talent Intelligence",
+          "Recruitment Automation",
+          "Candidate Sourcing",
+          "Talent Mapping",
+          "Hiring Automation",
+          "Recruitment CRM",
+          "Executive Search",
+          "Workforce Planning",
+          "HR Technology",
+        ],
+      },
+      {
+        "@type": "SoftwareApplication",
+        "@id": `${homeUrl}/#software`,
+        name: "Huntlo AI",
+        url: homeUrl,
+        applicationCategory: "BusinessApplication",
+        applicationSubCategory: "Recruitment Software",
+        operatingSystem: "Web",
+        creator: {
+          "@id": `${homeUrl}/#organization`,
+        },
+        description:
+          "Agentic AI Hiring OS that automates recruiting execution, talent sourcing, outreach, engagement, screening and hiring workflows.",
+        featureList: [
+          "AI Candidate Sourcing",
+          "Intent-Based Talent Discovery",
+          "AI Recruiter Agent",
+          "Automated Candidate Outreach",
+          "Talent Intelligence",
+          "Recruitment CRM",
+          "Candidate Engagement",
+          "ATS Integration",
+          "Talent Pipeline Management",
+          "Recruitment Analytics",
+        ],
+      },
+    ],
+  };
+}
+
 export function organizationJsonLd() {
   return {
     "@context": "https://schema.org",
     "@type": "Organization",
     name: "Huntlo",
     url: SITE_URL,
-    logo: `${SITE_URL}/logo_2.png`,
+    logo: `${SITE_URL}/huntlologo.png`,
     description:
       "Huntlo is agentic AI recruiting infrastructure that autonomously sources candidates, runs multi-channel outreach, conducts AI voice screening, and schedules interviews for modern hiring teams.",
     sameAs: ["https://www.linkedin.com/company/huntlo"],

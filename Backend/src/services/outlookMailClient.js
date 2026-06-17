@@ -3,14 +3,39 @@ const UserIntegration = require("../models/UserIntegration");
 const { GRAPH_API_BASE } = require("./outlookMailConfig");
 const { refreshAccessToken } = require("./outlookMailOAuth");
 
+function userOid(userId) {
+  return new mongoose.Types.ObjectId(String(userId));
+}
+
 function tokenExpiryFromExpiresIn(expiresIn) {
   const sec = Number(expiresIn);
   return Number.isFinite(sec) && sec > 0 ? new Date(Date.now() + sec * 1000) : null;
 }
 
-async function getOutlookIntegration(userId) {
-  const userOid = new mongoose.Types.ObjectId(userId);
-  const doc = await UserIntegration.findOne({ userId: userOid, provider: "outlook" });
+async function getOutlookIntegration(userId, integrationId) {
+  const oid = userOid(userId);
+  let doc = null;
+
+  if (integrationId && mongoose.Types.ObjectId.isValid(String(integrationId))) {
+    doc = await UserIntegration.findOne({
+      _id: integrationId,
+      userId: oid,
+      provider: "outlook",
+    });
+  } else {
+    doc = await UserIntegration.findOne({
+      userId: oid,
+      provider: "outlook",
+      isDefaultEmail: true,
+    });
+    if (!doc?.accessToken) {
+      doc = await UserIntegration.findOne({ userId: oid, provider: "outlook", accessToken: { $ne: "" } });
+    }
+    if (!doc) {
+      doc = await UserIntegration.findOne({ userId: oid, provider: "outlook" });
+    }
+  }
+
   if (!doc?.accessToken) {
     const err = new Error("Outlook is not connected. Connect Outlook under Integrations first.");
     err.statusCode = 400;

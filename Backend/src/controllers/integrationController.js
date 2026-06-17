@@ -10,6 +10,11 @@ const {
   getZohoMailOAuthAuthorizePayload,
   getZohoMailStatus,
   sendZohoMailTest,
+  connectCustomMail,
+  verifyCustomMailIntegrationCredentials,
+  getCustomMailStatus,
+  sendCustomMailTest,
+  disconnectCustomMail,
   connectWhatsApp,
   verifyWhatsAppIntegrationCredentials,
   connectCalendly,
@@ -27,6 +32,8 @@ const {
   disconnectWhatsApp,
   disconnectCalendly,
   disconnectIntegration,
+  disconnectIntegrationById,
+  setDefaultEmailIntegration,
 } = require("../services/integrationService");
 
 function invalidSession(res) {
@@ -440,6 +447,105 @@ const disconnectZohoMailHandler = async (req, res) => {
   }
 };
 
+const getCustomMailStatusHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) {
+      return invalidSession(res);
+    }
+    const status = await getCustomMailStatus(uid);
+    return res.status(200).json({ success: true, ...status });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to load custom mail status",
+    });
+  }
+};
+
+/** POST /api/integrations/custom_mail/verify */
+const verifyCustomMailCredentialsHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) {
+      return invalidSession(res);
+    }
+
+    const result = await verifyCustomMailIntegrationCredentials(req.body || {});
+    return res.status(200).json({
+      success: true,
+      verified: result.verified,
+      message: result.message,
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 400).json({
+      success: false,
+      verified: false,
+      message: error.message || "SMTP verification failed",
+    });
+  }
+};
+
+/** POST /api/integrations/custom_mail/connect */
+const connectCustomMailHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) {
+      return invalidSession(res);
+    }
+
+    const integration = await connectCustomMail(uid, req.body || {});
+    return res.status(200).json({
+      success: true,
+      integration,
+      message: "Custom mail connected",
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Failed to connect custom mail",
+    });
+  }
+};
+
+/** POST /api/integrations/custom_mail/test */
+const testCustomMailHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) {
+      return invalidSession(res);
+    }
+
+    const result = await sendCustomMailTest(uid, req.body || {});
+    return res.status(200).json({
+      success: true,
+      message: `Test email sent to ${result.to}.`,
+      send: result,
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Failed to send custom SMTP test email",
+    });
+  }
+};
+
+const disconnectCustomMailHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) {
+      return invalidSession(res);
+    }
+    await disconnectCustomMail(uid);
+    return res.status(200).json({ success: true, message: "Custom mail disconnected" });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to disconnect custom mail",
+    });
+  }
+};
+
 const getCalendlyStatusHandler = async (req, res) => {
   try {
     const uid = req.auth?.userId;
@@ -602,6 +708,45 @@ const disconnectIntegrationHandler = async (req, res) => {
   }
 };
 
+const disconnectIntegrationByIdHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) {
+      return invalidSession(res);
+    }
+    const result = await disconnectIntegrationById(uid, req.params.integrationId);
+    if (!result.deleted) {
+      return res.status(404).json({ success: false, message: "Integration not found" });
+    }
+    return res.status(200).json({ success: true, message: "Integration disconnected" });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Failed to disconnect integration",
+    });
+  }
+};
+
+const setDefaultEmailIntegrationHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) {
+      return invalidSession(res);
+    }
+    const integration = await setDefaultEmailIntegration(uid, req.params.integrationId);
+    return res.status(200).json({
+      success: true,
+      integration,
+      message: "Default sender updated",
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Failed to set default sender",
+    });
+  }
+};
+
 module.exports = {
   listIntegrationsHandler,
   getGmailStatusHandler,
@@ -617,6 +762,11 @@ module.exports = {
   testZohoMailHandler,
   connectZohoMailWithAuthCode,
   disconnectZohoMailHandler,
+  getCustomMailStatusHandler,
+  verifyCustomMailCredentialsHandler,
+  connectCustomMailHandler,
+  testCustomMailHandler,
+  disconnectCustomMailHandler,
   getWhatsAppStatusHandler,
   getWhatsAppMetaWebhookSetupHandler,
   getCalendlyStatusHandler,
@@ -631,4 +781,6 @@ module.exports = {
   disconnectWhatsAppHandler,
   disconnectCalendlyHandler,
   disconnectIntegrationHandler,
+  disconnectIntegrationByIdHandler,
+  setDefaultEmailIntegrationHandler,
 };

@@ -411,7 +411,9 @@ const launchCampaignSequenceHandler = async (req, res) => {
     const uid = req.auth?.userId;
     if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
     await getCampaign(uid, req.params.id);
-    const result = await launchCampaignSequence(uid, req.params.id);
+    const result = await launchCampaignSequence(uid, req.params.id, {
+      emailIntegrationId: req.body?.emailIntegrationId,
+    });
     const campaign = await getCampaign(uid, req.params.id);
     return res.status(200).json({
       success: true,

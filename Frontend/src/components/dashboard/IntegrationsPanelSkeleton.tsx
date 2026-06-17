@@ -31,7 +31,8 @@ export function IntegrationsPanelSkeleton() {
 
       <div>
         <div className="dashboard-shimmer mb-3 h-3 w-32 rounded" />
-        <div className="dashboard-table-wrap mt-3">
+        <div className="dashboard-thin-scrollbar dashboard-campaigns-table-scroll mt-3">
+          <div className="dashboard-table-wrap dashboard-table-wrap--scroll-x">
           <div className="space-y-2 p-1">
             {[0, 1, 2].map((idx) => (
               <div
@@ -44,9 +45,10 @@ export function IntegrationsPanelSkeleton() {
                 <div className="dashboard-shimmer hidden h-4 w-24 rounded md:block" />
                 <div className="dashboard-shimmer hidden h-4 w-32 rounded lg:block" />
                 <div className="dashboard-shimmer h-6 w-20 shrink-0 rounded-full" />
-                <div className="dashboard-shimmer h-8 w-24 shrink-0 rounded-md" />
+                <div className="dashboard-shimmer ml-auto h-9 w-[17.5rem] shrink-0 rounded-lg" />
               </div>
             ))}
+          </div>
           </div>
         </div>
       </div>

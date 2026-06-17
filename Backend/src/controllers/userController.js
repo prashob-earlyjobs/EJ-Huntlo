@@ -304,12 +304,51 @@ const loginUser = async (req, res) => {
   }
 };
 
+function escapeRegexLiteral(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function buildUserSearchFilter(searchRaw) {
+  const q = typeof searchRaw === "string" ? searchRaw.trim() : "";
+  if (!q) return {};
+  const regex = new RegExp(escapeRegexLiteral(q), "i");
+  return {
+    $or: [
+      { fullName: regex },
+      { email: regex },
+      { mobile: regex },
+      { companyName: regex },
+    ],
+  };
+}
+
 const listUsers = async (req, res) => {
   try {
-    const users = await User.find().sort({ createdAt: -1 });
+    const limit = Math.min(
+      100,
+      Math.max(1, parseInt(String(req.query?.limit ?? "20"), 10) || 20)
+    );
+    const requestedPage = Math.max(1, parseInt(String(req.query?.page ?? "1"), 10) || 1);
+    const filter = buildUserSearchFilter(req.query?.q ? String(req.query.q) : "");
+    const totalDocs = await User.countDocuments(filter);
+    const totalPages = Math.max(1, Math.ceil(totalDocs / limit));
+    const page = Math.min(requestedPage, totalPages);
+    const skip = (page - 1) * limit;
+
+    const users = await User.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit);
     return res.status(200).json({
       success: true,
       users: users.map(sanitizeUser),
+      pagination: {
+        page,
+        limit,
+        totalDocs,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+        nextPage: page < totalPages ? page + 1 : null,
+        prevPage: page > 1 ? page - 1 : null,
+      },
     });
   } catch (error) {
     return res.status(500).json({

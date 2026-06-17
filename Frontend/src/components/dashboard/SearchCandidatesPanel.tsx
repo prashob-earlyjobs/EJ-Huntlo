@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useMemo, useRef, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { HeroSearchPromptWarningModal } from "@/components/landing/HeroSearchPromptWarningModal";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
@@ -67,6 +67,7 @@ type Props = {
   recentLoading: boolean;
   onOpenRecent: (item: RecentAiSearchItem) => void;
   onViewAllHistory: () => void;
+  focusPromptSignal?: number;
 };
 
 export function SearchCandidatesPanel({
@@ -79,6 +80,7 @@ export function SearchCandidatesPanel({
   recentLoading,
   onOpenRecent,
   onViewAllHistory,
+  focusPromptSignal = 0,
 }: Props) {
   const firstName = greetingFirstName(userDisplayName);
   const trimmedPrompt = aiPrompt.trim();
@@ -91,6 +93,11 @@ export function SearchCandidatesPanel({
   );
   const canSearch =
     trimmedPrompt.length > 0 && !searchLoading && !promptCheckLoading;
+
+  useEffect(() => {
+    if (!focusPromptSignal) return;
+    requestAnimationFrame(() => promptRef.current?.focus());
+  }, [focusPromptSignal]);
 
   const requestSearch = async () => {
     const q = trimmedPrompt;
