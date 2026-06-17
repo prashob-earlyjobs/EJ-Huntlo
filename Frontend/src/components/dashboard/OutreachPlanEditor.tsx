@@ -1832,7 +1832,11 @@ export function OutreachPlanEditor({
           body={testPreviewStep.body}
           senderFirstName={senderFirstName}
           authToken={auth.token}
-          gmailConnected={composeFromConnected}
+          gmailConnected={
+            useCampaignEmailSenders
+              ? Boolean(selectedEmailSender?.email)
+              : gmailConnected
+          }
           onGoToIntegrations={onGoToIntegrations}
           onClose={() => setTestPreviewStep(null)}
           onSent={setTestEmailToast}
