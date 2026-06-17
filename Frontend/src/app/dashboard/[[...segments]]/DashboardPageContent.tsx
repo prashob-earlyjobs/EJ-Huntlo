@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { CandidateFilterDrawer } from "@/components/CandidateFilterDrawer";
@@ -379,6 +379,15 @@ const APPLY_FILTER_LOADING_STEPS = [
 ] as const;
 
 const DASHBOARD_SIDEBAR_COLLAPSED_KEY = "ejhunter_dashboard_sidebar_collapsed";
+
+function readSidebarCollapsedPreference(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return localStorage.getItem(DASHBOARD_SIDEBAR_COLLAPSED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 const userProfileSidebarItem = {
   label: "My Profile",
@@ -1197,7 +1206,15 @@ export function UserDashboardPage() {
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [engagementsNavExpanded, setEngagementsNavExpanded] = useState(true);
+  const [collapsedNavGroupHover, setCollapsedNavGroupHover] = useState<string | null>(null);
+  const [collapsedFlyoutLayout, setCollapsedFlyoutLayout] = useState<{
+    groupLabel: string;
+    top: number;
+    left: number;
+  } | null>(null);
   const profileMenuRef = useRef<HTMLDivElement>(null);
+  const sidebarNavScrollRef = useRef<HTMLDivElement>(null);
+  const collapsedNavGroupLeaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showAdminLink, setShowAdminLink] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
   const [revealContactNotice, setRevealContactNotice] = useState("");
@@ -1994,6 +2011,24 @@ export function UserDashboardPage() {
       setEngagementsNavExpanded(true);
     }
   }, [activeTab]);
+
+  useEffect(() => {
+    if (!sidebarCollapsed) {
+      setCollapsedNavGroupHover(null);
+      setCollapsedFlyoutLayout(null);
+    }
+  }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    const scrollEl = sidebarNavScrollRef.current;
+    if (!scrollEl || !sidebarCollapsed) return;
+    const closeCollapsedFlyout = () => {
+      setCollapsedNavGroupHover(null);
+      setCollapsedFlyoutLayout(null);
+    };
+    scrollEl.addEventListener("scroll", closeCollapsedFlyout, { passive: true });
+    return () => scrollEl.removeEventListener("scroll", closeCollapsedFlyout);
+  }, [sidebarCollapsed]);
 
   useEffect(() => {
     if (activeTab === "Plans and pricing") {
@@ -4113,13 +4148,8 @@ export function UserDashboardPage() {
     return revealedContactValues[key]?.phone || candidate.phone || "";
   };
 
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem(DASHBOARD_SIDEBAR_COLLAPSED_KEY);
-      if (stored === "1") setSidebarCollapsed(true);
-    } catch {
-      /* ignore */
-    }
+  useLayoutEffect(() => {
+    setSidebarCollapsed(readSidebarCollapsedPreference());
   }, []);
 
   const toggleSidebarCollapsed = () => {
@@ -4130,9 +4160,42 @@ export function UserDashboardPage() {
       } catch {
         /* ignore */
       }
-      if (next) setProfileMenuOpen(false);
+      if (next) {
+        setProfileMenuOpen(false);
+      } else {
+        setCollapsedNavGroupHover(null);
+        setCollapsedFlyoutLayout(null);
+      }
       return next;
     });
+  };
+
+  const clearCollapsedNavGroupLeaveTimer = () => {
+    if (collapsedNavGroupLeaveTimerRef.current) {
+      clearTimeout(collapsedNavGroupLeaveTimerRef.current);
+      collapsedNavGroupLeaveTimerRef.current = null;
+    }
+  };
+
+  const openCollapsedNavGroupFlyout = (groupLabel: string, anchor: HTMLElement) => {
+    if (!sidebarCollapsed) return;
+    clearCollapsedNavGroupLeaveTimer();
+    const rect = anchor.getBoundingClientRect();
+    setCollapsedNavGroupHover(groupLabel);
+    setCollapsedFlyoutLayout({
+      groupLabel,
+      top: rect.top + rect.height / 2,
+      left: rect.right + 8,
+    });
+  };
+
+  const scheduleCloseCollapsedNavGroupFlyout = () => {
+    if (!sidebarCollapsed) return;
+    clearCollapsedNavGroupLeaveTimer();
+    collapsedNavGroupLeaveTimerRef.current = setTimeout(() => {
+      setCollapsedNavGroupHover(null);
+      setCollapsedFlyoutLayout(null);
+    }, 100);
   };
 
   useEffect(() => {
@@ -4228,7 +4291,7 @@ export function UserDashboardPage() {
           </div>
 
           <nav className="dashboard-sidebar-nav">
-            <div className="dashboard-sidebar-nav-scroll">
+            <div className="dashboard-sidebar-nav-scroll" ref={sidebarNavScrollRef}>
               <div className="dashboard-sidebar-nav-list">
               {sidebarItemsForRole(accountRole).map((entry) => {
                 if (isSidebarNavGroup(entry)) {
@@ -4236,15 +4299,28 @@ export function UserDashboardPage() {
                     (child) => activeTab === (child.tabKey ?? child.label)
                   );
                   return (
-                    <div key={entry.label} className="dashboard-nav-group">
+                    <div
+                      key={entry.label}
+                      className={`dashboard-nav-group${
+                        sidebarCollapsed && collapsedNavGroupHover === entry.label
+                          ? " dashboard-nav-group--flyout-open"
+                          : ""
+                      }`}
+                      onMouseEnter={(event) => {
+                        openCollapsedNavGroupFlyout(entry.label, event.currentTarget);
+                      }}
+                      onMouseLeave={scheduleCloseCollapsedNavGroupFlyout}
+                    >
                       <button
                         type="button"
                         onClick={() => {
-                          if (sidebarCollapsed) toggleSidebarCollapsed();
-                          else setEngagementsNavExpanded((open) => !open);
+                          if (!sidebarCollapsed) {
+                            setEngagementsNavExpanded((open) => !open);
+                          }
                         }}
                         title={sidebarCollapsed ? entry.label : entry.subtitle}
-                        aria-expanded={engagementsNavExpanded}
+                        aria-expanded={sidebarCollapsed ? undefined : engagementsNavExpanded}
+                        aria-haspopup={sidebarCollapsed ? "menu" : undefined}
                         className={`dashboard-nav-item dashboard-nav-item--compact dashboard-nav-item--group w-full ${
                           childActive ? "dashboard-nav-item--active" : ""
                         }`}
@@ -4261,15 +4337,43 @@ export function UserDashboardPage() {
                             <span className="dashboard-nav-label">{entry.label}</span>
                             <span className="dashboard-nav-subtitle">{entry.subtitle}</span>
                           </span>
-                          <MaterialIcon
-                            name={engagementsNavExpanded ? "expand_less" : "expand_more"}
-                            className="dashboard-nav-group-chevron"
-                            aria-hidden
-                          />
+                          {!sidebarCollapsed ? (
+                            <MaterialIcon
+                              name={engagementsNavExpanded ? "expand_less" : "expand_more"}
+                              className="dashboard-nav-group-chevron"
+                              aria-hidden
+                            />
+                          ) : null}
                         </span>
                       </button>
-                      {engagementsNavExpanded && !sidebarCollapsed ? (
-                        <div className="dashboard-nav-sublist" role="group" aria-label={entry.label}>
+                      {engagementsNavExpanded || sidebarCollapsed ? (
+                        <div
+                          className={`dashboard-nav-sublist${
+                            sidebarCollapsed
+                              ? " dashboard-nav-sublist--collapsed dashboard-sidebar-flyout"
+                              : ""
+                          }${
+                            sidebarCollapsed &&
+                            collapsedFlyoutLayout?.groupLabel === entry.label
+                              ? " dashboard-nav-sublist--fixed"
+                              : ""
+                          }`}
+                          role={sidebarCollapsed ? "menu" : "group"}
+                          aria-label={entry.label}
+                          style={
+                            sidebarCollapsed &&
+                            collapsedFlyoutLayout?.groupLabel === entry.label
+                              ? {
+                                  position: "fixed",
+                                  top: collapsedFlyoutLayout.top,
+                                  left: collapsedFlyoutLayout.left,
+                                  transform: "translateY(-50%)",
+                                }
+                              : undefined
+                          }
+                          onMouseEnter={clearCollapsedNavGroupLeaveTimer}
+                          onMouseLeave={scheduleCloseCollapsedNavGroupFlyout}
+                        >
                           {entry.children.map((child) => {
                             const tabKey = child.tabKey ?? child.label;
                             const isActive = activeTab === tabKey;
@@ -4280,13 +4384,24 @@ export function UserDashboardPage() {
                                   tabKeyFromSidebarLabel(child.label, child.tabKey) as DashboardTabKey
                                 )}
                                 title={child.label}
+                                role={sidebarCollapsed ? "menuitem" : undefined}
                                 className={`dashboard-nav-item dashboard-nav-item--compact dashboard-nav-item--sub w-full ${
                                   isActive ? "dashboard-nav-item--active" : ""
                                 }`}
                               >
                                 <span className="dashboard-nav-item-inner dashboard-nav-item-inner--sub">
+                                  <span
+                                    className={`dashboard-nav-icon dashboard-nav-icon--compact ${
+                                      isActive ? "dashboard-nav-icon--active" : ""
+                                    }`}
+                                  >
+                                    {child.icon}
+                                  </span>
                                   <span className="dashboard-nav-item-text min-w-0">
                                     <span className="dashboard-nav-label">{child.label}</span>
+                                    {!sidebarCollapsed ? (
+                                      <span className="dashboard-nav-subtitle">{child.subtitle}</span>
+                                    ) : null}
                                   </span>
                                 </span>
                               </Link>
@@ -4379,7 +4494,12 @@ export function UserDashboardPage() {
                 </button>
 
                 {profileMenuOpen ? (
-                  <div className="dashboard-sidebar-menu" role="menu">
+                  <div
+                    className={`dashboard-sidebar-menu${
+                      sidebarCollapsed ? " dashboard-sidebar-flyout" : ""
+                    }`}
+                    role="menu"
+                  >
                     {showAdminLink ? (
                       <Link
                         href="/admin/dashboard"

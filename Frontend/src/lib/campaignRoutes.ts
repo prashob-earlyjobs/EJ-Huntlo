@@ -74,9 +74,8 @@ export function campaignOutreachChannelLabel(
 
 /** First workspace tab to open for a campaign channel. */
 export function defaultCampaignWorkspaceTab(
-  outreachChannel?: CampaignOutreachChannel | null
+  _outreachChannel?: CampaignOutreachChannel | null
 ): CampaignWorkspaceTab {
-  if (outreachChannel === "voice_call") return "Emails";
   return "Editor";
 }
 
@@ -139,7 +138,6 @@ export function getVisibleCampaignWorkspaceTabs(opts: {
 
   return CAMPAIGN_WORKSPACE_TABS.filter((tab) => {
     if (tab === "Contacts") return false;
-    if (tab === "Editor" && effectiveChannel === "voice_call") return false;
     if (tab === "Job description" && !showJobDescriptionTab) return false;
     if (!channelLocked || !effectiveChannel) return true;
     if (effectiveChannel === "voice_call") {
@@ -192,11 +190,8 @@ export function normalizeCampaignWorkspaceTab(
   if (tab === "Contacts") {
     return contactsWorkspaceTabForChannel(outreachChannel);
   }
-  if (tab === "Editor" && outreachChannel === "voice_call") {
-    return "Emails";
-  }
   if (tab === "Settings") {
-    return outreachChannel === "voice_call" ? "Emails" : "Editor";
+    return "Editor";
   }
   return tab;
 }

@@ -18,8 +18,10 @@ import {
 } from "@/components/dashboard/OutreachSequencePicker";
 import { CampaignEmailReportPanel } from "@/components/dashboard/CampaignEmailReportPanel";
 import { CampaignJobDescriptionPanel } from "@/components/dashboard/CampaignJobDescriptionPanel";
+import { CampaignVoiceAgentEditor } from "@/components/dashboard/CampaignVoiceAgentEditor";
 import { CampaignContactsSkeleton } from "@/components/dashboard/CampaignContactsSkeleton";
 import { CampaignPreLaunchContactsPanel } from "@/components/dashboard/CampaignPreLaunchContactsPanel";
+import { CampaignVoiceCallsPanel } from "@/components/dashboard/CampaignVoiceCallsPanel";
 import { CampaignWhatsAppCommunicationsPanel } from "@/components/dashboard/CampaignWhatsAppCommunicationsPanel";
 import { CampaignWorkspaceEmptyState } from "@/components/dashboard/CampaignWorkspaceEmptyState";
 import { ImportCampaignContactsCsvModal } from "@/components/dashboard/ImportCampaignContactsCsvModal";
@@ -50,9 +52,11 @@ import {
   fetchCampaignContactsPage,
   CampaignLaunchBlockedError,
   launchCampaignSequence,
+  launchVoiceCampaign,
   pauseCampaignSequence,
   removeContactFromCampaignApi,
   resumeCampaignSequence,
+  saveCampaignVoiceAgent,
   setCampaignOutreachPlan,
   syncCampaignRevealedContacts,
   updateCampaignCalendlyAutomation,
@@ -333,6 +337,7 @@ export function CampaignWorkspace({
   const [launchNotice, setLaunchNotice] = useState("");
   const [launchError, setLaunchError] = useState("");
   const [selectedEmailContactKey, setSelectedEmailContactKey] = useState<string | null>(null);
+  const [voiceSelectedContactKeys, setVoiceSelectedContactKeys] = useState<string[]>([]);
   const [emailSearch, setEmailSearch] = useState("");
   const [emailFilter, setEmailFilter] = useState<
     "all" | "interested" | "not_interested" | "awaiting"
@@ -436,6 +441,7 @@ export function CampaignWorkspace({
   const [removeContactConfirm, setRemoveContactConfirm] = useState<CampaignContact | null>(null);
   const unveilCompleteRef = useRef<(() => void) | undefined>(undefined);
   const [waCommsRefreshKey, setWaCommsRefreshKey] = useState(0);
+  const [voiceCallsRefreshKey, setVoiceCallsRefreshKey] = useState(0);
   const [contactViewsRevision, setContactViewsRevision] = useState(0);
   const [csvImportBusy, setCsvImportBusy] = useState(false);
   const [csvModalOpen, setCsvModalOpen] = useState(false);
@@ -1330,14 +1336,35 @@ export function CampaignWorkspace({
     }
   }, [campaign.id, launchBusy]);
 
-  /** Voice call launch — wire API when product handler is ready. */
+  /** Voice call launch — places bulk calls via Hunar AI. */
   const handleLaunchVoiceCampaign = useCallback(async () => {
     if (launchBusy || unveilJobActive) return;
+    const auth = getStoredAuth();
+    if (!auth?.token) return;
+    if (voiceSelectedContactKeys.length === 0) {
+      setLaunchError("Select at least one contact with a phone number.");
+      return;
+    }
     setLaunchError("");
     setLaunchNotice("");
     setLaunchBusy(true);
     try {
-      // TODO: voice call launch
+      const result = await launchVoiceCampaign(
+        auth.token,
+        campaign.id,
+        voiceSelectedContactKeys
+      );
+      onCampaignUpdatedRef.current?.(result.campaign);
+      contactsFetchKeyRef.current = null;
+      void reloadContacts();
+      setVoiceCallsRefreshKey((v) => v + 1);
+      setLaunchNotice(
+        result.dialedCount > 0
+          ? `AI voice calls started for ${result.dialedCount} contact${
+              result.dialedCount === 1 ? "" : "s"
+            }.`
+          : "Launched, but no contacts had a valid phone number."
+      );
     } catch (err) {
       setLaunchError(
         err instanceof Error ? err.message : "Could not launch voice campaign."
@@ -1345,7 +1372,31 @@ export function CampaignWorkspace({
     } finally {
       setLaunchBusy(false);
     }
-  }, [launchBusy, unveilJobActive]);
+  }, [campaign.id, launchBusy, unveilJobActive, voiceSelectedContactKeys, reloadContacts]);
+
+  const handleToggleVoiceContact = useCallback((candidateKey: string, selected: boolean) => {
+    setVoiceSelectedContactKeys((prev) => {
+      if (selected) {
+        return prev.includes(candidateKey) ? prev : [...prev, candidateKey];
+      }
+      return prev.filter((key) => key !== candidateKey);
+    });
+  }, []);
+
+  const handleToggleVoiceContactsOnPage = useCallback(
+    (candidateKeys: string[], selected: boolean) => {
+      setVoiceSelectedContactKeys((prev) => {
+        if (selected) {
+          const merged = new Set(prev);
+          for (const key of candidateKeys) merged.add(key);
+          return Array.from(merged);
+        }
+        const remove = new Set(candidateKeys);
+        return prev.filter((key) => !remove.has(key));
+      });
+    },
+    []
+  );
 
   const voiceLaunchBlockedReason = !hasSequence
     ? "Set up this voice campaign first"
@@ -1353,11 +1404,23 @@ export function CampaignWorkspace({
       ? "Add a job description first"
       : !hasContacts
         ? "Add contacts to this campaign first"
-        : unveilJobActive
-          ? "Wait for contact unveil to finish"
-          : launchBusy
-            ? "Launching…"
-            : null;
+        : voiceSelectedContactKeys.length === 0
+          ? "Select contacts to call"
+          : unveilJobActive
+            ? "Wait for contact unveil to finish"
+            : launchBusy
+              ? "Launching…"
+              : null;
+
+  useEffect(() => {
+    if (campaign.outreachChannel !== "voice_call") return;
+    if (outreachStatus !== "idle") return;
+    const readyKeys = contactsListRows
+      .filter((contact) => contact.phone.trim())
+      .map((contact) => contact.candidateKey);
+    if (readyKeys.length === 0) return;
+    setVoiceSelectedContactKeys((prev) => (prev.length > 0 ? prev : readyKeys));
+  }, [campaign.outreachChannel, contactsListRows, outreachStatus]);
 
   const loadContactsListPage = useCallback(
     async (page: number) => {
@@ -1586,6 +1649,7 @@ export function CampaignWorkspace({
     try {
       const raw = await file.text();
       const { contacts: parsed, errors } = parseCsvContacts(raw);
+      const limitErrors = [...errors];
       const voiceJd =
         campaign.jobDescription?.trim() || standaloneJobDescription.trim() || "";
       if (campaign.outreachChannel === "voice_call" && !voiceJd) {
@@ -1597,7 +1661,6 @@ export function CampaignWorkspace({
         campaign.outreachChannel === "voice_call" && voiceJd
           ? parsed.map((contact) => ({ ...contact, jd: voiceJd }))
           : parsed;
-      const limitErrors = [...errors];
       const batchCheck = validateCampaignContactBatch(contacts.length, contactsForImport.length);
       if (!batchCheck.ok) {
         limitErrors.push(batchCheck.message);
@@ -2031,7 +2094,7 @@ export function CampaignWorkspace({
           <button
             type="button"
             onClick={onBack}
-            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-600 transition hover:bg-slate-100 hover:text-[#141b2b] sm:h-8 sm:w-8 sm:rounded-lg"
+            className="inline-flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-slate-600 transition hover:bg-slate-100 hover:text-[#141b2b] sm:h-8 sm:w-8 sm:rounded-lg"
             aria-label="Back to campaigns"
           >
             <MaterialIcon name="arrow_back" className="text-base sm:text-lg" />
@@ -2094,7 +2157,8 @@ export function CampaignWorkspace({
                     unveilJobActive ||
                     !hasSequence ||
                     !hasContacts ||
-                    !campaign.jobDescription?.trim()
+                    !campaign.jobDescription?.trim() ||
+                    voiceSelectedContactKeys.length === 0
                   }
                   title={voiceLaunchBlockedReason ?? "Launch campaign"}
                   className={`${dashboardBtnPrimaryClass} inline-flex h-7 items-center justify-center gap-1 whitespace-nowrap px-2.5 text-xs disabled:opacity-55 sm:h-8 sm:gap-1.5 sm:px-3 sm:text-sm`}
@@ -2159,7 +2223,53 @@ export function CampaignWorkspace({
 
       <div className="flex min-h-0 flex-1 flex-col bg-[#f8f9fc]">
         {activeTab === "Editor" ? (
-          editorPhase === "editing" && editor?.channel === "gmail" ? (
+          isVoiceCallCampaign ? (
+            <CampaignVoiceAgentEditor
+              key={campaign.id}
+              locked={campaignFieldsLocked}
+              outreachStatus={outreachStatus}
+              initialConfig={campaign.voiceAgentConfig ?? null}
+              onSaveAndTest={async (payload) => {
+                const auth = getStoredAuth();
+                if (!auth?.token) {
+                  setSaveToast({ message: "Please sign in again.", variant: "error" });
+                  return;
+                }
+                const jd =
+                  campaign.jobDescription?.trim() || standaloneJobDescription.trim() || "";
+                if (!jd) {
+                  setSaveToast({
+                    message: "Add a job description before saving the voice agent.",
+                    variant: "warning",
+                  });
+                  return;
+                }
+                try {
+                  const result = await saveCampaignVoiceAgent(
+                    auth.token,
+                    campaign.id,
+                    payload
+                  );
+                  onCampaignUpdatedRef.current?.(result.campaign);
+                  setSaveToast({
+                    message:
+                      result.action === "updated"
+                        ? "Voice agent updated successfully."
+                        : "Voice agent created successfully.",
+                    variant: "success",
+                  });
+                } catch (error) {
+                  setSaveToast({
+                    message:
+                      error instanceof Error
+                        ? error.message
+                        : "Failed to save voice agent.",
+                    variant: "error",
+                  });
+                }
+              }}
+            />
+          ) : editorPhase === "editing" && editor?.channel === "gmail" ? (
             <OutreachPlanEditor
               key={editor.state.planId}
               embedded
@@ -2291,6 +2401,7 @@ export function CampaignWorkspace({
             locked={campaignFieldsLocked}
             outreachStatus={outreachStatus}
             isWhatsApp={isWhatsAppCampaign}
+            isVoiceCall={isVoiceCallCampaign}
             showEmptyGuidance={
               !whatsappJobDescriptionValue.trim() &&
               !hasSequence &&
@@ -2299,7 +2410,7 @@ export function CampaignWorkspace({
             showEditorTabHint={whatsappJobDescriptionEditing}
           />
         ) : activeTab === "Emails" ? (
-          <div className="dashboard-campaign-emails-panel flex min-h-0 flex-1 flex-col">
+          <div className="dashboard-campaign-emails-panel flex min-h-0 flex-1 flex-col overflow-hidden">
             {!hasContacts &&
             contactsListTotal === 0 &&
             campaignContactCount === 0 &&
@@ -2350,6 +2461,10 @@ export function CampaignWorkspace({
                 revealInProgress={revealInProgress || launchBusy}
                 contactsLocked={campaignContactsLocked}
                 removingKey={removeContactBusyKey}
+                selectable={isVoiceCallCampaign}
+                selectedKeys={voiceSelectedContactKeys}
+                onToggleContact={handleToggleVoiceContact}
+                onToggleAllOnPage={handleToggleVoiceContactsOnPage}
                 onPageChange={setContactsListPage}
                 onAddFromSearchHistory={
                   campaignContactsLocked ? undefined : onAddFromSearchHistory
@@ -2365,6 +2480,14 @@ export function CampaignWorkspace({
                         if (contact) await handleRemoveContactFromCampaign(contact);
                       }
                 }
+              />
+            ) : isVoiceCallCampaign ? (
+              <CampaignVoiceCallsPanel
+                campaignId={campaign.id}
+                outreachStatus={outreachStatus}
+                refreshKey={voiceCallsRefreshKey}
+                resultFields={campaign.voiceAgentConfig?.resultFields ?? []}
+                callPrompt={campaign.voiceAgentConfig?.callPrompt ?? ""}
               />
             ) : (
               <>

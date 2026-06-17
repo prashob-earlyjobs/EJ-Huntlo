@@ -30,6 +30,25 @@ const calendlyAutomationSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const voiceAgentResultFieldSchema = new mongoose.Schema(
+  {
+    columnName: { type: String, default: "", trim: true },
+    expectedValue: { type: String, default: "", trim: true },
+  },
+  { _id: false }
+);
+
+const voiceAgentConfigSchema = new mongoose.Schema(
+  {
+    callObjective: { type: String, default: "" },
+    introductoryStatement: { type: String, default: "" },
+    callPrompt: { type: String, default: "" },
+    resultPrompt: { type: String, default: "" },
+    resultFields: { type: [voiceAgentResultFieldSchema], default: [] },
+  },
+  { _id: false }
+);
+
 const campaignSchema = new mongoose.Schema(
   {
     userId: {
@@ -74,6 +93,12 @@ const campaignSchema = new mongoose.Schema(
     whatsAppNotInterestedCount: { type: Number, default: 0, min: 0 },
     /** Denormalized count — source of truth is CampaignContact collection. */
     contactCount: { type: Number, default: 0, min: 0 },
+    /** Hunar AI voice agent id (from hunarVoiceAgent.id) for outbound calls. */
+    hunarVoiceAgentId: { type: String, default: "", trim: true, index: true },
+    /** Full Hunar voice agent object returned on create (voice_call campaigns only). */
+    hunarVoiceAgent: { type: mongoose.Schema.Types.Mixed, default: null },
+    /** Saved voice agent editor configuration (templates may include {job_description}). */
+    voiceAgentConfig: { type: voiceAgentConfigSchema, default: () => ({}) },
     /** @deprecated Legacy embedded contacts — migrated to CampaignContact on read. */
     contacts: {
       type: [campaignContactSchema],

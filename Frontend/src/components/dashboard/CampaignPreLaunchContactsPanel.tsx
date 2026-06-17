@@ -19,6 +19,10 @@ type Props = {
   revealInProgress?: boolean;
   contactsLocked?: boolean;
   removingKey?: string;
+  selectable?: boolean;
+  selectedKeys?: string[];
+  onToggleContact?: (candidateKey: string, selected: boolean) => void;
+  onToggleAllOnPage?: (candidateKeys: string[], selected: boolean) => void;
   onPageChange?: (page: number) => void;
   onAddFromSearchHistory?: () => void;
   onUploadCsv?: () => void;
@@ -68,6 +72,10 @@ export function CampaignPreLaunchContactsPanel({
   revealInProgress = false,
   contactsLocked = false,
   removingKey = "",
+  selectable = false,
+  selectedKeys = [],
+  onToggleContact,
+  onToggleAllOnPage,
   onPageChange,
   onAddFromSearchHistory,
   onUploadCsv,
@@ -75,6 +83,16 @@ export function CampaignPreLaunchContactsPanel({
 }: Props) {
   const isWhatsApp = channel === "whatsapp";
   const isVoiceCall = channel === "voice_call";
+  const showSelection = selectable && isVoiceCall;
+  const selectedKeySet = new Set(selectedKeys);
+  const selectableOnPage = contacts
+    .filter((contact) => Boolean(contactChannelValue(contact, channel)))
+    .map((contact) => contact.candidateKey);
+  const allOnPageSelected =
+    selectableOnPage.length > 0 &&
+    selectableOnPage.every((key) => selectedKeySet.has(key));
+  const someOnPageSelected =
+    selectableOnPage.some((key) => selectedKeySet.has(key)) && !allOnPageSelected;
   const pageNumbers = buildPageNumbers(page, totalPages);
   const channelLabel = isVoiceCall ? "AI voice call" : isWhatsApp ? "WhatsApp" : "Gmail";
   const contactFieldLabel = isVoiceCall || isWhatsApp ? "Phone" : "Email";
@@ -144,6 +162,23 @@ export function CampaignPreLaunchContactsPanel({
           <table className="min-w-full text-left text-sm">
             <thead className="bg-slate-50">
               <tr className="text-slate-600">
+                {showSelection ? (
+                  <th className="w-10 px-3 py-2 font-medium">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-slate-300"
+                      checked={allOnPageSelected}
+                      ref={(el) => {
+                        if (el) el.indeterminate = someOnPageSelected;
+                      }}
+                      disabled={selectableOnPage.length === 0 || contactsLocked}
+                      aria-label="Select all contacts on this page"
+                      onChange={(event) => {
+                        onToggleAllOnPage?.(selectableOnPage, event.target.checked);
+                      }}
+                    />
+                  </th>
+                ) : null}
                 <th className="px-3 py-2 font-medium">Name</th>
                 <th className="px-3 py-2 font-medium">{contactFieldLabel}</th>
                 <th className="px-3 py-2 font-medium">Company</th>
@@ -155,6 +190,22 @@ export function CampaignPreLaunchContactsPanel({
             <tbody>
               {contacts.map((contact) => (
                 <tr key={contact.candidateKey} className="border-t border-slate-100">
+                  {showSelection ? (
+                    <td className="px-3 py-2">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-slate-300"
+                        checked={selectedKeySet.has(contact.candidateKey)}
+                        disabled={
+                          contactsLocked || !contactChannelValue(contact, channel)
+                        }
+                        aria-label={`Select ${contact.name.trim() || "contact"}`}
+                        onChange={(event) => {
+                          onToggleContact?.(contact.candidateKey, event.target.checked);
+                        }}
+                      />
+                    </td>
+                  ) : null}
                   <td className="px-3 py-2 text-slate-800">
                     {contact.name.trim() || "Unnamed contact"}
                   </td>
@@ -188,7 +239,7 @@ export function CampaignPreLaunchContactsPanel({
         </div>
         <p className="mt-3 text-xs text-slate-500">
           {isVoiceCall
-            ? "Add contacts with phone numbers, then launch the campaign when you are ready to start AI voice calls."
+            ? "Select contacts with phone numbers, then launch the campaign to start AI voice calls."
             : isWhatsApp
               ? "Start the campaign sequence from the editor/workspace to activate WhatsApp conversations."
               : "Launch the campaign sequence from the editor/workspace to activate Gmail conversations."}
