@@ -15,6 +15,7 @@ import {
   type PoolSessionOption,
 } from "@/components/dashboard/CandidatePoolPanel";
 import { LandingLogo } from "@/components/landing/LandingLogo";
+import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { authHeaders, getStoredAuth, type StoredAuth } from "@/lib/auth";
 import {
   fetchPlatformSettings,
@@ -783,6 +784,8 @@ export function AdminDashboardPage() {
   const [usersPage, setUsersPage] = useState(1);
   const [usersTotalPages, setUsersTotalPages] = useState(1);
   const [usersTotalDocs, setUsersTotalDocs] = useState(0);
+  const [usersSearchInput, setUsersSearchInput] = useState("");
+  const [usersSearchQuery, setUsersSearchQuery] = useState("");
   const [createError, setCreateError] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -848,7 +851,7 @@ export function AdminDashboardPage() {
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
 
   const loadUsers = useCallback(
-    async (token: string, page = 1) => {
+    async (token: string, page = 1, searchQuery = "") => {
       setUsersLoading(true);
       setUsersError("");
       try {
@@ -856,6 +859,10 @@ export function AdminDashboardPage() {
           page: String(page),
           limit: String(ADMIN_USERS_LIMIT),
         });
+        const trimmedSearch = searchQuery.trim();
+        if (trimmedSearch) {
+          params.set("q", trimmedSearch);
+        }
         const res = await fetch(`${apiBase}/api/users?${params.toString()}`, {
           headers: authHeaders(token),
         });
@@ -1070,9 +1077,18 @@ export function AdminDashboardPage() {
   }, [router, loadUsers]);
 
   useEffect(() => {
+    if (activeTab !== "Users") return;
+    const timer = window.setTimeout(() => {
+      setUsersSearchQuery(usersSearchInput.trim());
+      setUsersPage(1);
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [usersSearchInput, activeTab]);
+
+  useEffect(() => {
     if (!auth?.token || activeTab !== "Users") return;
-    void loadUsers(auth.token, usersPage);
-  }, [auth?.token, activeTab, usersPage, loadUsers]);
+    void loadUsers(auth.token, usersPage, usersSearchQuery);
+  }, [auth?.token, activeTab, usersPage, usersSearchQuery, loadUsers]);
 
   useEffect(() => {
     if (activeTab !== ADMIN_POOL_TAB) return;
@@ -1371,7 +1387,7 @@ export function AdminDashboardPage() {
         planId: pricingPlanOptions[0]?.id || "trial",
       });
       setIsCreateUserModalOpen(false);
-      await loadUsers(auth.token, usersPage);
+      await loadUsers(auth.token, usersPage, usersSearchQuery);
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : "Create failed");
     } finally {
@@ -1482,7 +1498,7 @@ export function AdminDashboardPage() {
         typeof data.user?.planId === "string" ? data.user.planId : planDraftId;
       setManageModalUser((prev) => (prev ? { ...prev, planId: nextPlanId } : null));
       setPlanDraftId(nextPlanId);
-      await loadUsers(auth.token, usersPage);
+      await loadUsers(auth.token, usersPage, usersSearchQuery);
       await loadUserManageData(manageModalUser.id, auth.token);
       await loadTeamUtilisationHistory(auth.token, analyticsFilterUserId);
       await loadUsageAnalyticsSummary(auth.token, analyticsFilterUserId);
@@ -1597,6 +1613,35 @@ export function AdminDashboardPage() {
                   </p>
                 ) : null}
 
+                <form
+                  className="dashboard-pool-search mt-4"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    setUsersSearchQuery(usersSearchInput.trim());
+                    setUsersPage(1);
+                  }}
+                >
+                  <MaterialIcon name="search" className="dashboard-pool-search-icon" aria-hidden />
+                  <input
+                    type="search"
+                    value={usersSearchInput}
+                    onChange={(event) => setUsersSearchInput(event.target.value)}
+                    placeholder="Search by name, email, mobile, or company…"
+                    className="dashboard-pool-search-input"
+                    aria-label="Search users"
+                  />
+                  {usersSearchInput.trim() ? (
+                    <button
+                      type="button"
+                      onClick={() => setUsersSearchInput("")}
+                      className="dashboard-pool-search-clear"
+                      aria-label="Clear search"
+                    >
+                      <MaterialIcon name="close" className="text-base" />
+                    </button>
+                  ) : null}
+                </form>
+
                 <div className="mt-4 overflow-x-auto">
                   <table className="w-full min-w-[640px] border-collapse text-left">
                     <thead>
@@ -1615,6 +1660,14 @@ export function AdminDashboardPage() {
                         <tr>
                           <td colSpan={7} className="py-8 text-center text-sm text-slate-500">
                             Loading users…
+                          </td>
+                        </tr>
+                      ) : teamUsers.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="py-8 text-center text-sm text-slate-500">
+                            {usersSearchQuery
+                              ? `No users match “${usersSearchQuery}”.`
+                              : "No users found."}
                           </td>
                         </tr>
                       ) : (
@@ -1653,8 +1706,10 @@ export function AdminDashboardPage() {
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
                   <p className="text-xs text-slate-500">
                     {usersTotalDocs > 0
-                      ? `Showing page ${usersPage} of ${usersTotalPages} (${usersTotalDocs} users)`
-                      : "No users found"}
+                      ? `Showing page ${usersPage} of ${usersTotalPages} (${usersTotalDocs} user${usersTotalDocs === 1 ? "" : "s"}${usersSearchQuery ? ` matching “${usersSearchQuery}”` : ""})`
+                      : usersSearchQuery
+                        ? `No users match “${usersSearchQuery}”`
+                        : "No users found"}
                   </p>
                   <div className="flex items-center gap-2">
                     <button
