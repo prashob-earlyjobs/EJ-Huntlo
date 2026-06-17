@@ -8,6 +8,23 @@ const {
   getCalendlyStatusHandler,
   getCalendlyMeetingLinksHandler,
   connectGmailWithAuthCode,
+  getOutlookStatusHandler,
+  getOutlookOAuthUrlHandler,
+  connectOutlookWithAuthCode,
+  testOutlookHandler,
+  disconnectOutlookHandler,
+  getZohoMailStatusHandler,
+  getZohoMailOAuthUrlHandler,
+  verifyZohoMailCredentialsHandler,
+  connectZohoMailHandler,
+  testZohoMailHandler,
+  connectZohoMailWithAuthCode,
+  disconnectZohoMailHandler,
+  getCustomMailStatusHandler,
+  verifyCustomMailCredentialsHandler,
+  connectCustomMailHandler,
+  testCustomMailHandler,
+  disconnectCustomMailHandler,
   verifyWhatsAppCredentialsHandler,
   connectWhatsAppHandler,
   verifyCalendlyCredentialsHandler,
@@ -17,6 +34,8 @@ const {
   disconnectWhatsAppHandler,
   disconnectCalendlyHandler,
   disconnectIntegrationHandler,
+  disconnectIntegrationByIdHandler,
+  setDefaultEmailIntegrationHandler,
 } = require("../controllers/integrationController");
 const {
   verifyMetaWebhookHandler,
@@ -42,6 +61,11 @@ router.get("/whatsapp/gupshup/webhook", receiveGupshupWebhookHandler);
 
 router.get("/", authenticate, listIntegrationsHandler);
 router.get("/gmail/status", authenticate, getGmailStatusHandler);
+router.get("/outlook/status", authenticate, getOutlookStatusHandler);
+router.get("/outlook/oauth-url", authenticate, getOutlookOAuthUrlHandler);
+router.get("/zoho_mail/status", authenticate, getZohoMailStatusHandler);
+router.get("/zoho_mail/oauth-url", authenticate, getZohoMailOAuthUrlHandler);
+router.get("/custom_mail/status", authenticate, getCustomMailStatusHandler);
 router.get("/whatsapp/status", authenticate, getWhatsAppStatusHandler);
 router.get(
   "/whatsapp/meta-webhook-setup",
@@ -51,12 +75,26 @@ router.get(
 router.get("/calendly/status", authenticate, getCalendlyStatusHandler);
 router.get("/calendly/links", authenticate, getCalendlyMeetingLinksHandler);
 router.post("/gmail/callback", authenticate, connectGmailWithAuthCode);
+router.post("/outlook/callback", authenticate, connectOutlookWithAuthCode);
+router.post("/outlook/test", authenticate, testOutlookHandler);
+router.post("/zoho_mail/verify", authenticate, verifyZohoMailCredentialsHandler);
+router.post("/zoho_mail/connect", authenticate, connectZohoMailHandler);
+router.post("/zoho_mail/test", authenticate, testZohoMailHandler);
+router.post("/zoho_mail/callback", authenticate, connectZohoMailWithAuthCode);
+router.post("/custom_mail/verify", authenticate, verifyCustomMailCredentialsHandler);
+router.post("/custom_mail/connect", authenticate, connectCustomMailHandler);
+router.post("/custom_mail/test", authenticate, testCustomMailHandler);
 router.post("/whatsapp/verify", authenticate, verifyWhatsAppCredentialsHandler);
 router.post("/whatsapp/connect", authenticate, connectWhatsAppHandler);
 router.post("/calendly/verify", authenticate, verifyCalendlyCredentialsHandler);
 router.post("/calendly/connect", authenticate, connectCalendlyHandler);
 router.get("/calendly/event-types", authenticate, listCalendlyEventTypesHandler);
+router.patch("/integration/:integrationId/default", authenticate, setDefaultEmailIntegrationHandler);
+router.delete("/integration/:integrationId", authenticate, disconnectIntegrationByIdHandler);
 router.delete("/gmail", authenticate, disconnectGmailHandler);
+router.delete("/outlook", authenticate, disconnectOutlookHandler);
+router.delete("/zoho_mail", authenticate, disconnectZohoMailHandler);
+router.delete("/custom_mail", authenticate, disconnectCustomMailHandler);
 router.delete("/whatsapp", authenticate, disconnectWhatsAppHandler);
 router.delete("/calendly", authenticate, disconnectCalendlyHandler);
 router.delete("/:provider", authenticate, disconnectIntegrationHandler);

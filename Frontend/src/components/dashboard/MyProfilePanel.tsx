@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { MyProfileSkeleton } from "@/components/dashboard/MyProfileSkeleton";
+import { PhoneNumberField } from "@/components/ui/PhoneNumberField";
 import { resolveProfilePhotoUrl } from "@/lib/profilePhoto";
 
 export type MyProfileFormState = {
@@ -465,18 +466,27 @@ export function MyProfilePanel({
                       <MaterialIcon name={field.icon} className="text-base opacity-70" />
                       {field.label}
                     </span>
-                    <input
-                      type={field.type}
-                      value={form[field.key]}
-                      onChange={(event) =>
-                        onFieldChange(field.key, event.target.value)
-                      }
-                      readOnly={!isEditing}
-                      placeholder={field.placeholder}
-                      className={`dashboard-input${
-                        !isEditing ? " dashboard-input--readonly" : ""
-                      }`}
-                    />
+                    {field.key === "phone" ? (
+                      <PhoneNumberField
+                        variant="dashboard"
+                        value={form.phone}
+                        onChange={(e164) => onFieldChange("phone", e164)}
+                        disabled={!isEditing}
+                      />
+                    ) : (
+                      <input
+                        type={field.type}
+                        value={form[field.key]}
+                        onChange={(event) =>
+                          onFieldChange(field.key, event.target.value)
+                        }
+                        readOnly={!isEditing}
+                        placeholder={field.placeholder}
+                        className={`dashboard-input${
+                          !isEditing ? " dashboard-input--readonly" : ""
+                        }`}
+                      />
+                    )}
                   </label>
                 ))}
               </div>

@@ -199,6 +199,10 @@ function isFjSessionPending(data) {
 }
 
 function fjSessionPendingMessage(data) {
+  const sourcingError =
+    typeof data?.data?.sourcingError === "string" ? data.data.sourcingError.trim() : "";
+  if (sourcingError) return sourcingError;
+
   if (typeof data?.message === "string" && data.message.trim()) {
     return data.message.trim();
   }

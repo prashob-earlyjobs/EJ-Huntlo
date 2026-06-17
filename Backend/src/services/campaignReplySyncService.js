@@ -4,12 +4,22 @@ const CampaignSequenceEnrollment = require("../models/CampaignSequenceEnrollment
 const CampaignOutreachReply = require("../models/CampaignOutreachReply");
 const OutreachPlan = require("../models/OutreachPlan");
 const { applyMergeFields } = require("./outreachMergeService");
-const { getGmailIntegration } = require("./gmailClient");
 const {
   fetchThreadMessages,
   resolveThreadIdFromMessage,
   normalizeMessage,
 } = require("./gmailReadService");
+const {
+  getEmailIntegrationForCampaign,
+} = require("./emailIntegrationService");
+const {
+  fetchZohoThreadMessages,
+  resolveZohoThreadIdFromMessage,
+} = require("./zohoMailReadService");
+const {
+  fetchOutlookThreadMessages,
+  resolveOutlookThreadIdFromMessage,
+} = require("./outlookMailReadService");
 const { notifyCampaignThreadUpdated } = require("../realtime/notify");
 const { maybeAutoReplyAfterCandidateMessage } = require("./campaignAutoReplyService");
 const {
@@ -34,7 +44,7 @@ function looksLikeGmailResourceId(id) {
   return true;
 }
 
-function isEmailEnrollmentForGmailSync(enrollment) {
+function isEmailEnrollmentForSync(enrollment) {
   const email = String(enrollment?.contactEmail || "").trim();
   if (!email.includes("@")) return false;
   const threadId = String(enrollment?.lastThreadId || "").trim();
@@ -65,8 +75,11 @@ function formatReply(doc) {
   };
 }
 
-async function ensureThreadId(enrollment, userId) {
-  if (!isEmailEnrollmentForGmailSync(enrollment)) return "";
+async function ensureThreadId(enrollment, userId, provider, integrationDoc) {
+  if (!isEmailEnrollmentForSync(enrollment)) return "";
+  if (provider === "custom_mail") return "";
+
+  const integrationId = integrationDoc?._id ? String(integrationDoc._id) : undefined;
 
   const storedThreadId = String(enrollment.lastThreadId || "").trim();
   if (storedThreadId && looksLikeGmailResourceId(storedThreadId)) {
@@ -77,7 +90,16 @@ async function ensureThreadId(enrollment, userId) {
   if (!messageId || !looksLikeGmailResourceId(messageId)) return "";
 
   try {
-    const threadId = await resolveThreadIdFromMessage(userId, messageId);
+    let threadId = "";
+    if (provider === "zoho_mail") {
+      threadId = await resolveZohoThreadIdFromMessage(integrationDoc, messageId);
+    } else if (provider === "outlook") {
+      threadId = await resolveOutlookThreadIdFromMessage(integrationDoc, messageId);
+    } else if (provider === "gmail") {
+      threadId = await resolveThreadIdFromMessage(userId, messageId, integrationId);
+    } else {
+      return messageId;
+    }
     if (threadId) {
       await CampaignSequenceEnrollment.updateOne(
         { _id: enrollment._id },
@@ -85,14 +107,40 @@ async function ensureThreadId(enrollment, userId) {
       );
       enrollment.lastThreadId = threadId;
     }
-    return threadId || "";
+    return threadId || messageId;
   } catch (err) {
     console.warn(
       `[outreach-reply-sync] enrollment ${enrollment._id} could not resolve thread from message ${messageId}:`,
       err?.message || err
     );
-    return "";
+    return messageId;
   }
+}
+
+async function fetchProviderThreadMessages(provider, userId, integrationDoc, enrollment, threadId) {
+  if (provider === "custom_mail") {
+    return [];
+  }
+  if (provider === "zoho_mail") {
+    return fetchZohoThreadMessages(integrationDoc, enrollment, threadId);
+  }
+  if (provider === "outlook") {
+    return fetchOutlookThreadMessages(integrationDoc, enrollment, threadId);
+  }
+
+  const integrationId = integrationDoc?._id ? String(integrationDoc._id) : undefined;
+  const raw = await fetchThreadMessages(userId, threadId, integrationId);
+  const integrationEmail = integrationDoc?.email || "";
+  const parsed = [];
+  for (const msg of raw) {
+    const row = await normalizeMessage(userId, msg, {
+      userEmail: integrationEmail,
+      contactEmail: enrollment.contactEmail,
+      integrationId,
+    });
+    if (row?.gmailMessageId) parsed.push(row);
+  }
+  return parsed;
 }
 
 /**
@@ -199,16 +247,22 @@ async function backfillEmptyOutboundBodies(enrollment, senderFirstName = "") {
   return updated;
 }
 
-async function syncEnrollmentReplies(enrollment, integrationEmail) {
+async function syncEnrollmentReplies(enrollment, integrationEmail, provider, integrationDoc) {
   const userId = String(enrollment.userId);
-  const threadId = await ensureThreadId(enrollment, userId);
+  const threadId = await ensureThreadId(enrollment, userId, provider, integrationDoc);
   if (!threadId) {
     return { newReplies: 0, candidateReplies: 0, threadId: "" };
   }
 
   let messages = [];
   try {
-    messages = await fetchThreadMessages(userId, threadId);
+    messages = await fetchProviderThreadMessages(
+      provider,
+      userId,
+      integrationDoc,
+      enrollment,
+      threadId
+    );
   } catch (err) {
     console.warn(
       `[outreach-reply-sync] enrollment ${enrollment._id} thread ${threadId} fetch failed:`,
@@ -235,14 +289,10 @@ async function syncEnrollmentReplies(enrollment, integrationEmail) {
   let latestCandidateReplyAt = null;
   let latestNewCandidateMessage = null;
 
-  for (const msg of messages) {
-    const parsed = await normalizeMessage(userId, msg, {
-      userEmail: integrationEmail,
-      contactEmail: enrollment.contactEmail,
-    });
+  for (const parsed of messages) {
     if (!parsed.gmailMessageId) continue;
 
-    // Gmail sync often has no body on our sent messages; recordOutboundSentMessage stores it.
+    // Outbound bodies are stored at send time; provider sync may omit our sent body.
     if (!parsed.isFromCandidate && !String(parsed.bodyText || "").trim()) {
       continue;
     }
@@ -347,7 +397,12 @@ async function syncEnrollmentReplies(enrollment, integrationEmail) {
       candidateKey: enrollment.candidateKey,
       newMessages: newReplies + backfilled,
       hasNewCandidateReply: candidateReplies > 0,
-      source: "gmail_sync",
+      source:
+        provider === "zoho_mail"
+          ? "zoho_sync"
+          : provider === "outlook"
+            ? "outlook_sync"
+            : "gmail_sync",
     });
   }
 
@@ -396,29 +451,43 @@ async function syncDueEnrollmentReplies() {
 
   if (enrollments.length === 0) return { checked: 0, newReplies: 0 };
 
-  const byUser = new Map();
+  const byIntegration = new Map();
   for (const row of enrollments) {
-    const uid = String(row.userId);
-    if (!byUser.has(uid)) byUser.set(uid, []);
-    byUser.get(uid).push(row);
+    const campaign = await Campaign.findById(row.campaignId)
+      .select("userId emailIntegrationId")
+      .lean();
+    if (!campaign) continue;
+    const key = `${campaign.userId}:${campaign.emailIntegrationId || "default"}`;
+    if (!byIntegration.has(key)) {
+      byIntegration.set(key, { campaign, rows: [] });
+    }
+    byIntegration.get(key).rows.push(row);
   }
 
   let checked = 0;
   let newReplies = 0;
 
-  for (const [userId, rows] of byUser.entries()) {
+  for (const { campaign, rows } of byIntegration.values()) {
     let integrationEmail = "";
+    let provider = "";
+    let integrationDoc = null;
     try {
-      const integration = await getGmailIntegration(userId);
-      integrationEmail = integration.email || "";
+      integrationDoc = await getEmailIntegrationForCampaign(campaign);
+      provider = integrationDoc.provider;
+      integrationEmail = integrationDoc.email || "";
     } catch {
       continue;
     }
 
     for (const enrollment of rows) {
-      if (!isEmailEnrollmentForGmailSync(enrollment)) continue;
+      if (!isEmailEnrollmentForSync(enrollment)) continue;
       try {
-        const result = await syncEnrollmentReplies(enrollment, integrationEmail);
+        const result = await syncEnrollmentReplies(
+          enrollment,
+          integrationEmail,
+          provider,
+          integrationDoc
+        );
         checked += 1;
         newReplies += result.newReplies;
       } catch (err) {
@@ -446,7 +515,9 @@ async function listContactEmailThread(actorUserId, campaignId, candidateKey, { s
     throw err;
   }
 
-  const campaign = await findCampaignInScope(actorUserId, campaignId, { select: "userId" });
+  const campaign = await findCampaignInScope(actorUserId, campaignId, {
+    select: "userId emailIntegrationId",
+  });
   const ownerUserId = campaignOwnerUserId(campaign);
 
   const enrollment = await CampaignSequenceEnrollment.findOne({
@@ -468,9 +539,18 @@ async function listContactEmailThread(actorUserId, campaignId, candidateKey, { s
 
   let synced = false;
   if (sync && (enrollment.sentCount || 0) > 0) {
-    const integration = await getGmailIntegration(ownerUserId);
-    await syncEnrollmentReplies(enrollment, integration.email || "");
-    synced = true;
+    try {
+      const integration = await getEmailIntegrationForCampaign(campaign);
+      await syncEnrollmentReplies(
+        enrollment,
+        integration.email || "",
+        integration.provider,
+        integration
+      );
+      synced = true;
+    } catch {
+      /* integration unavailable */
+    }
     const refreshed = await CampaignSequenceEnrollment.findById(enrollment._id).lean();
     if (refreshed) Object.assign(enrollment, refreshed);
   }
@@ -547,14 +627,20 @@ async function syncCampaignReplies(actorUserId, campaignId) {
   }
 
   const campaign = await findCampaignInScope(actorUserId, campaignId, {
-    select: "userId outreachChannel",
+    select: "userId outreachChannel emailIntegrationId",
   });
   if (campaign.outreachChannel === "whatsapp") {
     return { synced: 0, newReplies: 0, replies: [] };
   }
   const ownerUserId = campaignOwnerUserId(campaign);
 
-  const integration = await getGmailIntegration(ownerUserId);
+  let integration;
+  try {
+    integration = await getEmailIntegrationForCampaign(campaign);
+  } catch {
+    return { synced: 0, newReplies: 0, replies: [] };
+  }
+  const provider = integration.provider;
   const enrollments = await CampaignSequenceEnrollment.find({
     userId: userOid(ownerUserId),
     campaignId: new mongoose.Types.ObjectId(campaignId),
@@ -564,8 +650,13 @@ async function syncCampaignReplies(actorUserId, campaignId) {
 
   let newReplies = 0;
   for (const enrollment of enrollments) {
-    if (!isEmailEnrollmentForGmailSync(enrollment)) continue;
-    const result = await syncEnrollmentReplies(enrollment, integration.email || "");
+    if (!isEmailEnrollmentForSync(enrollment)) continue;
+    const result = await syncEnrollmentReplies(
+      enrollment,
+      integration.email || "",
+      provider,
+      integration
+    );
     newReplies += result.newReplies;
   }
 

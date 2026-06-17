@@ -150,11 +150,14 @@ export function LandingPricingSection({ pricingPlans }: Props) {
   const tiers = landingDisplayTiers(allTiers);
 
   return (
-    <section className="landing-pricing-section px-4 py-20 md:px-8 md:py-24 lg:px-12" id="pricing">
+    <section
+      className="landing-pricing-section scroll-mt-24 px-4 py-20 md:px-8 md:py-24 lg:px-12"
+      id="pricing"
+    >
       <div className="mx-auto max-w-7xl">
         <div className="mb-14 text-center">
           <h2 className="text-3xl font-bold tracking-tight text-[#141b2b] md:text-4xl">
-            Simple, Performance-Based Pricing
+            Transparent, Performance-Based Pricing for Every Team Size
           </h2>
           {pricingPlans?.intro ? (
             <p className="mx-auto mt-4 max-w-2xl text-base leading-relaxed text-[#434654]">

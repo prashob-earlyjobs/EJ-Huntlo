@@ -175,6 +175,7 @@ function formatCampaign(doc, listStats, options = {}) {
         : doc.outreachChannel === "voice_call"
           ? "voice_call"
           : "gmail",
+    emailIntegrationId: doc.emailIntegrationId ? String(doc.emailIntegrationId) : "",
     outreachStatus: doc.outreachStatus || "idle",
     outreachStartedAt: doc.outreachStartedAt
       ? new Date(doc.outreachStartedAt).toISOString()

@@ -76,13 +76,19 @@ export type UserActionAlertState = {
   open: boolean;
   message: string;
   isQuotaExceeded: boolean;
+  action?: "searchAgain" | null;
 };
 
 export const CLOSED_USER_ACTION_ALERT: UserActionAlertState = {
   open: false,
   message: "",
   isQuotaExceeded: false,
+  action: null,
 };
+
+export function isNoProfilesSearchError(message: string): boolean {
+  return /no profiles match your search criteria/i.test(message.trim());
+}
 
 export function quotaAlertFromMessage(message: string): UserActionAlertState | null {
   const trimmed = message.trim();

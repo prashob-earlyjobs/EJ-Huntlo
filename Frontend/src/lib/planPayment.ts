@@ -63,7 +63,7 @@ export function dashboardPlanPaymentButtonLabel(
 }
 
 function tierPaymentInrAmount(planId: string | undefined): string | null {
-  if (planId === "starter") return "4,999";
+  if (planId === "starter") return "8,999";
   if (planId === "growth") return "19,999";
   return null;
 }

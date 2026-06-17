@@ -58,6 +58,12 @@ const campaignSchema = new mongoose.Schema(
       enum: ["gmail", "whatsapp", "voice_call"],
       default: "gmail",
     },
+    /** Email integration used for this campaign's sends and reply sync. */
+    emailIntegrationId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "UserIntegration",
+      default: null,
+    },
     outreachStatus: {
       type: String,
       enum: ["idle", "active", "paused", "completed"],

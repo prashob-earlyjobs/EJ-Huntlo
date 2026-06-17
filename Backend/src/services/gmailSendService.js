@@ -84,7 +84,8 @@ function buildReplySubject(subject) {
   return `Re: ${s}`;
 }
 
-async function sendGmailMessage(userId, { to, subject, body, threadId, inReplyTo, references }) {
+async function sendGmailMessage(userId, payload, options = {}) {
+  const { to, subject, body, threadId, inReplyTo, references } = payload || {};
   const recipient = String(to || "").trim();
   const mailSubject = String(subject || "").trim();
   const mailBody = String(body || "").trim();
@@ -105,7 +106,8 @@ async function sendGmailMessage(userId, { to, subject, body, threadId, inReplyTo
     throw err;
   }
 
-  const integration = await getGmailIntegration(userId);
+  const integration =
+    options.integration || (await getGmailIntegration(userId, options.integrationId));
   const accessToken = await getValidAccessToken(integration);
 
   const raw = await buildRawMimeMessage({

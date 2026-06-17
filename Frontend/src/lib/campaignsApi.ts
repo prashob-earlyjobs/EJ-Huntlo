@@ -111,6 +111,11 @@ function parseCampaign(raw: unknown): CampaignRecord | null {
     };
   }
 
+  const emailIntegrationId =
+    typeof o.emailIntegrationId === "string" && o.emailIntegrationId.trim()
+      ? o.emailIntegrationId.trim()
+      : undefined;
+
   return {
     id,
     name,
@@ -122,6 +127,7 @@ function parseCampaign(raw: unknown): CampaignRecord | null {
     ...(calendlyAutomation ? { calendlyAutomation } : {}),
     ...(outreachPlanId ? { outreachPlanId } : {}),
     ...(outreachChannel ? { outreachChannel } : {}),
+    ...(emailIntegrationId ? { emailIntegrationId } : {}),
     ...(outreachStatus ? { outreachStatus } : {}),
     ...(outreachStartedAt !== undefined ? { outreachStartedAt } : {}),
     ...(contactsSent !== undefined ? { contactsSent } : {}),
@@ -232,11 +238,15 @@ function throwIfCampaignLaunchBlocked(
 
 export async function launchCampaignSequence(
   token: string,
-  campaignId: string
+  campaignId: string,
+  options?: { emailIntegrationId?: string }
 ): Promise<LaunchCampaignSequenceResult> {
   const res = await fetch(`${apiBase()}/api/campaigns/${campaignId}/launch-sequence`, {
     method: "POST",
     headers: authHeaders(token),
+    body: JSON.stringify({
+      ...(options?.emailIntegrationId ? { emailIntegrationId: options.emailIntegrationId } : {}),
+    }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.success) {

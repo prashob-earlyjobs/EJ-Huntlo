@@ -9,9 +9,18 @@ import {
   type CalendlyConnectFormValues,
 } from "@/components/dashboard/CalendlyConnectModal";
 import {
+  CustomMailConnectModal,
+  type CustomMailConnectFormValues,
+} from "@/components/dashboard/CustomMailConnectModal";
+import { OutlookConnectModal } from "@/components/dashboard/OutlookConnectModal";
+import {
   WhatsAppConnectModal,
   type WhatsAppConnectFormValues,
 } from "@/components/dashboard/WhatsAppConnectModal";
+import {
+  ZohoMailConnectModal,
+  type ZohoMailConnectFormValues,
+} from "@/components/dashboard/ZohoMailConnectModal";
 import { WhatsAppMetaWebhookSetupCard } from "@/components/dashboard/WhatsAppMetaWebhookSetupCard";
 import { IntegrationsPanelSkeleton } from "@/components/dashboard/IntegrationsPanelSkeleton";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
@@ -21,8 +30,25 @@ import {
   INTEGRATIONS_LOCKED_MESSAGE,
 } from "@/lib/planAccess";
 import type { PricingPlansPayload } from "@/lib/pricingPlans";
-import type { MetaWebhookSetupPayload } from "@/lib/whatsappMetaWebhookSetup";
-import { fetchWhatsAppMetaWebhookSetup } from "@/lib/whatsappMetaWebhookSetup";
+import {
+  buildUiOnlyIntegrationRow,
+  isUiOnlyMailProvider,
+  readUiOnlyIntegrations,
+  removeUiOnlyIntegration,
+  upsertUiOnlyIntegration,
+  type UiOnlyIntegrationRow,
+} from "@/lib/uiOnlyIntegrations";
+import {
+  connectCustomMail,
+  testCustomMailIntegration,
+} from "@/lib/customMailIntegrations";
+import {
+  disconnectEmailIntegrationById,
+  isMultiAccountMailProvider,
+  setDefaultEmailIntegration,
+  testEmailIntegration,
+} from "@/lib/emailIntegrations";
+import { fetchWhatsAppMetaWebhookSetup, type MetaWebhookSetupPayload } from "@/lib/whatsappMetaWebhookSetup";
 
 type IntegrationRow = {
   id: string;
@@ -32,9 +58,20 @@ type IntegrationRow = {
   senderName: string;
   email: string;
   status: string;
+  isDefaultEmail?: boolean;
   whatsappMode?: string;
   whatsappProvider?: string;
+  uiOnly?: boolean;
 };
+
+function mergeIntegrationRows(
+  apiRows: IntegrationRow[],
+  uiRows: UiOnlyIntegrationRow[]
+): IntegrationRow[] {
+  const apiProviders = new Set(apiRows.map((row) => row.provider));
+  const extra = uiRows.filter((row) => !apiProviders.has(row.provider));
+  return [...apiRows, ...extra];
+}
 
 type ConnectOption = {
   id: string;
@@ -51,6 +88,28 @@ const CONNECT_OPTIONS: ConnectOption[] = [
     name: "Gmail",
     provider: "Google",
     description: "Send and track candidate outreach from your inbox.",
+    connectable: true,
+  },
+  {
+    id: "outlook",
+    name: "Outlook",
+    provider: "Microsoft",
+    description: "Send outreach from Microsoft 365 or Outlook.com.",
+    connectable: false,
+    comingSoon: true,
+  },
+  {
+    id: "zoho_mail",
+    name: "Zoho Mail",
+    provider: "Zoho",
+    description: "Connect your Zoho Mail inbox for candidate email sequences.",
+    connectable: true,
+  },
+  {
+    id: "custom_mail",
+    name: "Custom config",
+    provider: "SMTP",
+    description: "Bring your own SMTP server or corporate mail relay.",
     connectable: true,
   },
   {
@@ -81,32 +140,40 @@ type ConnectOptionCardProps = {
   option: ConnectOption;
   locked: boolean;
   connected: boolean;
+  allowMultiple?: boolean;
   busy: boolean;
   onLocked: () => void;
   onConnect: () => void;
+  onTest?: () => void;
 };
 
 function ConnectOptionCard({
   option,
   locked,
   connected,
+  allowMultiple = false,
   busy,
   onLocked,
   onConnect,
+  onTest,
 }: ConnectOptionCardProps) {
+  const showComingSoon = Boolean(option.comingSoon);
+  const showConnected = connected && !showComingSoon && !allowMultiple;
+  const showMultiConnected = connected && !showComingSoon && allowMultiple;
+
   const handleClick = () => {
-    if (locked) {
-      onLocked();
+    if (locked || showComingSoon) {
+      if (locked) onLocked();
       return;
     }
-    if (!connected) onConnect();
+    if (!connected || allowMultiple) onConnect();
   };
 
   return (
     <article
       className={`dashboard-integration-card dashboard-integration-card--compact${
         locked ? " dashboard-integration-card--locked" : ""
-      }${option.comingSoon ? " dashboard-integration-card--soon" : ""}`}
+      }${showComingSoon ? " dashboard-integration-card--soon" : ""}`}
     >
       <div className="dashboard-integration-card-top">
         <span
@@ -121,14 +188,14 @@ function ConnectOptionCard({
           className={`dashboard-integration-status${
             locked
               ? " dashboard-integration-status--locked"
-              : connected
+              : showConnected
                 ? " dashboard-integration-status--connected"
-                : option.comingSoon
+                : showComingSoon
                   ? " dashboard-integration-status--soon"
                   : ""
           }`}
         >
-          {!locked && (connected || !option.comingSoon) ? (
+          {!locked && (showConnected || !showComingSoon) ? (
             <span className="dashboard-integration-status-dot" aria-hidden />
           ) : null}
           {locked ? (
@@ -136,9 +203,11 @@ function ConnectOptionCard({
               <MaterialIcon name="workspace_premium" className="text-sm" aria-hidden />
               Growth+
             </>
-          ) : connected ? (
+          ) : showConnected ? (
             "Connected"
-          ) : option.comingSoon ? (
+          ) : showMultiConnected ? (
+            "Connected"
+          ) : showComingSoon ? (
             "Coming soon"
           ) : (
             "Not connected"
@@ -150,7 +219,36 @@ function ConnectOptionCard({
       <p className="dashboard-integration-desc">{option.description}</p>
       <p className="dashboard-integration-provider-label">{option.provider}</p>
 
-      {!connected && !option.comingSoon ? (
+      {showConnected && onTest && !locked ? (
+        <button
+          type="button"
+          onClick={onTest}
+          disabled={busy}
+          className="dashboard-btn-secondary mt-auto w-full justify-center disabled:opacity-55"
+        >
+          {busy ? (
+            <>
+              <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
+              Sending test…
+            </>
+          ) : (
+            <>
+              <MaterialIcon name="send" className="text-base" />
+              Test
+            </>
+          )}
+        </button>
+      ) : showMultiConnected && !locked ? (
+        <button
+          type="button"
+          onClick={handleClick}
+          disabled={busy}
+          className="dashboard-btn-secondary mt-auto w-full justify-center disabled:opacity-55"
+        >
+          <MaterialIcon name="add" className="text-base" />
+          Add account
+        </button>
+      ) : !showConnected && !showMultiConnected && !showComingSoon ? (
         <button
           type="button"
           onClick={handleClick}
@@ -211,6 +309,9 @@ export function IntegrationsPanel({
   );
   const [ownMetaWebhookLoading, setOwnMetaWebhookLoading] = useState(false);
   const [calendlyModalOpen, setCalendlyModalOpen] = useState(false);
+  const [outlookModalOpen, setOutlookModalOpen] = useState(false);
+  const [zohoMailModalOpen, setZohoMailModalOpen] = useState(false);
+  const [customMailModalOpen, setCustomMailModalOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
   const connectedProviders = new Set(integrations.map((row) => row.provider));
@@ -236,13 +337,16 @@ export function IntegrationsPanel({
         headers: authHeaders(auth.token),
       });
       const data = await res.json();
+      const uiRows = readUiOnlyIntegrations();
       if (data.success && Array.isArray(data.integrations)) {
-        setIntegrations(data.integrations as IntegrationRow[]);
+        setIntegrations(
+          mergeIntegrationRows(data.integrations as IntegrationRow[], uiRows)
+        );
       } else {
-        setIntegrations([]);
+        setIntegrations(uiRows);
       }
     } catch {
-      setIntegrations([]);
+      setIntegrations(readUiOnlyIntegrations());
     } finally {
       setLoading(false);
     }
@@ -324,7 +428,7 @@ export function IntegrationsPanel({
         const row = data.integration as IntegrationRow | undefined;
         if (row?.id) {
           setIntegrations((prev) => {
-            const rest = prev.filter((r) => r.provider !== row.provider);
+            const rest = prev.filter((r) => r.id !== row.id);
             return [row, ...rest];
           });
           setNotice(
@@ -373,6 +477,155 @@ export function IntegrationsPanel({
     setNotice("");
     setCalendlyModalOpen(true);
   }, [integrationsAllowed, showPlanLockedNotice]);
+
+  const handleConnectOutlook = useCallback(() => {
+    if (!integrationsAllowed) {
+      showPlanLockedNotice();
+      return;
+    }
+    setNotice("");
+    setOutlookModalOpen(true);
+  }, [integrationsAllowed, showPlanLockedNotice]);
+
+  const handleConnectZohoMail = useCallback(() => {
+    if (!integrationsAllowed) {
+      showPlanLockedNotice();
+      return;
+    }
+    setNotice("");
+    setZohoMailModalOpen(true);
+  }, [integrationsAllowed, showPlanLockedNotice]);
+
+  const handleConnectCustomMail = useCallback(() => {
+    if (!integrationsAllowed) {
+      showPlanLockedNotice();
+      return;
+    }
+    setNotice("");
+    setCustomMailModalOpen(true);
+  }, [integrationsAllowed, showPlanLockedNotice]);
+
+  const applyUiOnlyConnection = useCallback(
+    (provider: "custom_mail", email: string, senderName: string) => {
+      const row = buildUiOnlyIntegrationRow(provider, { email, senderName });
+      upsertUiOnlyIntegration(row);
+      setIntegrations((prev) => {
+        const apiRows = prev.filter((item) => !isUiOnlyMailProvider(item.provider));
+        return mergeIntegrationRows(apiRows, readUiOnlyIntegrations());
+      });
+      return row;
+    },
+    []
+  );
+
+  const handleZohoMailSubmit = useCallback(
+    async (values: ZohoMailConnectFormValues) => {
+      setBusyProvider("zoho_mail");
+      setNotice("");
+      try {
+        const auth = getStoredAuth();
+        if (!auth?.token) {
+          throw new Error("Please sign in again.");
+        }
+        const res = await fetch(`${apiBase}/api/integrations/zoho_mail/connect`, {
+          method: "POST",
+          headers: authHeaders(auth.token),
+          body: JSON.stringify({
+            authMode: "smtp",
+            email: values.email,
+            senderName: values.senderName,
+            appPassword: values.appPassword,
+            dataCenter: values.dataCenter,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(
+            typeof data.message === "string" ? data.message : "Failed to connect Zoho Mail"
+          );
+        }
+        const row = data.integration as IntegrationRow | undefined;
+        if (row?.id) {
+          setIntegrations((prev) => {
+            const rest = prev.filter((r) => r.id !== row.id);
+            return [row, ...rest];
+          });
+        } else {
+          void loadIntegrations();
+        }
+        setZohoMailModalOpen(false);
+        setNotice(
+          row?.email ? `Zoho Mail connected as ${row.email}.` : "Zoho Mail connected."
+        );
+      } catch (err) {
+        setNotice(err instanceof Error ? err.message : "Failed to connect Zoho Mail.");
+      } finally {
+        setBusyProvider(null);
+      }
+    },
+    [apiBase, loadIntegrations]
+  );
+
+  const handleCustomMailSubmit = useCallback(
+    async (values: CustomMailConnectFormValues) => {
+      setBusyProvider("custom_mail");
+      setNotice("");
+      try {
+        const auth = getStoredAuth();
+        if (!auth?.token) {
+          throw new Error("Please sign in again.");
+        }
+        const payload = {
+          fromEmail: values.fromEmail,
+          displayName: values.displayName,
+          smtpHost: values.smtpHost,
+          smtpPort: values.smtpPort,
+          security: values.security,
+          username: values.username,
+          password: values.password,
+        };
+        const { integration } = await connectCustomMail(auth.token, payload);
+        const row = integration as IntegrationRow;
+        if (row?.id) {
+          setIntegrations((prev) => {
+            const rest = prev.filter((r) => r.id !== row.id);
+            return [row, ...rest];
+          });
+        } else {
+          void loadIntegrations();
+        }
+        setCustomMailModalOpen(false);
+        setNotice(
+          row?.email ? `Custom mail connected for ${row.email}.` : "Custom mail connected."
+        );
+      } catch (err) {
+        setNotice(err instanceof Error ? err.message : "Failed to save mail config.");
+      } finally {
+        setBusyProvider(null);
+      }
+    },
+    [loadIntegrations]
+  );
+
+  const handleTestCustomMail = useCallback(async () => {
+    if (!integrationsAllowed) return;
+    setNotice("");
+    setBusyProvider("custom_mail");
+    const auth = getStoredAuth();
+    if (!auth?.token) {
+      setNotice("Please sign in again.");
+      setBusyProvider(null);
+      return;
+    }
+    try {
+      const message = await testCustomMailIntegration(auth.token);
+      setNotice(message);
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "Failed to send test email.");
+    } finally {
+      setBusyProvider(null);
+    }
+  }, [integrationsAllowed]);
 
   const handleWhatsAppSubmit = useCallback(
     async (values: WhatsAppConnectFormValues) => {
@@ -484,27 +737,112 @@ export function IntegrationsPanel({
     [apiBase, loadIntegrations]
   );
 
+  const handleTestOutlook = useCallback(async () => {
+    if (!integrationsAllowed) return;
+    setNotice("");
+    setBusyProvider("outlook");
+    const auth = getStoredAuth();
+    if (!auth?.token) {
+      setNotice("Please sign in again.");
+      setBusyProvider(null);
+      return;
+    }
+    try {
+      const res = await fetch(`${apiBase}/api/integrations/outlook/test`, {
+        method: "POST",
+        headers: authHeaders(auth.token),
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(
+          typeof data.message === "string" ? data.message : "Failed to send test email"
+        );
+      }
+      setNotice(
+        typeof data.message === "string"
+          ? data.message
+          : "Test email sent. Check your Outlook inbox."
+      );
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "Failed to send test email.");
+    } finally {
+      setBusyProvider(null);
+    }
+  }, [apiBase, integrationsAllowed]);
+
+  const handleTestZohoMail = useCallback(async () => {
+    if (!integrationsAllowed) return;
+    setNotice("");
+    setBusyProvider("zoho_mail");
+    const auth = getStoredAuth();
+    if (!auth?.token) {
+      setNotice("Please sign in again.");
+      setBusyProvider(null);
+      return;
+    }
+    try {
+      const res = await fetch(`${apiBase}/api/integrations/zoho_mail/test`, {
+        method: "POST",
+        headers: authHeaders(auth.token),
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(
+          typeof data.message === "string" ? data.message : "Failed to send test email"
+        );
+      }
+      setNotice(
+        typeof data.message === "string"
+          ? data.message
+          : "Test email sent. Check your Zoho Mail inbox."
+      );
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "Failed to send test email.");
+    } finally {
+      setBusyProvider(null);
+    }
+  }, [apiBase, integrationsAllowed]);
+
   const handleDisconnect = useCallback(
-    async (provider: string) => {
+    async (row: IntegrationRow) => {
       if (!integrationsAllowed) return;
       setNotice("");
-      setBusyProvider(provider);
+      setBusyProvider(row.id);
+
+      if (isUiOnlyMailProvider(row.provider)) {
+        removeUiOnlyIntegration(row.provider);
+        setIntegrations((prev) => {
+          const apiRows = prev.filter((item) => !isUiOnlyMailProvider(item.provider));
+          return mergeIntegrationRows(apiRows, readUiOnlyIntegrations());
+        });
+        setNotice("Integration disconnected.");
+        setBusyProvider(null);
+        return;
+      }
+
       const auth = getStoredAuth();
       if (auth?.token) {
         try {
-          const res = await fetch(`${apiBase}/api/integrations/${provider}`, {
-            method: "DELETE",
-            headers: authHeaders(auth.token),
-          });
-          const data = await res.json();
-          if (!res.ok || !data.success) {
-            throw new Error(
-              typeof data.message === "string"
-                ? data.message
-                : "Failed to disconnect integration"
-            );
+          if (isMultiAccountMailProvider(row.provider)) {
+            await disconnectEmailIntegrationById(auth.token, row.id);
+            setIntegrations((prev) => prev.filter((r) => r.id !== row.id));
+          } else {
+            const res = await fetch(`${apiBase}/api/integrations/${row.provider}`, {
+              method: "DELETE",
+              headers: authHeaders(auth.token),
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+              throw new Error(
+                typeof data.message === "string"
+                  ? data.message
+                  : "Failed to disconnect integration"
+              );
+            }
+            setIntegrations((prev) => prev.filter((r) => r.provider !== row.provider));
           }
-          setIntegrations((prev) => prev.filter((r) => r.provider !== provider));
           setNotice("Integration disconnected.");
         } catch (err) {
           setNotice(
@@ -515,6 +853,59 @@ export function IntegrationsPanel({
       setBusyProvider(null);
     },
     [apiBase, integrationsAllowed]
+  );
+
+  const handleSetDefaultEmail = useCallback(
+    async (integrationId: string) => {
+      if (!integrationsAllowed) return;
+      setNotice("");
+      setBusyProvider(integrationId);
+      const auth = getStoredAuth();
+      if (!auth?.token) {
+        setNotice("Please sign in again.");
+        setBusyProvider(null);
+        return;
+      }
+      try {
+        await setDefaultEmailIntegration(auth.token, integrationId);
+        setIntegrations((prev) =>
+          prev.map((row) => ({
+            ...row,
+            isDefaultEmail:
+              isMultiAccountMailProvider(row.provider) && row.id === integrationId,
+          }))
+        );
+        setNotice("Default sender updated.");
+      } catch (err) {
+        setNotice(err instanceof Error ? err.message : "Failed to set default sender.");
+      } finally {
+        setBusyProvider(null);
+      }
+    },
+    [integrationsAllowed]
+  );
+
+  const handleTestEmailRow = useCallback(
+    async (row: IntegrationRow) => {
+      if (!integrationsAllowed) return;
+      setNotice("");
+      setBusyProvider(row.id);
+      const auth = getStoredAuth();
+      if (!auth?.token) {
+        setNotice("Please sign in again.");
+        setBusyProvider(null);
+        return;
+      }
+      try {
+        const message = await testEmailIntegration(auth.token, row.provider, row.id);
+        setNotice(message);
+      } catch (err) {
+        setNotice(err instanceof Error ? err.message : "Failed to send test email.");
+      } finally {
+        setBusyProvider(null);
+      }
+    },
+    [integrationsAllowed]
   );
 
   return (
@@ -556,16 +947,41 @@ export function IntegrationsPanel({
                 option={option}
                 locked={showPlanLocked}
                 connected={integrationsAllowed && connectedProviders.has(option.id)}
+                allowMultiple={isMultiAccountMailProvider(option.id)}
                 busy={busyProvider === option.id}
                 onLocked={showPlanLockedNotice}
                 onConnect={
                   option.id === "gmail"
                     ? handleConnectGmail
-                    : option.id === "whatsapp"
-                      ? handleConnectWhatsApp
-                      : option.id === "calendly"
-                        ? handleConnectCalendly
-                        : () => undefined
+                    : option.id === "outlook"
+                      ? handleConnectOutlook
+                      : option.id === "zoho_mail"
+                        ? handleConnectZohoMail
+                        : option.id === "custom_mail"
+                          ? handleConnectCustomMail
+                          : option.id === "whatsapp"
+                            ? handleConnectWhatsApp
+                            : option.id === "calendly"
+                              ? handleConnectCalendly
+                              : () => undefined
+                }
+                onTest={
+                  !isMultiAccountMailProvider(option.id) &&
+                  option.id === "outlook" &&
+                  integrationsAllowed &&
+                  connectedProviders.has("outlook")
+                    ? () => void handleTestOutlook()
+                    : !isMultiAccountMailProvider(option.id) &&
+                        option.id === "zoho_mail" &&
+                        integrationsAllowed &&
+                        connectedProviders.has("zoho_mail")
+                      ? () => void handleTestZohoMail()
+                      : !isMultiAccountMailProvider(option.id) &&
+                          option.id === "custom_mail" &&
+                          integrationsAllowed &&
+                          connectedProviders.has("custom_mail")
+                        ? () => void handleTestCustomMail()
+                        : undefined
                 }
               />
             ))}
@@ -578,7 +994,7 @@ export function IntegrationsPanel({
               Available on Growth and Enterprise plans
             </span>
             <p className="dashboard-text-body">
-              Upgrade to Growth or Enterprise to connect Gmail, WhatsApp, Calendly, and LinkedIn.
+              Upgrade to Growth or Enterprise to connect email, messaging, and scheduling tools.
             </p>
           </div>
         ) : null}
@@ -614,8 +1030,13 @@ export function IntegrationsPanel({
         ) : null}
 
         <h4 className="dashboard-integration-section-label mt-2">Connected accounts</h4>
-        <div className="dashboard-table-wrap mt-3">
-          <table className="dashboard-table">
+        <div
+          className="dashboard-thin-scrollbar dashboard-campaigns-table-scroll mt-3"
+          tabIndex={0}
+          aria-label="Connected integrations table horizontal scroll"
+        >
+          <div className="dashboard-table-wrap dashboard-table-wrap--scroll-x">
+          <table className="dashboard-table dashboard-table--integrations">
             <thead>
               <tr>
                 <th>Integration</th>
@@ -641,7 +1062,14 @@ export function IntegrationsPanel({
                 </tr>
               ) : (
                 integrations.map((row) => {
-                  const disconnecting = busyProvider === row.provider;
+                  const disconnecting = busyProvider === row.id;
+                  const isMail = isMultiAccountMailProvider(row.provider);
+                  const showTest =
+                    isMail &&
+                    (row.provider === "outlook" ||
+                      row.provider === "zoho_mail" ||
+                      row.provider === "custom_mail");
+                  const showDefaultControl = isMail;
                   return (
                     <tr key={row.id}>
                       <td>
@@ -668,28 +1096,55 @@ export function IntegrationsPanel({
                       <td>
                         <span className="dashboard-integration-status dashboard-integration-status--connected">
                           <span className="dashboard-integration-status-dot" aria-hidden />
-                          Connected
+                          {row.isDefaultEmail && isMail ? "Default" : "Connected"}
                         </span>
                       </td>
                       <td className="dashboard-table-actions-cell">
-                        <button
-                          type="button"
-                          onClick={() => void handleDisconnect(row.provider)}
-                          disabled={disconnecting}
-                          className="dashboard-btn-secondary px-3 py-1.5 text-xs disabled:opacity-55"
+                        <div
+                          className="dashboard-integration-actions-toolbar"
+                          role="group"
+                          aria-label={`${row.integration} actions`}
                         >
-                          {disconnecting ? (
-                            <>
-                              <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-                              Disconnecting…
-                            </>
-                          ) : (
-                            <>
-                              <MaterialIcon name="link_off" className="text-sm" />
-                              Disconnect
-                            </>
-                          )}
-                        </button>
+                          {showDefaultControl && !row.isDefaultEmail ? (
+                            <button
+                              type="button"
+                              onClick={() => void handleSetDefaultEmail(row.id)}
+                              disabled={busyProvider === row.id}
+                              className="dashboard-integration-action-btn"
+                            >
+                              Set default
+                            </button>
+                          ) : showDefaultControl && row.isDefaultEmail ? (
+                            <span className="dashboard-integration-action-btn dashboard-integration-action-btn--default">
+                              Default
+                            </span>
+                          ) : null}
+                          {showTest ? (
+                            <button
+                              type="button"
+                              onClick={() => void handleTestEmailRow(row)}
+                              disabled={busyProvider === row.id}
+                              className="dashboard-integration-action-btn"
+                            >
+                              Test
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => void handleDisconnect(row)}
+                            disabled={disconnecting}
+                            className="dashboard-integration-action-btn dashboard-integration-action-btn--danger"
+                          >
+                            {disconnecting ? (
+                              <>
+                                <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
+                                Disconnecting…
+                              </>
+                            ) : (
+                              "Disconnect"
+                            )}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -697,6 +1152,7 @@ export function IntegrationsPanel({
               )}
             </tbody>
           </table>
+          </div>
         </div>
         </>
         )}
@@ -720,6 +1176,35 @@ export function IntegrationsPanel({
           setCalendlyModalOpen(false);
         }}
         onSubmit={(values) => void handleCalendlySubmit(values)}
+      />
+
+      <OutlookConnectModal
+        open={outlookModalOpen}
+        busy={busyProvider === "outlook"}
+        onClose={() => {
+          if (busyProvider === "outlook") return;
+          setOutlookModalOpen(false);
+        }}
+      />
+
+      <ZohoMailConnectModal
+        open={zohoMailModalOpen}
+        busy={busyProvider === "zoho_mail"}
+        onClose={() => {
+          if (busyProvider === "zoho_mail") return;
+          setZohoMailModalOpen(false);
+        }}
+        onSubmit={(values) => void handleZohoMailSubmit(values)}
+      />
+
+      <CustomMailConnectModal
+        open={customMailModalOpen}
+        busy={busyProvider === "custom_mail"}
+        onClose={() => {
+          if (busyProvider === "custom_mail") return;
+          setCustomMailModalOpen(false);
+        }}
+        onSubmit={(values) => void handleCustomMailSubmit(values)}
       />
     </section>
   );

@@ -96,11 +96,11 @@ export function FaqsPageContent() {
               Support
             </p>
             <h1 className="mt-3 text-3xl font-bold tracking-tight text-[#141b2b] md:text-5xl">
-              Frequently Asked Questions
+              Agentic AI Recruiting FAQ — Everything About Huntlo&apos;s Hiring Infrastructure
             </h1>
             <p className="mx-auto mt-5 max-w-3xl text-base leading-relaxed text-[#434654] md:text-lg">
-              Everything you need to know about Huntlo, AI recruiting, candidate sourcing,
-              recruitment automation, and hiring workflows.
+              Everything you need to know about Huntlo&apos;s agentic AI recruiting
+              infrastructure — autonomous sourcing, outreach, screening, and hiring workflows.
             </p>
           </div>
 

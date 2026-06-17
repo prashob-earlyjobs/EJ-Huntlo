@@ -39,6 +39,7 @@ export type CampaignRecord = {
   outreachPlanId?: string;
   /** gmail = email sequence; whatsapp = WhatsApp sequence; voice_call = AI voice calls */
   outreachChannel?: "gmail" | "whatsapp" | "voice_call";
+  emailIntegrationId?: string;
   outreachStatus?: CampaignOutreachStatus;
   outreachStartedAt?: string | null;
   /** Contacts with at least one outreach message sent (list view). */

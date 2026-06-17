@@ -3,8 +3,9 @@ const Campaign = require("../models/Campaign");
 const CampaignSequenceEnrollment = require("../models/CampaignSequenceEnrollment");
 const CampaignOutreachReply = require("../models/CampaignOutreachReply");
 const OutreachPlan = require("../models/OutreachPlan");
-const UserIntegration = require("../models/UserIntegration");
-const { sendGmailMessage, buildReplySubject } = require("./gmailSendService");
+const { buildReplySubject } = require("./gmailSendService");
+const { sendCampaignEmail } = require("./emailSendService");
+const { getSenderFirstNameForEmail } = require("./emailIntegrationService");
 const {
   generateCampaignAutoReply,
   MAX_CONVERSATION_EXCHANGES,
@@ -32,19 +33,7 @@ function isFinalDisposition(disposition) {
 }
 
 async function getSenderFirstName(userId) {
-  const doc = await UserIntegration.findOne({
-    userId: userOid(userId),
-    provider: "gmail",
-  })
-    .select("senderName email")
-    .lean();
-  if (doc?.senderName?.trim()) {
-    return doc.senderName.trim().split(/\s+/)[0] || doc.senderName.trim();
-  }
-  if (doc?.email?.includes("@")) {
-    return doc.email.split("@")[0];
-  }
-  return "";
+  return getSenderFirstNameForEmail(userId);
 }
 
 function summarizePlanTouchpoints(touchpoints) {
@@ -80,7 +69,7 @@ function ensureCalendlyLinkInReply(replyBody, calendlyAutomation) {
 async function loadAutoReplyContext(enrollment) {
   const userId = String(enrollment.userId);
   const campaign = await Campaign.findById(enrollment.campaignId)
-    .select("name jobTitle outreachPlanId calendlyAutomation jobDescription")
+    .select("name jobTitle outreachPlanId calendlyAutomation jobDescription emailIntegrationId")
     .lean();
 
   let planSummary = "";
@@ -117,8 +106,13 @@ async function loadAutoReplyContext(enrollment) {
     .filter(Boolean)
     .join(" ");
 
+  const integrationId = campaign?.emailIntegrationId
+    ? String(campaign.emailIntegrationId)
+    : null;
+
   return {
     userId,
+    emailIntegrationId: integrationId,
     campaignName: campaign?.name || "",
     jobTitle: String(campaign?.jobTitle || "").trim(),
     jobDescription: String(campaign?.jobDescription || "").trim(),
@@ -129,7 +123,7 @@ async function loadAutoReplyContext(enrollment) {
     threadMessages,
     threadSubject,
     references,
-    senderFirstName: await getSenderFirstName(userId),
+    senderFirstName: await getSenderFirstNameForEmail(userId, integrationId),
     calendlyAutomation,
   };
 }
@@ -252,14 +246,18 @@ async function maybeAutoReplyAfterCandidateMessage({
 
   let sendResult;
   try {
-    sendResult = await sendGmailMessage(context.userId, {
-      to: contactEmail,
-      subject,
-      body: replyBody,
-      threadId: tid,
-      inReplyTo: inReplyTo || undefined,
-      references: references || undefined,
-    });
+    sendResult = await sendCampaignEmail(
+      context.userId,
+      {
+        to: contactEmail,
+        subject,
+        body: replyBody,
+        threadId: tid,
+        inReplyTo: inReplyTo || undefined,
+        references: references || undefined,
+      },
+      { integrationId: context.emailIntegrationId || undefined }
+    );
   } catch (err) {
     console.error(
       `[outreach-auto-reply] send enrollment ${enrollment._id}:`,

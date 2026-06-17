@@ -4,7 +4,11 @@ const CampaignSequenceEnrollment = require("../models/CampaignSequenceEnrollment
 const UserIntegration = require("../models/UserIntegration");
 const OutreachPlan = require("../models/OutreachPlan");
 const WhatsAppOutreachPlan = require("../models/WhatsAppOutreachPlan");
-const { sendGmailMessage } = require("./gmailSendService");
+const { sendCampaignEmail } = require("./emailSendService");
+const {
+  getSenderFirstNameForEmail,
+} = require("./emailIntegrationService");
+const { resolveEmailProviderForSend } = require("./emailSendService");
 const { applyMergeFields, applyWhatsAppMergeFields } = require("./outreachMergeService");
 const {
   assertWhatsAppReadyForSend,
@@ -88,20 +92,8 @@ async function claimEnrollmentForSend(enrollment) {
   return claimed;
 }
 
-async function getSenderFirstName(userId) {
-  const doc = await UserIntegration.findOne({
-    userId: userOid(userId),
-    provider: "gmail",
-  })
-    .select("senderName email")
-    .lean();
-  if (doc?.senderName?.trim()) {
-    return doc.senderName.trim().split(/\s+/)[0] || doc.senderName.trim();
-  }
-  if (doc?.email?.includes("@")) {
-    return doc.email.split("@")[0];
-  }
-  return "";
+async function getSenderFirstName(userId, integrationId) {
+  return getSenderFirstNameForEmail(userId, integrationId);
 }
 
 async function getWhatsAppSenderFirstName(userId) {
@@ -243,7 +235,7 @@ async function getSequenceStatus(actorUserId, campaignId) {
 /**
  * Enroll all campaign contacts with an email and start the sequence clock.
  */
-async function launchCampaignSequence(actorUserId, campaignId) {
+async function launchCampaignSequence(actorUserId, campaignId, options = {}) {
   const activeRevealJob = await getActiveRevealJobForCampaign(actorUserId, campaignId);
   if (activeRevealJob) {
     const err = new Error(
@@ -272,8 +264,16 @@ async function launchCampaignSequence(actorUserId, campaignId) {
     excludeCampaignId: String(campaign._id),
   });
 
+  let emailIntegration = null;
   if (!isWhatsApp) {
-    await assertGmailLaunchCapacity(ownerUserId, contacts);
+    const { resolveEmailIntegration } = require("./emailIntegrationService");
+    emailIntegration = await resolveEmailIntegration(
+      ownerUserId,
+      options.emailIntegrationId
+    );
+    if (emailIntegration.provider === "gmail") {
+      await assertGmailLaunchCapacity(ownerUserId, contacts, String(emailIntegration._id));
+    }
   }
 
   const firstReplyFollowUpOrder = isWhatsApp
@@ -304,12 +304,13 @@ async function launchCampaignSequence(actorUserId, campaignId) {
       $set: {
         outreachStatus: "active",
         outreachStartedAt: now,
+        ...(emailIntegration ? { emailIntegrationId: emailIntegration._id } : {}),
       },
     }
   );
 
-  if (!isWhatsApp && enrolled > 0) {
-    await reserveGmailDailySends(ownerUserId, enrolled);
+  if (!isWhatsApp && enrolled > 0 && emailIntegration?.provider === "gmail") {
+    await reserveGmailDailySends(ownerUserId, enrolled, String(emailIntegration._id));
   }
 
   if (!isWhatsApp && enrolled > 0 && plan?._id) {
@@ -637,7 +638,10 @@ async function processGmailEnrollmentDoc(enrollment, campaign) {
     return;
   }
 
-  const senderFirstName = await getSenderFirstName(userId);
+  const integrationId = campaign.emailIntegrationId
+    ? String(campaign.emailIntegrationId)
+    : null;
+  const senderFirstName = await getSenderFirstName(userId, integrationId);
   const contact = {
     name: enrollment.contactName,
     email: enrollment.contactEmail,
@@ -669,13 +673,22 @@ async function processGmailEnrollmentDoc(enrollment, campaign) {
 
   let sendResult;
   try {
-    await assertCanSendGmailToday(userId);
-    sendResult = await sendGmailMessage(userId, {
-      to: email,
-      subject,
-      body,
-    });
-    await recordGmailSend(userId);
+    const emailProvider = await resolveEmailProviderForSend(userId, integrationId);
+    if (emailProvider === "gmail") {
+      await assertCanSendGmailToday(userId, integrationId);
+    }
+    sendResult = await sendCampaignEmail(
+      userId,
+      {
+        to: email,
+        subject,
+        body,
+      },
+      { integrationId }
+    );
+    if (emailProvider === "gmail") {
+      await recordGmailSend(userId, integrationId);
+    }
   } catch (err) {
     await CampaignSequenceEnrollment.updateOne(
       { _id: enrollmentId },

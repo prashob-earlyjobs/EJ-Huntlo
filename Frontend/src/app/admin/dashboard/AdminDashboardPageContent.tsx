@@ -153,13 +153,22 @@ const ADMIN_ANALYTICS_TAB = "Analytics";
 const ADMIN_SETTINGS_TAB = "Settings";
 const ADMIN_BLOG_TAB = "Blog";
 const ADMIN_POOL_LIMIT = 12;
+const ADMIN_USERS_LIMIT = 20;
 
 type TeamUserRow = {
   id: string;
   fullName: string;
+  mobile: string;
   email: string;
   role: "user" | "admin";
   planId: string;
+  createdAt?: string;
+};
+
+type ApiPagination = {
+  page?: number;
+  totalPages?: number;
+  totalDocs?: number;
 };
 
 type PricingPlanOption = {
@@ -771,6 +780,9 @@ export function AdminDashboardPage() {
   const [teamUsers, setTeamUsers] = useState<TeamUserRow[]>([]);
   const [usersLoading, setUsersLoading] = useState(true);
   const [usersError, setUsersError] = useState("");
+  const [usersPage, setUsersPage] = useState(1);
+  const [usersTotalPages, setUsersTotalPages] = useState(1);
+  const [usersTotalDocs, setUsersTotalDocs] = useState(0);
   const [createError, setCreateError] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -836,11 +848,15 @@ export function AdminDashboardPage() {
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
 
   const loadUsers = useCallback(
-    async (token: string) => {
+    async (token: string, page = 1) => {
       setUsersLoading(true);
       setUsersError("");
       try {
-        const res = await fetch(`${apiBase}/api/users`, {
+        const params = new URLSearchParams({
+          page: String(page),
+          limit: String(ADMIN_USERS_LIMIT),
+        });
+        const res = await fetch(`${apiBase}/api/users?${params.toString()}`, {
           headers: authHeaders(token),
         });
         const data = await res.json();
@@ -854,7 +870,22 @@ export function AdminDashboardPage() {
             planId: typeof u.planId === "string" && u.planId.trim() ? u.planId.trim() : "trial",
           }))
         );
+        const pg = data.pagination as ApiPagination | undefined;
+        setUsersPage(typeof pg?.page === "number" ? Math.max(1, pg.page) : page);
+        setUsersTotalPages(
+          typeof pg?.totalPages === "number" ? Math.max(1, pg.totalPages) : 1
+        );
+        setUsersTotalDocs(
+          typeof pg?.totalDocs === "number"
+            ? pg.totalDocs
+            : Array.isArray(data.users)
+              ? data.users.length
+              : 0
+        );
       } catch (e) {
+        setTeamUsers([]);
+        setUsersTotalDocs(0);
+        setUsersTotalPages(1);
         setUsersError(e instanceof Error ? e.message : "Failed to load users");
       } finally {
         setUsersLoading(false);
@@ -1035,8 +1066,13 @@ export function AdminDashboardPage() {
       return;
     }
     setAuth(session);
-    loadUsers(session.token);
+    loadUsers(session.token, 1);
   }, [router, loadUsers]);
+
+  useEffect(() => {
+    if (!auth?.token || activeTab !== "Users") return;
+    void loadUsers(auth.token, usersPage);
+  }, [auth?.token, activeTab, usersPage, loadUsers]);
 
   useEffect(() => {
     if (activeTab !== ADMIN_POOL_TAB) return;
@@ -1335,7 +1371,7 @@ export function AdminDashboardPage() {
         planId: pricingPlanOptions[0]?.id || "trial",
       });
       setIsCreateUserModalOpen(false);
-      await loadUsers(auth.token);
+      await loadUsers(auth.token, usersPage);
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : "Create failed");
     } finally {
@@ -1446,7 +1482,7 @@ export function AdminDashboardPage() {
         typeof data.user?.planId === "string" ? data.user.planId : planDraftId;
       setManageModalUser((prev) => (prev ? { ...prev, planId: nextPlanId } : null));
       setPlanDraftId(nextPlanId);
-      await loadUsers(auth.token);
+      await loadUsers(auth.token, usersPage);
       await loadUserManageData(manageModalUser.id, auth.token);
       await loadTeamUtilisationHistory(auth.token, analyticsFilterUserId);
       await loadUsageAnalyticsSummary(auth.token, analyticsFilterUserId);
@@ -1566,16 +1602,18 @@ export function AdminDashboardPage() {
                     <thead>
                       <tr className="dashboard-table-head">
                         <th className="py-3 font-semibold">Name</th>
+                        <th className="py-3 font-semibold">Mobile</th>
                         <th className="py-3 font-semibold">Email</th>
                         <th className="py-3 font-semibold">Role</th>
                         <th className="py-3 font-semibold">Plan</th>
+                        <th className="py-3 font-semibold">Created at</th>
                         <th className="py-3 font-semibold">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
                       {usersLoading ? (
                         <tr>
-                          <td colSpan={5} className="py-8 text-center text-sm text-slate-500">
+                          <td colSpan={7} className="py-8 text-center text-sm text-slate-500">
                             Loading users…
                           </td>
                         </tr>
@@ -1588,10 +1626,14 @@ export function AdminDashboardPage() {
                             <td className="py-4 font-medium text-slate-900">
                               {user.fullName}
                             </td>
+                            <td className="py-4 text-slate-700">{user.mobile || "—"}</td>
                             <td className="py-4 text-slate-700">{user.email}</td>
                             <td className="py-4 text-slate-700">{roleLabel(user.role)}</td>
                             <td className="py-4 text-slate-700">
                               {planNameForId(user.planId)}
+                            </td>
+                            <td className="py-4 text-slate-700">
+                              {user.createdAt ? new Date(user.createdAt).toLocaleString() : "—"}
                             </td>
                             <td className="py-4">
                               <button
@@ -1607,6 +1649,31 @@ export function AdminDashboardPage() {
                       )}
                     </tbody>
                   </table>
+                </div>
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-xs text-slate-500">
+                    {usersTotalDocs > 0
+                      ? `Showing page ${usersPage} of ${usersTotalPages} (${usersTotalDocs} users)`
+                      : "No users found"}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setUsersPage((prev) => Math.max(1, prev - 1))}
+                      disabled={usersLoading || usersPage <= 1}
+                      className="dashboard-btn-secondary px-3 py-1.5 text-xs disabled:opacity-50"
+                    >
+                      Previous
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setUsersPage((prev) => Math.min(usersTotalPages, prev + 1))}
+                      disabled={usersLoading || usersPage >= usersTotalPages}
+                      className="dashboard-btn-secondary px-3 py-1.5 text-xs disabled:opacity-50"
+                    >
+                      Next
+                    </button>
+                  </div>
                 </div>
               </article>
             ) : activeTab === ADMIN_ANALYTICS_TAB ? (

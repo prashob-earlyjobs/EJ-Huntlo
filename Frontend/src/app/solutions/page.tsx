@@ -1,19 +1,18 @@
-import { MarketingPageShell } from "@/components/landing/MarketingPageShell";
+import { SolutionPageLayout } from "@/components/landing/SolutionPageLayout";
 import { SolutionsIndexContent } from "@/components/landing/SolutionsIndexContent";
-import { MARKETING_PAGES, marketingPageMetadata } from "@/lib/marketingPages";
-
-const page = MARKETING_PAGES.solutions;
+import { marketingPageMetadata } from "@/lib/marketingPages";
 
 export const metadata = marketingPageMetadata("solutions");
 
 export default function SolutionsPage() {
   return (
-    <MarketingPageShell
-      eyebrow={page.eyebrow}
-      title={page.title}
-      description={page.description}
+    <SolutionPageLayout
+      breadcrumbItems={[
+        { label: "Home", href: "/" },
+        { label: "Solutions" },
+      ]}
     >
       <SolutionsIndexContent />
-    </MarketingPageShell>
+    </SolutionPageLayout>
   );
 }

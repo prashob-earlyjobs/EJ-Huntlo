@@ -2336,6 +2336,7 @@ const listSourcingSessions = async (req, res) => {
     const docs = await SourcingSession.find(scopeFilter)
       .sort({ createdAt: -1 })
       .limit(limit)
+      .populate("userId", "fullName email")
       .lean();
 
     const storedCountBySession = await storedProfileCountBySessionIds(
@@ -2361,6 +2362,13 @@ const listSourcingSessions = async (req, res) => {
             : typeof d.totalDocs === "number"
               ? d.totalDocs
               : null;
+        const searchedByName =
+          d.userId &&
+          typeof d.userId === "object" &&
+          typeof d.userId.fullName === "string" &&
+          d.userId.fullName.trim()
+            ? d.userId.fullName.trim()
+            : "";
         return {
         id: d._id.toString(),
         futureJobsSessionId: d.futureJobsSessionId,
@@ -2383,6 +2391,7 @@ const listSourcingSessions = async (req, res) => {
           : [],
         profilesFetchError: d.profilesFetchError,
         filterForm: filterFormForApi(d.filterForm) ?? null,
+        searchedByName,
         createdAt: d.createdAt,
         updatedAt: d.updatedAt,
         };

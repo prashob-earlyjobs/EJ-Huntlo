@@ -90,6 +90,11 @@ import {
   type WhatsAppTouchpointDraft,
 } from "@/lib/whatsappOutreach";
 import {
+  toCampaignEmailSenderOption,
+  isMultiAccountMailProvider,
+  type EmailIntegrationRow,
+} from "@/lib/emailIntegrations";
+import {
   fetchSavedOutreachPlans,
   SAVED_OUTREACH_PLANS_PAGE_SIZE,
 } from "@/lib/savedOutreachPlansApi";
@@ -363,6 +368,49 @@ export function CampaignWorkspace({
     message: string;
     variant: "success" | "error" | "warning";
   } | null>(null);
+
+  const [selectedEmailIntegrationId, setSelectedEmailIntegrationId] = useState(
+    () => campaign.emailIntegrationId?.trim() || ""
+  );
+  const [emailIntegrations, setEmailIntegrations] = useState<EmailIntegrationRow[]>([]);
+
+  const emailSenderOptions = useMemo(
+    () => emailIntegrations.map(toCampaignEmailSenderOption),
+    [emailIntegrations]
+  );
+
+  useEffect(() => {
+    const auth = getStoredAuth();
+    if (!auth?.token) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`${apiBase}/api/integrations`, {
+          headers: authHeaders(auth.token),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success || !Array.isArray(data.integrations)) return;
+        const rows = (data.integrations as EmailIntegrationRow[]).filter((row) =>
+          isMultiAccountMailProvider(row.provider)
+        );
+        if (cancelled) return;
+        setEmailIntegrations(rows);
+        setSelectedEmailIntegrationId((prev) => {
+          if (prev && rows.some((row) => row.id === prev)) return prev;
+          if (campaign.emailIntegrationId && rows.some((row) => row.id === campaign.emailIntegrationId)) {
+            return campaign.emailIntegrationId;
+          }
+          const defaultRow = rows.find((row) => row.isDefaultEmail) || rows[0];
+          return defaultRow?.id || "";
+        });
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase, campaign.emailIntegrationId, campaign.id]);
 
   const [modalPlans, setModalPlans] = useState<ExistingOutreachPlanOption[]>([]);
   const [modalPlansLoading, setModalPlansLoading] = useState(false);
@@ -1212,7 +1260,11 @@ export function CampaignWorkspace({
     setLaunchNotice("");
     setLaunchBusy(true);
     try {
-      const result = await launchCampaignSequence(auth.token, campaign.id);
+      const result = await launchCampaignSequence(auth.token, campaign.id, {
+        ...(selectedEmailIntegrationId
+          ? { emailIntegrationId: selectedEmailIntegrationId }
+          : {}),
+      });
       onCampaignUpdatedRef.current?.(result.campaign);
       contactsFetchKeyRef.current = null;
       void reloadContacts();
@@ -1238,7 +1290,7 @@ export function CampaignWorkspace({
     } finally {
       setLaunchBusy(false);
     }
-  }, [campaign.id, launchBusy, unveilJobActive]);
+  }, [campaign.id, launchBusy, unveilJobActive, selectedEmailIntegrationId]);
 
   const handlePauseSequence = useCallback(async () => {
     const auth = getStoredAuth();
@@ -2127,6 +2179,9 @@ export function CampaignWorkspace({
               hasSequence={hasSequence}
               launchBusy={launchBusy}
               unveilInProgress={unveilJobActive}
+              emailSenders={emailSenderOptions}
+              selectedEmailIntegrationId={selectedEmailIntegrationId}
+              onEmailIntegrationChange={setSelectedEmailIntegrationId}
               onLaunchCampaign={() => void handleLaunchSequence()}
               onPauseCampaign={() => void handlePauseSequence()}
               onResumeCampaign={() => void handleResumeSequence()}
