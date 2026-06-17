@@ -69,6 +69,7 @@ export function hasCampaignsAndIntegrationsAccess(
   return hasCampaignsAccess(planId, plans, opts);
 }
 
+/** True when admin enabled Campaigns or Outreaches for the plan (shows both outreach meters). */
 export function hasOutreachThreadUtilisation(
   planId: string,
   plans?: PricingPlansPayload | null,
@@ -77,13 +78,7 @@ export function hasOutreachThreadUtilisation(
   if (opts?.plansReady === false) return false;
   const tier = findPlanTier(planId, plans);
   if (!tier) return legacyProductAccess(planId);
-  const outreachProduct =
-    Boolean(tier.campaignsEnabled) || Boolean(tier.outreachesEnabled);
-  if (!outreachProduct) return false;
-  return (
-    (typeof tier.emailOutreaches === "number" && tier.emailOutreaches > 0) ||
-    (typeof tier.whatsappOutreaches === "number" && tier.whatsappOutreaches > 0)
-  );
+  return Boolean(tier.campaignsEnabled) || Boolean(tier.outreachesEnabled);
 }
 
 export const CAMPAIGNS_LOCKED_MESSAGE =

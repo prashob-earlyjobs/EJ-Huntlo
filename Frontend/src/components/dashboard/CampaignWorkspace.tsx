@@ -35,6 +35,7 @@ import {
 } from "@/lib/campaignContactLimits";
 import { WhatsAppOutreachEditor } from "@/components/dashboard/WhatsAppOutreachEditor";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { quotaAlertFromMessage } from "@/lib/apiErrors";
 import { authHeaders, getStoredAuth } from "@/lib/auth";
 import type { CampaignContact, CampaignRecord } from "@/lib/campaigns";
 import {
@@ -201,6 +202,15 @@ function emailEmptyLabel(
     return "Missing LinkedIn — open this person in Session Results and use Reveal Email";
   }
   return "Email not found for this contact.";
+}
+
+function tryShowQuotaExceededModal(
+  message: string,
+  onRevealQuotaExceeded?: (message: string) => void
+): boolean {
+  if (!quotaAlertFromMessage(message)) return false;
+  onRevealQuotaExceeded?.(message);
+  return true;
 }
 
 function launchBlockedModalFromError(err: unknown): { title: string; message: ReactNode } {
@@ -630,6 +640,14 @@ export function CampaignWorkspace({
   const loadLinkedOutreachPlan = useCallback(async () => {
     const planId = campaign.outreachPlanId?.trim();
     if (!planId) return;
+    if (
+      editorPhase === "editing" &&
+      editor?.state.planId &&
+      editor.state.planId !== "new" &&
+      String(editor.state.planId) === planId
+    ) {
+      return;
+    }
     const auth = getStoredAuth();
     if (!auth?.token) return;
     const channel = campaign.outreachChannel === "whatsapp" ? "whatsapp" : "gmail";
@@ -654,11 +672,11 @@ export function CampaignWorkspace({
           ),
         });
       } else {
-        const res = await fetch(`${apiBase}/api/outreach/plans/${planId}`, {
+        const res = await fetch(`${apiBase}/api/outreach/plans/${encodeURIComponent(planId)}`, {
           headers: authHeaders(auth.token),
         });
-        const data = await res.json();
-        if (data.success && data.plan) {
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.success && data.plan) {
           const plan = data.plan as {
             id: string;
             name: string;
@@ -688,7 +706,16 @@ export function CampaignWorkspace({
     } finally {
       setLinkedPlanLoading(false);
     }
-  }, [apiBase, campaign.name, campaign.outreachPlanId, campaign.outreachChannel]);
+  }, [
+    apiBase,
+    campaign.name,
+    campaign.jobDescription,
+    campaign.outreachPlanId,
+    campaign.outreachChannel,
+    campaign.calendlyAutomation,
+    editor,
+    editorPhase,
+  ]);
 
   useEffect(() => {
     if (activeTab !== "Editor" || bypassLinkedPlan) return;
@@ -1472,15 +1499,22 @@ export function CampaignWorkspace({
           variant: "success",
         });
       } catch (err) {
-        setSaveToast({
-          message: err instanceof Error ? err.message : "Could not import contacts from CSV.",
-          variant: "error",
-        });
+        const message =
+          err instanceof Error ? err.message : "Could not import contacts from CSV.";
+        if (!tryShowQuotaExceededModal(message, onRevealQuotaExceeded)) {
+          setSaveToast({ message, variant: "error" });
+        }
       } finally {
         setCsvImportBusy(false);
       }
     },
-    [campaign.id, campaignContactsLocked, contacts.length, refreshContactDependentViews]
+    [
+      campaign.id,
+      campaignContactsLocked,
+      contacts.length,
+      onRevealQuotaExceeded,
+      refreshContactDependentViews,
+    ]
   );
 
   const handleCsvFileSelected = useCallback(

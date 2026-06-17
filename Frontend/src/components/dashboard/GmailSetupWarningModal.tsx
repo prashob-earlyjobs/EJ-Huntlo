@@ -10,24 +10,13 @@ import {
   dashboardBtnSecondaryClass,
 } from "@/lib/dashboardStyles";
 
-export type WhatsAppSetupWarningContext = "save" | "launch";
-
 type Props = {
   open: boolean;
-  context: WhatsAppSetupWarningContext;
   onClose: () => void;
-  onSetupWhatsApp: () => void;
-  /** Shown only when context is "save" — user can persist the sequence without integration. */
-  onSaveAnyway?: () => void;
+  onConnectGmail: () => void;
 };
 
-export function WhatsAppSetupWarningModal({
-  open,
-  context,
-  onClose,
-  onSetupWhatsApp,
-  onSaveAnyway,
-}: Props) {
+export function GmailSetupWarningModal({ open, onClose, onConnectGmail }: Props) {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -50,14 +39,12 @@ export function WhatsAppSetupWarningModal({
 
   if (!open || !mounted) return null;
 
-  const isLaunch = context === "launch";
-
   return createPortal(
     <div
       className="dashboard-modal-overlay dashboard-confirm-modal-overlay z-[130]"
       role="dialog"
       aria-modal="true"
-      aria-labelledby="wa-setup-warning-title"
+      aria-labelledby="gmail-setup-warning-title"
     >
       <button
         type="button"
@@ -79,35 +66,28 @@ export function WhatsAppSetupWarningModal({
         </button>
         <div className="dashboard-integration-setup-modal-inner">
           <span className="dashboard-integration-setup-modal-brand" aria-hidden>
-            <IntegrationBrandLogo provider="whatsapp" title="WhatsApp" />
+            <IntegrationBrandLogo provider="gmail" title="Gmail" />
           </span>
-          <h3 id="wa-setup-warning-title" className="dashboard-integration-setup-modal-title">
-            WhatsApp not connected
+          <h3 id="gmail-setup-warning-title" className="dashboard-integration-setup-modal-title">
+            Gmail not connected
           </h3>
           <p className="dashboard-integration-setup-modal-message">
-            {isLaunch
-              ? "Connect WhatsApp before launching so messages can send to your campaign contacts."
-              : "You can save this sequence now, but WhatsApp must be connected before you can launch and send messages."}
+            Connect your Gmail account before launching so outreach emails can send from your inbox.
           </p>
-          <p className="dashboard-integration-setup-modal-path" aria-label="Go to Integrations, then WhatsApp">
+          <p className="dashboard-integration-setup-modal-path" aria-label="Go to Integrations, then Gmail">
             <MaterialIcon name="settings" />
             Integrations
             <MaterialIcon name="chevron_right" />
-            WhatsApp
+            Gmail
           </p>
         </div>
         <div className="dashboard-integration-setup-modal-footer">
           <button type="button" onClick={onClose} className={dashboardBtnSecondaryClass}>
             Cancel
           </button>
-          {!isLaunch && onSaveAnyway ? (
-            <button type="button" onClick={onSaveAnyway} className={dashboardBtnSecondaryClass}>
-              Save anyway
-            </button>
-          ) : null}
-          <button type="button" onClick={onSetupWhatsApp} className={dashboardBtnPrimaryClass}>
+          <button type="button" onClick={onConnectGmail} className={dashboardBtnPrimaryClass}>
             <MaterialIcon name="link" className="text-base" aria-hidden />
-            Connect WhatsApp
+            Connect Gmail
           </button>
         </div>
       </div>
