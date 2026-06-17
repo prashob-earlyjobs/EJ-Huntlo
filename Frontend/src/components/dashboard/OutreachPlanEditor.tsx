@@ -497,15 +497,13 @@ export function OutreachPlanEditor({
     );
   }, [emailSenders, selectedEmailIntegrationId, useCampaignEmailSenders]);
 
+
   const composeFromEmail = useCampaignEmailSenders
     ? selectedEmailSender?.email || ""
     : gmailConnected
       ? gmailEmail
       : "";
 
-  const composeFromConnected = useCampaignEmailSenders
-    ? Boolean(selectedEmailSender?.email)
-    : gmailConnected;
 
   const loadGmailStatus = useCallback(async (): Promise<boolean> => {
     if (!auth?.token) {
