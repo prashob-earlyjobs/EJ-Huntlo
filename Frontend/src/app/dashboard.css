@@ -9755,6 +9755,18 @@ select.dashboard-outreach-start-chip--select {
   gap: 0.5rem;
 }
 
+.dashboard-outreach-builder-from-value {
+  margin: 0;
+  min-height: 1.625rem;
+  display: flex;
+  align-items: center;
+  cursor: default;
+}
+
+.dashboard-outreach-builder--embedded .dashboard-outreach-builder-from-value {
+  font-size: 0.8125rem;
+}
+
 .dashboard-outreach-builder-cc {
   flex-shrink: 0;
   font-size: 0.75rem;

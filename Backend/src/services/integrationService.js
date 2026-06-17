@@ -885,11 +885,22 @@ async function sendOutlookTest(userId, body = {}) {
 
 async function saveZohoMailIntegration(userOid, patch) {
   const email = String(patch.email || "").trim();
-  let doc = await UserIntegration.findOne({
-    userId: userOid,
-    provider: "zoho_mail",
-    email,
-  });
+
+  let doc = null;
+  if (email) {
+    doc = await UserIntegration.findOne({
+      userId: userOid,
+      provider: "zoho_mail",
+      email,
+    });
+  }
+  if (!doc) {
+    doc = await UserIntegration.findOne({
+      userId: userOid,
+      provider: "zoho_mail",
+    });
+  }
+
   if (doc) {
     Object.assign(doc, patch);
   } else {
@@ -899,7 +910,24 @@ async function saveZohoMailIntegration(userOid, patch) {
       ...patch,
     });
   }
-  await doc.save();
+
+  try {
+    await doc.save();
+  } catch (err) {
+    if (err?.code === 11000) {
+      const existing = await UserIntegration.findOne({
+        userId: userOid,
+        provider: "zoho_mail",
+      });
+      if (!existing) throw err;
+      Object.assign(existing, patch);
+      await existing.save();
+      doc = existing;
+    } else {
+      throw err;
+    }
+  }
+
   await ensureDefaultEmailOnConnect(userOid, doc);
   return doc;
 }
