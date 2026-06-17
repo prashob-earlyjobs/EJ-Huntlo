@@ -108,7 +108,7 @@ function NavButtons({
         <button
           type="button"
           onClick={onBack}
-          className="flex items-center gap-2 rounded-lg border border-[#c2c6d8]/50 bg-white px-6 py-3 text-sm font-medium text-[#141b2b] transition-colors hover:bg-[#f1f3ff]"
+          className="onboarding-option-btn flex items-center gap-2 rounded-lg border border-[#c2c6d8]/50 bg-white px-6 py-3 text-sm font-medium text-[#141b2b] transition-colors hover:bg-[#f1f3ff]"
         >
           <MaterialIcon name="arrow_back" className="text-sm" />
           Back
@@ -120,7 +120,7 @@ function NavButtons({
         type="button"
         onClick={onContinue}
         disabled={continueDisabled || loading}
-        className="flex items-center gap-2 rounded-lg bg-[#0050cb] px-8 py-3 text-sm font-medium text-white shadow-[0_4px_14px_rgba(0,80,203,0.3)] transition-colors hover:bg-[#003fa4] disabled:cursor-not-allowed disabled:opacity-50"
+        className="onboarding-option-btn flex items-center gap-2 rounded-lg bg-[#0050cb] px-8 py-3 text-sm font-medium text-white shadow-[0_4px_14px_rgba(0,80,203,0.3)] transition-colors hover:bg-[#003fa4] disabled:cursor-not-allowed disabled:opacity-50"
       >
         {loading ? "Saving…" : continueLabel}
         {!loading ? <MaterialIcon name="arrow_forward" className="text-sm" /> : null}
@@ -287,7 +287,7 @@ export function OnboardingFlow() {
               <button
                 type="button"
                 onClick={handleContinue}
-                className="mt-4 flex items-center gap-2 rounded-full bg-[#0050cb] px-10 py-4 text-sm font-medium text-white shadow-[0_4px_12px_rgba(0,80,203,0.15)] transition-colors hover:bg-[#003fa4]"
+                className="onboarding-option-btn mt-4 flex items-center gap-2 rounded-full bg-[#0050cb] px-10 py-4 text-sm font-medium text-white shadow-[0_4px_12px_rgba(0,80,203,0.15)] transition-colors hover:bg-[#003fa4]"
               >
                 Continue
                 <MaterialIcon name="arrow_forward" className="text-[18px]" />
@@ -320,7 +320,7 @@ export function OnboardingFlow() {
                         key={opt.id}
                         type="button"
                         onClick={() => setForm((p) => ({ ...p, companyType: opt.id }))}
-                        className={`onboarding-glow-shadow flex h-full items-center gap-4 rounded-xl border p-4 text-left transition-all hover:border-[#0050cb]/40 ${
+                        className={`onboarding-option-btn onboarding-glow-shadow flex h-full items-center gap-4 rounded-xl border p-4 text-left transition-all hover:border-[#0050cb]/40 ${
                           selected
                             ? "onboarding-option-selected"
                             : "border-[#c2c6d8]/50 bg-white"
@@ -359,7 +359,7 @@ export function OnboardingFlow() {
                         key={opt.id}
                         type="button"
                         onClick={() => toggleMulti("hiringChallenges", opt.id)}
-                        className={`relative flex flex-col items-start rounded-lg border p-4 text-left transition-all ${
+                        className={`onboarding-option-btn relative flex flex-col items-start rounded-lg border p-4 text-left transition-all ${
                           selected
                             ? "onboarding-option-selected border-2 shadow-[0_0_15px_rgba(0,80,203,0.1)]"
                             : "border-[#c2c6d8] bg-[#f9f9ff] hover:border-[#0050cb]"
@@ -406,7 +406,7 @@ export function OnboardingFlow() {
                         key={opt.id}
                         type="button"
                         onClick={() => toggleMulti("outreachChannels", opt.id)}
-                        className={`relative flex w-full flex-col gap-3 rounded-xl border p-4 text-left transition-all ${
+                        className={`onboarding-option-btn relative flex w-full flex-col gap-3 rounded-xl border p-4 text-left transition-all ${
                           selected
                             ? "onboarding-option-selected border-2"
                             : "border-[#c2c6d8] bg-[#f9f9ff] hover:border-[#0050cb] hover:bg-[#f1f3ff]"
@@ -464,7 +464,7 @@ export function OnboardingFlow() {
                         key={opt.id}
                         type="button"
                         onClick={() => setForm((p) => ({ ...p, hiringVolume: opt.id }))}
-                        className={`relative flex flex-col items-start rounded-xl border p-6 text-left transition-all ${
+                        className={`onboarding-option-btn relative flex flex-col items-start rounded-xl border p-6 text-left transition-all ${
                           selected
                             ? "onboarding-option-selected border-2 shadow-[0_8px_24px_rgba(80,95,118,0.15)]"
                             : "border-[#c2c6d8] bg-white hover:border-[#0050cb]/50 hover:bg-[#f1f3ff]"

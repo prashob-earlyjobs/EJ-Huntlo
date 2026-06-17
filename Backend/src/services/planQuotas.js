@@ -159,6 +159,8 @@ async function getUserPlanSummary(user) {
   return {
     planId,
     planName: tier?.name || planId,
+    campaignsEnabled: Boolean(tier?.campaignsEnabled),
+    outreachesEnabled: Boolean(tier?.outreachesEnabled),
     limits: {
       searches: tier?.searches ?? null,
       candidateUnlocks: tier?.candidateUnlocks ?? null,

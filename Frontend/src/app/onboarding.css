@@ -29,6 +29,10 @@
   -webkit-backdrop-filter: blur(20px);
 }
 
+.onboarding-option-btn {
+  cursor: pointer;
+}
+
 .onboarding-option-selected {
   border-color: #0050cb !important;
   background-color: #e9edff !important;
