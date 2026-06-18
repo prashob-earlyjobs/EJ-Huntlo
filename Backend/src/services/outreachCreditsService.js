@@ -34,9 +34,10 @@ function userOid(userId) {
 }
 
 function campaignChannelQuery(channel) {
-  return channel === "whatsapp"
-    ? { outreachChannel: "whatsapp" }
-    : { outreachChannel: { $in: ["gmail", null] } };
+  if (channel === "whatsapp") {
+    return { outreachChannel: "whatsapp" };
+  }
+  return { outreachChannel: { $in: ["gmail", null] } };
 }
 
 function tierLimitForChannel(tier, channel) {
@@ -137,7 +138,8 @@ async function assertOutreachCreditsAvailable(
 }
 
 function outreachChannelToCreditChannel(outreachChannel) {
-  return outreachChannel === "whatsapp" ? "whatsapp" : "email";
+  if (outreachChannel === "whatsapp") return "whatsapp";
+  return "email";
 }
 
 /** Admin analytics: thread counts (and optional plan limits when scoped to one user). */

@@ -47,8 +47,20 @@ const {
   receiveGupshupDeliveryReportHandler,
   receiveGupshupStatusHandler,
 } = require("../controllers/gupshupWhatsAppWebhookController");
+const {
+  receiveHunarCallStatusHandler,
+  receiveHunarCallResultHandler,
+  receiveHunarCallRecordingHandler,
+  receiveHunarCallSummaryHandler,
+} = require("../controllers/hunarVoiceWebhookController");
 
 const router = express.Router();
+
+// Hunar AI voice call webhooks (public)
+router.post("/voice/hunar/call-status", receiveHunarCallStatusHandler);
+router.post("/voice/hunar/call-recording", receiveHunarCallRecordingHandler);
+router.post("/voice/hunar/call-result", receiveHunarCallResultHandler);
+router.post("/voice/hunar/call-summary", receiveHunarCallSummaryHandler);
 
 // Meta webhook endpoints (public)
 router.get("/whatsapp/meta/webhook", verifyMetaWebhookHandler);

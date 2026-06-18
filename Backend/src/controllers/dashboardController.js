@@ -160,6 +160,13 @@ const getMyDashboard = async (req, res) => {
               ? tier.whatsappOutreaches
               : null,
         },
+        aiVoiceCalls: {
+          used: Math.max(0, Math.floor(Number(plan?.voiceCallsUsed) || 0)),
+          limit:
+            typeof tier?.aiVoiceCalls === "number" && tier.aiVoiceCalls > 0
+              ? tier.aiVoiceCalls
+              : null,
+        },
       },
       stats: {
         sourcingSessions,

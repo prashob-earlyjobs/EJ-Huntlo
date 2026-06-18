@@ -55,6 +55,7 @@ export function parseUtilisationHistoryPagination(
 export type OutreachThreadStats = {
   email: number;
   whatsapp: number;
+  voiceCalls: number;
 };
 
 export type MePlanSnapshot = {
@@ -65,14 +66,14 @@ export type MePlanSnapshot = {
 };
 
 export function parseOutreachThreadsPayload(raw: unknown): OutreachThreadStats {
-  const empty: OutreachThreadStats = { email: 0, whatsapp: 0 };
+  const empty: OutreachThreadStats = { email: 0, whatsapp: 0, voiceCalls: 0 };
   if (!raw || typeof raw !== "object") return empty;
   const o = raw as Record<string, unknown>;
   const n = (key: keyof OutreachThreadStats) => {
     const v = o[key];
     return typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0;
   };
-  return { email: n("email"), whatsapp: n("whatsapp") };
+  return { email: n("email"), whatsapp: n("whatsapp"), voiceCalls: n("voiceCalls") };
 }
 
 /** Reads plan + utilisation from GET /api/users/me (or equivalent) response. */
@@ -98,14 +99,23 @@ export function parsePlanFromMeResponse(raw: unknown): MePlanSnapshot | null {
     typeof planObj?.planName === "string" ? planObj.planName : planId;
 
   const outreachRaw = planObj?.outreachThreads;
+  const voiceCallsUsed =
+    typeof planObj?.voiceCallsUsed === "number" && Number.isFinite(planObj.voiceCallsUsed)
+      ? Math.max(0, Math.floor(planObj.voiceCallsUsed))
+      : 0;
+  const outreachThreads =
+    outreachRaw != null ? parseOutreachThreadsPayload(outreachRaw) : null;
 
   return {
     planId,
     planName,
     utilisation:
       meData.utilisation != null ? parseUtilisationPayload(meData.utilisation) : null,
-    outreachThreads:
-      outreachRaw != null ? parseOutreachThreadsPayload(outreachRaw) : null,
+    outreachThreads: outreachThreads
+      ? { ...outreachThreads, voiceCalls: outreachThreads.voiceCalls || voiceCallsUsed }
+      : voiceCallsUsed > 0
+        ? { email: 0, whatsapp: 0, voiceCalls: voiceCallsUsed }
+        : null,
   };
 }
 
@@ -193,6 +203,8 @@ export function utilisationQuotaActionLabel(action: string): string {
       return "Email outreach";
     case "whatsappOutreaches":
       return "WhatsApp outreach";
+    case "aiVoiceCalls":
+      return "AI voice call";
     default:
       return action ? action.replace(/([A-Z])/g, " $1").trim() : "Activity";
   }

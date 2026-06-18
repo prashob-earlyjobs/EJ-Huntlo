@@ -20,6 +20,7 @@ import { fetchCampaign, type CampaignsListSummary } from "@/lib/campaignsApi";
 import { getStoredAuth } from "@/lib/auth";
 import type { ReportMetricKey } from "@/lib/campaignEmailReport";
 import {
+  defaultCampaignWorkspaceTab,
   inferCampaignWorkspaceChannel,
   normalizeCampaignWorkspaceTab,
   parseCampaignWorkspaceTabFromPathname,
@@ -28,6 +29,8 @@ import {
   pathForCampaignWorkspace,
   pathForCampaignsList,
   replaceCampaignWorkspaceUrl,
+  resolveCampaignOutreachChannel,
+  type CampaignOutreachChannel,
   type CampaignWorkspaceTab,
 } from "@/lib/campaignRoutes";
 import { dashboardBtnSecondaryClass } from "@/lib/dashboardStyles";
@@ -104,7 +107,7 @@ export function CampaignsPanel({
     useState<CampaignRecord | null>(null);
   const [campaignNavHint, setCampaignNavHint] = useState<{
     campaignId: string;
-    outreachChannel: "gmail" | "whatsapp" | null;
+    outreachChannel: CampaignOutreachChannel | null;
     hasJobDescription: boolean;
   } | null>(null);
 
@@ -123,12 +126,7 @@ export function CampaignsPanel({
     setCachedWorkspaceCampaign(resolvedCampaign);
     setCampaignNavHint({
       campaignId: resolvedCampaign.id,
-      outreachChannel:
-        resolvedCampaign.outreachChannel === "whatsapp"
-          ? "whatsapp"
-          : resolvedCampaign.outreachChannel === "gmail"
-            ? "gmail"
-            : null,
+      outreachChannel: resolveCampaignOutreachChannel(resolvedCampaign.outreachChannel),
       hasJobDescription: Boolean(resolvedCampaign.jobDescription?.trim()),
     });
   }, [resolvedCampaign]);
@@ -230,12 +228,7 @@ export function CampaignsPanel({
   const showPagination = campaignsTotalPages > 1;
 
   useEffect(() => {
-    const channel =
-      workspaceCampaign?.outreachChannel === "whatsapp"
-        ? "whatsapp"
-        : workspaceCampaign?.outreachChannel === "gmail"
-          ? "gmail"
-          : null;
+    const channel = resolveCampaignOutreachChannel(workspaceCampaign?.outreachChannel);
     setWorkspaceTab(normalizeCampaignWorkspaceTab(routeWorkspaceTab, channel));
   }, [routeWorkspaceTab, activeCampaignId, workspaceCampaign?.outreachChannel]);
 
@@ -243,12 +236,7 @@ export function CampaignsPanel({
     const onPopState = () => {
       const tab = parseCampaignWorkspaceTabFromPathname(window.location.pathname);
       if (!tab) return;
-      const channel =
-        workspaceCampaign?.outreachChannel === "whatsapp"
-          ? "whatsapp"
-          : workspaceCampaign?.outreachChannel === "gmail"
-            ? "gmail"
-            : null;
+      const channel = resolveCampaignOutreachChannel(workspaceCampaign?.outreachChannel);
       setWorkspaceTab(normalizeCampaignWorkspaceTab(tab, channel));
     };
     window.addEventListener("popstate", onPopState);
@@ -295,10 +283,14 @@ export function CampaignsPanel({
 
   const openCampaign = useCallback(
     (campaignId: string, tab: CampaignWorkspaceTab = "Editor") => {
-      setWorkspaceTab(tab);
-      router.push(pathForCampaignWorkspace(campaignId, tab));
+      const listMatch = campaigns.find((c) => c.id === campaignId);
+      const channel = resolveCampaignOutreachChannel(listMatch?.outreachChannel);
+      const initialTab =
+        tab === "Editor" ? defaultCampaignWorkspaceTab(channel) : tab;
+      setWorkspaceTab(initialTab);
+      router.push(pathForCampaignWorkspace(campaignId, initialTab));
     },
-    [router]
+    [campaigns, router]
   );
 
   const handleCampaignUpdated = useCallback(
@@ -308,12 +300,7 @@ export function CampaignsPanel({
         prev?.campaignId === updated.id
           ? {
               campaignId: updated.id,
-              outreachChannel:
-                updated.outreachChannel === "whatsapp"
-                  ? "whatsapp"
-                  : updated.outreachChannel === "gmail"
-                    ? "gmail"
-                    : null,
+              outreachChannel: resolveCampaignOutreachChannel(updated.outreachChannel),
               hasJobDescription: Boolean(updated.jobDescription?.trim()),
             }
           : prev
@@ -337,7 +324,9 @@ export function CampaignsPanel({
     setCreateBusy(true);
     try {
       const record = await onCreateCampaign(payload.name);
-      if (!record) return;
+      if (!record) {
+        throw new Error("Could not create campaign. Please try again.");
+      }
       setCreateOpen(false);
       openCampaign(record.id, "Editor");
     } finally {

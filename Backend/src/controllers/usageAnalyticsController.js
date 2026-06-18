@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const UsageEvent = require("../models/UsageEvent");
 const { getOutreachCreditsAnalytics } = require("../services/outreachCreditsService");
+const { getVoiceCallCreditsAnalytics } = require("../services/voiceCallCreditsService");
 
 const EVENT_TYPES = [
   "people_scout_lookup",
@@ -112,11 +113,15 @@ const getUsageAnalyticsSummary = async (req, res) => {
     const outreachCredits = await getOutreachCreditsAnalytics(
       String(req.query?.userId || "").trim()
     );
+    const voiceCallCredits = await getVoiceCallCreditsAnalytics(
+      String(req.query?.userId || "").trim()
+    );
 
     return res.status(200).json({
       success: true,
       summary: buildSummaryFromGroups(groups),
       outreachCredits,
+      voiceCallCredits,
     });
   } catch (error) {
     const status = error.statusCode || 500;

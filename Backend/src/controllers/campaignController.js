@@ -41,6 +41,9 @@ const {
   listCampaignReplies,
   listContactEmailThread,
 } = require("../services/campaignReplySyncService");
+const { launchVoiceCampaign } = require("../services/campaignVoiceLaunchService");
+const { saveCampaignVoiceAgent } = require("../services/campaignVoiceAgentService");
+const { getCampaignVoiceCalls } = require("../services/campaignVoiceCommsService");
 
 function invalidSession(res) {
   return res.status(401).json({ success: false, message: "Authentication required" });
@@ -59,6 +62,14 @@ function handleError(res, error) {
   if (error.code === "OUTREACH_CREDITS_EXCEEDED") {
     body.outreachCredits = {
       channel: error.channel,
+      limit: error.limit,
+      used: error.used,
+      requested: error.requested,
+      remaining: error.remaining,
+    };
+  }
+  if (error.code === "VOICE_CALL_CREDITS_EXCEEDED") {
+    body.voiceCallCredits = {
       limit: error.limit,
       used: error.used,
       requested: error.requested,
@@ -128,6 +139,16 @@ function parseRevealTypesFromBody(body) {
   return null;
 }
 
+/** Voice / WhatsApp campaigns only need phone unveils when contacts are added from search. */
+function revealTypesForCampaignChannel(outreachChannel, revealTypes) {
+  if (!revealTypes || revealTypes.length === 0) return revealTypes;
+  const channel = String(outreachChannel || "").trim();
+  if (channel === "voice_call" || channel === "whatsapp") {
+    return revealTypes.includes("PHONE") ? ["PHONE"] : [];
+  }
+  return revealTypes;
+}
+
 const createCampaignHandler = async (req, res) => {
   try {
     const uid = req.auth?.userId;
@@ -183,7 +204,12 @@ const addContactsHandler = async (req, res) => {
     const uid = req.auth?.userId;
     if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
     const contacts = Array.isArray(req.body?.contacts) ? req.body.contacts : [];
-    const revealTypes = parseRevealTypesFromBody(req.body);
+    const campaign = await getCampaign(uid, req.params.id);
+    const parsedRevealTypes = parseRevealTypesFromBody(req.body);
+    const revealTypes = revealTypesForCampaignChannel(
+      campaign?.outreachChannel,
+      parsedRevealTypes
+    );
     if (revealTypes && contacts.length > 0) {
       const existingKeys = await getExistingCandidateKeys(req.params.id);
       const newContacts = contacts.filter((c) => {
@@ -356,7 +382,11 @@ const setCampaignOutreachPlanHandler = async (req, res) => {
         ? null
         : req.body?.outreachPlanId;
     const outreachChannel =
-      req.body?.outreachChannel === "whatsapp" ? "whatsapp" : "gmail";
+      req.body?.outreachChannel === "whatsapp"
+        ? "whatsapp"
+        : req.body?.outreachChannel === "voice_call"
+          ? "voice_call"
+          : "gmail";
     const campaign = await setCampaignOutreachPlan(
       uid,
       req.params.id,
@@ -421,6 +451,47 @@ const launchCampaignSequenceHandler = async (req, res) => {
       campaign,
       revealJob: result.revealJob || null,
       message: `Sequence launched for ${result.enrolled} contact${result.enrolled === 1 ? "" : "s"}`,
+    });
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
+const launchVoiceCampaignHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
+    const candidateKeys = Array.isArray(req.body?.candidateKeys) ? req.body.candidateKeys : [];
+    const result = await launchVoiceCampaign(uid, req.params.id, { candidateKeys });
+    const campaign = await getCampaign(uid, req.params.id);
+    return res.status(200).json({
+      success: true,
+      ...result,
+      campaign,
+      message: `AI voice calls started for ${result.dialedCount} contact${
+        result.dialedCount === 1 ? "" : "s"
+      }`,
+    });
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
+const saveCampaignVoiceAgentHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
+    const result = await saveCampaignVoiceAgent(uid, req.params.id, req.body || {});
+    return res.status(200).json({
+      success: true,
+      agentId: result.agentId,
+      action: result.action,
+      hunarVoiceAgent: result.hunarVoiceAgent,
+      campaign: result.campaign,
+      message:
+        result.action === "updated"
+          ? "Voice agent updated successfully"
+          : "Voice agent created successfully",
     });
   } catch (error) {
     return handleError(res, error);
@@ -508,6 +579,20 @@ const getCampaignWhatsAppConversationsHandler = async (req, res) => {
       threadPage: req.query?.threadPage,
       threadPageSize: req.query?.threadPageSize,
       messagePageSize: req.query?.messagePageSize,
+    });
+    return res.status(200).json({ success: true, ...data });
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
+const getCampaignVoiceCallsHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
+    const data = await getCampaignVoiceCalls(uid, req.params.id, {
+      page: req.query?.page,
+      limit: req.query?.limit,
     });
     return res.status(200).json({ success: true, ...data });
   } catch (error) {
@@ -645,12 +730,15 @@ module.exports = {
   updateCampaignJobDescriptionHandler,
   updateCampaignCalendlyAutomationHandler,
   launchCampaignSequenceHandler,
+  launchVoiceCampaignHandler,
+  saveCampaignVoiceAgentHandler,
   pauseCampaignSequenceHandler,
   resumeCampaignSequenceHandler,
   getCampaignSequenceStatusHandler,
   getCampaignEmailReportHandler,
   getCampaignEmailReportActivityHandler,
   getCampaignWhatsAppConversationsHandler,
+  getCampaignVoiceCallsHandler,
   getCampaignWhatsAppThreadMessagesHandler,
   sendCampaignWhatsAppSessionMessageHandler,
   markCampaignWhatsAppThreadReadHandler,
