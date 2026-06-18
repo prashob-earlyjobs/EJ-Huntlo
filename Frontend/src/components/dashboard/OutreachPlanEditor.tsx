@@ -462,10 +462,48 @@ export function OutreachPlanEditor({
   }, [auth?.email, auth?.fullName]);
 
   const senderFirstName = useMemo(() => {
+    if (embedded && emailSenders.length > 0) {
+      const selected = emailSenders.find((row) => row.id === selectedEmailIntegrationId);
+      const name = selected?.displayName?.trim();
+      if (name) {
+        const part = name.split(/\s+/).filter(Boolean)[0];
+        return part || name;
+      }
+      const email = selected?.email?.trim();
+      if (email?.includes("@")) {
+        return email.split("@")[0] || email;
+      }
+    }
     const full = auth?.fullName?.trim() || createdMeta.name;
     const part = full.split(/\s+/).filter(Boolean)[0];
     return part || "You";
-  }, [auth?.fullName, createdMeta.name]);
+  }, [
+    auth?.fullName,
+    createdMeta.name,
+    emailSenders,
+    embedded,
+    selectedEmailIntegrationId,
+  ]);
+
+  const useCampaignEmailSenders = embedded && emailSenders.length > 0;
+
+  const selectedEmailSender = useMemo(() => {
+    if (!useCampaignEmailSenders) return null;
+    return (
+      emailSenders.find((row) => row.id === selectedEmailIntegrationId) ||
+      emailSenders.find((row) => row.isDefaultEmail) ||
+      emailSenders[0] ||
+      null
+    );
+  }, [emailSenders, selectedEmailIntegrationId, useCampaignEmailSenders]);
+
+
+  const composeFromEmail = useCampaignEmailSenders
+    ? selectedEmailSender?.email || ""
+    : gmailConnected
+      ? gmailEmail
+      : "";
+
 
   const loadGmailStatus = useCallback(async (): Promise<boolean> => {
     if (!auth?.token) {
@@ -1667,16 +1705,25 @@ export function OutreachPlanEditor({
                     <div className="dashboard-outreach-builder-compose">
                       <label className="dashboard-outreach-builder-field">
                         <span className="dashboard-outreach-builder-field-label">From</span>
-                        <OutreachFieldSelect
-                          value={gmailConnected ? gmailEmail : ""}
-                          options={
-                            gmailConnected
-                              ? [{ value: gmailEmail, label: gmailEmail }]
-                              : [{ value: "", label: "Connect Gmail in Integrations" }]
-                          }
-                          ariaLabel="From email"
-                          disabled={!gmailConnected}
-                        />
+                        {useCampaignEmailSenders ? (
+                          <p
+                            className="dashboard-input dashboard-input-sm dashboard-input--readonly dashboard-outreach-builder-from-value"
+                            aria-live="polite"
+                          >
+                            {composeFromEmail || "Choose a sender in the sequence panel"}
+                          </p>
+                        ) : (
+                          <OutreachFieldSelect
+                            value={gmailConnected ? gmailEmail : ""}
+                            options={
+                              gmailConnected
+                                ? [{ value: gmailEmail, label: gmailEmail }]
+                                : [{ value: "", label: "Connect Gmail in Integrations" }]
+                            }
+                            ariaLabel="From email"
+                            disabled={!gmailConnected}
+                          />
+                        )}
                       </label>
 
                       <label className="dashboard-outreach-builder-field">
@@ -1780,12 +1827,16 @@ export function OutreachPlanEditor({
         <OutreachTestEmailModal
           open
           stepLabel={`${touchpointTypeLabel(testPreviewStep.order)} · Step ${testPreviewStep.order}`}
-          fromEmail={gmailConnected ? gmailEmail : ""}
+          fromEmail={composeFromEmail}
           subject={testPreviewStep.subject}
           body={testPreviewStep.body}
           senderFirstName={senderFirstName}
           authToken={auth.token}
-          gmailConnected={gmailConnected}
+          gmailConnected={
+            useCampaignEmailSenders
+              ? Boolean(selectedEmailSender?.email)
+              : gmailConnected
+          }
           onGoToIntegrations={onGoToIntegrations}
           onClose={() => setTestPreviewStep(null)}
           onSent={setTestEmailToast}

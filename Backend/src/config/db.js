@@ -1,6 +1,24 @@
 const dns = require("dns");
 const mongoose = require("mongoose");
 
+async function syncUserIntegrationIndexes() {
+  const UserIntegration = require("../models/UserIntegration");
+  try {
+    await UserIntegration.collection.dropIndex("userId_1_provider_1");
+    console.log("Dropped legacy UserIntegration index userId_1_provider_1");
+  } catch (err) {
+    const msg = String(err?.message || "");
+    if (err?.code !== 27 && !/index not found|ns not found/i.test(msg)) {
+      console.warn("UserIntegration index migration:", msg);
+    }
+  }
+  try {
+    await UserIntegration.syncIndexes();
+  } catch (err) {
+    console.warn("UserIntegration syncIndexes:", err?.message || err);
+  }
+}
+
 const connectDB = async () => {
   const mongoUri = process.env.MONGODB_URI;
 
@@ -18,6 +36,7 @@ const connectDB = async () => {
   }
 
   await mongoose.connect(mongoUri);
+  await syncUserIntegrationIndexes();
   console.log("MongoDB connected");
 };
 

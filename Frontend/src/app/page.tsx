@@ -5,8 +5,7 @@ import { JsonLd } from "@/components/seo/JsonLd";
 import { HOMEPAGE_FAQS } from "@/lib/homepageFaqs";
 import {
   faqPageJsonLd,
-  organizationJsonLd,
-  softwareApplicationJsonLd,
+  homeOrganizationSoftwareGraphJsonLd,
   webSiteJsonLd,
 } from "@/lib/jsonLd";
 import { fetchPublicPricingPlans } from "@/lib/pricingPlans";
@@ -29,8 +28,7 @@ export default async function Home() {
     <>
       <JsonLd
         data={[
-          organizationJsonLd(),
-          softwareApplicationJsonLd(),
+          homeOrganizationSoftwareGraphJsonLd(),
           webSiteJsonLd(),
           faqPageJsonLd(HOMEPAGE_FAQS),
         ]}
