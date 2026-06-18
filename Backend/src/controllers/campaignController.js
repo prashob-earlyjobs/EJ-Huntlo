@@ -41,6 +41,9 @@ const {
   listCampaignReplies,
   listContactEmailThread,
 } = require("../services/campaignReplySyncService");
+const { launchVoiceCampaign } = require("../services/campaignVoiceLaunchService");
+const { saveCampaignVoiceAgent } = require("../services/campaignVoiceAgentService");
+const { getCampaignVoiceCalls } = require("../services/campaignVoiceCommsService");
 
 function invalidSession(res) {
   return res.status(401).json({ success: false, message: "Authentication required" });
@@ -356,7 +359,11 @@ const setCampaignOutreachPlanHandler = async (req, res) => {
         ? null
         : req.body?.outreachPlanId;
     const outreachChannel =
-      req.body?.outreachChannel === "whatsapp" ? "whatsapp" : "gmail";
+      req.body?.outreachChannel === "whatsapp"
+        ? "whatsapp"
+        : req.body?.outreachChannel === "voice_call"
+          ? "voice_call"
+          : "gmail";
     const campaign = await setCampaignOutreachPlan(
       uid,
       req.params.id,
@@ -421,6 +428,47 @@ const launchCampaignSequenceHandler = async (req, res) => {
       campaign,
       revealJob: result.revealJob || null,
       message: `Sequence launched for ${result.enrolled} contact${result.enrolled === 1 ? "" : "s"}`,
+    });
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
+const launchVoiceCampaignHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
+    const candidateKeys = Array.isArray(req.body?.candidateKeys) ? req.body.candidateKeys : [];
+    const result = await launchVoiceCampaign(uid, req.params.id, { candidateKeys });
+    const campaign = await getCampaign(uid, req.params.id);
+    return res.status(200).json({
+      success: true,
+      ...result,
+      campaign,
+      message: `AI voice calls started for ${result.dialedCount} contact${
+        result.dialedCount === 1 ? "" : "s"
+      }`,
+    });
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
+const saveCampaignVoiceAgentHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
+    const result = await saveCampaignVoiceAgent(uid, req.params.id, req.body || {});
+    return res.status(200).json({
+      success: true,
+      agentId: result.agentId,
+      action: result.action,
+      hunarVoiceAgent: result.hunarVoiceAgent,
+      campaign: result.campaign,
+      message:
+        result.action === "updated"
+          ? "Voice agent updated successfully"
+          : "Voice agent created successfully",
     });
   } catch (error) {
     return handleError(res, error);
@@ -508,6 +556,20 @@ const getCampaignWhatsAppConversationsHandler = async (req, res) => {
       threadPage: req.query?.threadPage,
       threadPageSize: req.query?.threadPageSize,
       messagePageSize: req.query?.messagePageSize,
+    });
+    return res.status(200).json({ success: true, ...data });
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
+const getCampaignVoiceCallsHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
+    const data = await getCampaignVoiceCalls(uid, req.params.id, {
+      page: req.query?.page,
+      limit: req.query?.limit,
     });
     return res.status(200).json({ success: true, ...data });
   } catch (error) {
@@ -645,12 +707,15 @@ module.exports = {
   updateCampaignJobDescriptionHandler,
   updateCampaignCalendlyAutomationHandler,
   launchCampaignSequenceHandler,
+  launchVoiceCampaignHandler,
+  saveCampaignVoiceAgentHandler,
   pauseCampaignSequenceHandler,
   resumeCampaignSequenceHandler,
   getCampaignSequenceStatusHandler,
   getCampaignEmailReportHandler,
   getCampaignEmailReportActivityHandler,
   getCampaignWhatsAppConversationsHandler,
+  getCampaignVoiceCallsHandler,
   getCampaignWhatsAppThreadMessagesHandler,
   sendCampaignWhatsAppSessionMessageHandler,
   markCampaignWhatsAppThreadReadHandler,

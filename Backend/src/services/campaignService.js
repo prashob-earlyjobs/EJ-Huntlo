@@ -6,6 +6,7 @@ const WhatsAppOutreachPlan = require("../models/WhatsAppOutreachPlan");
 const { lookupUserRevealedContacts } = require("./contactRevealService");
 const { deleteEnrollmentsForCampaign } = require("./campaignOutreachSendService");
 const { deleteRepliesForCampaign } = require("./campaignReplySyncService");
+const { deleteVoiceCallsForCampaign, loadVoiceCampaignListStats } = require("./campaignVoiceCommsService");
 const { normalizeLinkedinProfileUrl } = require("../utils/contactReveal");
 const {
   campaignAccessFilterForActor,
@@ -170,7 +171,11 @@ function formatCampaign(doc, listStats, options = {}) {
     calendlyAutomation: normalizeCalendlyAutomation(doc.calendlyAutomation),
     outreachPlanId: doc.outreachPlanId ? String(doc.outreachPlanId) : "",
     outreachChannel:
-      doc.outreachChannel === "whatsapp" ? "whatsapp" : "gmail",
+      doc.outreachChannel === "whatsapp"
+        ? "whatsapp"
+        : doc.outreachChannel === "voice_call"
+          ? "voice_call"
+          : "gmail",
     emailIntegrationId: doc.emailIntegrationId ? String(doc.emailIntegrationId) : "",
     outreachStatus: doc.outreachStatus || "idle",
     outreachStartedAt: doc.outreachStartedAt
@@ -180,6 +185,30 @@ function formatCampaign(doc, listStats, options = {}) {
     whatsAppNotInterestedCount: Math.max(0, Number(doc.whatsAppNotInterestedCount) || 0),
     contactCount,
     contacts,
+    hunarVoiceAgentId: String(doc.hunarVoiceAgentId || "").trim(),
+    ...(doc.hunarVoiceAgent && typeof doc.hunarVoiceAgent === "object"
+      ? { hunarVoiceAgent: doc.hunarVoiceAgent }
+      : {}),
+    ...(doc.voiceAgentConfig && typeof doc.voiceAgentConfig === "object"
+      ? {
+          voiceAgentConfig: {
+            callObjective: String(doc.voiceAgentConfig.callObjective || "").trim(),
+            introductoryStatement: String(
+              doc.voiceAgentConfig.introductoryStatement || ""
+            ).trim(),
+            callPrompt: String(doc.voiceAgentConfig.callPrompt || "").trim(),
+            resultPrompt: String(doc.voiceAgentConfig.resultPrompt || "").trim(),
+            resultFields: Array.isArray(doc.voiceAgentConfig.resultFields)
+              ? doc.voiceAgentConfig.resultFields
+                  .map((row) => ({
+                    columnName: String(row?.columnName || "").trim(),
+                    expectedValue: String(row?.expectedValue || "").trim(),
+                  }))
+                  .filter((row) => row.columnName && row.expectedValue)
+              : [],
+          },
+        }
+      : {}),
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
     ...(contactsSent !== undefined ? { contactsSent } : {}),
@@ -286,6 +315,10 @@ async function listCampaigns(actorUserId, options = {}) {
     actorUserId,
     docs.map((doc) => doc._id)
   );
+  const voiceCampaignIds = docs
+    .filter((doc) => doc.outreachChannel === "voice_call")
+    .map((doc) => doc._id);
+  const voiceStatsById = await loadVoiceCampaignListStats(actorUserId, voiceCampaignIds);
   const emptyListStats = {
     sent: 0,
     interested: 0,
@@ -293,9 +326,14 @@ async function listCampaigns(actorUserId, options = {}) {
     maxLastReply: null,
     maxDispositionAt: null,
   };
-  const campaigns = docs.map((doc) =>
-    formatCampaign(doc, statsById.get(String(doc._id)) || emptyListStats)
-  );
+  const campaigns = docs.map((doc) => {
+    const enrollmentStats = statsById.get(String(doc._id)) || emptyListStats;
+    const stats =
+      doc.outreachChannel === "voice_call"
+        ? voiceStatsById.get(String(doc._id)) || emptyListStats
+        : enrollmentStats;
+    return formatCampaign(doc, stats);
+  });
   const totalPages = Math.max(1, Math.ceil(total / limit) || 1);
   const safePage = Math.min(page, totalPages);
   const hasMore = safePage < totalPages;
@@ -537,9 +575,30 @@ async function setCampaignOutreachPlan(
   const doc = await findCampaignDocumentInScope(actorUserId, campaignId);
   const ownerOid = userOid(campaignOwnerUserId(doc));
 
-  const channel = outreachChannel === "whatsapp" ? "whatsapp" : "gmail";
+  const channel =
+    outreachChannel === "whatsapp"
+      ? "whatsapp"
+      : outreachChannel === "voice_call"
+        ? "voice_call"
+        : "gmail";
   const contactCount = await countContactsForCampaign(campaignId);
-  const previousChannel = doc.outreachChannel === "whatsapp" ? "whatsapp" : "gmail";
+  const previousChannel =
+    doc.outreachChannel === "whatsapp"
+      ? "whatsapp"
+      : doc.outreachChannel === "voice_call"
+        ? "voice_call"
+        : "gmail";
+
+  if (channel === "voice_call") {
+    doc.outreachPlanId = null;
+    doc.outreachChannel = "voice_call";
+    await doc.save();
+
+    const refreshed = doc.toObject();
+    refreshed.contactCount = contactCount;
+    return formatCampaign(refreshed, null, { contactCount });
+  }
+
   if (contactCount > 0 && channel !== previousChannel) {
     await assertOutreachCreditsAvailable(
       actorUserId,
@@ -548,6 +607,7 @@ async function setCampaignOutreachPlan(
       { excludeCampaignId: String(doc._id) }
     );
   }
+
   const raw = outreachPlanId === null || outreachPlanId === undefined ? "" : String(outreachPlanId).trim();
   if (!raw) {
     doc.outreachPlanId = null;
@@ -625,6 +685,9 @@ async function updateCampaignCalendlyAutomation(actorUserId, campaignId, calendl
 async function deleteCampaign(actorUserId, campaignId) {
   const doc = await findCampaignDocumentInScope(actorUserId, campaignId);
   await deleteAllContactsForCampaign(campaignId);
+  if (doc.outreachChannel === "voice_call") {
+    await deleteVoiceCallsForCampaign(campaignId);
+  }
   await Campaign.deleteOne({ _id: doc._id });
   await deleteEnrollmentsForCampaign(campaignId);
   await deleteRepliesForCampaign(campaignId);

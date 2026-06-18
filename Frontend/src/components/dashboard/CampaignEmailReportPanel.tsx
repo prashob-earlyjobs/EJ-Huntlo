@@ -17,9 +17,11 @@ import {
   CAMPAIGN_ACTIVITY_PAGE_SIZE,
   fetchCampaignEmailReport,
   fetchCampaignEmailReportActivity,
+  isPhoneReportChannel,
   isReportMetricKey,
   type CampaignEmailReport,
   type CampaignEmailReportActivityResponse,
+  type CampaignReportChannel,
   type EmailReportActivity,
   type EmailReportMatrixRow,
   type ReportMetricCandidate,
@@ -41,6 +43,40 @@ type Props = {
   /** Navigate to WhatsApp tab with this contact's thread open. */
   onViewWhatsAppConversation?: (candidateKey: string) => void;
 };
+
+function reportToolbarSubtitle(channel: CampaignReportChannel, variant: "report" | "activity"): string {
+  if (variant === "activity") {
+    if (channel === "whatsapp") return "Contact unveil, WhatsApp sends, replies, and outcomes";
+    if (channel === "voice_call") return "Contact unveil, voice calls, outcomes, and delivery events";
+    return "Contact unveil, email sends, replies, and delivery events";
+  }
+  if (channel === "whatsapp") return "Outcomes from your WhatsApp outreach sequence";
+  if (channel === "voice_call") return "Outcomes from your AI voice call campaign";
+  return "Delivery and reply metrics for this email sequence";
+}
+
+function reportPanelTitle(channel: CampaignReportChannel): string {
+  if (channel === "whatsapp") return "Campaign results";
+  if (channel === "voice_call") return "Voice call results";
+  return "Email performance";
+}
+
+function reportOutcomesLead(channel: CampaignReportChannel): string {
+  if (channel === "whatsapp") {
+    return "Tap an outcome to list candidates. Rates use contacts who received at least one message.";
+  }
+  if (channel === "voice_call") {
+    return "Tap an outcome to list candidates. Rates use contacts who received at least one call.";
+  }
+  return "Tap an outcome to list candidates. Rates use contacts who received at least one email.";
+}
+
+function reportLaunchNotice(channel: CampaignReportChannel): string {
+  if (channel === "voice_call") {
+    return "Launch the voice campaign to dial contacts and populate these metrics.";
+  }
+  return "Launch the campaign sequence to enroll contacts and populate these metrics.";
+}
 
 function formatWhen(iso: string) {
   try {
@@ -357,7 +393,7 @@ function CampaignActivityPanel({
     return () => window.clearInterval(interval);
   }, [revealInProgress, page, load, reloadRevealJob]);
   const total = pagination?.total ?? 0;
-  const isWhatsApp = data?.channel === "whatsapp";
+  const channel = data?.channel ?? "email";
   const outreachStatus = data?.outreachStatus ?? "idle";
 
   const onPageChange = (nextPage: number) => {
@@ -406,12 +442,8 @@ function CampaignActivityPanel({
     <div className="dashboard-campaign-report-panel flex min-h-0 flex-1 flex-col">
       <ReportToolbar
         title="Activity"
-        subtitle={
-          isWhatsApp
-            ? "Contact unveil, WhatsApp sends, replies, and outcomes"
-            : "Contact unveil, email sends, replies, and delivery events"
-        }
-        isWhatsApp={isWhatsApp}
+        subtitle={reportToolbarSubtitle(channel, "activity")}
+        channel={channel}
         outreachStatus={outreachStatus}
         onRefresh={() => void load(page)}
       />
@@ -458,13 +490,13 @@ function CampaignActivityPanel({
 function ReportToolbar({
   title,
   subtitle,
-  isWhatsApp,
+  channel,
   outreachStatus,
   onRefresh,
 }: {
   title: string;
   subtitle: string;
-  isWhatsApp: boolean;
+  channel: CampaignReportChannel;
   outreachStatus: string;
   onRefresh: () => void;
 }) {
@@ -472,7 +504,14 @@ function ReportToolbar({
     <div className="dashboard-campaign-report-toolbar shrink-0">
       <div className="dashboard-campaign-report-toolbar-row">
         <div className="flex min-w-0 flex-1 items-center gap-2.5">
-          {isWhatsApp ? (
+          {channel === "voice_call" ? (
+            <span
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[#0050cb]/10 text-[#0050cb]"
+              aria-hidden
+            >
+              <MaterialIcon name="call" className="text-base" />
+            </span>
+          ) : channel === "whatsapp" ? (
             <IntegrationBrandLogo provider="whatsapp" title="WhatsApp" className="h-6 w-6 shrink-0" />
           ) : (
             <IntegrationBrandLogo provider="gmail" title="Gmail" className="h-6 w-6 shrink-0" />
@@ -509,14 +548,21 @@ function HeadlineStat({
   label,
   value,
   iconTone = "default",
+  onSelect,
 }: {
   icon: string;
   label: string;
   value: number;
   iconTone?: "default" | "primary" | "positive" | "saved";
+  onSelect?: () => void;
 }) {
-  return (
-    <div className="dashboard-campaign-report-stat-card">
+  const clickable = value > 0 && Boolean(onSelect);
+  const className = `dashboard-campaign-report-stat-card${
+    clickable ? " dashboard-campaign-report-stat-card--clickable" : ""
+  }`;
+
+  const content = (
+    <>
       <span
         className={`dashboard-campaign-report-stat-icon dashboard-campaign-report-stat-icon--${iconTone}`}
         aria-hidden
@@ -527,7 +573,22 @@ function HeadlineStat({
         {value.toLocaleString()}
       </span>
       <span className="dashboard-campaign-report-stat-label">{label}</span>
-    </div>
+    </>
+  );
+
+  if (!clickable) {
+    return <div className={className}>{content}</div>;
+  }
+
+  return (
+    <button
+      type="button"
+      className={className}
+      onClick={onSelect}
+      aria-label={`View ${value.toLocaleString()} candidates for ${label}`}
+    >
+      {content}
+    </button>
   );
 }
 
@@ -688,14 +749,15 @@ function MetricsTable({
 
 function ReportCandidatesTable({
   candidates,
-  isWhatsApp,
+  channel,
   onViewWhatsAppConversation,
 }: {
   candidates: ReportMetricCandidate[];
-  isWhatsApp: boolean;
+  channel: CampaignReportChannel;
   onViewWhatsAppConversation?: (candidateKey: string) => void;
 }) {
-  const showChatAction = isWhatsApp && Boolean(onViewWhatsAppConversation);
+  const isPhoneChannel = isPhoneReportChannel(channel);
+  const showChatAction = channel === "whatsapp" && Boolean(onViewWhatsAppConversation);
   if (candidates.length === 0) {
     return (
       <p className="dashboard-campaign-workspace-placeholder py-12 text-center text-sm">
@@ -712,14 +774,14 @@ function ReportCandidatesTable({
             <th scope="col">Candidate</th>
             <th scope="col">Role</th>
             <th scope="col">Company</th>
-            <th scope="col">{isWhatsApp ? "Phone" : "Email"}</th>
+            <th scope="col">{isPhoneChannel ? "Phone" : "Email"}</th>
             <th scope="col">Status</th>
             {showChatAction ? <th scope="col" className="dashboard-campaign-report-candidates-actions-col">Actions</th> : null}
           </tr>
         </thead>
         <tbody>
           {candidates.map((row) => {
-            const contact = isWhatsApp ? row.phone : row.email;
+            const contact = isPhoneChannel ? row.phone : row.email;
             const candidateKey = row.candidateKey?.trim() || "";
             return (
               <tr key={row.candidateKey || `${row.name}-${contact}`}>
@@ -774,7 +836,7 @@ function ReportDrilldownScreen({
   metricLabel,
   campaignName,
   candidates,
-  isWhatsApp,
+  channel,
   outreachStatus,
   onBack,
   onRefresh,
@@ -783,7 +845,7 @@ function ReportDrilldownScreen({
   metricLabel: string;
   campaignName: string;
   candidates: ReportMetricCandidate[];
-  isWhatsApp: boolean;
+  channel: CampaignReportChannel;
   outreachStatus: string;
   onBack: () => void;
   onRefresh: () => void;
@@ -850,7 +912,7 @@ function ReportDrilldownScreen({
         <div className="dashboard-campaign-report-inner">
           <ReportCandidatesTable
             candidates={candidates}
-            isWhatsApp={isWhatsApp}
+            channel={channel}
             onViewWhatsAppConversation={onViewWhatsAppConversation}
           />
         </div>
@@ -965,7 +1027,10 @@ function CampaignReportPanel({
 
   if (!report) return null;
 
-  const isWhatsApp = report.channel === "whatsapp";
+  const channel = report.channel;
+  const isPhoneChannel = isPhoneReportChannel(channel);
+  const isWhatsApp = channel === "whatsapp";
+  const isVoiceCall = channel === "voice_call";
   const matrixByKey = Object.fromEntries(report.matrix.map((row) => [row.key, row]));
 
   if (reportMetric && onCloseReportMetric) {
@@ -976,7 +1041,7 @@ function CampaignReportPanel({
         metricLabel={metricRow?.label ?? reportMetric}
         campaignName={report.campaignName}
         candidates={candidates}
-        isWhatsApp={isWhatsApp}
+        channel={channel}
         outreachStatus={report.outreachStatus}
         onBack={onCloseReportMetric}
         onRefresh={() => void load()}
@@ -997,13 +1062,9 @@ function CampaignReportPanel({
   return (
     <div className="dashboard-campaign-report-panel flex min-h-0 flex-1 flex-col">
       <ReportToolbar
-        title={isWhatsApp ? "Campaign results" : "Email performance"}
-        subtitle={
-          isWhatsApp
-            ? "Outcomes from your WhatsApp outreach sequence"
-            : "Delivery and reply metrics for this email sequence"
-        }
-        isWhatsApp={isWhatsApp}
+        title={reportPanelTitle(channel)}
+        subtitle={reportToolbarSubtitle(channel, "report")}
+        channel={channel}
         outreachStatus={report.outreachStatus}
         onRefresh={() => void load()}
       />
@@ -1017,9 +1078,9 @@ function CampaignReportPanel({
             <div className="dashboard-campaign-report-stats-grid">
               <HeadlineStat icon="group" label="Contacts" value={report.totalContacts} />
               <HeadlineStat
-                icon={isWhatsApp ? "phone" : "mail"}
-                label={isWhatsApp ? "With phone" : "With email"}
-                value={isWhatsApp ? report.contactsWithPhone : report.contactsWithEmail}
+                icon={isPhoneChannel ? "phone" : "mail"}
+                label={isPhoneChannel ? "With phone" : "With email"}
+                value={isPhoneChannel ? report.contactsWithPhone : report.contactsWithEmail}
                 iconTone="primary"
               />
               <HeadlineStat
@@ -1028,7 +1089,13 @@ function CampaignReportPanel({
                 value={report.enrolled}
                 iconTone="saved"
               />
-              <HeadlineStat icon="send" label="Sent" value={report.sent} iconTone="default" />
+              <HeadlineStat
+                icon={isVoiceCall ? "call" : "send"}
+                label={isVoiceCall ? "Called" : "Sent"}
+                value={report.sent}
+                iconTone="default"
+                onSelect={report.sent > 0 ? () => openMetric("sent") : undefined}
+              />
             </div>
           </section>
 
@@ -1036,11 +1103,7 @@ function CampaignReportPanel({
             <p id="campaign-report-outcomes-heading" className="dashboard-label-upper">
               Key outcomes
             </p>
-            <p className="dashboard-campaign-report-section-lead">
-              {isWhatsApp
-                ? "Tap an outcome to list candidates. Rates use contacts who received at least one message."
-                : "Tap an outcome to list candidates. Rates use contacts who received at least one email."}
-            </p>
+            <p className="dashboard-campaign-report-section-lead">{reportOutcomesLead(channel)}</p>
             <div className="dashboard-campaign-report-outcomes-grid">
               <OutcomeCard
                 label="Interested"
@@ -1059,15 +1122,15 @@ function CampaignReportPanel({
                 onSelect={() => openMetric("not_interested")}
               />
               <OutcomeCard
-                label="Replied"
+                label={isVoiceCall ? "Answered" : "Replied"}
                 count={repliedRow?.count ?? report.replied}
                 rate={repliedRow?.rate ?? 0}
                 tone="primary"
-                icon="reply"
+                icon={isVoiceCall ? "call" : "reply"}
                 onSelect={() => openMetric("replied")}
               />
               <OutcomeCard
-                label="Awaiting reply"
+                label={isVoiceCall ? "Awaiting outcome" : "Awaiting reply"}
                 count={awaitingRow?.count ?? report.awaitingReply}
                 rate={awaitingRow?.rate ?? 0}
                 tone="default"
@@ -1089,7 +1152,7 @@ function CampaignReportPanel({
 
         {report.enrolled === 0 ? (
             <p className="dashboard-alert-notice dashboard-campaign-report-notice text-sm" role="status">
-            Launch the campaign sequence to enroll contacts and populate these metrics.
+            {reportLaunchNotice(channel)}
           </p>
         ) : null}
         </div>

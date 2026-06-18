@@ -6,6 +6,7 @@ import {
 } from "@/components/dashboard/CampaignsListSkeleton";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import type { CampaignRecord } from "@/lib/campaigns";
+import { campaignOutreachChannelLabel } from "@/lib/campaignRoutes";
 import type { CampaignsListSummary } from "@/lib/campaignsApi";
 
 function formatCampaignWhen(iso: string) {
@@ -165,7 +166,7 @@ export function CampaignsListTable({
                 const activityWhen = formatCampaignWhen(
                   campaign.lastActivityAt || campaign.createdAt
                 );
-                const isWhatsApp = campaign.outreachChannel === "whatsapp";
+                const channelLabel = campaignOutreachChannelLabel(campaign.outreachChannel);
                 const contactCount = campaign.contactCount ?? campaign.contacts.length;
                 const contactsSent = campaign.contactsSent ?? 0;
                 const interestedCount = campaign.interestedCount ?? 0;
@@ -206,7 +207,7 @@ export function CampaignsListTable({
                     </td>
                     <td>
                       <span className="dashboard-campaigns-channel-label">
-                        {isWhatsApp ? "WhatsApp" : "Email"}
+                        {channelLabel}
                       </span>
                     </td>
                     <td className="tabular-nums">

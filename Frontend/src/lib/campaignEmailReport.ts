@@ -10,6 +10,18 @@ export type ReportMetricKey =
   | "not_delivered"
   | "awaiting_reply";
 
+export type CampaignReportChannel = "email" | "whatsapp" | "voice_call";
+
+export function isPhoneReportChannel(channel: CampaignReportChannel): boolean {
+  return channel === "whatsapp" || channel === "voice_call";
+}
+
+function parseReportChannel(raw: unknown): CampaignReportChannel {
+  if (raw === "whatsapp") return "whatsapp";
+  if (raw === "voice_call") return "voice_call";
+  return "email";
+}
+
 export type EmailReportMatrixRow = {
   key: ReportMetricKey | string;
   label: string;
@@ -73,7 +85,7 @@ export type ReportActivityPagination = {
 };
 
 export type CampaignEmailReportActivityResponse = {
-  channel: "email" | "whatsapp";
+  channel: CampaignReportChannel;
   campaignName: string;
   outreachStatus: string;
   activities: EmailReportActivity[];
@@ -81,7 +93,7 @@ export type CampaignEmailReportActivityResponse = {
 };
 
 export type CampaignEmailReport = {
-  channel: "email" | "whatsapp";
+  channel: CampaignReportChannel;
   campaignName: string;
   outreachStatus: string;
   outreachStartedAt: string | null;
@@ -249,7 +261,7 @@ function parseReport(raw: unknown): CampaignEmailReport | null {
     ? o.recentActivity.map(parseActivity).filter((a): a is EmailReportActivity => a !== null)
     : undefined;
   return {
-    channel: o.channel === "whatsapp" ? "whatsapp" : "email",
+    channel: parseReportChannel(o.channel),
     campaignName: typeof o.campaignName === "string" ? o.campaignName : "",
     outreachStatus: typeof o.outreachStatus === "string" ? o.outreachStatus : "idle",
     outreachStartedAt:
@@ -293,7 +305,7 @@ function parseActivityResponse(raw: unknown): CampaignEmailReportActivityRespons
     ? o.activities.map(parseActivity).filter((a): a is EmailReportActivity => a !== null)
     : [];
   return {
-    channel: o.channel === "whatsapp" ? "whatsapp" : "email",
+    channel: parseReportChannel(o.channel),
     campaignName: typeof o.campaignName === "string" ? o.campaignName : "",
     outreachStatus: typeof o.outreachStatus === "string" ? o.outreachStatus : "idle",
     activities,

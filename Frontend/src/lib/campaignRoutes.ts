@@ -30,19 +30,61 @@ export const CAMPAIGN_WORKSPACE_TABS: CampaignWorkspaceTab[] = [
 ];
 
 /** Shorter tab labels for narrow screens. */
-export function campaignWorkspaceTabShortLabel(tab: CampaignWorkspaceTab): string {
+export function campaignWorkspaceTabShortLabel(
+  tab: CampaignWorkspaceTab,
+  outreachChannel?: CampaignOutreachChannel | null
+): string {
   if (tab === "Job description") return "Job";
+  if (tab === "Emails" && outreachChannel === "voice_call") return "Voice";
   return tab;
 }
 
-export type CampaignOutreachChannel = "gmail" | "whatsapp";
+/** Display label for workspace nav tabs (channel-aware). */
+export function campaignWorkspaceTabLabel(
+  tab: CampaignWorkspaceTab,
+  outreachChannel?: CampaignOutreachChannel | null
+): string {
+  if (tab === "Emails" && outreachChannel === "voice_call") return "Voice calls";
+  return tab;
+}
+
+export type CampaignOutreachChannel = "gmail" | "whatsapp" | "voice_call";
+
+export function resolveCampaignOutreachChannel(
+  outreachChannel?: CampaignOutreachChannel | string | null
+): CampaignOutreachChannel | null {
+  if (
+    outreachChannel === "gmail" ||
+    outreachChannel === "whatsapp" ||
+    outreachChannel === "voice_call"
+  ) {
+    return outreachChannel;
+  }
+  return null;
+}
+
+/** Human-readable channel label for campaign lists and summaries. */
+export function campaignOutreachChannelLabel(
+  outreachChannel?: CampaignOutreachChannel | null
+): string {
+  if (outreachChannel === "whatsapp") return "WhatsApp";
+  if (outreachChannel === "voice_call") return "Voice calls";
+  return "Email";
+}
+
+/** First workspace tab to open for a campaign channel. */
+export function defaultCampaignWorkspaceTab(
+  _outreachChannel?: CampaignOutreachChannel | null
+): CampaignWorkspaceTab {
+  return "Editor";
+}
 
 /** Known channel from campaign record, or inferred from the active workspace tab URL. */
 export function inferCampaignWorkspaceChannel(
   workspaceTab: CampaignWorkspaceTab,
   outreachChannel?: CampaignOutreachChannel | null
 ): CampaignOutreachChannel | null {
-  if (outreachChannel === "gmail" || outreachChannel === "whatsapp") {
+  if (outreachChannel === "gmail" || outreachChannel === "whatsapp" || outreachChannel === "voice_call") {
     return outreachChannel;
   }
   if (workspaceTab === "WhatsApp") return "whatsapp";
@@ -60,7 +102,7 @@ export function inferShowJobDescriptionTab(
 ): boolean {
   if (workspaceTab === "Job description") return true;
   if (opts.hasJobDescription) return true;
-  if (opts.outreachChannel === "whatsapp") return true;
+  if (opts.outreachChannel === "whatsapp" || opts.outreachChannel === "voice_call") return true;
   return false;
 }
 
@@ -76,12 +118,16 @@ export function getVisibleCampaignWorkspaceTabs(opts: {
   const effectiveChannel =
     opts.outreachChannel === "whatsapp"
       ? "whatsapp"
-      : opts.outreachChannel === "gmail"
-        ? "gmail"
-        : null;
+      : opts.outreachChannel === "voice_call"
+        ? "voice_call"
+        : opts.outreachChannel === "gmail"
+          ? "gmail"
+          : null;
   const channelLocked =
     opts.channelLocked ??
-    (effectiveChannel === "gmail" || effectiveChannel === "whatsapp");
+    (effectiveChannel === "gmail" ||
+      effectiveChannel === "whatsapp" ||
+      effectiveChannel === "voice_call");
   const showJobDescriptionTab =
     opts.showJobDescriptionTab !== undefined
       ? opts.showJobDescriptionTab
@@ -94,6 +140,10 @@ export function getVisibleCampaignWorkspaceTabs(opts: {
     if (tab === "Contacts") return false;
     if (tab === "Job description" && !showJobDescriptionTab) return false;
     if (!channelLocked || !effectiveChannel) return true;
+    if (effectiveChannel === "voice_call") {
+      if (tab === "WhatsApp") return false;
+      return true;
+    }
     if (effectiveChannel === "gmail") {
       if (tab === "WhatsApp") return false;
       return true;

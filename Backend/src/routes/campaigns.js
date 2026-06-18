@@ -16,12 +16,15 @@ const {
   updateCampaignJobDescriptionHandler,
   updateCampaignCalendlyAutomationHandler,
   launchCampaignSequenceHandler,
+  launchVoiceCampaignHandler,
+  saveCampaignVoiceAgentHandler,
   pauseCampaignSequenceHandler,
   resumeCampaignSequenceHandler,
   getCampaignSequenceStatusHandler,
   getCampaignEmailReportHandler,
   getCampaignEmailReportActivityHandler,
   getCampaignWhatsAppConversationsHandler,
+  getCampaignVoiceCallsHandler,
   getCampaignWhatsAppThreadMessagesHandler,
   sendCampaignWhatsAppSessionMessageHandler,
   markCampaignWhatsAppThreadReadHandler,
@@ -40,12 +43,15 @@ router.get("/:id/reveal-job/active", authenticate, getActiveCampaignRevealJobHan
 router.get("/:id/reveal-job/latest", authenticate, getLatestCampaignRevealJobHandler);
 router.post("/:id/reveal-contacts", authenticate, startCampaignRevealJobHandler);
 router.post("/:id/launch-sequence", authenticate, launchCampaignSequenceHandler);
+router.post("/:id/launch-voice", authenticate, launchVoiceCampaignHandler);
+router.post("/:id/voice-agent", authenticate, saveCampaignVoiceAgentHandler);
 router.post("/:id/pause-sequence", authenticate, pauseCampaignSequenceHandler);
 router.post("/:id/resume-sequence", authenticate, resumeCampaignSequenceHandler);
 router.get("/:id/sequence-status", authenticate, getCampaignSequenceStatusHandler);
 router.get("/:id/email-report/activity", authenticate, getCampaignEmailReportActivityHandler);
 router.get("/:id/email-report", authenticate, getCampaignEmailReportHandler);
 router.get("/:id/whatsapp-conversations", authenticate, getCampaignWhatsAppConversationsHandler);
+router.get("/:id/voice-calls", authenticate, getCampaignVoiceCallsHandler);
 router.get(
   "/:id/whatsapp-conversations/:candidateKey/messages",
   authenticate,

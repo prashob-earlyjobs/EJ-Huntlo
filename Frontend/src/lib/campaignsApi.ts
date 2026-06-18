@@ -1,10 +1,13 @@
 import { authHeaders } from "@/lib/auth";
 import { parseApiError } from "@/lib/apiErrors";
+import type { VoiceAgentEditorPayload } from "@/components/dashboard/CampaignVoiceAgentEditor";
 import type {
   CampaignContact,
   CampaignOutreachStatus,
   CampaignCalendlyAutomation,
   CampaignRecord,
+  HunarVoiceAgentRecord,
+  VoiceAgentConfigRecord,
 } from "@/lib/campaigns";
 
 const apiBase = () => process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
@@ -25,6 +28,7 @@ function parseContact(raw: unknown): CampaignContact | null {
     location: typeof o.location === "string" ? o.location : "",
     linkedinUrl: typeof o.linkedinUrl === "string" ? o.linkedinUrl : "",
     sourcingSessionId: typeof o.sourcingSessionId === "string" ? o.sourcingSessionId : "",
+    ...(typeof o.jd === "string" && o.jd.trim() ? { jd: o.jd.trim() } : {}),
     addedAt:
       typeof o.addedAt === "string"
         ? o.addedAt
@@ -60,9 +64,11 @@ function parseCampaign(raw: unknown): CampaignRecord | null {
   const outreachChannel =
     o.outreachChannel === "whatsapp"
       ? "whatsapp"
-      : o.outreachChannel === "gmail"
-        ? "gmail"
-        : undefined;
+      : o.outreachChannel === "voice_call"
+        ? "voice_call"
+        : o.outreachChannel === "gmail"
+          ? "gmail"
+          : undefined;
   const outreachStatus =
     typeof o.outreachStatus === "string" &&
     ["idle", "active", "paused", "completed"].includes(o.outreachStatus)
@@ -91,6 +97,17 @@ function parseCampaign(raw: unknown): CampaignRecord | null {
   const jobTitle = typeof o.jobTitle === "string" ? o.jobTitle.trim() : "";
   const jobDescription =
     typeof o.jobDescription === "string" ? o.jobDescription.trim() : "";
+  const hunarVoiceAgentId =
+    typeof o.hunarVoiceAgentId === "string" ? o.hunarVoiceAgentId.trim() : "";
+
+  let hunarVoiceAgent: HunarVoiceAgentRecord | null = null;
+  if (o.hunarVoiceAgent && typeof o.hunarVoiceAgent === "object" && !Array.isArray(o.hunarVoiceAgent)) {
+    const agent = o.hunarVoiceAgent as Record<string, unknown>;
+    const agentId = typeof agent.id === "string" ? agent.id.trim() : "";
+    if (agentId) {
+      hunarVoiceAgent = { id: agentId, ...agent } as HunarVoiceAgentRecord;
+    }
+  }
 
   let calendlyAutomation: CampaignCalendlyAutomation | undefined;
   if (o.calendlyAutomation && typeof o.calendlyAutomation === "object") {
@@ -113,6 +130,30 @@ function parseCampaign(raw: unknown): CampaignRecord | null {
       ? o.emailIntegrationId.trim()
       : undefined;
 
+  let voiceAgentConfig: VoiceAgentConfigRecord | null = null;
+  if (o.voiceAgentConfig && typeof o.voiceAgentConfig === "object" && !Array.isArray(o.voiceAgentConfig)) {
+    const config = o.voiceAgentConfig as Record<string, unknown>;
+    const resultFields = Array.isArray(config.resultFields)
+      ? config.resultFields
+          .map((row) => {
+            if (!row || typeof row !== "object") return null;
+            const entry = row as Record<string, unknown>;
+            const columnName = String(entry.columnName || "").trim();
+            const expectedValue = String(entry.expectedValue || "").trim();
+            if (!columnName || !expectedValue) return null;
+            return { columnName, expectedValue };
+          })
+          .filter((row): row is { columnName: string; expectedValue: string } => row !== null)
+      : [];
+    voiceAgentConfig = {
+      callObjective: String(config.callObjective || "").trim(),
+      introductoryStatement: String(config.introductoryStatement || "").trim(),
+      callPrompt: String(config.callPrompt || "").trim(),
+      resultPrompt: String(config.resultPrompt || "").trim(),
+      resultFields,
+    };
+  }
+
   return {
     id,
     name,
@@ -130,6 +171,9 @@ function parseCampaign(raw: unknown): CampaignRecord | null {
     ...(contactsSent !== undefined ? { contactsSent } : {}),
     ...(interestedCount !== undefined ? { interestedCount } : {}),
     ...(lastActivityAt !== undefined ? { lastActivityAt } : {}),
+    hunarVoiceAgentId,
+    ...(hunarVoiceAgent ? { hunarVoiceAgent } : {}),
+    ...(voiceAgentConfig ? { voiceAgentConfig } : {}),
   };
 }
 
@@ -139,6 +183,21 @@ export type LaunchCampaignSequenceResult = {
   skipped: number;
   touchpointCount: number;
   outreachStatus: CampaignOutreachStatus;
+};
+
+export type LaunchVoiceCampaignResult = {
+  campaign: CampaignRecord;
+  dialedCount: number;
+  skipped: number;
+  requestId: string;
+  outreachStatus: CampaignOutreachStatus;
+};
+
+export type SaveCampaignVoiceAgentResult = {
+  campaign: CampaignRecord;
+  agentId: string;
+  hunarVoiceAgent: HunarVoiceAgentRecord | null;
+  action: "created" | "updated";
 };
 
 export type GmailDailyLimitSnapshot = {
@@ -264,6 +323,61 @@ export async function launchCampaignSequence(
   };
 }
 
+export async function launchVoiceCampaign(
+  token: string,
+  campaignId: string,
+  candidateKeys?: string[]
+): Promise<LaunchVoiceCampaignResult> {
+  const res = await fetch(`${apiBase()}/api/campaigns/${campaignId}/launch-voice`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify({
+      candidateKeys: Array.isArray(candidateKeys) ? candidateKeys : [],
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.success) {
+    throw new Error(
+      typeof data.message === "string" ? data.message : "Failed to launch voice campaign"
+    );
+  }
+  const campaign = parseCampaign(data.campaign);
+  if (!campaign) throw new Error("Invalid campaign response");
+  return {
+    campaign,
+    dialedCount: typeof data.dialedCount === "number" ? data.dialedCount : 0,
+    skipped: typeof data.skipped === "number" ? data.skipped : 0,
+    requestId: typeof data.requestId === "string" ? data.requestId : "",
+    outreachStatus:
+      typeof data.outreachStatus === "string" ? data.outreachStatus : "active",
+  };
+}
+
+export async function saveCampaignVoiceAgent(
+  token: string,
+  campaignId: string,
+  payload: VoiceAgentEditorPayload
+): Promise<SaveCampaignVoiceAgentResult> {
+  const res = await fetch(`${apiBase()}/api/campaigns/${encodeURIComponent(campaignId)}/voice-agent`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.success) {
+    throw new Error(
+      typeof data.message === "string" ? data.message : "Failed to save voice agent"
+    );
+  }
+  const campaign = parseCampaign(data.campaign);
+  if (!campaign) throw new Error("Invalid campaign response");
+  const agentId = typeof data.agentId === "string" ? data.agentId.trim() : "";
+  if (!agentId) throw new Error("Voice agent was saved but no agent id was returned");
+  const hunarVoiceAgent = campaign.hunarVoiceAgent ?? null;
+  const action = data.action === "updated" ? "updated" : "created";
+  return { campaign, agentId, hunarVoiceAgent, action };
+}
+
 export async function pauseCampaignSequence(
   token: string,
   campaignId: string
@@ -307,7 +421,7 @@ export async function setCampaignOutreachPlan(
   token: string,
   campaignId: string,
   outreachPlanId: string | null,
-  outreachChannel: "gmail" | "whatsapp" = "gmail"
+  outreachChannel: "gmail" | "whatsapp" | "voice_call" = "gmail"
 ): Promise<CampaignRecord> {
   const res = await fetch(`${apiBase()}/api/campaigns/${campaignId}/outreach-plan`, {
     method: "PATCH",
