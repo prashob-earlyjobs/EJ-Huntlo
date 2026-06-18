@@ -37,6 +37,7 @@ import {
 } from "@/components/dashboard/MyProfilePanel";
 import { DashboardOverviewPanel } from "@/components/dashboard/DashboardOverviewPanel";
 import { BlockedAccountModal } from "@/components/dashboard/BlockedAccountModal";
+import { ConfirmModal } from "@/components/dashboard/ConfirmModal";
 import { TeamManagementPanel } from "@/components/dashboard/TeamManagementPanel";
 import { PlansPricingPanel } from "@/components/dashboard/PlansPricingPanel";
 import {
@@ -1203,6 +1204,7 @@ export function UserDashboardPage() {
   const [revealedPhone, setRevealedPhone] = useState<string[]>([]);
   const [revealContactBusyKeys, setRevealContactBusyKeys] = useState<string[]>([]);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [engagementsNavExpanded, setEngagementsNavExpanded] = useState(true);
@@ -1391,6 +1393,7 @@ export function UserDashboardPage() {
   const [planOutreachThreads, setPlanOutreachThreads] = useState<OutreachThreadStats>({
     email: 0,
     whatsapp: 0,
+    voiceCalls: 0,
   });
   const [userPlanId, setUserPlanId] = useState("trial");
   const [userPlanName, setUserPlanName] = useState("Trial");
@@ -3969,14 +3972,12 @@ export function UserDashboardPage() {
   const handleCreateCampaign = useCallback(
     async (name: string): Promise<CampaignRecord | null> => {
       const auth = getStoredAuth();
-      if (!auth?.token) return null;
-      try {
-        const { campaign: record } = await createCampaign(auth.token, name);
-        await loadCampaignsList({ page: 1 });
-        return record;
-      } catch {
-        return null;
+      if (!auth?.token) {
+        throw new Error("Sign in to manage campaigns.");
       }
+      const { campaign: record } = await createCampaign(auth.token, name);
+      await loadCampaignsList({ page: 1 });
+      return record;
     },
     [loadCampaignsList]
   );
@@ -4059,7 +4060,7 @@ export function UserDashboardPage() {
           setAddToCampaignOpen(false);
           const createdCount = record.contactCount ?? incoming.length;
           setSessionResultNotice(
-            `Added ${createdCount} candidate${createdCount === 1 ? "" : "s"} to "${record.name}". Unveiling started — open Activity to track progress.`
+            `Added ${createdCount} candidate${createdCount === 1 ? "" : "s"} to "${record.name}". Phone unveil started — open Activity to track progress.`
           );
           navigateToTab("Campaigns", {
             campaignId: record.id,
@@ -4097,11 +4098,11 @@ export function UserDashboardPage() {
           setSessionResultNotice(`All selected candidates are already in "${campaignName}".`);
         } else if (skippedCount > 0) {
           setSessionResultNotice(
-            `Added ${addedCount} to "${campaignName}". ${skippedCount} duplicate${skippedCount === 1 ? " was" : "s were"} skipped. Unveiling started — open Activity to track progress.`
+            `Added ${addedCount} to "${campaignName}". ${skippedCount} duplicate${skippedCount === 1 ? " was" : "s were"} skipped. Phone unveil started — open Activity to track progress.`
           );
         } else {
           setSessionResultNotice(
-            `Added ${addedCount} candidate${addedCount === 1 ? "" : "s"} to "${campaignName}". Unveiling started — open Activity to track progress.`
+            `Added ${addedCount} candidate${addedCount === 1 ? "" : "s"} to "${campaignName}". Phone unveil started — open Activity to track progress.`
           );
         }
         navigateToTab("Campaigns", {
@@ -4232,8 +4233,13 @@ export function UserDashboardPage() {
     };
   }, [profileMenuOpen]);
 
-  const handleLogout = async () => {
+  const requestLogout = () => {
     setProfileMenuOpen(false);
+    setLogoutConfirmOpen(true);
+  };
+
+  const handleLogout = async () => {
+    setLogoutConfirmOpen(false);
     try {
       setIsLoggingOut(true);
       const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
@@ -4259,6 +4265,16 @@ export function UserDashboardPage() {
   return (
     <main className="dashboard-page">
       <BlockedAccountModal open={accountBlocked} />
+      <ConfirmModal
+        open={logoutConfirmOpen}
+        title="Log out?"
+        message="You'll need to sign in again to access your account."
+        confirmLabel="Logout"
+        cancelLabel="Stay signed in"
+        iconName="logout"
+        onCancel={() => setLogoutConfirmOpen(false)}
+        onConfirm={() => void handleLogout()}
+      />
       <div className="dashboard-shell flex min-w-0 w-full">
         <aside
           className={`dashboard-sidebar dashboard-sidebar--compact hidden flex-col lg:flex${
@@ -4514,7 +4530,7 @@ export function UserDashboardPage() {
                     <button
                       type="button"
                       role="menuitem"
-                      onClick={() => void handleLogout()}
+                      onClick={requestLogout}
                       disabled={isLoggingOut}
                       className="dashboard-sidebar-menu-item dashboard-sidebar-menu-item--danger w-full disabled:opacity-55"
                     >

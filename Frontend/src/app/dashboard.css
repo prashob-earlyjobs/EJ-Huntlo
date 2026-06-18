@@ -1122,8 +1122,18 @@
   --dash-primary-hover: #003fa4;
   --dash-on-primary: #ffffff;
   --dash-on-surface: #141b2b;
+  --dash-on-surface-variant: #424656;
   --dash-outline: #c2c6d8;
   --dash-surface-low: #f1f3ff;
+  --dash-error-bg: #fef2f2;
+  --dash-error-border: #fecaca;
+  --dash-error-text: #b91c1c;
+  --dash-warning-bg: #fffbeb;
+  --dash-warning-border: #fde68a;
+  --dash-warning-text: #92400e;
+  --dash-success-bg: #ecfdf5;
+  --dash-success-border: #a7f3d0;
+  --dash-success-text: #047857;
 
   position: fixed;
   inset: 0;
@@ -5144,6 +5154,10 @@
 
 .dashboard-campaign-workspace-topbar-tabs::-webkit-scrollbar {
   display: none;
+}
+
+.dashboard-campaign-workspace-topbar-tabs button:not(:disabled) {
+  cursor: pointer;
 }
 
 .dashboard-campaign-workspace-topbar-row button:not(:disabled) {

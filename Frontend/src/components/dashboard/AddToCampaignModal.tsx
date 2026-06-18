@@ -160,8 +160,6 @@ export function AddToCampaignModal({
   const [mounted, setMounted] = useState(false);
   const [choice, setChoice] = useState("");
   const [newName, setNewName] = useState("");
-  const [revealEmail, setRevealEmail] = useState(true);
-  const [revealPhone, setRevealPhone] = useState(true);
   const [submitError, setSubmitError] = useState("");
   const wasOpenRef = useRef(false);
 
@@ -171,8 +169,6 @@ export function AddToCampaignModal({
     if (!open) {
       setChoice("");
       setNewName("");
-      setRevealEmail(true);
-      setRevealPhone(true);
       setSubmitError("");
       wasOpenRef.current = false;
       return;
@@ -206,12 +202,8 @@ export function AddToCampaignModal({
     [campaigns]
   );
 
-  const revealTypes = useMemo(() => {
-    const types: CampaignRevealType[] = [];
-    if (revealEmail) types.push("EMAIL");
-    if (revealPhone) types.push("PHONE");
-    return types;
-  }, [revealEmail, revealPhone]);
+  /** Non-CSV adds only unveil phone numbers (email is not requested). */
+  const revealTypes = useMemo((): CampaignRevealType[] => ["PHONE"], []);
 
   if (!open || !mounted) return null;
 
@@ -221,7 +213,6 @@ export function AddToCampaignModal({
   const selectedCampaignLaunched =
     Boolean(selectedCampaign) && isCampaignLaunched(selectedCampaign?.outreachStatus);
   const canSubmit =
-    revealTypes.length > 0 &&
     (isNew ? Boolean(trimmedNew) : Boolean(choice) && !selectedCampaignLaunched) &&
     !submitting;
 
@@ -321,31 +312,9 @@ export function AddToCampaignModal({
           <div className="dashboard-add-campaign-footer shrink-0">
             <div className="dashboard-add-campaign-footer-section">
               <p className="dashboard-add-campaign-footer-hint">
-                Choose what to unveil. Progress appears in the campaign Activity tab.
+                Phone numbers will be unveiled for added candidates. Progress appears in the
+                campaign Activity tab.
               </p>
-              <div className="dashboard-add-campaign-reveal-checkboxes">
-                <label className="dashboard-add-campaign-reveal-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={revealEmail}
-                    disabled={submitting}
-                    onChange={(e) => setRevealEmail(e.target.checked)}
-                  />
-                  <span>Email</span>
-                </label>
-                <label className="dashboard-add-campaign-reveal-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={revealPhone}
-                    disabled={submitting}
-                    onChange={(e) => setRevealPhone(e.target.checked)}
-                  />
-                  <span>Phone</span>
-                </label>
-              </div>
-              {revealTypes.length === 0 ? (
-                <p className="dashboard-add-campaign-footer-warning">Select at least one unveil type.</p>
-              ) : null}
             </div>
 
             {isNew ? (

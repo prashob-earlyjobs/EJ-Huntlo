@@ -324,7 +324,9 @@ export function CampaignsPanel({
     setCreateBusy(true);
     try {
       const record = await onCreateCampaign(payload.name);
-      if (!record) return;
+      if (!record) {
+        throw new Error("Could not create campaign. Please try again.");
+      }
       setCreateOpen(false);
       openCampaign(record.id, "Editor");
     } finally {

@@ -10,12 +10,6 @@ function getHunarApiKey() {
   return String(process.env.HUNAR_VOICE_API_KEY || "").trim();
 }
 
-function getHunarAgentId() {
-  return String(
-    process.env.HUNAR_VOICE_AGENT_ID || "53ae6790-0b0d-42b1-a7bf-92e267c6af7a"
-  ).trim();
-}
-
 function getHunarVoicePersona() {
   return String(process.env.HUNAR_VOICE_PERSONA || "NEHA").trim();
 }
@@ -24,12 +18,9 @@ function getHunarVoiceLanguage() {
   return String(process.env.HUNAR_VOICE_LANGUAGE || "ENGLISH").trim();
 }
 
+/** Per-campaign agent only — created/updated via the voice agent editor. */
 function resolveHunarAgentId(campaign) {
-  const fromCampaign = String(campaign?.hunarVoiceAgentId || "").trim();
-  if (fromCampaign) return fromCampaign;
-  const fromStoredAgent = String(campaign?.hunarVoiceAgent?.id || "").trim();
-  if (fromStoredAgent) return fromStoredAgent;
-  return getHunarAgentId();
+  return getCampaignHunarAgentId(campaign);
 }
 
 function substituteJobDescription(text, jobDescription, jobTitle = "") {
@@ -247,9 +238,11 @@ async function createHunarBulkCalls({ campaign, contacts, requestId }) {
 
   const agentId = resolveHunarAgentId(campaign);
   if (!agentId) {
-    const err = new Error("Hunar voice agent id is not configured on the server.");
-    err.statusCode = 500;
-    err.code = "HUNAR_AGENT_ID_MISSING";
+    const err = new Error(
+      "Save the voice agent in the Editor tab before launching AI voice calls."
+    );
+    err.statusCode = 400;
+    err.code = "HUNAR_AGENT_ID_REQUIRED";
     throw err;
   }
 
