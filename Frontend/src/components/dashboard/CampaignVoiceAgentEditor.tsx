@@ -15,6 +15,11 @@ import {
 } from "@/lib/voiceAgentPrompt";
 import type { VoiceAgentConfigRecord } from "@/lib/campaigns";
 import {
+  VOICE_CALL_INTRO_DEFAULT,
+  VOICE_CALL_OBJECTIVE_DEFAULT,
+  VOICE_CALL_PROMPT_DEFAULT,
+} from "@/lib/defaultVoiceCallPrompt";
+import {
   dashboardBtnPrimaryClass,
   dashboardBtnSecondaryClass,
   dashboardInputClass,
@@ -22,68 +27,12 @@ import {
   dashboardTextareaClass,
 } from "@/lib/dashboardStyles";
 
-export const VOICE_CALL_INTRO_DEFAULT = "Hi, this is Neha. Am I speaking with {callee_name}?";
-
-export const VOICE_CALL_OBJECTIVE_DEFAULT =
-  "Determine whether the candidate is interested in the {job_title} opportunity and record interest for recruiter follow-up. If the candidate is unavailable, collect a callback time. Do not perform screening or qualification checks.";
-
-export const VOICE_CALL_PROMPT_DEFAULT = `=== PERSONA ===
-- You are Neha, a friendly, professional, and conversational Talent Coordinator.
-- You are calling candidates about a job opportunity that may fit their profile.
-- You only speak in English.
-
-=== OBJECTIVE ===
-- Determine whether the candidate is interested in learning more about the opportunity.
-- If interested, record their interest for recruiter follow-up.
-- If unavailable, collect a callback time and end the call.
-
-=== JOB DESCRIPTION ===
-Role title: {job_title}
-
-Use the following as your only source of role details:
-
-{job_description}
-
-Rules for using the job description:
-- Identify job title, key skills, experience, location, and work mode internally before speaking.
-- Do not read the full job description aloud.
-- Do not list requirements, responsibilities, or benefits unless the candidate asks.
-- When introducing the role, mention only the job title from the description above.
-
-=== CALL FLOW ===
-1. Confirm you are speaking with the correct person.
-2. Briefly introduce the opportunity and ask if they are interested in exploring it.
-3. If they are interested:
-   - Answer their questions briefly using only the job description above.
-   - Ask each question listed under ADDITIONAL QUESTIONS TO ASK (one at a time, in order).
-   - Confirm you will note their interest and that a recruiter will follow up, then end the call.
-4. If they are not interested, thank them and end the call without persuading.
-5. If they are busy or unavailable, ask for a callback time, capture it exactly, and end the call.
-
-${VOICE_CALL_PROMPT_ADDITIONAL_QUESTIONS_HEADER}
-- 
-- 
-
-=== IF THE CANDIDATE ASKS QUESTIONS ===
-- Answer only from the job description above.
-- Keep answers short and conversational.
-- Never read the entire job description.
-- If information is not in the job description, say a recruiter can provide more details.
-
-=== RESTRICTIONS ===
-- Ask only questions listed under ADDITIONAL QUESTIONS TO ASK — do not invent other screening or qualification questions.
-- Do not ask about salary, notice period, compensation, or availability unless listed under ADDITIONAL QUESTIONS TO ASK.
-- Do not schedule recruiter discussions on this call.
-- Keep the conversation natural, concise, and under two minutes when possible.
-
-=== HANDLING SILENCE ===
-- If the candidate goes silent, ask if they are still there.
-- If there is still no response, politely end the call.
-
-=== ENDING THE CALL ===
-- Once interest, non-interest, or a callback time is captured, end politely and professionally.`;
-
-export { VOICE_CALL_PROMPT_ADDITIONAL_QUESTIONS_HEADER };
+export {
+  VOICE_CALL_INTRO_DEFAULT,
+  VOICE_CALL_OBJECTIVE_DEFAULT,
+  VOICE_CALL_PROMPT_DEFAULT,
+  VOICE_CALL_PROMPT_ADDITIONAL_QUESTIONS_HEADER,
+};
 
 const MIN_CALL_OBJECTIVE_CHARS = 10;
 const MIN_CALL_INTRO_CHARS = 10;
@@ -183,14 +132,14 @@ type Props = {
   locked?: boolean;
   outreachStatus?: string;
   initialConfig?: VoiceAgentConfigRecord | null;
-  onSaveAndTest?: (payload: VoiceAgentEditorPayload) => void | Promise<void>;
+  onSaveAndContinue?: (payload: VoiceAgentEditorPayload) => void | Promise<void>;
 };
 
 export function CampaignVoiceAgentEditor({
   locked = false,
   outreachStatus = "idle",
   initialConfig = null,
-  onSaveAndTest,
+  onSaveAndContinue,
 }: Props) {
   const initialCallPrompt = initialConfig?.callPrompt?.trim() || VOICE_CALL_PROMPT_DEFAULT;
   const [setupStep, setSetupStep] = useState<VoiceAgentSetupStep>("call");
@@ -230,7 +179,7 @@ export function CampaignVoiceAgentEditor({
   useEffect(() => {
     if (!callPromptModalOpen) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !locked) closeCallPromptModal();
+      if (event.key === "Escape") closeCallPromptModal();
     };
     window.addEventListener("keydown", onKey);
     const prevOverflow = document.body.style.overflow;
@@ -239,7 +188,7 @@ export function CampaignVoiceAgentEditor({
       window.removeEventListener("keydown", onKey);
       document.body.style.overflow = prevOverflow;
     };
-  }, [callPromptModalOpen, locked]);
+  }, [callPromptModalOpen]);
 
   useEffect(() => {
     if (!callPromptModalOpen) return;
@@ -320,6 +269,12 @@ export function CampaignVoiceAgentEditor({
   const setupStepIndex = SETUP_STEPS.findIndex((step) => step.id === setupStep);
   const currentStep = SETUP_STEPS[setupStepIndex] ?? SETUP_STEPS[0];
 
+  const goToSetupStep = (step: VoiceAgentSetupStep) => {
+    setSetupStep(step);
+  };
+
+  const canProceedFromCallStep = locked || callStepReady;
+
   const buildPayload = (): VoiceAgentEditorPayload => {
     const mergedResultFields = mergeScreeningQuestionsIntoResultFields(
       filledCandidateQuestions,
@@ -338,11 +293,11 @@ export function CampaignVoiceAgentEditor({
     };
   };
 
-  const handleSaveAndTest = async () => {
-    if (!onSaveAndTest || locked || !resultStepReady || saveBusy) return;
+  const handleSaveAndContinue = async () => {
+    if (!onSaveAndContinue || locked || !resultStepReady || saveBusy) return;
     setSaveBusy(true);
     try {
-      await onSaveAndTest(buildPayload());
+      await onSaveAndContinue(buildPayload());
     } finally {
       setSaveBusy(false);
     }
@@ -418,9 +373,13 @@ export function CampaignVoiceAgentEditor({
                     ]
                       .filter(Boolean)
                       .join(" ")}
-                    aria-current={isActive ? "step" : undefined}
                   >
-                    <span className="dashboard-campaign-voice-agent-stepper-content">
+                    <button
+                      type="button"
+                      className="dashboard-campaign-voice-agent-stepper-content"
+                      onClick={() => goToSetupStep(step.id)}
+                      aria-current={isActive ? "step" : undefined}
+                    >
                       <span className="dashboard-campaign-voice-agent-stepper-dot">
                         {isComplete && !isActive ? (
                           <MaterialIcon name="check" className="text-xs" aria-hidden />
@@ -431,7 +390,7 @@ export function CampaignVoiceAgentEditor({
                       <span className="dashboard-campaign-voice-agent-stepper-label">
                         {step.label}
                       </span>
-                    </span>
+                    </button>
                   </li>
                 );
               })}
@@ -500,7 +459,6 @@ export function CampaignVoiceAgentEditor({
                 <button
                   type="button"
                   id="voice-call-prompt"
-                  disabled={locked}
                   aria-labelledby="voice-call-prompt-label"
                   aria-haspopup="dialog"
                   aria-expanded={callPromptModalOpen}
@@ -510,7 +468,11 @@ export function CampaignVoiceAgentEditor({
                   <span className="dashboard-campaign-voice-agent-prompt-summary-text">
                     {callPromptSummaryLine(trimmedCallPrompt)}
                   </span>
-                  <MaterialIcon name="edit" className="shrink-0 text-base" aria-hidden />
+                  <MaterialIcon
+                    name={locked ? "visibility" : "edit"}
+                    className="shrink-0 text-base"
+                    aria-hidden
+                  />
                 </button>
               </div>
             </>
@@ -692,12 +654,12 @@ export function CampaignVoiceAgentEditor({
             <button
               type="button"
               className={`${dashboardBtnPrimaryClass} dashboard-campaign-voice-agent-proceed-btn`}
-              disabled={locked || !callStepReady}
+              disabled={!canProceedFromCallStep}
               title={
-                locked
-                  ? "Campaign is locked"
-                  : !callStepReady
-                    ? "Complete all required call agent fields to continue"
+                !canProceedFromCallStep
+                  ? "Complete all required call agent fields to continue"
+                  : locked
+                    ? "View next step"
                     : undefined
               }
               onClick={() => setSetupStep("questions")}
@@ -709,27 +671,31 @@ export function CampaignVoiceAgentEditor({
             <button
               type="button"
               className={`${dashboardBtnPrimaryClass} dashboard-campaign-voice-agent-proceed-btn`}
-              disabled={locked || !callStepReady}
+              disabled={!canProceedFromCallStep}
               onClick={() => setSetupStep("result")}
             >
               Continue
               <MaterialIcon name="arrow_forward" className="text-base" aria-hidden />
             </button>
+          ) : locked ? (
+            <p className="dashboard-campaign-voice-agent-field-hint m-0 text-right">
+              View only — pause the campaign to edit and save.
+            </p>
           ) : (
             <button
               type="button"
               className={`${dashboardBtnPrimaryClass} dashboard-campaign-voice-agent-proceed-btn`}
-              disabled={locked || !resultStepReady || saveBusy || !onSaveAndTest}
+              disabled={locked || !resultStepReady || saveBusy || !onSaveAndContinue}
               title={
                 locked
                   ? "Campaign is locked"
                   : !resultStepReady
                     ? "Complete all required voice agent fields to save"
-                    : !onSaveAndTest
+                    : !onSaveAndContinue
                       ? "Save is not available"
                       : undefined
               }
-              onClick={() => void handleSaveAndTest()}
+              onClick={() => void handleSaveAndContinue()}
             >
               {saveBusy ? (
                 <>
@@ -738,8 +704,8 @@ export function CampaignVoiceAgentEditor({
                 </>
               ) : (
                 <>
-                  Save and test
-                  <MaterialIcon name="call" className="text-base" aria-hidden />
+                  Save and continue
+                  <MaterialIcon name="arrow_forward" className="text-base" aria-hidden />
                 </>
               )}
             </button>
@@ -752,9 +718,7 @@ export function CampaignVoiceAgentEditor({
             <div
               className="dashboard-modal-overlay z-[130] py-6"
               role="presentation"
-              onClick={() => {
-                if (!locked) closeCallPromptModal();
-              }}
+              onClick={closeCallPromptModal}
             >
               <div
                 role="dialog"
@@ -765,20 +729,24 @@ export function CampaignVoiceAgentEditor({
               >
                 <div className="dashboard-campaign-voice-agent-prompt-modal-head">
                   <h4 id="voice-call-prompt-modal-title" className="dashboard-campaign-voice-agent-prompt-modal-title">
-                    Edit call prompt
+                    {locked ? "View call prompt" : "Edit call prompt"}
                   </h4>
                   <button
                     type="button"
                     className="dashboard-campaign-voice-agent-prompt-modal-close"
                     aria-label="Close"
-                    disabled={locked}
                     onClick={closeCallPromptModal}
                   >
                     <MaterialIcon name="close" className="text-xl" aria-hidden />
                   </button>
                 </div>
-                <p className="dashboard-campaign-voice-agent-field-hint dashboard-campaign-voice-agent-field-hint--compact m-0">
-                  Customize the full agent instructions. Placeholders resolve when you save the agent.
+                <p
+                  id="voice-call-prompt-modal-hint"
+                  className="dashboard-campaign-voice-agent-field-hint dashboard-campaign-voice-agent-field-hint--compact m-0"
+                >
+                  {locked
+                    ? "Read-only view of the agent instructions saved for this campaign."
+                    : "Customize the full agent instructions. Placeholders resolve when you save the agent."}
                 </p>
                 <textarea
                   ref={callPromptRef}
@@ -789,35 +757,38 @@ export function CampaignVoiceAgentEditor({
                   rows={18}
                   placeholder="Describe the agent persona, conversation context, and step-by-step call flow…"
                   className={`${dashboardTextareaClass} dashboard-campaign-jd-textarea dashboard-campaign-voice-agent-prompt-textarea dashboard-campaign-voice-agent-prompt-modal-textarea mt-3 w-full`}
-                  aria-describedby="voice-call-prompt-modal-variables"
+                  aria-describedby={
+                    locked ? "voice-call-prompt-modal-hint" : "voice-call-prompt-modal-variables"
+                  }
                 />
-                <div
-                  id="voice-call-prompt-modal-variables"
-                  className="dashboard-campaign-voice-agent-variable-chips"
-                >
-                  <div className="dashboard-campaign-voice-agent-variable-chips-row">
-                    {VOICE_AGENT_PROMPT_VARIABLES.map((variable) => (
-                      <button
-                        key={variable}
-                        type="button"
-                        disabled={locked}
-                        title={voiceAgentVariableHint(variable)}
-                        onClick={() => insertCallPromptVariable(variable)}
-                        className="dashboard-campaign-voice-agent-variable-chip"
-                      >
-                        {variable}
-                      </button>
-                    ))}
+                {!locked ? (
+                  <div
+                    id="voice-call-prompt-modal-variables"
+                    className="dashboard-campaign-voice-agent-variable-chips"
+                  >
+                    <div className="dashboard-campaign-voice-agent-variable-chips-row">
+                      {VOICE_AGENT_PROMPT_VARIABLES.map((variable) => (
+                        <button
+                          key={variable}
+                          type="button"
+                          title={voiceAgentVariableHint(variable)}
+                          onClick={() => insertCallPromptVariable(variable)}
+                          className="dashboard-campaign-voice-agent-variable-chip"
+                        >
+                          {variable}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
+                ) : null}
                 <div className="dashboard-campaign-voice-agent-prompt-modal-actions">
                   <button
                     type="button"
                     className={`${dashboardBtnPrimaryClass} dashboard-campaign-voice-agent-prompt-modal-done`}
-                    disabled={locked || trimmedCallPrompt.length < MIN_CALL_PROMPT_CHARS}
+                    disabled={!locked && trimmedCallPrompt.length < MIN_CALL_PROMPT_CHARS}
                     onClick={closeCallPromptModal}
                   >
-                    Done
+                    {locked ? "Close" : "Done"}
                   </button>
                 </div>
               </div>

@@ -9,6 +9,13 @@ const {  loadAllContactsForCampaign,
 } = require("./campaignContactService");
 const { getActiveRevealJobForCampaign } = require("./campaignRevealJobService");
 const { createHunarBulkCalls } = require("./hunarVoiceCallService");
+const {
+  assertVoiceCallCreditsAvailable,
+  seedPendingVoiceCalls,
+  logVoiceCallCreditUsage,
+} = require("./voiceCallCreditsService");
+const { resolveAndSyncVoiceAgentForLaunch } = require("./voiceLaunchPromptService");
+const { normalizeToWhatsAppDigits } = require("./whatsappPhoneUtils");
 
 async function launchVoiceCampaign(actorUserId, campaignId, options = {}) {
   const activeRevealJob = await getActiveRevealJobForCampaign(actorUserId, campaignId);
@@ -65,10 +72,31 @@ async function launchVoiceCampaign(actorUserId, campaignId, options = {}) {
     throw err;
   }
 
+  const dialableContacts = contacts.filter((contact) =>
+    Boolean(normalizeToWhatsAppDigits(contact.phone))
+  );
+  if (dialableContacts.length === 0) {
+    const err = new Error("No selected contacts have a valid phone number for AI voice calls.");
+    err.statusCode = 400;
+    err.code = "VOICE_NO_VALID_PHONES";
+    throw err;
+  }
+
+  await assertVoiceCallCreditsAvailable(actorUserId, dialableContacts.length);
+
+  await resolveAndSyncVoiceAgentForLaunch(campaign);
+
   const result = await createHunarBulkCalls({
     campaign,
-    contacts,
+    contacts: dialableContacts,
   });
+
+  await seedPendingVoiceCalls({
+    campaign,
+    contacts: dialableContacts,
+    requestId: result.requestId,
+  });
+  await logVoiceCallCreditUsage(actorUserId, result.dialedCount);
 
   const now = new Date();
   campaign.outreachStatus = "active";

@@ -11,6 +11,7 @@ const {
   listCampaignContactsPaginated,
 } = require("./campaignContactService");
 const { normalizeToWhatsAppDigits } = require("./whatsappPhoneUtils");
+const { resolvePendingVoiceCall } = require("./voiceCallCreditsService");
 
 function userOid(userId) {
   return new mongoose.Types.ObjectId(String(userId));
@@ -181,7 +182,22 @@ async function resolveVoiceCallWebhook(campaignId, body) {
     callId,
   }).lean();
 
-  return { campaign, callId, matched, existing };
+  let pending = null;
+  if (!existing) {
+    pending = await resolvePendingVoiceCall(
+      campaign._id,
+      body?.request_id,
+      body?.to_number
+    );
+  }
+
+  return { campaign, callId, matched, existing: existing || pending, pending };
+}
+
+async function removePendingVoiceCallStub(pending, callId) {
+  if (pending && pending.callId && pending.callId !== callId) {
+    await CampaignVoiceCall.deleteOne({ _id: pending._id });
+  }
 }
 
 function baseCallFields(campaign, callId, matched, existing, body) {
@@ -245,10 +261,15 @@ function formatVoiceCallRow(doc) {
 }
 
 async function upsertVoiceCallStatus(campaignId, body) {
-  const { campaign, callId, matched } = await resolveVoiceCallWebhook(campaignId, body);
+  const { campaign, callId, matched, existing, pending } = await resolveVoiceCallWebhook(
+    campaignId,
+    body
+  );
+
+  await removePendingVoiceCallStub(pending, callId);
 
   const update = {
-    ...baseCallFields(campaign, callId, matched, null, body),
+    ...baseCallFields(campaign, callId, matched, existing, body),
     status: String(body?.status || "").trim(),
     lifecycleStatus: String(body?.lifecycle_status || "").trim(),
     answeredBy: String(body?.answered_by || "").trim(),
@@ -278,10 +299,12 @@ async function upsertVoiceCallStatus(campaignId, body) {
 }
 
 async function upsertVoiceCallResult(campaignId, body) {
-  const { campaign, callId, matched, existing } = await resolveVoiceCallWebhook(
+  const { campaign, callId, matched, existing, pending } = await resolveVoiceCallWebhook(
     campaignId,
     body
   );
+
+  await removePendingVoiceCallStub(pending, callId);
 
   const update = {
     ...baseCallFields(campaign, callId, matched, existing, body),
@@ -323,10 +346,12 @@ async function upsertVoiceCallResult(campaignId, body) {
 }
 
 async function upsertVoiceCallRecording(campaignId, body) {
-  const { campaign, callId, matched, existing } = await resolveVoiceCallWebhook(
+  const { campaign, callId, matched, existing, pending } = await resolveVoiceCallWebhook(
     campaignId,
     body
   );
+
+  await removePendingVoiceCallStub(pending, callId);
 
   const update = {
     ...baseCallFields(campaign, callId, matched, existing, body),
@@ -345,10 +370,12 @@ async function upsertVoiceCallRecording(campaignId, body) {
 }
 
 async function upsertVoiceCallSummary(campaignId, body) {
-  const { campaign, callId, matched, existing } = await resolveVoiceCallWebhook(
+  const { campaign, callId, matched, existing, pending } = await resolveVoiceCallWebhook(
     campaignId,
     body
   );
+
+  await removePendingVoiceCallStub(pending, callId);
 
   const update = {
     ...baseCallFields(campaign, callId, matched, existing, body),

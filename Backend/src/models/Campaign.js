@@ -99,6 +99,8 @@ const campaignSchema = new mongoose.Schema(
     hunarVoiceAgent: { type: mongoose.Schema.Types.Mixed, default: null },
     /** Saved voice agent editor configuration (templates may include {job_description}). */
     voiceAgentConfig: { type: voiceAgentConfigSchema, default: () => ({}) },
+    /** Gemini-extracted JD fields cached for voice launch ({jd_*} prompt variables). */
+    voiceJdExtract: { type: mongoose.Schema.Types.Mixed, default: null },
     /** @deprecated Legacy embedded contacts — migrated to CampaignContact on read. */
     contacts: {
       type: [campaignContactSchema],

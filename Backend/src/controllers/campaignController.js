@@ -68,6 +68,14 @@ function handleError(res, error) {
       remaining: error.remaining,
     };
   }
+  if (error.code === "VOICE_CALL_CREDITS_EXCEEDED") {
+    body.voiceCallCredits = {
+      limit: error.limit,
+      used: error.used,
+      requested: error.requested,
+      remaining: error.remaining,
+    };
+  }
   return res.status(status).json(body);
 }
 
@@ -131,6 +139,16 @@ function parseRevealTypesFromBody(body) {
   return null;
 }
 
+/** Voice / WhatsApp campaigns only need phone unveils when contacts are added from search. */
+function revealTypesForCampaignChannel(outreachChannel, revealTypes) {
+  if (!revealTypes || revealTypes.length === 0) return revealTypes;
+  const channel = String(outreachChannel || "").trim();
+  if (channel === "voice_call" || channel === "whatsapp") {
+    return revealTypes.includes("PHONE") ? ["PHONE"] : [];
+  }
+  return revealTypes;
+}
+
 const createCampaignHandler = async (req, res) => {
   try {
     const uid = req.auth?.userId;
@@ -186,7 +204,12 @@ const addContactsHandler = async (req, res) => {
     const uid = req.auth?.userId;
     if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
     const contacts = Array.isArray(req.body?.contacts) ? req.body.contacts : [];
-    const revealTypes = parseRevealTypesFromBody(req.body);
+    const campaign = await getCampaign(uid, req.params.id);
+    const parsedRevealTypes = parseRevealTypesFromBody(req.body);
+    const revealTypes = revealTypesForCampaignChannel(
+      campaign?.outreachChannel,
+      parsedRevealTypes
+    );
     if (revealTypes && contacts.length > 0) {
       const existingKeys = await getExistingCandidateKeys(req.params.id);
       const newContacts = contacts.filter((c) => {

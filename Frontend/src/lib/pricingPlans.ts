@@ -10,6 +10,7 @@ export type PricingTier = {
   phoneNumbers?: number | null;
   emailOutreaches?: number | null;
   whatsappOutreaches?: number | null;
+  aiVoiceCalls?: number | null;
   /** null = unlimited sub-users */
   maxSubUsers?: number | null;
   features: string[];
@@ -46,7 +47,7 @@ export function subUsersDisplayLabel(n: number | null | undefined): string | nul
 
 export function pricingQuotaDisplayLabel(
   n: number | null | undefined,
-  kind: "searches" | "unlocks" | "emails" | "phones" | "emailOutreaches" | "whatsappOutreaches"
+  kind: "searches" | "unlocks" | "emails" | "phones" | "emailOutreaches" | "whatsappOutreaches" | "aiVoiceCalls"
 ): string | null {
   if (typeof n !== "number" || !Number.isFinite(n) || n < 0) return null;
   const q = Math.floor(n);
@@ -55,6 +56,7 @@ export function pricingQuotaDisplayLabel(
   if (kind === "emails") return `${q.toLocaleString()} verified emails`;
   if (kind === "phones") return `${q.toLocaleString()} phone numbers`;
   if (kind === "emailOutreaches") return `${q.toLocaleString()} email outreaches`;
+  if (kind === "aiVoiceCalls") return `${q.toLocaleString()} AI voice calls`;
   return `${q.toLocaleString()} WhatsApp outreaches`;
 }
 
@@ -66,6 +68,7 @@ export function tierFeatureLines(tier: PricingTier): string[] {
     pricingQuotaDisplayLabel(tier.phoneNumbers, "phones"),
     pricingQuotaDisplayLabel(tier.emailOutreaches, "emailOutreaches"),
     pricingQuotaDisplayLabel(tier.whatsappOutreaches, "whatsappOutreaches"),
+    pricingQuotaDisplayLabel(tier.aiVoiceCalls, "aiVoiceCalls"),
     subUsersDisplayLabel(tier.maxSubUsers),
   ].filter((line): line is string => line !== null);
 
@@ -106,6 +109,7 @@ export function parsePricingPlansFromApi(plans: unknown): PricingPlansPayload | 
       phoneNumbers: parsePricingQuotaFromApi(t.phoneNumbers),
       emailOutreaches: parsePricingQuotaFromApi(t.emailOutreaches),
       whatsappOutreaches: parsePricingQuotaFromApi(t.whatsappOutreaches),
+      aiVoiceCalls: parsePricingQuotaFromApi(t.aiVoiceCalls),
       maxSubUsers:
         t.maxSubUsers === null
           ? null

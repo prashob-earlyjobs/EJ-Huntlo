@@ -17,17 +17,21 @@ type Props = {
   open: boolean;
   busy?: boolean;
   onClose: () => void;
-  onCreate: (payload: CreateCampaignPayload) => void;
+  onCreate: (payload: CreateCampaignPayload) => void | Promise<void>;
 };
 
 export function CreateCampaignModal({ open, busy = false, onClose, onCreate }: Props) {
   const [mounted, setMounted] = useState(false);
   const [name, setName] = useState("");
+  const [submitError, setSubmitError] = useState("");
 
   useEffect(() => setMounted(true), []);
 
   useEffect(() => {
-    if (!open) setName("");
+    if (!open) {
+      setName("");
+      setSubmitError("");
+    }
   }, [open]);
 
   useEffect(() => {
@@ -49,10 +53,17 @@ export function CreateCampaignModal({ open, busy = false, onClose, onCreate }: P
   const trimmedName = name.trim();
   const canSubmit = Boolean(trimmedName) && !busy;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canSubmit) return;
-    onCreate({ name: trimmedName });
+    setSubmitError("");
+    try {
+      await onCreate({ name: trimmedName });
+    } catch (err) {
+      setSubmitError(
+        err instanceof Error ? err.message : "Could not create campaign. Please try again."
+      );
+    }
   };
 
   const content = (
@@ -96,13 +107,22 @@ export function CreateCampaignModal({ open, busy = false, onClose, onCreate }: P
             <input
               type="text"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value);
+                if (submitError) setSubmitError("");
+              }}
               className={`${dashboardInputClass} mt-2 w-full`}
               placeholder="e.g. Q2 Engineering hires"
               autoFocus
               disabled={busy}
             />
           </label>
+
+          {submitError ? (
+            <p className="dashboard-alert-error mt-3" role="alert">
+              {submitError}
+            </p>
+          ) : null}
 
           <div className="mt-6 flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-4">
             <button

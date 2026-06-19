@@ -281,6 +281,30 @@ function userOid(userId) {
   return new mongoose.Types.ObjectId(userId);
 }
 
+function escapeRegexLiteral(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+async function assertCampaignNameAvailable(userId, name) {
+  const campaignName = String(name || "").trim();
+  if (!campaignName) return;
+  const ownerId = userOid(userId);
+  const duplicate = await Campaign.findOne({
+    userId: ownerId,
+    name: { $regex: `^${escapeRegexLiteral(campaignName)}$`, $options: "i" },
+  })
+    .select("_id name")
+    .lean();
+  if (duplicate) {
+    const err = new Error(
+      `A campaign named "${campaignName}" already exists. Choose a different name.`
+    );
+    err.statusCode = 409;
+    err.code = "CAMPAIGN_NAME_DUPLICATE";
+    throw err;
+  }
+}
+
 function assertValidCampaignId(campaignId) {
   if (!mongoose.Types.ObjectId.isValid(campaignId)) {
     const err = new Error("Invalid campaign id");
@@ -377,6 +401,7 @@ async function createCampaign(userId, { name, contacts }) {
     err.statusCode = 400;
     throw err;
   }
+  await assertCampaignNameAvailable(userId, campaignName);
   const normalized = normalizeContacts(contacts);
   if (normalized.length > CAMPAIGN_MAX_CONTACTS) {
     const err = new Error(CAMPAIGN_CONTACT_LIMIT_MESSAGE);
