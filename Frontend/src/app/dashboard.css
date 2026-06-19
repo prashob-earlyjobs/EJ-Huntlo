@@ -7018,9 +7018,24 @@
   flex-direction: row;
   align-items: center;
   gap: 0.375rem;
+  border: 0;
   border-radius: 999px;
   padding: 0.125rem 0.375rem;
   text-align: left;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  transition: background-color 0.15s ease;
+}
+
+.dashboard-campaign-voice-agent-stepper-content:hover {
+  background: color-mix(in srgb, #0050cb 5%, white);
+}
+
+.dashboard-campaign-voice-agent-stepper-content:focus-visible {
+  outline: 2px solid #0050cb;
+  outline-offset: 2px;
 }
 
 .dashboard-campaign-voice-agent-stepper-item.is-active .dashboard-campaign-voice-agent-stepper-content {
