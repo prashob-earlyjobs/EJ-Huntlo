@@ -2229,7 +2229,7 @@ export function CampaignWorkspace({
               locked={campaignFieldsLocked}
               outreachStatus={outreachStatus}
               initialConfig={campaign.voiceAgentConfig ?? null}
-              onSaveAndTest={async (payload) => {
+              onSaveAndContinue={async (payload) => {
                 const auth = getStoredAuth();
                 if (!auth?.token) {
                   setSaveToast({ message: "Please sign in again.", variant: "error" });
@@ -2258,6 +2258,7 @@ export function CampaignWorkspace({
                         : "Voice agent created successfully.",
                     variant: "success",
                   });
+                  onWorkspaceTabChange("Emails");
                 } catch (error) {
                   setSaveToast({
                     message:
