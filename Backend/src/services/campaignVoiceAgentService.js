@@ -5,10 +5,9 @@ const {
   createHunarVoiceAgent,
   updateHunarVoiceAgent,
   buildResultSchema,
-  substituteJobDescription,
   getCampaignHunarAgentId,
 } = require("./hunarVoiceCallService");
-const { resolveVoiceAgentPromptTemplate } = require("./voiceAgentPromptService");
+const { prepareResolvedVoiceAgentConfig } = require("./voiceLaunchPromptService");
 
 function normalizeVoiceAgentPayload(body) {
   const resultFields = Array.isArray(body?.resultFields)
@@ -90,6 +89,8 @@ async function saveCampaignVoiceAgent(actorUserId, campaignId, body) {
   const payload = normalizeVoiceAgentPayload(body);
   validateVoiceAgentPayload(payload);
 
+  const { resolvedConfig } = await prepareResolvedVoiceAgentConfig(campaign, payload);
+
   const storedAgent =
     campaign.hunarVoiceAgent &&
     typeof campaign.hunarVoiceAgent === "object" &&
@@ -99,14 +100,10 @@ async function saveCampaignVoiceAgent(actorUserId, campaignId, body) {
 
   const agentRequest = {
     name: `EJ-Huntlo-${String(campaign.name || "Campaign").trim()}`,
-    agentPrompt: substituteJobDescription(payload.callPrompt, jobDescription, jobTitle),
-    objective: substituteJobDescription(payload.callObjective, jobDescription, jobTitle),
-    introduction: substituteJobDescription(
-      payload.introductoryStatement,
-      jobDescription,
-      jobTitle
-    ),
-    resultPrompt: substituteJobDescription(payload.resultPrompt, jobDescription, jobTitle),
+    agentPrompt: resolvedConfig.callPrompt,
+    objective: resolvedConfig.callObjective,
+    introduction: resolvedConfig.introductoryStatement,
+    resultPrompt: resolvedConfig.resultPrompt,
     resultSchema: buildResultSchema(payload.resultFields),
     voicePersona: storedAgent?.voice_persona,
     language: storedAgent?.language,
@@ -168,5 +165,4 @@ async function saveCampaignVoiceAgent(actorUserId, campaignId, body) {
 
 module.exports = {
   saveCampaignVoiceAgent,
-  resolveVoiceAgentPromptTemplate,
 };

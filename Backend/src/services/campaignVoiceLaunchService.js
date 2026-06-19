@@ -14,6 +14,7 @@ const {
   seedPendingVoiceCalls,
   logVoiceCallCreditUsage,
 } = require("./voiceCallCreditsService");
+const { resolveAndSyncVoiceAgentForLaunch } = require("./voiceLaunchPromptService");
 const { normalizeToWhatsAppDigits } = require("./whatsappPhoneUtils");
 
 async function launchVoiceCampaign(actorUserId, campaignId, options = {}) {
@@ -82,6 +83,8 @@ async function launchVoiceCampaign(actorUserId, campaignId, options = {}) {
   }
 
   await assertVoiceCallCreditsAvailable(actorUserId, dialableContacts.length);
+
+  await resolveAndSyncVoiceAgentForLaunch(campaign);
 
   const result = await createHunarBulkCalls({
     campaign,
