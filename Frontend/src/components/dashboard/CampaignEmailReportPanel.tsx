@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { getStoredAuth } from "@/lib/auth";
 import {
@@ -443,7 +442,6 @@ function CampaignActivityPanel({
       <ReportToolbar
         title="Activity"
         subtitle={reportToolbarSubtitle(channel, "activity")}
-        channel={channel}
         outreachStatus={outreachStatus}
         onRefresh={() => void load(page)}
       />
@@ -490,13 +488,11 @@ function CampaignActivityPanel({
 function ReportToolbar({
   title,
   subtitle,
-  channel,
   outreachStatus,
   onRefresh,
 }: {
   title: string;
   subtitle: string;
-  channel: CampaignReportChannel;
   outreachStatus: string;
   onRefresh: () => void;
 }) {
@@ -504,18 +500,6 @@ function ReportToolbar({
     <div className="dashboard-campaign-report-toolbar shrink-0">
       <div className="dashboard-campaign-report-toolbar-row">
         <div className="flex min-w-0 flex-1 items-center gap-2.5">
-          {channel === "voice_call" ? (
-            <span
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[#0050cb]/10 text-[#0050cb]"
-              aria-hidden
-            >
-              <MaterialIcon name="call" className="text-base" />
-            </span>
-          ) : channel === "whatsapp" ? (
-            <IntegrationBrandLogo provider="whatsapp" title="WhatsApp" className="h-6 w-6 shrink-0" />
-          ) : (
-            <IntegrationBrandLogo provider="gmail" title="Gmail" className="h-6 w-6 shrink-0" />
-          )}
           <div className="min-w-0">
             <h2 className="dashboard-campaign-report-title">{title}</h2>
             <p className="dashboard-campaign-report-subtitle">{subtitle}</p>
@@ -1064,7 +1048,6 @@ function CampaignReportPanel({
       <ReportToolbar
         title={reportPanelTitle(channel)}
         subtitle={reportToolbarSubtitle(channel, "report")}
-        channel={channel}
         outreachStatus={report.outreachStatus}
         onRefresh={() => void load()}
       />

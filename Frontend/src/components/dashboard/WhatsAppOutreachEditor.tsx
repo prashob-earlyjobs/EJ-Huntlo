@@ -812,9 +812,6 @@ export function WhatsAppOutreachEditor({
                 </p>
               </div>
             </div>
-            <div className="dashboard-outreach-gmail-bar-meta dashboard-outreach-gmail-plan-meta min-w-0">
-              {planTitleEditor(false)}
-            </div>
             <div className="dashboard-outreach-gmail-bar-actions flex shrink-0 flex-wrap items-center justify-end gap-2">
             <button
               type="button"

@@ -165,7 +165,7 @@ function pickerStyles(variant: Variant) {
       iconBox: "dashboard-campaign-sequence-action-icon",
       iconBoxAi:
         "dashboard-campaign-sequence-action-icon dashboard-campaign-sequence-action-icon--ai",
-      iconSize: "text-[22px]",
+      iconSize: "text-xl",
       label: "dashboard-campaign-sequence-action-label",
       chevron: "dashboard-campaign-sequence-action-chevron",
       hint: "dashboard-campaign-sequence-hint",
@@ -435,7 +435,6 @@ export function OutreachSequencePicker({
   /** Explicit false = parent gates first paint (campaign editor); undefined = loading flags only. */
   const pickerLoading =
     optionsReady === undefined ? listLoading : !optionsReady || listLoading;
-  const showEmptyHints = optionsReady !== false && !pickerLoading;
   const hasTemplateList =
     globalTemplates.length > 0 || userTemplates.length > 0 || savedPlansCount > 0;
 
@@ -666,9 +665,6 @@ export function OutreachSequencePicker({
     <div className={s.root}>
       {showLead ? <p className={s.lead}>{lead}</p> : null}
 
-      {variant === "campaign" ? (
-        <p className="dashboard-label-upper dashboard-campaign-sequence-actions-label">Start Free Trial</p>
-      ) : null}
       <div className={s.options}>
         <OptionRow
           styles={s}
@@ -685,23 +681,7 @@ export function OutreachSequencePicker({
           disabled={pickerDisabled}
           onClick={() => setStep("scratchChannel")}
         />
-        <OptionRow
-          styles={s}
-          icon="content_copy"
-          label="Clone an existing outreach"
-          disabled={
-            pickerDisabled || pickerLoading || (!plansLoading && savedPlansCount === 0)
-          }
-          onClick={() => {
-            if (pickerLoading || (savedPlansCount === 0 && !plansLoading)) return;
-            setStep("clone");
-          }}
-        />
       </div>
-
-      {showEmptyHints && savedPlansCount === 0 ? (
-        <p className={s.hint}>Create and save a plan first to enable cloning.</p>
-      ) : null}
 
       <div className={s.sectionGap}>
         {pickerLoading ? (

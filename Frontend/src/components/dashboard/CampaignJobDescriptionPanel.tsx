@@ -1,6 +1,5 @@
 "use client";
 
-import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import {
   dashboardBtnPrimaryClass,
@@ -70,23 +69,6 @@ export function CampaignJobDescriptionPanel({
       <div className="dashboard-campaign-report-toolbar shrink-0">
         <div className="dashboard-campaign-report-toolbar-row">
           <div className="flex min-w-0 flex-1 items-center gap-2.5">
-            {isVoiceCall ? (
-              <span
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[#0050cb]/10 text-[#0050cb]"
-                aria-hidden
-              >
-                <MaterialIcon name="call" className="text-base" />
-              </span>
-            ) : isWhatsApp ? (
-              <IntegrationBrandLogo provider="whatsapp" title="WhatsApp" className="h-6 w-6 shrink-0" />
-            ) : (
-              <span
-                className="dashboard-campaign-jd-toolbar-icon flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600"
-                aria-hidden
-              >
-                <MaterialIcon name="auto_awesome" className="text-xl" />
-              </span>
-            )}
             <div className="min-w-0">
               <h2 className="dashboard-campaign-report-title">
                 {isVoiceCall ? "Voice campaign editor" : "Job description"}

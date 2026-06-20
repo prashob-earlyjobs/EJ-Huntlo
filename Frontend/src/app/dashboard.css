@@ -5374,29 +5374,28 @@
 
 .dashboard-campaign-sequence-actions {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.625rem;
 }
 
-@media (min-width: 640px) {
+@media (max-width: 479px) {
   .dashboard-campaign-sequence-actions {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 0.75rem;
+    grid-template-columns: 1fr;
   }
 }
 
 .dashboard-campaign-sequence-action {
   display: flex;
   width: 100%;
-  min-height: 4.5rem;
+  min-height: 0;
   flex-direction: row;
   align-items: center;
   justify-content: flex-start;
-  gap: 0.75rem;
-  border-radius: 0.75rem;
+  gap: 0.625rem;
+  border-radius: 0.625rem;
   border: 1px solid color-mix(in srgb, var(--dash-outline) 50%, transparent);
   background: #fff;
-  padding: 1rem;
+  padding: 0.75rem 0.875rem;
   text-align: left;
   cursor: pointer;
   transition:
@@ -5420,17 +5419,17 @@
   display: flex;
   width: 100%;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.625rem;
 }
 
 .dashboard-campaign-sequence-action-icon {
   display: inline-flex;
-  height: 2.75rem;
-  width: 2.75rem;
+  height: 2.25rem;
+  width: 2.25rem;
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  border-radius: 0.625rem;
+  border-radius: 0.5rem;
   border: 1px solid #e8eaed;
   background: #f8f9fa;
   color: #5f6368;
@@ -5445,15 +5444,15 @@
 .dashboard-campaign-sequence-action-label {
   flex: 1;
   min-width: 0;
-  font-size: 0.9375rem;
+  font-size: 0.8125rem;
   font-weight: 600;
-  line-height: 1.35;
+  line-height: 1.3;
   color: #141b2b;
 }
 
 .dashboard-campaign-sequence-action-chevron {
   flex-shrink: 0;
-  font-size: 1.25rem !important;
+  font-size: 1.125rem !important;
   color: #9aa0a6;
 }
 
@@ -5465,7 +5464,7 @@
 }
 
 .dashboard-campaign-sequence-section {
-  margin-top: 1.75rem;
+  margin-top: 1.25rem;
 }
 
 .dashboard-campaign-sequence-section .dashboard-label-upper {
@@ -5580,7 +5579,7 @@
 .dashboard-campaign-empty-state-actions {
   display: flex;
   width: 100%;
-  max-width: 22rem;
+  max-width: 28rem;
   flex-direction: column;
   align-items: stretch;
   gap: 0.5rem;
@@ -5590,17 +5589,22 @@
 @media (min-width: 480px) {
   .dashboard-campaign-empty-state-actions {
     flex-direction: row;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     justify-content: center;
-    max-width: none;
+    max-width: 32rem;
   }
 }
 
 .dashboard-campaign-empty-state-btn {
+  display: inline-flex;
+  width: 100%;
+  flex: 1 1 0;
+  min-width: 0;
   justify-content: center;
   min-height: 2.5rem;
   padding: 0.5rem 1rem;
   font-size: 0.8125rem;
+  white-space: nowrap;
 }
 
 .dashboard-campaign-workspace-placeholder-wrap {
@@ -13996,6 +14000,7 @@ select.dashboard-outreach-start-chip--select {
 
 .dashboard-wa-outreach--embedded .dashboard-wa-outreach-bar .dashboard-btn-primary,
 .dashboard-wa-outreach-save {
+  color: #ffffff;
   background-color: #128c7e;
   box-shadow: 0 4px 14px rgba(18, 140, 126, 0.28);
 }

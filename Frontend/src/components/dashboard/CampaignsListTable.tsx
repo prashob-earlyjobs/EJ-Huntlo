@@ -155,9 +155,6 @@ export function CampaignsListTable({
                 </th>
                 <th scope="col">Last activity</th>
                 <th scope="col">Status</th>
-                <th scope="col" className="dashboard-campaigns-table-action-col">
-                  <span className="sr-only">Open</span>
-                </th>
               </tr>
             </thead>
             <tbody>
@@ -186,9 +183,6 @@ export function CampaignsListTable({
                   >
                     <td>
                       <div className="dashboard-campaigns-name-cell">
-                        <span className="dashboard-campaigns-avatar" aria-hidden>
-                          <MaterialIcon name="flag" className="text-lg" />
-                        </span>
                         <div className="min-w-0">
                           <p
                             className="dashboard-campaigns-name"
@@ -248,13 +242,6 @@ export function CampaignsListTable({
                       >
                         {statusLabel(campaign.outreachStatus)}
                       </span>
-                    </td>
-                    <td className="dashboard-campaigns-table-action-col">
-                      <MaterialIcon
-                        name="chevron_right"
-                        className="dashboard-campaigns-row-chevron"
-                        aria-hidden
-                      />
                     </td>
                   </tr>
                 );
