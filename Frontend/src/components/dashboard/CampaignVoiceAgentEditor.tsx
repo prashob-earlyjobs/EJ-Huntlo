@@ -40,7 +40,7 @@ const MIN_CALL_PROMPT_CHARS = 50;
 const MAX_RESULT_AGENT_ROWS = 12;
 const MAX_CANDIDATE_QUESTIONS = 10;
 
-type VoiceAgentSetupStep = "call" | "questions" | "result";
+type VoiceAgentSetupStep = "call" | "result";
 
 const SETUP_STEPS: Array<{
   id: VoiceAgentSetupStep;
@@ -52,13 +52,7 @@ const SETUP_STEPS: Array<{
     id: "call",
     label: "Call setup",
     title: "Call agent",
-    lead: "Set the objective, opening line, and agent instructions.",
-  },
-  {
-    id: "questions",
-    label: "Questions",
-    title: "Screening questions",
-    lead: `Optional — up to ${MAX_CANDIDATE_QUESTIONS} questions for interested candidates.`,
+    lead: "Set the objective, opening line, agent instructions, and optional screening questions.",
   },
   {
     id: "result",
@@ -398,11 +392,30 @@ export function CampaignVoiceAgentEditor({
           </div>
 
           <div className="dashboard-campaign-voice-agent-step-panel">
-            <header className="dashboard-campaign-voice-agent-step-panel-head">
-              <h3 className="dashboard-campaign-voice-agent-step-panel-title">
-                {currentStep.title}
-              </h3>
-              <p className="dashboard-campaign-voice-agent-step-panel-lead">{currentStep.lead}</p>
+            <header
+              className={`dashboard-campaign-voice-agent-step-panel-head${
+                setupStep === "result"
+                  ? " dashboard-campaign-voice-agent-step-panel-head--with-action"
+                  : ""
+              }`}
+            >
+              <div className="dashboard-campaign-voice-agent-step-panel-head-text">
+                <h3 className="dashboard-campaign-voice-agent-step-panel-title">
+                  {currentStep.title}
+                </h3>
+                <p className="dashboard-campaign-voice-agent-step-panel-lead">{currentStep.lead}</p>
+              </div>
+              {setupStep === "result" ? (
+                <button
+                  type="button"
+                  className={`${dashboardBtnSecondaryClass} dashboard-campaign-voice-agent-result-add-btn shrink-0`}
+                  disabled={locked || resultFields.length >= MAX_RESULT_AGENT_ROWS}
+                  onClick={addResultFieldRow}
+                >
+                  <MaterialIcon name="add" className="text-base" aria-hidden />
+                  Add row
+                </button>
+              ) : null}
             </header>
 
             <div className="dashboard-campaign-voice-agent-step-panel-body">
@@ -475,96 +488,89 @@ export function CampaignVoiceAgentEditor({
                   />
                 </button>
               </div>
-            </>
-          ) : null}
 
-          {setupStep === "questions" ? (
-            <>
-              <div className="dashboard-campaign-voice-agent-questions-toolbar">
-                <p className="dashboard-campaign-voice-agent-field-hint m-0">
-                  {filledCandidateQuestions.length} / {MAX_CANDIDATE_QUESTIONS} questions
-                </p>
-                <button
-                  type="button"
-                  className={`${dashboardBtnSecondaryClass} dashboard-campaign-voice-agent-questions-add-btn`}
-                  disabled={locked || candidateQuestions.length >= MAX_CANDIDATE_QUESTIONS}
-                  onClick={addCandidateQuestion}
-                >
-                  <MaterialIcon name="add" className="text-base" aria-hidden />
-                  Add question
-                </button>
-              </div>
-
-              {candidateQuestions.length === 0 ? (
-                <div className="dashboard-campaign-voice-agent-questions-empty">
-                  <p className="dashboard-campaign-voice-agent-questions-empty-text m-0">
-                    No questions added. Skip this step or add screening questions for interested
+              <div className="dashboard-campaign-voice-agent-step-section">
+                <div className="dashboard-campaign-voice-agent-step-section-head">
+                  <h4 className="dashboard-campaign-voice-agent-step-section-title">
+                    Screening questions
+                  </h4>
+                  <p className="dashboard-campaign-voice-agent-field-hint m-0">
+                    Optional — up to {MAX_CANDIDATE_QUESTIONS} questions for interested
                     candidates.
+                  </p>
+                </div>
+
+                <div className="dashboard-campaign-voice-agent-questions-toolbar">
+                  <p className="dashboard-campaign-voice-agent-field-hint m-0">
+                    {filledCandidateQuestions.length} / {MAX_CANDIDATE_QUESTIONS} questions
                   </p>
                   <button
                     type="button"
                     className={`${dashboardBtnSecondaryClass} dashboard-campaign-voice-agent-questions-add-btn`}
-                    disabled={locked}
+                    disabled={locked || candidateQuestions.length >= MAX_CANDIDATE_QUESTIONS}
                     onClick={addCandidateQuestion}
                   >
                     <MaterialIcon name="add" className="text-base" aria-hidden />
                     Add question
                   </button>
                 </div>
-              ) : (
-                <ul className="dashboard-campaign-voice-agent-questions-list">
-                  {candidateQuestions.map((question, index) => (
-                    <li
-                      key={`candidate-question-${index}`}
-                      className="dashboard-campaign-voice-agent-question-row"
+
+                {candidateQuestions.length === 0 ? (
+                  <div className="dashboard-campaign-voice-agent-questions-empty">
+                    <p className="dashboard-campaign-voice-agent-questions-empty-text m-0">
+                      No questions added yet. Add screening questions for interested candidates,
+                      or continue without them.
+                    </p>
+                    <button
+                      type="button"
+                      className={`${dashboardBtnSecondaryClass} dashboard-campaign-voice-agent-questions-add-btn`}
+                      disabled={locked}
+                      onClick={addCandidateQuestion}
                     >
-                      <span className="dashboard-campaign-voice-agent-question-index" aria-hidden>
-                        {index + 1}
-                      </span>
-                      <label className="dashboard-campaign-voice-agent-question-field">
-                        <span className="sr-only">Question {index + 1}</span>
-                        <input
-                          type="text"
-                          value={question}
-                          onChange={(e) => updateCandidateQuestion(index, e.target.value)}
-                          disabled={locked}
-                          placeholder="e.g. Are you open to relocating for this role?"
-                          className={`${dashboardInputClass} dashboard-input-sm w-full`}
-                        />
-                      </label>
-                      <button
-                        type="button"
-                        className="dashboard-table-icon-btn dashboard-table-icon-btn--danger"
-                        disabled={locked}
-                        onClick={() => removeCandidateQuestion(index)}
-                        aria-label={`Remove question ${index + 1}`}
+                      <MaterialIcon name="add" className="text-base" aria-hidden />
+                      Add question
+                    </button>
+                  </div>
+                ) : (
+                  <ul className="dashboard-campaign-voice-agent-questions-list">
+                    {candidateQuestions.map((question, index) => (
+                      <li
+                        key={`candidate-question-${index}`}
+                        className="dashboard-campaign-voice-agent-question-row"
                       >
-                        <MaterialIcon name="close" className="text-base" aria-hidden />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
+                        <span className="dashboard-campaign-voice-agent-question-index" aria-hidden>
+                          {index + 1}
+                        </span>
+                        <label className="dashboard-campaign-voice-agent-question-field">
+                          <span className="sr-only">Question {index + 1}</span>
+                          <input
+                            type="text"
+                            value={question}
+                            onChange={(e) => updateCandidateQuestion(index, e.target.value)}
+                            disabled={locked}
+                            placeholder="e.g. Are you open to relocating for this role?"
+                            className={`${dashboardInputClass} dashboard-input-sm w-full`}
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          className="dashboard-table-icon-btn dashboard-table-icon-btn--danger"
+                          disabled={locked}
+                          onClick={() => removeCandidateQuestion(index)}
+                          aria-label={`Remove question ${index + 1}`}
+                        >
+                          <MaterialIcon name="close" className="text-base" aria-hidden />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </>
           ) : null}
 
           {setupStep === "result" ? (
             <>
-              <div className="dashboard-campaign-voice-agent-questions-toolbar">
-                <p className="dashboard-campaign-voice-agent-field-hint m-0">
-                  Up to {MAX_RESULT_AGENT_ROWS} columns
-                </p>
-                <button
-                  type="button"
-                  className={`${dashboardBtnSecondaryClass} dashboard-campaign-voice-agent-result-add-btn`}
-                  disabled={locked || resultFields.length >= MAX_RESULT_AGENT_ROWS}
-                  onClick={addResultFieldRow}
-                >
-                  <MaterialIcon name="add" className="text-base" aria-hidden />
-                  Add row
-                </button>
-              </div>
-
               <div className="dashboard-campaign-voice-agent-result-table-wrap">
                 <table className="dashboard-campaign-voice-agent-result-table">
                   <thead>
@@ -640,9 +646,7 @@ export function CampaignVoiceAgentEditor({
             <button
               type="button"
               className={`${dashboardBtnSecondaryClass} dashboard-campaign-voice-agent-proceed-btn`}
-              onClick={() =>
-                setSetupStep(setupStep === "result" ? "questions" : "call")
-              }
+              onClick={() => setSetupStep("call")}
             >
               <MaterialIcon name="arrow_back" className="text-base" aria-hidden />
               Back
@@ -662,16 +666,6 @@ export function CampaignVoiceAgentEditor({
                     ? "View next step"
                     : undefined
               }
-              onClick={() => setSetupStep("questions")}
-            >
-              Continue
-              <MaterialIcon name="arrow_forward" className="text-base" aria-hidden />
-            </button>
-          ) : setupStep === "questions" ? (
-            <button
-              type="button"
-              className={`${dashboardBtnPrimaryClass} dashboard-campaign-voice-agent-proceed-btn`}
-              disabled={!canProceedFromCallStep}
               onClick={() => setSetupStep("result")}
             >
               Continue
