@@ -160,6 +160,7 @@ const ADMIN_USERS_LIMIT = 20;
 type TeamUserRow = {
   id: string;
   fullName: string;
+  companyName?: string;
   mobile: string;
   email: string;
   role: "user" | "admin";
@@ -1726,10 +1727,11 @@ export function AdminDashboardPage() {
                 </form>
 
                 <div className="mt-4 overflow-x-auto">
-                  <table className="w-full min-w-[640px] border-collapse text-left">
+                  <table className="w-full min-w-[760px] border-collapse text-left">
                     <thead>
                       <tr className="dashboard-table-head">
                         <th className="py-3 font-semibold">Name</th>
+                        <th className="py-3 font-semibold">Company</th>
                         <th className="py-3 font-semibold">Mobile</th>
                         <th className="py-3 font-semibold">Email</th>
                         <th className="py-3 font-semibold">Role</th>
@@ -1741,13 +1743,13 @@ export function AdminDashboardPage() {
                     <tbody>
                       {usersLoading ? (
                         <tr>
-                          <td colSpan={7} className="py-8 text-center text-sm text-slate-500">
+                          <td colSpan={8} className="py-8 text-center text-sm text-slate-500">
                             Loading users…
                           </td>
                         </tr>
                       ) : teamUsers.length === 0 ? (
                         <tr>
-                          <td colSpan={7} className="py-8 text-center text-sm text-slate-500">
+                          <td colSpan={8} className="py-8 text-center text-sm text-slate-500">
                             {usersSearchQuery
                               ? `No users match “${usersSearchQuery}”.`
                               : "No users found."}
@@ -1762,6 +1764,7 @@ export function AdminDashboardPage() {
                             <td className="py-4 font-medium text-slate-900">
                               {user.fullName}
                             </td>
+                            <td className="py-4 text-slate-700">{user.companyName?.trim() || "—"}</td>
                             <td className="py-4 text-slate-700">{user.mobile || "—"}</td>
                             <td className="py-4 text-slate-700">{user.email}</td>
                             <td className="py-4 text-slate-700">{roleLabel(user.role)}</td>
@@ -2544,7 +2547,11 @@ export function AdminDashboardPage() {
                   <div>
                     <h3 className="dashboard-section-title text-xl">Manage user</h3>
                     <p className="mt-1 dashboard-text-body">
-                      {manageModalUser.fullName} — plan{" "}
+                      {manageModalUser.fullName}
+                      {manageModalUser.companyName?.trim()
+                        ? ` · ${manageModalUser.companyName.trim()}`
+                        : ""}{" "}
+                      — plan{" "}
                       <span className="font-semibold text-black">
                         {planNameForId(manageModalUser.planId)}
                       </span>

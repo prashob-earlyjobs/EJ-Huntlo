@@ -7,7 +7,6 @@ import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import {
   DEFAULT_VOICE_RESULT_FIELDS,
   fetchCampaignVoiceCalls,
-  formatVoiceResultColumnLabel,
   getVoiceCallResultFieldValue,
   resolveScreeningQuestionAnswer,
   resolveVoiceCallResultData,
@@ -16,7 +15,12 @@ import {
   type CampaignVoiceCallRow,
 } from "@/lib/campaignVoiceApi";
 import { getStoredAuth } from "@/lib/auth";
-import { parseAdditionalQuestionsFromCallPrompt, dedupeVoiceResultFieldsForDisplay } from "@/lib/voiceAgentPrompt";
+import {
+  parseAdditionalQuestionsFromCallPrompt,
+  buildVoiceCallTableColumns,
+  formatVoiceResultFieldLabel,
+  syncResultFieldsWithScreeningQuestions,
+} from "@/lib/voiceAgentPrompt";
 
 type VoiceResultField = {
   columnName: string;
@@ -307,7 +311,7 @@ function VoiceCallScreeningAnswers({
   const entries = questions.map((question, index) => ({
     key: `${index}-${question}`,
     question,
-    answer: resolveScreeningQuestionAnswer(question, resultFields, data),
+    answer: resolveScreeningQuestionAnswer(question, resultFields, data, index),
   }));
 
   return (
@@ -438,19 +442,27 @@ export function CampaignVoiceCallsPanel({
     () => parseAdditionalQuestionsFromCallPrompt(callPrompt),
     [callPrompt]
   );
-  const allResultFields = useMemo(() => {
+  const tableColumns = useMemo(() => {
     const configured = resultFields
       .map((field) => ({
         columnName: field.columnName.trim(),
         expectedValue: field.expectedValue.trim(),
       }))
       .filter((field) => field.columnName);
-    const fields = configured.length > 0 ? configured : DEFAULT_VOICE_RESULT_FIELDS;
-    return dedupeVoiceResultFieldsForDisplay(fields);
-  }, [resultFields]);
-  const effectiveResultFields = useMemo(() => {
-    return allResultFields.filter((field) => field.columnName.toLowerCase() !== "summary");
-  }, [allResultFields]);
+    const fields =
+      configured.length > 0
+        ? syncResultFieldsWithScreeningQuestions(screeningQuestions, configured)
+        : syncResultFieldsWithScreeningQuestions(screeningQuestions, DEFAULT_VOICE_RESULT_FIELDS);
+    return buildVoiceCallTableColumns(fields, screeningQuestions);
+  }, [resultFields, screeningQuestions]);
+  const allResultFields = useMemo(
+    () =>
+      tableColumns.map((column) => ({
+        columnName: column.columnName,
+        expectedValue: column.expectedValue,
+      })),
+    [tableColumns]
+  );
   const [rows, setRows] = useState<CampaignVoiceCallRow[]>([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -596,7 +608,7 @@ export function CampaignVoiceCallsPanel({
   };
 
   const pageNumbers = buildPageNumbers(page, totalPages);
-  const columnCount = 6 + effectiveResultFields.length;
+  const columnCount = 6 + tableColumns.length;
 
   if (loading) {
     return (
@@ -653,13 +665,13 @@ export function CampaignVoiceCallsPanel({
                 <th className="px-3 py-2 font-medium">Name</th>
                 <th className="hidden px-3 py-2 font-medium sm:table-cell">Phone</th>
                 <th className="px-3 py-2 font-medium">Status</th>
-                {effectiveResultFields.map((field) => (
+                {tableColumns.map((column) => (
                   <th
-                    key={field.columnName}
+                    key={column.columnName}
                     className="min-w-[8rem] px-3 py-2 font-medium"
-                    title={field.expectedValue || field.columnName}
+                    title={column.expectedValue || column.columnName}
                   >
-                    {formatVoiceResultColumnLabel(field.columnName)}
+                    {column.topicLabel || formatVoiceResultFieldLabel(column)}
                   </th>
                 ))}
                 <th className="hidden px-3 py-2 font-medium lg:table-cell">Duration</th>
@@ -713,9 +725,9 @@ export function CampaignVoiceCallsPanel({
                             {callStatus}
                           </span>
                         </td>
-                        {effectiveResultFields.map((field) => (
-                          <td key={field.columnName} className="px-3 py-2">
-                            <VoiceCallResultFieldCell call={call} columnName={field.columnName} />
+                        {tableColumns.map((column) => (
+                          <td key={column.columnName} className="px-3 py-2">
+                            <VoiceCallResultFieldCell call={call} columnName={column.columnName} />
                           </td>
                         ))}
                         <td className="hidden px-3 py-2 text-slate-700 lg:table-cell">

@@ -61,6 +61,29 @@ function getDodoProductId(planId) {
   return "";
 }
 
+/** Dodo expects E.164 (+country…); omit phone when we cannot normalize. */
+function buildDodoCheckoutCustomer(user) {
+  const { normalizeToE164 } = require("./whatsappPhoneUtils");
+  const customer = {};
+
+  const email = String(user?.email || "").trim();
+  if (email.includes("@")) {
+    customer.email = email;
+  }
+
+  const name = String(user?.fullName || "").trim();
+  if (name) {
+    customer.name = name;
+  }
+
+  const phone = normalizeToE164(user?.mobile);
+  if (phone) {
+    customer.phone_number = phone;
+  }
+
+  return customer;
+}
+
 async function dodoApiRequest(path, { method = "GET", body } = {}) {
   const { apiKey, baseUrl, enabled } = getDodoConfig();
   if (!enabled) {
@@ -118,6 +141,7 @@ module.exports = {
   getDodoConfig,
   getFrontendBaseUrl,
   getDodoProductId,
+  buildDodoCheckoutCustomer,
   createCheckoutSession,
   fetchPayment,
 };

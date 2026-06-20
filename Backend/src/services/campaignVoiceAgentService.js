@@ -8,6 +8,7 @@ const {
   getCampaignHunarAgentId,
 } = require("./hunarVoiceCallService");
 const { prepareResolvedVoiceAgentConfig } = require("./voiceLaunchPromptService");
+const { buildResultPromptFromFields } = require("./voiceAgentPromptService");
 
 function normalizeVoiceAgentPayload(body) {
   const resultFields = Array.isArray(body?.resultFields)
@@ -87,6 +88,7 @@ async function saveCampaignVoiceAgent(actorUserId, campaignId, body) {
   const jobTitle = String(campaign.jobTitle || "").trim();
 
   const payload = normalizeVoiceAgentPayload(body);
+  payload.resultPrompt = buildResultPromptFromFields(payload.resultFields);
   validateVoiceAgentPayload(payload);
 
   const { resolvedConfig } = await prepareResolvedVoiceAgentConfig(campaign, payload);

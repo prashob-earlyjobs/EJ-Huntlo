@@ -2,19 +2,28 @@ const {
   resolveVoiceAgentPromptTemplate,
   buildVoiceAgentLaunchContext,
   upgradeLegacyVoiceCallPrompt,
+  parseAdditionalQuestionsFromCallPrompt,
+  hasScreeningQuestionsSectionInCallPrompt,
+  stripScreeningQuestionsMetadataSection,
+  syncScreeningQuestionsIntoCallPrompt,
+  applyScreeningQuestionCountToCallObjective,
+  buildResultPromptFromFields,
+  resolveHunarResultConfig,
 } = require("./voiceAgentPromptService");
 const { getOrExtractVoiceJdDetails } = require("./voiceJdExtractService");
 const {
   updateHunarVoiceAgent,
-  buildResultSchema,
   getCampaignHunarAgentId,
 } = require("./hunarVoiceCallService");
 
 function resolveVoiceAgentConfigForLaunch(config, launchContext) {
   const rows = config && typeof config === "object" ? config : {};
   const callPromptTemplate = upgradeLegacyVoiceCallPrompt(rows.callPrompt);
+  const resolvedCallPrompt = stripScreeningQuestionsMetadataSection(
+    resolveVoiceAgentPromptTemplate(callPromptTemplate, launchContext)
+  );
   return {
-    callPrompt: resolveVoiceAgentPromptTemplate(callPromptTemplate, launchContext),
+    callPrompt: resolvedCallPrompt,
     callObjective: resolveVoiceAgentPromptTemplate(rows.callObjective, launchContext),
     introductoryStatement: resolveVoiceAgentPromptTemplate(
       rows.introductoryStatement,
@@ -55,14 +64,29 @@ async function syncHunarAgentForVoiceLaunch(campaign, resolvedConfig) {
       ? campaign.hunarVoiceAgent
       : null;
 
+  const resultFields = Array.isArray(config.resultFields) ? config.resultFields : [];
+  const { resultPrompt, resultSchema } = resolveHunarResultConfig(campaign, resultFields);
+  const introduction =
+    String(resolvedConfig.introductoryStatement || "").trim() ||
+    String(storedAgent?.introduction || config.introductoryStatement || "").trim();
+
+  if (!resultPrompt) {
+    const err = new Error(
+      "Result prompt is missing. Open the voice agent editor, go to Results, and save again before launching."
+    );
+    err.statusCode = 400;
+    err.code = "VOICE_RESULT_PROMPT_REQUIRED";
+    throw err;
+  }
+
   await updateHunarVoiceAgent({
     agentId,
     name: `EJ-Huntlo-${String(campaign?.name || "Campaign").trim()}`,
     agentPrompt: resolvedConfig.callPrompt,
     objective: resolvedConfig.callObjective,
-    introduction: resolvedConfig.introductoryStatement,
-    resultPrompt: resolvedConfig.resultPrompt,
-    resultSchema: buildResultSchema(config.resultFields),
+    introduction,
+    resultPrompt,
+    resultSchema,
     voicePersona: storedAgent?.voice_persona,
     language: storedAgent?.language,
     personaName: storedAgent?.persona_name ?? null,
@@ -73,8 +97,30 @@ async function syncHunarAgentForVoiceLaunch(campaign, resolvedConfig) {
  * On launch or save: extract JD via Gemini, inject {jd_*} variables, and push the resolved prompt to Hunar.
  */
 async function prepareResolvedVoiceAgentConfig(campaign, config) {
-  const launchContext = await prepareVoiceLaunchPromptContext(campaign);
-  const resolvedConfig = resolveVoiceAgentConfigForLaunch(config, launchContext);
+  const baseLaunchContext = await prepareVoiceLaunchPromptContext(campaign);
+  const userQuestions = parseAdditionalQuestionsFromCallPrompt(config?.callPrompt);
+  const useCustomScreeningQuestions = hasScreeningQuestionsSectionInCallPrompt(config?.callPrompt);
+  const syncedCallPrompt = useCustomScreeningQuestions
+    ? syncScreeningQuestionsIntoCallPrompt(config.callPrompt, userQuestions, { storageForm: true })
+    : String(config?.callPrompt || "");
+  const configForResolve = {
+    ...(config && typeof config === "object" ? config : {}),
+    callPrompt: syncedCallPrompt,
+    callObjective: useCustomScreeningQuestions
+      ? applyScreeningQuestionCountToCallObjective(config?.callObjective, userQuestions.length)
+      : config?.callObjective,
+    resultPrompt: buildResultPromptFromFields(
+      Array.isArray(config?.resultFields) ? config.resultFields : []
+    ),
+  };
+  const launchContext = buildVoiceAgentLaunchContext({
+    jobDescription: baseLaunchContext.jobDescription,
+    jobTitle: baseLaunchContext.jobTitle,
+    jdExtract: baseLaunchContext.jdExtract,
+    userScreeningQuestions: userQuestions,
+    useCustomScreeningQuestions,
+  });
+  const resolvedConfig = resolveVoiceAgentConfigForLaunch(configForResolve, launchContext);
 
   const jdExtract = launchContext.jdExtract || {};
   const unresolvedJdTokens = [
@@ -98,6 +144,8 @@ async function prepareResolvedVoiceAgentConfig(campaign, config) {
     responsibilityCount: Array.isArray(jdExtract.responsibilities)
       ? jdExtract.responsibilities.length
       : 0,
+    userScreeningQuestionCount: userQuestions.length,
+    useCustomScreeningQuestions,
     screeningQuestionCount: Array.isArray(jdExtract.screeningQuestions)
       ? jdExtract.screeningQuestions.length
       : 0,

@@ -2228,6 +2228,7 @@ export function CampaignWorkspace({
               key={campaign.id}
               locked={campaignFieldsLocked}
               outreachStatus={outreachStatus}
+              jobTitle={campaign.jobTitle ?? ""}
               initialConfig={campaign.voiceAgentConfig ?? null}
               onSaveAndContinue={async (payload) => {
                 const auth = getStoredAuth();
@@ -2348,9 +2349,6 @@ export function CampaignWorkspace({
               <div className="dashboard-campaign-report-toolbar shrink-0">
                 <div className="dashboard-campaign-report-toolbar-row">
                   <div className="flex min-w-0 flex-1 items-center gap-2.5">
-                    <span className="dashboard-campaign-sequence-toolbar-icon" aria-hidden>
-                      <MaterialIcon name="playlist_play" className="text-[22px]" />
-                    </span>
                     <div className="min-w-0">
                       <h2 className="dashboard-campaign-report-title">Campaign sequence</h2>
                       <p className="dashboard-campaign-report-subtitle">
@@ -2431,14 +2429,11 @@ export function CampaignWorkspace({
                 actions={[
                   {
                     label: "Add from search history",
-                    icon: "history",
                     disabled: campaignContactsLocked,
                     onClick: onAddFromSearchHistory,
                   },
                   {
                     label: "Upload CSV",
-                    icon: "upload_file",
-                    variant: "secondary",
                     disabled: campaignContactsLocked,
                     onClick: openCsvModal,
                   },

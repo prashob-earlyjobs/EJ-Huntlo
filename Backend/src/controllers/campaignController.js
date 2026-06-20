@@ -463,7 +463,9 @@ const launchVoiceCampaignHandler = async (req, res) => {
     if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
     const candidateKeys = Array.isArray(req.body?.candidateKeys) ? req.body.candidateKeys : [];
     const result = await launchVoiceCampaign(uid, req.params.id, { candidateKeys });
+    
     const campaign = await getCampaign(uid, req.params.id);
+    console.log("result<===", result);
     return res.status(200).json({
       success: true,
       ...result,

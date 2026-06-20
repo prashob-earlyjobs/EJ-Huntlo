@@ -1,6 +1,6 @@
 import type { CampaignContact } from "@/lib/campaigns";
 import { authHeaders } from "@/lib/auth";
-import { slugifyVoiceResultColumnName, resultFieldCoversScreeningQuestion } from "@/lib/voiceAgentPrompt";
+import { slugifyVoiceResultColumnName, resultFieldCoversScreeningQuestion, getScreeningResultColumnsForQuestionIndex, SCREENING_RESULT_TOPIC_LABELS } from "@/lib/voiceAgentPrompt";
 
 const apiBase = () => process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
 
@@ -222,13 +222,29 @@ export function getVoiceCallResultFieldValue(
 export function resolveScreeningQuestionAnswer(
   question: string,
   resultFields: Array<{ columnName: string; expectedValue: string }>,
-  data: Record<string, unknown>
+  data: Record<string, unknown>,
+  questionIndex = -1
 ): string {
   const trimmedQuestion = question.trim();
   if (!trimmedQuestion) return "—";
 
+  if (questionIndex >= 0) {
+    const mappedColumns = getScreeningResultColumnsForQuestionIndex(questionIndex, trimmedQuestion);
+    if (mappedColumns.length > 1) {
+      const parts = mappedColumns
+        .map((columnName) => {
+          const value = getVoiceCallResultFieldValue(data, columnName);
+          if (value === "—") return null;
+          const label = SCREENING_RESULT_TOPIC_LABELS[columnName.toLowerCase()] || columnName;
+          return `${label}: ${value}`;
+        })
+        .filter(Boolean);
+      if (parts.length > 0) return parts.join(" · ");
+    }
+  }
+
   const matchedField = resultFields.find((field) =>
-    resultFieldCoversScreeningQuestion(field, trimmedQuestion)
+    resultFieldCoversScreeningQuestion(field, trimmedQuestion, questionIndex)
   );
   if (matchedField) {
     return getVoiceCallResultFieldValue(data, matchedField.columnName);

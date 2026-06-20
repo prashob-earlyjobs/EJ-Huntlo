@@ -147,6 +147,56 @@ const GENERIC_SCREENING_PROBES_SECTION = `- Probing rules per question:
   - Q7: If only a city is given, ask once — "Are you currently working from there as well?"
   - Q8: If they mention only graduation, ask once — "Have you completed any postgraduate qualification?"`;
 
+const VOICE_CALL_PROMPT_ADDITIONAL_QUESTIONS_HEADER =
+  "=== ADDITIONAL QUESTIONS TO ASK ===";
+const SCREENING_QUESTIONS_NONE_MARKER = "(none)";
+const MAX_SCREENING_QUESTIONS = 20;
+const CALL_PROMPT_NEXT_SECTION_PATTERN = /\n=== [^\n]+ ===/;
+
+function hasScreeningQuestionsSectionInCallPrompt(prompt) {
+  return String(prompt || "").includes(VOICE_CALL_PROMPT_ADDITIONAL_QUESTIONS_HEADER);
+}
+
+function parseAdditionalQuestionsFromCallPrompt(prompt) {
+  const text = String(prompt || "");
+  const headerIdx = text.indexOf(VOICE_CALL_PROMPT_ADDITIONAL_QUESTIONS_HEADER);
+  if (headerIdx < 0) return [];
+
+  const afterHeader = text.slice(headerIdx + VOICE_CALL_PROMPT_ADDITIONAL_QUESTIONS_HEADER.length);
+  const nextSectionMatch = afterHeader.match(CALL_PROMPT_NEXT_SECTION_PATTERN);
+  const sectionBody =
+    nextSectionMatch && nextSectionMatch.index !== undefined
+      ? afterHeader.slice(0, nextSectionMatch.index)
+      : afterHeader;
+
+  const questions = [];
+  for (const line of sectionBody.split("\n")) {
+    const trimmedLine = line.trim();
+    if (!trimmedLine || trimmedLine === SCREENING_QUESTIONS_NONE_MARKER) continue;
+    const match = line.match(/^\s*[-*]\s*(.*)$/);
+    if (!match) continue;
+    const question = match[1].trim();
+    if (question && question !== SCREENING_QUESTIONS_NONE_MARKER) questions.push(question);
+  }
+  return questions;
+}
+
+function stripScreeningQuestionsMetadataSection(prompt) {
+  const header = VOICE_CALL_PROMPT_ADDITIONAL_QUESTIONS_HEADER;
+  const headerIdx = String(prompt || "").indexOf(header);
+  if (headerIdx < 0) return String(prompt || "");
+  return String(prompt || "")
+    .slice(0, headerIdx)
+    .replace(/\s+$/u, "");
+}
+
+function sanitizeUserScreeningQuestions(questions, max = MAX_SCREENING_QUESTIONS) {
+  return (Array.isArray(questions) ? questions : [])
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .slice(0, max);
+}
+
 function formatScreeningQuestionsList(questions) {
   return questions
     .map((question, index) => `  ${index + 1}. "${String(question || "").trim()}"`)
@@ -164,6 +214,113 @@ function formatScreeningCallFlowSteps(questionCount = SCREENING_QUESTION_COUNT) 
     );
   }
   return steps.join("\n\n");
+}
+
+function formatScreeningProbesSection(questionCount) {
+  if (questionCount <= SCREENING_QUESTION_COUNT) {
+    return GENERIC_SCREENING_PROBES_SECTION;
+  }
+  const extraLines = [];
+  for (let index = SCREENING_QUESTION_COUNT + 1; index <= questionCount; index += 1) {
+    extraLines.push(
+      `  - Q${index}: If unclear, ask once for clarification — do not repeat the question verbatim.`
+    );
+  }
+  return `${GENERIC_SCREENING_PROBES_SECTION}\n${extraLines.join("\n")}`;
+}
+
+function applyScreeningQuestionCountToPromptText(text, count) {
+  const questionCount = Math.max(0, Number(count) || 0);
+  const closingStep = 3 + questionCount + 1;
+  const allQuestionsLabel =
+    questionCount === 1 ? "the screening question" : `all ${questionCount} screening questions`;
+  const askQuestionsLabel =
+    questionCount === 1 ? "ask the screening question" : `ask all ${questionCount} screening questions`;
+
+  let result = String(text || "");
+  result = result.replace(/\ball eight screening questions\b/gi, allQuestionsLabel);
+  result = result.replace(/\bask eight screening questions\b/gi, askQuestionsLabel);
+  result = result.replace(/\bask the eight questions\b/gi, "ask the screening questions");
+  result = result.replace(
+    /\beight questions from the Screening Questions section\b/gi,
+    "questions from the Screening Questions section"
+  );
+  result = result.replace(/\n(\d+)\. CLOSURE —/g, `\n${closingStep}. CLOSURE —`);
+  return result;
+}
+
+function applyScreeningQuestionCountToCallObjective(objective, count) {
+  const questionCount = Math.max(0, Number(count) || 0);
+  const askQuestionsLabel =
+    questionCount === 1 ? "ask the screening question" : `ask all ${questionCount} screening questions`;
+  return String(objective || "").replace(/\bask eight screening questions\b/gi, askQuestionsLabel);
+}
+
+function mergeAdditionalQuestionsIntoCallPrompt(prompt, questions) {
+  const trimmedQuestions = sanitizeUserScreeningQuestions(questions);
+  const questionsBlock =
+    trimmedQuestions.length > 0
+      ? trimmedQuestions.map((question) => `- ${question}`).join("\n")
+      : SCREENING_QUESTIONS_NONE_MARKER;
+
+  const text = String(prompt || "");
+  const header = VOICE_CALL_PROMPT_ADDITIONAL_QUESTIONS_HEADER;
+  const headerIdx = text.indexOf(header);
+
+  if (headerIdx < 0) {
+    const trimmed = text.trim();
+    return trimmed ? `${trimmed}\n\n${header}\n${questionsBlock}` : `${header}\n${questionsBlock}`;
+  }
+
+  const before = text.slice(0, headerIdx + header.length);
+  const afterHeader = text.slice(headerIdx + header.length);
+  const nextSectionMatch = afterHeader.match(CALL_PROMPT_NEXT_SECTION_PATTERN);
+
+  if (nextSectionMatch && nextSectionMatch.index !== undefined) {
+    return `${before}\n${questionsBlock}${afterHeader.slice(nextSectionMatch.index)}`;
+  }
+
+  return `${before}\n${questionsBlock}`;
+}
+
+function syncScreeningQuestionsIntoCallPrompt(prompt, questions, options = {}) {
+  const storageQuestions = options.storageForm
+    ? sanitizeUserScreeningQuestions(questions)
+    : sanitizeUserScreeningQuestions(questions);
+  const questionsListBlock =
+    storageQuestions.length > 0
+      ? formatScreeningQuestionsList(storageQuestions)
+      : `  ${SCREENING_QUESTIONS_NONE_MARKER}`;
+  const callFlowBlock = formatScreeningCallFlowSteps(storageQuestions.length);
+  const probesBlock = formatScreeningProbesSection(storageQuestions.length);
+
+  let text = mergeAdditionalQuestionsIntoCallPrompt(prompt, storageQuestions);
+
+  if (text.includes("{jd_screening_questions_list}")) {
+    text = text.split("{jd_screening_questions_list}").join(questionsListBlock);
+  } else {
+    text = text.replace(
+      /(- These are the screening questions to ask —\s*\n\s*\n)([\s\S]*?)(\n\s*\n(?:\{jd_screening_probes_section\}|- Probing rules per question:))/,
+      `$1${questionsListBlock}$3`
+    );
+  }
+
+  if (text.includes("{jd_screening_probes_section}")) {
+    text = text.split("{jd_screening_probes_section}").join(probesBlock);
+  } else {
+    text = text.replace(
+      /- Probing rules per question:[\s\S]*?(?=\n---|\n## Objective|\n### Closure)/,
+      probesBlock
+    );
+  }
+
+  if (text.includes("{jd_screening_call_flow_steps}")) {
+    text = text.split("{jd_screening_call_flow_steps}").join(callFlowBlock);
+  } else if (storageQuestions.length > 0) {
+    text = text.replace(/\n4\. SCREENING Q1[\s\S]*?(?=\n\d+\. CLOSURE —)/, `\n${callFlowBlock}`);
+  }
+
+  return applyScreeningQuestionCountToPromptText(text, storageQuestions.length);
 }
 
 function upgradeLegacyVoiceCallPrompt(template) {
@@ -218,7 +375,12 @@ function buildJdVariableMap(context = {}) {
   const responsibilities = normalizeResponsibilityList(jdExtract.responsibilities);
   const roleBrief =
     sanitizeJdField(jdExtract.roleBrief) || buildDefaultRoleBrief(role, company);
-  const screeningQuestions = normalizeScreeningQuestions(jdExtract.screeningQuestions, role);
+  const userScreeningQuestions = sanitizeUserScreeningQuestions(context.userScreeningQuestions);
+  const screeningQuestions = context.useCustomScreeningQuestions
+    ? userScreeningQuestions
+    : userScreeningQuestions.length > 0
+      ? userScreeningQuestions
+      : normalizeScreeningQuestions(jdExtract.screeningQuestions, role);
 
   return {
     jd_company: company,
@@ -259,12 +421,19 @@ function buildJdVariableMap(context = {}) {
   };
 }
 
-function buildVoiceAgentLaunchContext({ jobDescription = "", jobTitle = "", jdExtract = null } = {}) {
+function buildVoiceAgentLaunchContext({
+  jobDescription = "",
+  jobTitle = "",
+  jdExtract = null,
+  userScreeningQuestions = [],
+  useCustomScreeningQuestions = false,
+} = {}) {
+  const context = { jobTitle, jdExtract, userScreeningQuestions, useCustomScreeningQuestions };
   return {
     jobDescription,
     jobTitle,
     jdExtract,
-    jdVariables: buildJdVariableMap({ jobTitle, jdExtract }),
+    jdVariables: buildJdVariableMap(context),
   };
 }
 
@@ -312,6 +481,123 @@ function substituteJobDescription(text, jobDescription, jobTitle = "", jdExtract
   });
 }
 
+function normalizeResultFieldRows(fields) {
+  const rows = [];
+  const seen = new Set();
+  for (const row of Array.isArray(fields) ? fields : []) {
+    const columnName = String(row?.columnName || "").trim();
+    const expectedValue = String(row?.expectedValue || "").trim();
+    if (!columnName || !expectedValue) continue;
+    const key = columnName.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rows.push({ columnName, expectedValue });
+  }
+  return rows;
+}
+
+function escapeResultPromptJsonKey(key) {
+  return String(key || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+function jsonPlaceholderForResultField(columnName, expectedValue) {
+  const key = String(columnName || "").trim().toLowerCase();
+  const hint = String(expectedValue || "").trim().toLowerCase();
+  if (hint.includes("array") || key.includes("questions")) return "[]";
+  return '""';
+}
+
+function compactRuleExpectedValue(expectedValue) {
+  let text = String(expectedValue || "").trim();
+  if (!text) return "explicit conversation evidence only";
+  if (text.toLowerCase().startsWith("candidate's answer to:")) {
+    return "answer stated during the call";
+  }
+  text = text.replace(/\{[a-z_][a-z0-9_]*\}/gi, "the candidate");
+  text = text.replace(/\s+/g, " ");
+  if (text.length > 72) return `${text.slice(0, 69).trimEnd()}...`;
+  return text;
+}
+
+function fieldRuleLineForResultField(columnName, expectedValue) {
+  const name = String(columnName || "").trim();
+  if (!name) return "";
+  const hint = String(expectedValue || "").trim().toLowerCase();
+  if (hint.includes("array") || name.toLowerCase().includes("questions")) {
+    return `- ${name}: array of strings from the conversation`;
+  }
+  return `- ${name}: ${compactRuleExpectedValue(expectedValue)}`;
+}
+
+function buildResultPromptJsonBlock(fields) {
+  const rows = normalizeResultFieldRows(fields);
+  if (!rows.length) return '{\n  "field": ""\n}';
+  const lines = rows.map(
+    (row) =>
+      `  "${escapeResultPromptJsonKey(row.columnName)}": ${jsonPlaceholderForResultField(
+        row.columnName,
+        row.expectedValue
+      )}`
+  );
+  return `{\n${lines.join(",\n")}\n}`;
+}
+
+/** Builds the Hunar result prompt from result column rows. */
+function buildResultPromptFromFields(fields) {
+  const rows = normalizeResultFieldRows(fields);
+  const jsonBlock = buildResultPromptJsonBlock(rows);
+  const fieldRules = rows
+    .map((row) => fieldRuleLineForResultField(row.columnName, row.expectedValue))
+    .filter(Boolean)
+    .join("\n");
+
+  return `TASK
+Analyze the conversation and return only valid JSON.
+
+Determine whether the candidate was interested in the opportunity, requested a callback, or was not interested.
+
+Use only information explicitly stated during the conversation.
+
+OUTPUT FORMAT
+Return JSON in the following format:
+${jsonBlock}
+
+FIELD RULES
+${fieldRules || "- Populate every field using only explicit conversation evidence."}`.trim();
+}
+
+function buildHunarResultSchema(resultFields) {
+  const schema = {};
+  normalizeResultFieldRows(resultFields).forEach((row) => {
+    schema[row.columnName] = row.expectedValue;
+  });
+  return schema;
+}
+
+function resolveHunarResultConfig(campaign, resultFields) {
+  const config = campaign?.voiceAgentConfig || {};
+  const storedAgent =
+    campaign?.hunarVoiceAgent &&
+    typeof campaign.hunarVoiceAgent === "object" &&
+    !Array.isArray(campaign.hunarVoiceAgent)
+      ? campaign.hunarVoiceAgent
+      : {};
+
+  const rebuiltPrompt = buildResultPromptFromFields(resultFields);
+  const storedPrompt = String(storedAgent.result_prompt || config.resultPrompt || "").trim();
+  const resultPrompt = rebuiltPrompt || storedPrompt;
+
+  const rebuiltSchema = buildHunarResultSchema(resultFields);
+  const storedSchema =
+    storedAgent.result_schema && typeof storedAgent.result_schema === "object"
+      ? storedAgent.result_schema
+      : {};
+  const resultSchema =
+    Object.keys(rebuiltSchema).length > 0 ? rebuiltSchema : storedSchema;
+
+  return { resultPrompt, resultSchema };
+}
+
 module.exports = {
   SAVE_TIME_VARIABLES,
   PER_CALL_VARIABLES,
@@ -327,4 +613,12 @@ module.exports = {
   upgradeLegacyVoiceCallPrompt,
   resolveVoiceAgentPromptTemplate,
   substituteJobDescription,
+  parseAdditionalQuestionsFromCallPrompt,
+  hasScreeningQuestionsSectionInCallPrompt,
+  stripScreeningQuestionsMetadataSection,
+  syncScreeningQuestionsIntoCallPrompt,
+  applyScreeningQuestionCountToCallObjective,
+  buildResultPromptFromFields,
+  buildHunarResultSchema,
+  resolveHunarResultConfig,
 };

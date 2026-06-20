@@ -28,15 +28,7 @@ function substituteJobDescription(text, jobDescription, jobTitle = "") {
 }
 
 function buildResultSchema(resultFields) {
-  const schema = {};
-  const rows = Array.isArray(resultFields) ? resultFields : [];
-  rows.forEach((row, index) => {
-    const columnName = String(row?.columnName || "").trim();
-    const expectedValue = String(row?.expectedValue || "").trim();
-    const key = columnName || `key_${index}`;
-    schema[key] = expectedValue || "string";
-  });
-  return schema;
+  return buildHunarResultSchema(resultFields);
 }
 
 function extractHunarAgentId(body) {
@@ -86,7 +78,7 @@ function buildHunarAgentWritePayload({
   const agentPromptValue = String(agentPrompt || "").trim();
   const introductionValue = String(introduction || "").trim();
 
-  const payload = {
+  return {
     name: String(name || "").trim() || "Campaign Voice Agent",
     voice_persona: String(voicePersona || getHunarVoicePersona()).trim(),
     objective: String(objective || "").trim(),
@@ -94,11 +86,9 @@ function buildHunarAgentWritePayload({
     result_schema: resultSchema && typeof resultSchema === "object" ? resultSchema : {},
     language: String(language || getHunarVoiceLanguage()).trim(),
     persona_name: personaName == null ? null : String(personaName).trim() || null,
-    agent_prompt: agentPromptValue || (forUpdate ? null : ""),
-    introduction: introductionValue || (forUpdate ? null : ""),
+    agent_prompt: agentPromptValue,
+    introduction: introductionValue,
   };
-
-  return payload;
 }
 
 async function requestHunarVoiceAgent(method, url, payload) {

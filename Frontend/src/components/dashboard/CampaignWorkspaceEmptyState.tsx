@@ -5,16 +5,13 @@ import type { ReactNode } from "react";
 import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import {
-  dashboardBtnPrimaryClass,
   dashboardBtnSecondaryClass,
 } from "@/lib/dashboardStyles";
 
 export type CampaignWorkspaceEmptyAction = {
   label: string;
-  icon: string;
   onClick?: () => void;
   disabled?: boolean;
-  variant?: "primary" | "secondary";
 };
 
 type Props = {
@@ -60,24 +57,17 @@ export function CampaignWorkspaceEmptyState({
         <p className="dashboard-campaign-empty-state-desc">{description}</p>
         {actions.length > 0 ? (
           <div className="dashboard-campaign-empty-state-actions">
-            {actions.map((action) => {
-              const btnClass =
-                action.variant === "secondary"
-                  ? dashboardBtnSecondaryClass
-                  : dashboardBtnPrimaryClass;
-              return (
-                <button
-                  key={action.label}
-                  type="button"
-                  className={`${btnClass} dashboard-campaign-empty-state-btn`}
-                  disabled={action.disabled}
-                  onClick={action.onClick}
-                >
-                  <MaterialIcon name={action.icon} className="text-base" />
-                  {action.label}
-                </button>
-              );
-            })}
+            {actions.map((action) => (
+              <button
+                key={action.label}
+                type="button"
+                className={`${dashboardBtnSecondaryClass} dashboard-campaign-empty-state-btn`}
+                disabled={action.disabled}
+                onClick={action.onClick}
+              >
+                {action.label}
+              </button>
+            ))}
           </div>
         ) : null}
       </div>

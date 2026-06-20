@@ -403,10 +403,6 @@ export function CampaignsPanel({
     );
   }
 
-  const campaignCountLabel = `${campaignsTotal.toLocaleString()} campaign${
-    campaignsTotal === 1 ? "" : "s"
-  }`;
-
   return (
     <>
       <section className="dashboard-card dashboard-card--fill dashboard-campaigns-panel flex h-full min-w-0 max-w-full w-full flex-col">
@@ -422,14 +418,6 @@ export function CampaignsPanel({
               </p>
             </div>
             <div className="dashboard-results-toolbar-actions">
-              {!showListShimmer && campaignsTotal > 0 ? (
-                <span
-                  className="dashboard-results-toolbar-badge tabular-nums"
-                  title={campaignCountLabel}
-                >
-                  {campaignCountLabel}
-                </span>
-              ) : null}
               <button
                 type="button"
                 disabled={!planResolved || !campaignsAllowed}

@@ -1226,10 +1226,7 @@ export function OutreachPlanEditor({
                 </p>
               </div>
             </div>
-            <div className="dashboard-outreach-gmail-bar-meta dashboard-outreach-gmail-plan-meta min-w-0">
-              {planTitleEditor(false)}
-            </div>
-            <div className="dashboard-outreach-gmail-bar-actions flex shrink-0 flex-wrap items-center justify-end gap-2 lg:flex-nowrap">
+            <div className="dashboard-outreach-gmail-bar-actions flex shrink-0 flex-wrap items-center justify-end gap-1.5 lg:flex-nowrap">
               <SaveSequenceButton
                 compact
                 saving={saving}
@@ -1237,14 +1234,14 @@ export function OutreachPlanEditor({
                 hasUnsavedChanges={hasUnsavedChanges}
                 disabled={editorLocked}
                 onClick={() => void savePlan()}
-                className="h-[38px] w-[137px] justify-center px-4 py-1.5 text-sm"
+                className="h-8 min-w-0 justify-center px-3 py-1"
               />
               {campaignOutreachStatus === "active" ? (
                 <button
                   type="button"
                   onClick={() => void onPauseCampaign?.()}
                   disabled={launchBusy}
-                  className={`${dashboardBtnSecondaryClass} px-3 py-1.5 text-xs disabled:opacity-55`}
+                  className={`${dashboardBtnSecondaryClass} inline-flex h-8 items-center px-2.5 py-1 text-xs disabled:opacity-55`}
                 >
                   Pause
                 </button>
@@ -1253,7 +1250,7 @@ export function OutreachPlanEditor({
                   type="button"
                   onClick={() => void onResumeCampaign?.()}
                   disabled={launchBusy}
-                  className={`${dashboardBtnPrimaryClass} dashboard-outreach-save-btn inline-flex h-[38px] items-center justify-center gap-1.5 whitespace-nowrap px-4 py-1.5 text-sm disabled:opacity-55`}
+                  className={`${dashboardBtnPrimaryClass} dashboard-outreach-save-btn inline-flex h-8 items-center justify-center gap-1 whitespace-nowrap px-3 py-1 text-xs disabled:opacity-55`}
                 >
                   {launchBusy ? (
                     <>
@@ -1262,7 +1259,7 @@ export function OutreachPlanEditor({
                     </>
                   ) : (
                     <>
-                      <MaterialIcon name="play_circle" className="text-base" />
+                      <MaterialIcon name="play_circle" className="text-sm" />
                       Resume campaign
                     </>
                   )}
@@ -1306,7 +1303,7 @@ export function OutreachPlanEditor({
                               ? "Choose a sender account"
                               : "Launch campaign"
                   }
-                  className={`${dashboardBtnPrimaryClass} dashboard-outreach-save-btn inline-flex h-[38px] items-center justify-center gap-1.5 whitespace-nowrap px-4 py-1.5 text-sm disabled:opacity-55`}
+                  className={`${dashboardBtnPrimaryClass} dashboard-outreach-save-btn inline-flex h-8 items-center justify-center gap-1 whitespace-nowrap px-3 py-1 text-xs disabled:opacity-55`}
                 >
                   {launching ? (
                     <>
@@ -1315,7 +1312,7 @@ export function OutreachPlanEditor({
                     </>
                   ) : (
                     <>
-                      <MaterialIcon name="rocket_launch" className="text-base" />
+                      <MaterialIcon name="rocket_launch" className="text-sm" />
                       Launch campaign
                     </>
                   )}

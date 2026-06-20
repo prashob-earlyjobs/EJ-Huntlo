@@ -18,6 +18,7 @@ const {
   getDodoConfig,
   getDodoProductId,
   getFrontendBaseUrl,
+  buildDodoCheckoutCustomer,
   createCheckoutSession,
   fetchPayment,
 } = require("./dodoPaymentsService");
@@ -289,11 +290,7 @@ async function createDodoPlanCheckout(actorUserId, { planId, currency }) {
 
   const session = await createCheckoutSession({
     product_cart: [{ product_id: productId, quantity: 1 }],
-    customer: {
-      email: actor.email || undefined,
-      name: actor.fullName || undefined,
-      phone_number: actor.mobile || undefined,
-    },
+    customer: buildDodoCheckoutCustomer(actor),
     billing_currency: billingCurrency,
     return_url: returnUrl,
     cancel_url: cancelUrl,
