@@ -1,6 +1,9 @@
 const { randomUUID } = require("crypto");
 const { normalizeToWhatsAppDigits } = require("./whatsappPhoneUtils");
-const { resolveVoiceAgentPromptTemplate } = require("./voiceAgentPromptService");
+const {
+  resolveVoiceAgentPromptTemplate,
+  buildHunarResultSchema,
+} = require("./voiceAgentPromptService");
 
 const HUNAR_BULK_CALLS_URL =
   "https://api.voice.hunar.ai/external/v1/calls/bulk/";
