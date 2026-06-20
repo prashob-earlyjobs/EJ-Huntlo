@@ -9,6 +9,8 @@ export type CampaignContact = {
   location: string;
   linkedinUrl: string;
   sourcingSessionId: string;
+  /** Per-contact job description (AI voice call campaigns). */
+  jd?: string;
   addedAt: string;
 };
 
@@ -23,6 +25,38 @@ export type CampaignCalendlyAutomation = {
   kind?: string;
 };
 
+export type HunarVoiceAgentRecord = {
+  id: string;
+  name?: string;
+  voice_persona?: string;
+  persona_name?: string | null;
+  voice_name?: string;
+  summary?: string;
+  logo?: string;
+  agent_code?: string;
+  created_at?: string;
+  agent_prompt?: string;
+  introduction?: string;
+  objective?: string;
+  introduction_prompt?: string;
+  silence_response?: string;
+  conclusion?: string;
+  result_prompt?: string;
+  status?: string | null;
+  language?: string;
+  custom_variables?: string[];
+  result_schema?: Record<string, unknown>;
+  [key: string]: unknown;
+};
+
+export type VoiceAgentConfigRecord = {
+  callObjective: string;
+  introductoryStatement: string;
+  callPrompt: string;
+  resultPrompt: string;
+  resultFields: Array<{ columnName: string; expectedValue: string }>;
+};
+
 export type CampaignRecord = {
   id: string;
   name: string;
@@ -35,8 +69,8 @@ export type CampaignRecord = {
   createdAt: string;
   /** Linked outreach sequence for the campaign editor. */
   outreachPlanId?: string;
-  /** gmail = email sequence; whatsapp = WhatsApp sequence */
-  outreachChannel?: "gmail" | "whatsapp";
+  /** gmail = email sequence; whatsapp = WhatsApp sequence; voice_call = AI voice calls */
+  outreachChannel?: "gmail" | "whatsapp" | "voice_call";
   emailIntegrationId?: string;
   outreachStatus?: CampaignOutreachStatus;
   outreachStartedAt?: string | null;
@@ -48,5 +82,11 @@ export type CampaignRecord = {
   lastActivityAt?: string | null;
   /** Total contacts in campaign (may be set when `contacts` is not loaded). */
   contactCount?: number;
+  /** Hunar AI voice agent id created from the voice agent editor. */
+  hunarVoiceAgentId?: string;
+  /** Full Hunar voice agent object returned when the agent is created. */
+  hunarVoiceAgent?: HunarVoiceAgentRecord | null;
+  /** Saved voice agent editor templates (placeholders resolved on save). */
+  voiceAgentConfig?: VoiceAgentConfigRecord | null;
   contacts: CampaignContact[];
 };

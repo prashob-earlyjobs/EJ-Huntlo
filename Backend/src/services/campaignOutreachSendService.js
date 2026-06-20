@@ -246,6 +246,16 @@ async function launchCampaignSequence(actorUserId, campaignId, options = {}) {
     throw err;
   }
 
+  const campaignPrecheck = await findCampaignInScope(actorUserId, campaignId);
+  if (campaignPrecheck.outreachChannel === "voice_call") {
+    const err = new Error(
+      "AI voice campaigns use a separate launch flow. Use POST /api/campaigns/:id/launch-voice instead."
+    );
+    err.statusCode = 400;
+    err.code = "VOICE_LAUNCH_REQUIRED";
+    throw err;
+  }
+
   let { campaign, plan, touchpoints, channel, ownerUserId } = await loadCampaignAndPlan(
     actorUserId,
     campaignId
@@ -498,6 +508,18 @@ async function enrollAddedContactsIfCampaignActive(actorUserId, campaignId, cand
 
 async function pauseCampaignSequence(actorUserId, campaignId) {
   const campaign = await findCampaignDocumentInScope(actorUserId, campaignId);
+
+  if (campaign.outreachChannel === "voice_call") {
+    if (campaign.outreachStatus !== "active") {
+      const err = new Error("Campaign is not active.");
+      err.statusCode = 400;
+      throw err;
+    }
+    campaign.outreachStatus = "paused";
+    await campaign.save();
+    return { outreachStatus: "paused" };
+  }
+
   const ownerUserId = campaignOwnerUserId(campaign);
 
   await CampaignSequenceEnrollment.updateMany(
@@ -516,6 +538,18 @@ async function pauseCampaignSequence(actorUserId, campaignId) {
 }
 
 async function resumeCampaignSequence(actorUserId, campaignId) {
+  const campaignDoc = await findCampaignDocumentInScope(actorUserId, campaignId);
+  if (campaignDoc.outreachChannel === "voice_call") {
+    if (campaignDoc.outreachStatus !== "paused") {
+      const err = new Error("Campaign is not paused.");
+      err.statusCode = 400;
+      throw err;
+    }
+    campaignDoc.outreachStatus = "active";
+    await campaignDoc.save();
+    return { outreachStatus: "active" };
+  }
+
   const { campaign, plan, touchpoints, channel, ownerUserId } = await loadCampaignAndPlan(
     actorUserId,
     campaignId
@@ -1376,6 +1410,13 @@ function buildCampaignReportFromEnrollments({
  * "Replied" is used instead of opens — Gmail API does not expose read receipts for outreach.
  */
 async function getEmailCampaignReport(userId, campaignId) {
+  const campaign = await findCampaignInScope(userId, campaignId, {
+    select: "outreachChannel",
+  });
+  if (campaign.outreachChannel === "voice_call") {
+    const { getVoiceCampaignReport } = require("./campaignVoiceCommsService");
+    return getVoiceCampaignReport(userId, campaignId);
+  }
   const ctx = await loadCampaignReportEnrollments(userId, campaignId);
   return buildCampaignReportFromEnrollments(ctx);
 }
@@ -1384,6 +1425,13 @@ async function getEmailCampaignReport(userId, campaignId) {
  * Paginated outreach activity for the Activity tab.
  */
 async function getEmailCampaignReportActivity(userId, campaignId, options = {}) {
+  const campaign = await findCampaignInScope(userId, campaignId, {
+    select: "outreachChannel",
+  });
+  if (campaign.outreachChannel === "voice_call") {
+    const { getVoiceCampaignReportActivity } = require("./campaignVoiceCommsService");
+    return getVoiceCampaignReportActivity(userId, campaignId, options);
+  }
   const { page, limit } = parseActivityPagination(options);
   const ctx = await loadCampaignReportEnrollments(userId, campaignId);
   const outreachActivities = buildRecentActivityFromEnrollments(ctx.enrollments, ctx.channel);

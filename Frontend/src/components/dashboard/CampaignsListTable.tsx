@@ -6,6 +6,7 @@ import {
 } from "@/components/dashboard/CampaignsListSkeleton";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import type { CampaignRecord } from "@/lib/campaigns";
+import { campaignOutreachChannelLabel } from "@/lib/campaignRoutes";
 import type { CampaignsListSummary } from "@/lib/campaignsApi";
 
 function formatCampaignWhen(iso: string) {
@@ -154,9 +155,6 @@ export function CampaignsListTable({
                 </th>
                 <th scope="col">Last activity</th>
                 <th scope="col">Status</th>
-                <th scope="col" className="dashboard-campaigns-table-action-col">
-                  <span className="sr-only">Open</span>
-                </th>
               </tr>
             </thead>
             <tbody>
@@ -165,7 +163,7 @@ export function CampaignsListTable({
                 const activityWhen = formatCampaignWhen(
                   campaign.lastActivityAt || campaign.createdAt
                 );
-                const isWhatsApp = campaign.outreachChannel === "whatsapp";
+                const channelLabel = campaignOutreachChannelLabel(campaign.outreachChannel);
                 const contactCount = campaign.contactCount ?? campaign.contacts.length;
                 const contactsSent = campaign.contactsSent ?? 0;
                 const interestedCount = campaign.interestedCount ?? 0;
@@ -185,9 +183,6 @@ export function CampaignsListTable({
                   >
                     <td>
                       <div className="dashboard-campaigns-name-cell">
-                        <span className="dashboard-campaigns-avatar" aria-hidden>
-                          <MaterialIcon name="flag" className="text-lg" />
-                        </span>
                         <div className="min-w-0">
                           <p
                             className="dashboard-campaigns-name"
@@ -206,7 +201,7 @@ export function CampaignsListTable({
                     </td>
                     <td>
                       <span className="dashboard-campaigns-channel-label">
-                        {isWhatsApp ? "WhatsApp" : "Email"}
+                        {channelLabel}
                       </span>
                     </td>
                     <td className="tabular-nums">
@@ -247,13 +242,6 @@ export function CampaignsListTable({
                       >
                         {statusLabel(campaign.outreachStatus)}
                       </span>
-                    </td>
-                    <td className="dashboard-campaigns-table-action-col">
-                      <MaterialIcon
-                        name="chevron_right"
-                        className="dashboard-campaigns-row-chevron"
-                        aria-hidden
-                      />
                     </td>
                   </tr>
                 );

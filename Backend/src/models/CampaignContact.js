@@ -24,6 +24,8 @@ const campaignContactSchema = new mongoose.Schema(
     location: { type: String, default: "", trim: true },
     linkedinUrl: { type: String, default: "", trim: true },
     sourcingSessionId: { type: String, default: "", trim: true },
+    /** Per-contact job description (e.g. AI voice call CSV import). */
+    jd: { type: String, default: "", trim: true },
     addedAt: { type: Date, default: Date.now },
   },
   { timestamps: true }

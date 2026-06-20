@@ -102,17 +102,6 @@ export function ImportCampaignContactsCsvModal({
         <div className="dashboard-campaign-csv-modal-body dashboard-outreach-scroll min-h-0 flex-1 overflow-y-auto">
           <section className="dashboard-campaign-csv-modal-section">
             <p className="dashboard-label-upper">Required columns</p>
-            <p className="dashboard-campaign-csv-modal-hint">
-              Your file must include a header row with these exact column names (order can vary).
-              Download the sample CSV and use the same headers.
-            </p>
-            <p className="dashboard-campaign-csv-modal-hint mt-1">
-              Each campaign holds at most 200 contacts. If the CSV has more rows than you have slots
-              left, import is blocked.
-            </p>
-            <p className="dashboard-campaign-csv-modal-hint mt-1">
-              Every column must have a value in each row — no empty cells.
-            </p>
             <div className="dashboard-campaign-csv-header-chips">
               {mandatoryHeaders.map((header) => (
                 <span

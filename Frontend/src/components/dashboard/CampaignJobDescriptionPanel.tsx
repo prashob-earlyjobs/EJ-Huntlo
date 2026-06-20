@@ -1,6 +1,5 @@
 "use client";
 
-import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import {
   dashboardBtnPrimaryClass,
@@ -25,6 +24,7 @@ type Props = {
   /** User is editing WhatsApp sequence on Editor tab (synced JD). */
   showEditorTabHint: boolean;
   isWhatsApp?: boolean;
+  isVoiceCall?: boolean;
 };
 
 const MIN_RECOMMENDED_CHARS = 20;
@@ -56,7 +56,8 @@ export function CampaignJobDescriptionPanel({
   outreachStatus,
   showEmptyGuidance,
   showEditorTabHint,
-  isWhatsApp = true,
+  isWhatsApp = false,
+  isVoiceCall = false,
 }: Props) {
   const trimmedTitle = jobTitle.trim();
   const trimmed = value.trim();
@@ -68,22 +69,16 @@ export function CampaignJobDescriptionPanel({
       <div className="dashboard-campaign-report-toolbar shrink-0">
         <div className="dashboard-campaign-report-toolbar-row">
           <div className="flex min-w-0 flex-1 items-center gap-2.5">
-            {isWhatsApp ? (
-              <IntegrationBrandLogo provider="whatsapp" title="WhatsApp" className="h-6 w-6 shrink-0" />
-            ) : (
-              <span
-                className="dashboard-campaign-jd-toolbar-icon flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600"
-                aria-hidden
-              >
-                <MaterialIcon name="auto_awesome" className="text-xl" />
-              </span>
-            )}
             <div className="min-w-0">
-              <h2 className="dashboard-campaign-report-title">Job description</h2>
+              <h2 className="dashboard-campaign-report-title">
+                {isVoiceCall ? "Voice campaign editor" : "Job description"}
+              </h2>
               <p className="dashboard-campaign-report-subtitle">
-                {isWhatsApp
-                  ? "AI context when candidates ask about the role on WhatsApp"
-                  : "Role context for outreach and candidate questions"}
+                {isVoiceCall
+                  ? "Role details the AI voice agent uses on outbound calls"
+                  : isWhatsApp
+                    ? "AI context when candidates ask about the role on WhatsApp"
+                    : "Role context for outreach and candidate questions"}
               </p>
             </div>
           </div>

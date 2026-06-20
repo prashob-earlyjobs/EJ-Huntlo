@@ -149,11 +149,14 @@ async function getUserPlanSummary(user) {
   const utilisation = utilisationFromUser(billable);
   let emailThreadsUsed = 0;
   let whatsappThreadsUsed = 0;
+  let voiceCallsUsed = 0;
   if (billingUserId) {
     const { countOutreachThreadsUsed } = require("./outreachCreditsService");
-    [emailThreadsUsed, whatsappThreadsUsed] = await Promise.all([
+    const { countVoiceCallsUsed } = require("./voiceCallCreditsService");
+    [emailThreadsUsed, whatsappThreadsUsed, voiceCallsUsed] = await Promise.all([
       countOutreachThreadsUsed("email", { billingUserId }),
       countOutreachThreadsUsed("whatsapp", { billingUserId }),
+      countVoiceCallsUsed({ billingUserId }),
     ]);
   }
   return {
@@ -168,6 +171,7 @@ async function getUserPlanSummary(user) {
       phoneNumbers: tier?.phoneNumbers ?? null,
       emailOutreaches: tier?.emailOutreaches ?? null,
       whatsappOutreaches: tier?.whatsappOutreaches ?? null,
+      aiVoiceCalls: tier?.aiVoiceCalls ?? null,
       maxSubUsers: getMaxSubUsersForTier(tier),
     },
     utilisation,
@@ -175,6 +179,7 @@ async function getUserPlanSummary(user) {
       email: emailThreadsUsed,
       whatsapp: whatsappThreadsUsed,
     },
+    voiceCallsUsed,
     availablePlanIds: tiers.map((t) => t.id).filter(Boolean),
   };
 }

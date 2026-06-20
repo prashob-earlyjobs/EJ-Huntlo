@@ -24,6 +24,7 @@ export type DashboardRecentActivity = {
 export type DashboardOutreachThreads = {
   email: number;
   whatsapp: number;
+  voiceCalls: number;
 };
 
 export type DashboardOverviewData = {
@@ -43,6 +44,7 @@ export type DashboardOverviewData = {
       phoneNumbers: number | null;
       emailOutreaches: number | null;
       whatsappOutreaches: number | null;
+      aiVoiceCalls: number | null;
     };
   };
   stats: {
@@ -58,6 +60,7 @@ export type DashboardOverviewData = {
     phoneNumbers: DashboardQuotaSlot;
     emailOutreach: DashboardQuotaSlot;
     whatsappOutreach: DashboardQuotaSlot;
+    aiVoiceCalls: DashboardQuotaSlot;
   };
   outreachThreads: DashboardOutreachThreads;
   recentSessions: DashboardRecentSession[];
@@ -84,9 +87,13 @@ function planLimit(raw: Record<string, unknown>, key: string): number | null {
 }
 
 function parseOutreachThreads(raw: unknown): DashboardOutreachThreads {
-  if (!raw || typeof raw !== "object") return { email: 0, whatsapp: 0 };
+  if (!raw || typeof raw !== "object") return { email: 0, whatsapp: 0, voiceCalls: 0 };
   const o = raw as Record<string, unknown>;
-  return { email: num(o.email), whatsapp: num(o.whatsapp) };
+  return {
+    email: num(o.email),
+    whatsapp: num(o.whatsapp),
+    voiceCalls: num(o.voiceCalls),
+  };
 }
 
 function mergeOutreachQuotaSlot(
@@ -175,6 +182,13 @@ export function parseDashboardOverviewPayload(raw: unknown): DashboardOverviewDa
   }
 
   const outreachThreads = parseOutreachThreads(plan.outreachThreads);
+  const voiceCallsUsedFromPlan =
+    typeof plan.voiceCallsUsed === "number" && Number.isFinite(plan.voiceCallsUsed)
+      ? Math.max(0, Math.floor(plan.voiceCallsUsed))
+      : 0;
+  if (voiceCallsUsedFromPlan > outreachThreads.voiceCalls) {
+    outreachThreads.voiceCalls = voiceCallsUsedFromPlan;
+  }
   const emailOutreachSlot = mergeOutreachQuotaSlot(
     quotaSlot(quota.emailOutreach),
     outreachThreads,
@@ -189,6 +203,14 @@ export function parseDashboardOverviewPayload(raw: unknown): DashboardOverviewDa
     limitsRaw,
     "whatsappOutreaches"
   );
+  const voiceCallsSlot = quotaSlot(quota.aiVoiceCalls);
+  const aiVoiceCallsSlot = {
+    used:
+      outreachThreads.voiceCalls > 0
+        ? outreachThreads.voiceCalls
+        : voiceCallsSlot.used,
+    limit: voiceCallsSlot.limit ?? planLimit(limitsRaw, "aiVoiceCalls"),
+  };
 
   return {
     greeting: {
@@ -220,6 +242,8 @@ export function parseDashboardOverviewPayload(raw: unknown): DashboardOverviewDa
           typeof limitsRaw.whatsappOutreaches === "number"
             ? limitsRaw.whatsappOutreaches
             : null,
+        aiVoiceCalls:
+          typeof limitsRaw.aiVoiceCalls === "number" ? limitsRaw.aiVoiceCalls : null,
       },
     },
     stats: {
@@ -235,8 +259,12 @@ export function parseDashboardOverviewPayload(raw: unknown): DashboardOverviewDa
       phoneNumbers: quotaSlot(quota.phoneNumbers),
       emailOutreach: emailOutreachSlot,
       whatsappOutreach: whatsappOutreachSlot,
+      aiVoiceCalls: aiVoiceCallsSlot,
     },
-    outreachThreads,
+    outreachThreads: {
+      ...outreachThreads,
+      voiceCalls: aiVoiceCallsSlot.used,
+    },
     recentSessions,
     recentActivity,
   };
@@ -281,6 +309,17 @@ export function shouldShowOutreachQuotaMeter(
 ): boolean {
   const limitKey = channel === "email" ? "emailOutreaches" : "whatsappOutreaches";
   const planLimit = data.plan.limits[limitKey];
+  if (typeof planLimit === "number" && planLimit > 0) return true;
+  if (typeof meter.limit === "number" && meter.limit > 0) return true;
+  if (meter.used > 0) return true;
+  return false;
+}
+
+export function shouldShowVoiceCallQuotaMeter(
+  data: DashboardOverviewData,
+  meter: DashboardQuotaSlot
+): boolean {
+  const planLimit = data.plan.limits.aiVoiceCalls;
   if (typeof planLimit === "number" && planLimit > 0) return true;
   if (typeof meter.limit === "number" && meter.limit > 0) return true;
   if (meter.used > 0) return true;

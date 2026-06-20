@@ -16,6 +16,7 @@ import {
 } from "@/components/dashboard/CandidatePoolPanel";
 import { LandingLogo } from "@/components/landing/LandingLogo";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { ConfirmModal } from "@/components/dashboard/ConfirmModal";
 import { authHeaders, getStoredAuth, type StoredAuth } from "@/lib/auth";
 import {
   fetchPlatformSettings,
@@ -159,6 +160,7 @@ const ADMIN_USERS_LIMIT = 20;
 type TeamUserRow = {
   id: string;
   fullName: string;
+  companyName?: string;
   mobile: string;
   email: string;
   role: "user" | "admin";
@@ -206,6 +208,7 @@ type UserPlanDetailsState = {
     phoneNumbers: number | null;
     emailOutreaches: number | null;
     whatsappOutreaches: number | null;
+    aiVoiceCalls: number | null;
     maxSubUsers: number | null;
   };
   utilisation: {
@@ -218,6 +221,7 @@ type UserPlanDetailsState = {
   outreachThreads: {
     email: number;
     whatsapp: number;
+    voiceCalls: number;
   };
 };
 
@@ -230,6 +234,7 @@ type OutreachCreditsSlot = {
 type OutreachCreditsAnalytics = {
   email: OutreachCreditsSlot;
   whatsapp: OutreachCreditsSlot;
+  voiceCalls?: OutreachCreditsSlot;
 };
 
 type UsageAnalyticsCell = { count: number; credits: number };
@@ -312,10 +317,36 @@ function parseOutreachCreditsSlot(raw: unknown): OutreachCreditsSlot {
 function parseOutreachCreditsAnalytics(raw: unknown): OutreachCreditsAnalytics | null {
   if (!raw || typeof raw !== "object") return null;
   const o = raw as Record<string, unknown>;
+  const voiceRaw = o.voiceCalls ?? o.voiceCallCredits;
   return {
     email: parseOutreachCreditsSlot(o.email),
     whatsapp: parseOutreachCreditsSlot(o.whatsapp),
+    voiceCalls: voiceRaw ? parseVoiceCallCreditsSlot(voiceRaw) : undefined,
   };
+}
+
+function parseVoiceCallCreditsSlot(raw: unknown): OutreachCreditsSlot {
+  if (!raw || typeof raw !== "object") {
+    return { threadsUsed: 0, limit: null, remaining: null };
+  }
+  const o = raw as Record<string, unknown>;
+  const threadsUsed =
+    typeof o.callsUsed === "number" && Number.isFinite(o.callsUsed)
+      ? Math.max(0, Math.floor(o.callsUsed))
+      : typeof o.threadsUsed === "number" && Number.isFinite(o.threadsUsed)
+        ? Math.max(0, Math.floor(o.threadsUsed))
+        : 0;
+  const limit =
+    typeof o.limit === "number" && Number.isFinite(o.limit) && o.limit > 0
+      ? Math.floor(o.limit)
+      : null;
+  const remaining =
+    typeof o.remaining === "number" && Number.isFinite(o.remaining)
+      ? Math.max(0, Math.floor(o.remaining))
+      : limit != null
+        ? Math.max(0, limit - threadsUsed)
+        : null;
+  return { threadsUsed, limit, remaining };
 }
 
 function mapApiCandidateToPoolRow(row: Record<string, unknown>): PoolCandidateRow {
@@ -363,6 +394,8 @@ function utilisationQuotaActionLabel(action: string): string {
       return "Email outreach";
     case "whatsappOutreaches":
       return "WhatsApp outreach";
+    case "aiVoiceCalls":
+      return "AI voice call";
     default:
       return action || "Activity";
   }
@@ -453,6 +486,9 @@ function UsageAnalyticsBreakdownTable({
       ? [
           { key: "email_outreach", label: "Email outreach", slot: outreach.email },
           { key: "whatsapp_outreach", label: "WhatsApp outreach", slot: outreach.whatsapp },
+          ...(outreach.voiceCalls
+            ? [{ key: "ai_voice_calls", label: "AI voice calls", slot: outreach.voiceCalls }]
+            : []),
         ]
       : [];
 
@@ -639,6 +675,7 @@ type PricingTierForm = {
   phoneNumbers: string;
   emailOutreaches: string;
   whatsappOutreaches: string;
+  aiVoiceCalls: string;
   maxSubUsers: string;
   featuresText: string;
   campaignsEnabled: boolean;
@@ -718,6 +755,7 @@ function apiPlansToForm(plans: { intro?: unknown; tiers?: unknown }): PricingPla
       whatsappOutreaches: showOutreachQuotas
         ? quotaApiValueToFormField(t.whatsappOutreaches)
         : "",
+      aiVoiceCalls: campaignsEnabled ? quotaApiValueToFormField(t.aiVoiceCalls) : "",
       maxSubUsers:
         t.maxSubUsers === null
           ? ""
@@ -752,6 +790,7 @@ function formToApiPayload(form: PricingPlansFormState) {
       whatsappOutreaches: tierUsesOutreachQuotas(t)
         ? formQuotaFieldToApi(t.whatsappOutreaches)
         : null,
+      aiVoiceCalls: t.campaignsEnabled ? formQuotaFieldToApi(t.aiVoiceCalls) : null,
       maxSubUsers: t.maxSubUsers.trim() === "" ? null : formQuotaFieldToApi(t.maxSubUsers),
       features: t.featuresText
         .split("\n")
@@ -789,6 +828,7 @@ export function AdminDashboardPage() {
   const [createError, setCreateError] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [createForm, setCreateForm] = useState({
     fullName: "",
     companyName: "",
@@ -1051,7 +1091,24 @@ export function AdminDashboardPage() {
           throw new Error(data.message || "Failed to load usage analytics");
         }
         setUsageAnalyticsSummary(parseUsageAnalyticsSummary(data.summary));
-        setOutreachCreditsAnalytics(parseOutreachCreditsAnalytics(data.outreachCredits));
+        const outreach = parseOutreachCreditsAnalytics(data.outreachCredits);
+        const voiceSlot = data.voiceCallCredits
+          ? parseVoiceCallCreditsSlot(data.voiceCallCredits)
+          : null;
+        setOutreachCreditsAnalytics(
+          outreach
+            ? {
+                ...outreach,
+                ...(voiceSlot ? { voiceCalls: voiceSlot } : {}),
+              }
+            : voiceSlot
+              ? {
+                  email: { threadsUsed: 0, limit: null, remaining: null },
+                  whatsapp: { threadsUsed: 0, limit: null, remaining: null },
+                  voiceCalls: voiceSlot,
+                }
+              : null
+        );
       } catch {
         setUsageAnalyticsSummary(emptyUsageAnalyticsSummary());
         setOutreachCreditsAnalytics(null);
@@ -1201,6 +1258,7 @@ export function AdminDashboardPage() {
               phoneNumbers: limNum("phoneNumbers"),
               emailOutreaches: limNum("emailOutreaches"),
               whatsappOutreaches: limNum("whatsappOutreaches"),
+              aiVoiceCalls: limNum("aiVoiceCalls"),
               maxSubUsers: limNum("maxSubUsers"),
             },
             utilisation: {
@@ -1213,6 +1271,10 @@ export function AdminDashboardPage() {
             outreachThreads: {
               email: outreachNum("email"),
               whatsapp: outreachNum("whatsapp"),
+              voiceCalls:
+                typeof p.voiceCallsUsed === "number" && Number.isFinite(p.voiceCallsUsed)
+                  ? Math.max(0, Math.floor(p.voiceCallsUsed))
+                  : outreachNum("voiceCalls"),
             },
           });
         } else {
@@ -1222,7 +1284,18 @@ export function AdminDashboardPage() {
         if (analyticsData.success && analyticsData.summary) {
           setUserUsageAnalyticsSummary(parseUsageAnalyticsSummary(analyticsData.summary));
           setUserOutreachCreditsAnalytics(
-            parseOutreachCreditsAnalytics(analyticsData.outreachCredits)
+            (() => {
+              const outreach = parseOutreachCreditsAnalytics(analyticsData.outreachCredits);
+              const voiceSlot = analyticsData.voiceCallCredits
+                ? parseVoiceCallCreditsSlot(analyticsData.voiceCallCredits)
+                : null;
+              if (!outreach && !voiceSlot) return null;
+              return {
+                email: outreach?.email ?? { threadsUsed: 0, limit: null, remaining: null },
+                whatsapp: outreach?.whatsapp ?? { threadsUsed: 0, limit: null, remaining: null },
+                ...(voiceSlot ? { voiceCalls: voiceSlot } : {}),
+              };
+            })()
           );
         } else {
           setUserUsageAnalyticsSummary(emptyUsageAnalyticsSummary());
@@ -1333,6 +1406,7 @@ export function AdminDashboardPage() {
   };
 
   const handleLogout = async () => {
+    setLogoutConfirmOpen(false);
     try {
       setIsLoggingOut(true);
       await fetch(`${apiBase}/api/users/logout`, {
@@ -1519,6 +1593,16 @@ export function AdminDashboardPage() {
 
   return (
     <main className="dashboard-page">
+      <ConfirmModal
+        open={logoutConfirmOpen}
+        title="Log out?"
+        message="You'll need to sign in again to access the admin workspace."
+        confirmLabel="Logout"
+        cancelLabel="Stay signed in"
+        iconName="logout"
+        onCancel={() => setLogoutConfirmOpen(false)}
+        onConfirm={() => void handleLogout()}
+      />
       <div className="dashboard-shell flex min-w-0 w-full">
         <aside className="dashboard-sidebar hidden lg:block">
           <p className="dashboard-sidebar-label">Admin Panel</p>
@@ -1576,7 +1660,7 @@ export function AdminDashboardPage() {
                 </Link>
                 <button
                   type="button"
-                  onClick={handleLogout}
+                  onClick={() => setLogoutConfirmOpen(true)}
                   disabled={isLoggingOut}
                   className="dashboard-btn-secondary"
                 >
@@ -1643,10 +1727,11 @@ export function AdminDashboardPage() {
                 </form>
 
                 <div className="mt-4 overflow-x-auto">
-                  <table className="w-full min-w-[640px] border-collapse text-left">
+                  <table className="w-full min-w-[760px] border-collapse text-left">
                     <thead>
                       <tr className="dashboard-table-head">
                         <th className="py-3 font-semibold">Name</th>
+                        <th className="py-3 font-semibold">Company</th>
                         <th className="py-3 font-semibold">Mobile</th>
                         <th className="py-3 font-semibold">Email</th>
                         <th className="py-3 font-semibold">Role</th>
@@ -1658,13 +1743,13 @@ export function AdminDashboardPage() {
                     <tbody>
                       {usersLoading ? (
                         <tr>
-                          <td colSpan={7} className="py-8 text-center text-sm text-slate-500">
+                          <td colSpan={8} className="py-8 text-center text-sm text-slate-500">
                             Loading users…
                           </td>
                         </tr>
                       ) : teamUsers.length === 0 ? (
                         <tr>
-                          <td colSpan={7} className="py-8 text-center text-sm text-slate-500">
+                          <td colSpan={8} className="py-8 text-center text-sm text-slate-500">
                             {usersSearchQuery
                               ? `No users match “${usersSearchQuery}”.`
                               : "No users found."}
@@ -1679,6 +1764,7 @@ export function AdminDashboardPage() {
                             <td className="py-4 font-medium text-slate-900">
                               {user.fullName}
                             </td>
+                            <td className="py-4 text-slate-700">{user.companyName?.trim() || "—"}</td>
                             <td className="py-4 text-slate-700">{user.mobile || "—"}</td>
                             <td className="py-4 text-slate-700">{user.email}</td>
                             <td className="py-4 text-slate-700">{roleLabel(user.role)}</td>
@@ -2199,6 +2285,23 @@ export function AdminDashboardPage() {
                                 </div>
                               </>
                             ) : null}
+                            {tier.campaignsEnabled ? (
+                              <div>
+                                <label className="text-xs text-slate-600">AI voice calls</label>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step={1}
+                                  inputMode="numeric"
+                                  value={tier.aiVoiceCalls}
+                                  onChange={(e) =>
+                                    patchPricingTier(idx, { aiVoiceCalls: e.target.value })
+                                  }
+                                  placeholder="50"
+                                  className="mt-1 w-full dashboard-input"
+                                />
+                              </div>
+                            ) : null}
                             <div>
                               <label className="text-xs text-slate-600">Sub-users (max)</label>
                               <input
@@ -2444,7 +2547,11 @@ export function AdminDashboardPage() {
                   <div>
                     <h3 className="dashboard-section-title text-xl">Manage user</h3>
                     <p className="mt-1 dashboard-text-body">
-                      {manageModalUser.fullName} — plan{" "}
+                      {manageModalUser.fullName}
+                      {manageModalUser.companyName?.trim()
+                        ? ` · ${manageModalUser.companyName.trim()}`
+                        : ""}{" "}
+                      — plan{" "}
                       <span className="font-semibold text-black">
                         {planNameForId(manageModalUser.planId)}
                       </span>
@@ -2587,6 +2694,15 @@ export function AdminDashboardPage() {
                                 {quotaRemainingDisplay(
                                   userPlanDetails.outreachThreads.whatsapp,
                                   userPlanDetails.limits.whatsappOutreaches
+                                )}
+                              </td>
+                            </tr>
+                            <tr className="border-b border-slate-100">
+                              <td className="px-3 py-2">AI voice calls</td>
+                              <td className="px-3 py-2 text-right tabular-nums">
+                                {quotaRemainingDisplay(
+                                  userPlanDetails.outreachThreads.voiceCalls,
+                                  userPlanDetails.limits.aiVoiceCalls
                                 )}
                               </td>
                             </tr>

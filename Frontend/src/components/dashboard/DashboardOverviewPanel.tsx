@@ -8,10 +8,11 @@ import {
   quotaRemainingLabel,
   planOutreachMetersEnabled,
   shouldShowOutreachQuotaMeter,
+  shouldShowVoiceCallQuotaMeter,
   type DashboardOverviewData,
   type DashboardRecentSession,
 } from "@/lib/dashboardOverview";
-import { hasOutreachThreadUtilisation } from "@/lib/planAccess";
+import { hasOutreachThreadUtilisation, hasVoiceCallUtilisation } from "@/lib/planAccess";
 import {
   quotaUsedPercent,
   utilisationQuotaActionLabel,
@@ -160,6 +161,31 @@ export function DashboardOverviewPanel({
         shouldShowOutreachQuotaMeter("whatsapp", data, {
           used: whatsappOutreachMeter.used,
           limit: whatsappOutreachMeter.limit,
+        })
+    );
+  const voiceCallMeter = data
+    ? {
+        used:
+          outreachThreads.voiceCalls > 0
+            ? outreachThreads.voiceCalls
+            : data.quotaSummary.aiVoiceCalls.used,
+        limit:
+          pricingPlans?.tiers.find((t) => t.id === currentPlanId)?.aiVoiceCalls ??
+          data.plan.limits.aiVoiceCalls ??
+          data.quotaSummary.aiVoiceCalls.limit,
+      }
+    : null;
+  const voiceCallMetersEnabled =
+    (data ? hasVoiceCallUtilisation(planId, pricingPlans) : false) ||
+    hasVoiceCallUtilisation(currentPlanId, pricingPlans);
+  const showVoiceCalls =
+    voiceCallMetersEnabled ||
+    Boolean(
+      data &&
+        voiceCallMeter &&
+        shouldShowVoiceCallQuotaMeter(data, {
+          used: voiceCallMeter.used,
+          limit: voiceCallMeter.limit,
         })
     );
 
@@ -331,6 +357,14 @@ export function DashboardOverviewPanel({
                     icon="chat"
                     used={whatsappOutreachMeter.used}
                     limit={whatsappOutreachMeter.limit}
+                  />
+                ) : null}
+                {showVoiceCalls && voiceCallMeter ? (
+                  <CompactQuotaMeter
+                    label="AI voice calls"
+                    icon="call"
+                    used={voiceCallMeter.used}
+                    limit={voiceCallMeter.limit}
                   />
                 ) : null}
               </div>

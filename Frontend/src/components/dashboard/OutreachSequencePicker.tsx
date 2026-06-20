@@ -18,6 +18,8 @@ import type { WhatsAppTouchpointDraft } from "@/lib/whatsappOutreach";
 
 export type OutreachPlanChannel = "gmail" | "whatsapp";
 
+export type OutreachSequenceChannel = OutreachPlanChannel | "voice_call";
+
 export type ExistingOutreachPlanOption = {
   id: string;
   name: string;
@@ -28,7 +30,7 @@ export type ExistingOutreachPlanOption = {
 export type CreateOutreachChoice =
   | {
       type: "scratch";
-      channel: "gmail" | "whatsapp";
+      channel: OutreachSequenceChannel;
       jobTitle: string;
       jobDescription: string;
     }
@@ -83,7 +85,7 @@ type Variant = "modal" | "embedded" | "campaign";
 
 type Props = {
   variant?: Variant;
-  allowedChannels?: ("gmail" | "whatsapp")[];
+  allowedChannels?: OutreachSequenceChannel[];
   existingPlans: ExistingOutreachPlanOption[];
   plansLoading?: boolean;
   plansPage?: number;
@@ -163,7 +165,7 @@ function pickerStyles(variant: Variant) {
       iconBox: "dashboard-campaign-sequence-action-icon",
       iconBoxAi:
         "dashboard-campaign-sequence-action-icon dashboard-campaign-sequence-action-icon--ai",
-      iconSize: "text-[22px]",
+      iconSize: "text-xl",
       label: "dashboard-campaign-sequence-action-label",
       chevron: "dashboard-campaign-sequence-action-chevron",
       hint: "dashboard-campaign-sequence-hint",
@@ -219,6 +221,67 @@ function pickerStyles(variant: Variant) {
       : "mt-6 flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-4",
     subpanel: "",
   };
+}
+
+function ScratchChannelOption({
+  variant,
+  styles: s,
+  selected,
+  disabled,
+  label,
+  brandProvider,
+  icon,
+  iconVariant = "default",
+  onSelect,
+}: {
+  variant: Variant;
+  styles: ReturnType<typeof pickerStyles>;
+  selected: boolean;
+  disabled?: boolean;
+  label: string;
+  brandProvider?: "gmail" | "whatsapp";
+  icon?: string;
+  iconVariant?: "default" | "ai";
+  onSelect: () => void;
+}) {
+  const isCampaign = variant === "campaign";
+  const optionClass = isCampaign ? "dashboard-create-outreach-option" : s.optionBtn;
+  const iconClass =
+    iconVariant === "ai"
+      ? isCampaign
+        ? "dashboard-create-outreach-option-icon dashboard-create-outreach-option-icon--ai"
+        : s.iconBoxAi
+      : isCampaign
+        ? "dashboard-create-outreach-option-icon"
+        : s.iconBox;
+  const labelClass = isCampaign ? "dashboard-create-outreach-option-label" : s.label;
+
+  return (
+    <button
+      type="button"
+      className={`${optionClass}${selected ? " border-[#0050cb] bg-[#f3f7ff]" : ""}`}
+      disabled={disabled}
+      onClick={onSelect}
+    >
+      <span className={iconClass} aria-hidden>
+        {brandProvider ? (
+          <IntegrationBrandLogo
+            provider={brandProvider}
+            title={label}
+            className="dashboard-integration-brand-logo"
+          />
+        ) : icon ? (
+          <MaterialIcon name={icon} className={s.iconSize} />
+        ) : null}
+      </span>
+      <span className={labelClass}>{label}</span>
+      {selected ? (
+        <MaterialIcon name="check_circle" className="shrink-0 text-xl text-[#0050cb]" aria-hidden />
+      ) : (
+        <MaterialIcon name="radio_button_unchecked" className="shrink-0 text-xl text-slate-400" aria-hidden />
+      )}
+    </button>
+  );
 }
 
 function OptionRow({
@@ -300,7 +363,7 @@ export function OutreachSequencePicker({
   const [jobDescription, setJobDescription] = useState(
     () => initialJobDescription.trim()
   );
-  const [scratchChannel, setScratchChannel] = useState<"gmail" | "whatsapp" | "">("");
+  const [scratchChannel, setScratchChannel] = useState<OutreachSequenceChannel | "">("");
 
   useEffect(() => {
     const next = initialJobTitle.trim();
@@ -350,6 +413,7 @@ export function OutreachSequencePicker({
   const pickerDisabled = readOnly;
   const allowsGmail = allowedChannels.includes("gmail");
   const allowsWhatsApp = allowedChannels.includes("whatsapp");
+  const allowsVoiceCall = allowedChannels.includes("voice_call");
 
   const visiblePlans = useMemo(
     () => existingPlans.filter((p) => allowedChannels.includes(p.channel)),
@@ -371,7 +435,6 @@ export function OutreachSequencePicker({
   /** Explicit false = parent gates first paint (campaign editor); undefined = loading flags only. */
   const pickerLoading =
     optionsReady === undefined ? listLoading : !optionsReady || listLoading;
-  const showEmptyHints = optionsReady !== false && !pickerLoading;
   const hasTemplateList =
     globalTemplates.length > 0 || userTemplates.length > 0 || savedPlansCount > 0;
 
@@ -414,68 +477,40 @@ export function OutreachSequencePicker({
               : s.options
           }
         >
-          <button
-            type="button"
-            className={`${
-              variant === "campaign" ? "dashboard-create-outreach-option" : s.optionBtn
-            }${scratchChannel === "gmail" ? " border-[#0050cb] bg-[#f3f7ff]" : ""}`}
-            disabled={pickerDisabled}
-            onClick={() => setScratchChannel("gmail")}
-          >
-            <span
-              className={
-                variant === "campaign"
-                  ? "dashboard-create-outreach-option-icon"
-                  : s.iconBox
-              }
-              aria-hidden
-            >
-              <IntegrationBrandLogo provider="gmail" title="Gmail" className="dashboard-integration-brand-logo" />
-            </span>
-            <span
-              className={
-                variant === "campaign" ? "dashboard-create-outreach-option-label" : s.label
-              }
-            >
-              Gmail
-            </span>
-            {scratchChannel === "gmail" ? (
-              <MaterialIcon name="check_circle" className="shrink-0 text-xl text-[#0050cb]" aria-hidden />
-            ) : (
-              <MaterialIcon name="radio_button_unchecked" className="shrink-0 text-xl text-slate-400" aria-hidden />
-            )}
-          </button>
-          <button
-            type="button"
-            className={`${
-              variant === "campaign" ? "dashboard-create-outreach-option" : s.optionBtn
-            }${scratchChannel === "whatsapp" ? " border-[#0050cb] bg-[#f3f7ff]" : ""}`}
-            disabled={pickerDisabled}
-            onClick={() => setScratchChannel("whatsapp")}
-          >
-            <span
-              className={
-                variant === "campaign"
-                  ? "dashboard-create-outreach-option-icon"
-                  : s.iconBox
-              }
-              aria-hidden
-            >
-              <IntegrationBrandLogo provider="whatsapp" title="WhatsApp" className="dashboard-integration-brand-logo" />
-            </span>
-            <span
-              className={
-                variant === "campaign" ? "dashboard-create-outreach-option-label" : s.label
-              }
-            >
-              WhatsApp
-            </span>
-            {scratchChannel === "whatsapp" ? (
-              <MaterialIcon name="check_circle" className="shrink-0 text-xl text-[#0050cb]" aria-hidden />
-            ) : (
-              <MaterialIcon name="radio_button_unchecked" className="shrink-0 text-xl text-slate-400" aria-hidden />
-            )}
-          </button>
+          {allowsGmail ? (
+            <ScratchChannelOption
+              variant={variant}
+              styles={s}
+              selected={scratchChannel === "gmail"}
+              disabled={pickerDisabled}
+              label="Gmail"
+              brandProvider="gmail"
+              onSelect={() => setScratchChannel("gmail")}
+            />
+          ) : null}
+          {allowsWhatsApp ? (
+            <ScratchChannelOption
+              variant={variant}
+              styles={s}
+              selected={scratchChannel === "whatsapp"}
+              disabled={pickerDisabled}
+              label="WhatsApp"
+              brandProvider="whatsapp"
+              onSelect={() => setScratchChannel("whatsapp")}
+            />
+          ) : null}
+          {allowsVoiceCall ? (
+            <ScratchChannelOption
+              variant={variant}
+              styles={s}
+              selected={scratchChannel === "voice_call"}
+              disabled={pickerDisabled}
+              label="AI voice call"
+              icon="record_voice_over"
+              iconVariant="ai"
+              onSelect={() => setScratchChannel("voice_call")}
+            />
+          ) : null}
         </div>
         <div className={s.actions}>
           <button
@@ -491,7 +526,7 @@ export function OutreachSequencePicker({
             onClick={() =>
               onChoose({
                 type: "scratch",
-                channel: scratchChannel as "gmail" | "whatsapp",
+                channel: scratchChannel as OutreachSequenceChannel,
                 jobTitle: normalizedJobTitle,
                 jobDescription: normalizedJobDescription,
               })
@@ -630,9 +665,6 @@ export function OutreachSequencePicker({
     <div className={s.root}>
       {showLead ? <p className={s.lead}>{lead}</p> : null}
 
-      {variant === "campaign" ? (
-        <p className="dashboard-label-upper dashboard-campaign-sequence-actions-label">Start Free Trial</p>
-      ) : null}
       <div className={s.options}>
         <OptionRow
           styles={s}
@@ -649,23 +681,7 @@ export function OutreachSequencePicker({
           disabled={pickerDisabled}
           onClick={() => setStep("scratchChannel")}
         />
-        <OptionRow
-          styles={s}
-          icon="content_copy"
-          label="Clone an existing outreach"
-          disabled={
-            pickerDisabled || pickerLoading || (!plansLoading && savedPlansCount === 0)
-          }
-          onClick={() => {
-            if (pickerLoading || (savedPlansCount === 0 && !plansLoading)) return;
-            setStep("clone");
-          }}
-        />
       </div>
-
-      {showEmptyHints && savedPlansCount === 0 ? (
-        <p className={s.hint}>Create and save a plan first to enable cloning.</p>
-      ) : null}
 
       <div className={s.sectionGap}>
         {pickerLoading ? (

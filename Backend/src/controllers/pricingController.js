@@ -66,6 +66,8 @@ function quotaDisplayLine(n, kind) {
       return `${q} email outreaches`;
     case "whatsappOutreaches":
       return `${q} WhatsApp outreaches`;
+    case "aiVoiceCalls":
+      return `${q} AI voice calls`;
     default:
       return null;
   }
@@ -84,6 +86,7 @@ function quotaStripSetFromNumbers(defTier) {
       quotaDisplayLine(defTier.phoneNumbers, "phones"),
       quotaDisplayLine(defTier.emailOutreaches, "emailOutreaches"),
       quotaDisplayLine(defTier.whatsappOutreaches, "whatsappOutreaches"),
+      quotaDisplayLine(defTier.aiVoiceCalls, "aiVoiceCalls"),
       subLine,
     ].filter(Boolean)
   );
@@ -110,6 +113,7 @@ function normalizePayload(body) {
     const phoneNumbers = normalizeQuotaNumber(t?.phoneNumbers);
     const emailOutreaches = normalizeQuotaNumber(t?.emailOutreaches);
     const whatsappOutreaches = normalizeQuotaNumber(t?.whatsappOutreaches);
+    const aiVoiceCalls = normalizeQuotaNumber(t?.aiVoiceCalls);
     const maxSubUsers =
       t?.maxSubUsers === null || t?.maxSubUsers === undefined || t?.maxSubUsers === ""
         ? null
@@ -137,6 +141,7 @@ function normalizePayload(body) {
       phoneNumbers,
       emailOutreaches,
       whatsappOutreaches,
+      aiVoiceCalls,
       maxSubUsers,
       features,
       campaignsEnabled: Boolean(t?.campaignsEnabled),
@@ -199,6 +204,11 @@ function enrichPlansData(raw) {
       merged.emailOutreaches = null;
       merged.whatsappOutreaches = null;
     }
+    if (merged.campaignsEnabled) {
+      merged.aiVoiceCalls = pick("aiVoiceCalls");
+    } else {
+      merged.aiVoiceCalls = null;
+    }
     const pickSubUsers = () => {
       if (Object.prototype.hasOwnProperty.call(tier, "maxSubUsers") && tier.maxSubUsers === null) {
         return null;
@@ -241,6 +251,7 @@ function planDocumentToTierPayload(doc) {
     phoneNumbers: coerceStoredQuota(o.phoneNumbers),
     emailOutreaches: coerceStoredQuota(o.emailOutreaches),
     whatsappOutreaches: coerceStoredQuota(o.whatsappOutreaches),
+    aiVoiceCalls: coerceStoredQuota(o.aiVoiceCalls),
     maxSubUsers:
       o.maxSubUsers === null
         ? null
@@ -278,6 +289,7 @@ async function upsertPricingPlanFromNormalized(t, sortOrder) {
         phoneNumbers: t.phoneNumbers,
         emailOutreaches: t.emailOutreaches,
         whatsappOutreaches: t.whatsappOutreaches,
+        aiVoiceCalls: t.aiVoiceCalls,
         maxSubUsers: t.maxSubUsers,
         features: t.features,
         campaignsEnabled: Boolean(t.campaignsEnabled),

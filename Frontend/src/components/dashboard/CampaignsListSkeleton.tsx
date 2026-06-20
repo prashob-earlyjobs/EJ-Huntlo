@@ -8,7 +8,6 @@ const TABLE_HEADER_SHIMMERS = [
   "w-16",
   "w-20",
   "w-12",
-  "w-5",
 ] as const;
 
 export function CampaignsSummarySkeleton() {
@@ -56,7 +55,6 @@ export function CampaignsTableSkeleton({ count = 5 }: { count?: number }) {
                 <tr key={`campaign-skeleton-${idx}`}>
                   <td>
                     <div className="dashboard-campaigns-name-cell">
-                      <div className="dashboard-shimmer dashboard-campaigns-avatar" />
                       <div className="min-w-0 flex-1 space-y-2">
                         <div
                           className="dashboard-shimmer h-4 rounded"
@@ -83,9 +81,6 @@ export function CampaignsTableSkeleton({ count = 5 }: { count?: number }) {
                   </td>
                   <td>
                     <div className="dashboard-shimmer h-6 w-16 rounded-full" />
-                  </td>
-                  <td className="dashboard-campaigns-table-action-col">
-                    <div className="dashboard-shimmer ml-auto h-5 w-5 rounded" />
                   </td>
                 </tr>
               ))}

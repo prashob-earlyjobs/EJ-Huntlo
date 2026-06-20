@@ -69,6 +69,18 @@ export function hasCampaignsAndIntegrationsAccess(
   return hasCampaignsAccess(planId, plans, opts);
 }
 
+/** True when admin enabled Campaigns on the plan (shows AI voice call meter). */
+export function hasVoiceCallUtilisation(
+  planId: string,
+  plans?: PricingPlansPayload | null,
+  opts?: PlanAccessOptions
+): boolean {
+  if (opts?.plansReady === false) return false;
+  const tier = findPlanTier(planId, plans);
+  if (!tier) return legacyProductAccess(planId);
+  return Boolean(tier.campaignsEnabled);
+}
+
 /** True when admin enabled Campaigns or Outreaches for the plan (shows both outreach meters). */
 export function hasOutreachThreadUtilisation(
   planId: string,

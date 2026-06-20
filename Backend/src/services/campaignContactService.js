@@ -41,6 +41,7 @@ function normalizeContact(raw) {
     location: String(raw.location || "").trim(),
     linkedinUrl: String(raw.linkedinUrl || "").trim(),
     sourcingSessionId: String(raw.sourcingSessionId || "").trim(),
+    jd: String(raw.jd || "").trim(),
     addedAt: raw.addedAt ? new Date(raw.addedAt) : new Date(),
   };
 }
@@ -72,6 +73,7 @@ function formatContact(doc) {
     location: o.location || "",
     linkedinUrl: o.linkedinUrl || "",
     sourcingSessionId: o.sourcingSessionId || "",
+    jd: o.jd || "",
     addedAt: o.addedAt ? new Date(o.addedAt).toISOString() : new Date().toISOString(),
   };
 }

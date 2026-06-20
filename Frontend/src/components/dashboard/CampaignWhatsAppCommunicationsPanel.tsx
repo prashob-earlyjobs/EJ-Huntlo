@@ -476,8 +476,6 @@ export function CampaignWhatsAppCommunicationsPanel({
         actions={[
           {
             label: "Retry",
-            icon: "refresh",
-            variant: "primary",
             onClick: () => void loadConversations(),
           },
         ]}
@@ -494,14 +492,11 @@ export function CampaignWhatsAppCommunicationsPanel({
         actions={[
           {
             label: "Add from search history",
-            icon: "history",
             disabled: contactsLocked,
             onClick: onAddFromSearchHistory,
           },
           {
             label: "Upload CSV",
-            icon: "upload_file",
-            variant: "secondary",
             disabled: contactsLocked,
             onClick: onUploadCsv,
           },

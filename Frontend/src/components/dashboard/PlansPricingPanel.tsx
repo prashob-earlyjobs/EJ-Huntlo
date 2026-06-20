@@ -17,7 +17,7 @@ import {
   type UserUtilisationStats,
   type UtilisationHistoryRow,
 } from "@/lib/planUtilisation";
-import { hasOutreachThreadUtilisation } from "@/lib/planAccess";
+import { hasOutreachThreadUtilisation, hasVoiceCallUtilisation } from "@/lib/planAccess";
 import {
   tierFeatureLines,
   type PricingPlansPayload,
@@ -104,6 +104,13 @@ const OUTREACH_UTILISATION_METRICS: Array<{
     limitKey: "whatsappOutreaches",
   },
 ];
+
+const VOICE_CALL_UTILISATION_METRIC = {
+  key: "voiceCalls" as const,
+  label: "AI voice calls",
+  icon: "call",
+  limitKey: "aiVoiceCalls" as const,
+};
 
 function UtilisationMeter({
   label,
@@ -266,6 +273,7 @@ export function PlansPricingPanel({
 
   const displayPlanName = currentTier?.name ?? currentPlanName;
   const showOutreachMeters = hasOutreachThreadUtilisation(currentPlanId, plans);
+  const showVoiceCallMeter = hasVoiceCallUtilisation(currentPlanId, plans);
 
   return (
     <section className="dashboard-card flex min-w-0 max-w-full w-full flex-col p-6">
@@ -364,8 +372,10 @@ export function PlansPricingPanel({
                   plan. Values show{" "}
                   <span className="font-medium">remaining / limit</span>.
                   {showOutreachMeters
-                    ? " Email and WhatsApp outreach meters apply on Growth and Enterprise."
-                    : null}
+                    ? " Email, WhatsApp outreach, and AI voice call meters apply when enabled on your plan."
+                    : showVoiceCallMeter
+                      ? " AI voice call meter applies when campaigns are enabled on your plan."
+                      : null}
                 </p>
               </div>
             </header>
@@ -391,6 +401,15 @@ export function PlansPricingPanel({
                     />
                   ))
                 : null}
+              {showVoiceCallMeter ? (
+                <UtilisationMeter
+                  key={VOICE_CALL_UTILISATION_METRIC.key}
+                  label={VOICE_CALL_UTILISATION_METRIC.label}
+                  icon={VOICE_CALL_UTILISATION_METRIC.icon}
+                  used={outreachThreads.voiceCalls}
+                  limit={currentTier?.[VOICE_CALL_UTILISATION_METRIC.limitKey]}
+                />
+              ) : null}
             </div>
           </section>
 
