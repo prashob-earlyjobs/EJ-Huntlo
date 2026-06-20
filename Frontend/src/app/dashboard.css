@@ -3852,9 +3852,15 @@
   border: none;
   background: transparent;
   color: var(--dash-on-surface-variant);
+  cursor: pointer;
   transition:
     background-color 0.15s ease,
     color 0.15s ease;
+}
+
+.dashboard-table-icon-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .dashboard-table-icon-btn:hover {
@@ -7191,7 +7197,16 @@
   gap: 0.75rem;
 }
 
+.dashboard-campaign-voice-agent-questions-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
 .dashboard-campaign-voice-agent-questions-add-btn,
+.dashboard-campaign-voice-agent-questions-reset-btn,
 .dashboard-campaign-voice-agent-result-add-btn {
   display: inline-flex;
   align-items: center;
@@ -7216,6 +7231,19 @@
   text-align: center;
 }
 
+.dashboard-campaign-voice-agent-questions-empty-icon {
+  font-size: 1.75rem;
+  color: #94a3b8;
+}
+
+.dashboard-campaign-voice-agent-questions-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
 .dashboard-campaign-voice-agent-questions-empty-text {
   max-width: 22rem;
   font-size: 0.8125rem;
@@ -7236,24 +7264,176 @@
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 0.625rem;
+  gap: 0.75rem;
+  padding: 0.875rem 1rem;
+  border: 1px solid #e8eaed;
+  border-radius: 0.75rem;
+  background: #fff;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.dashboard-campaign-voice-agent-question-row:hover {
+  border-color: #dbe1ea;
+  box-shadow: 0 1px 3px rgba(20, 27, 43, 0.04);
+}
+
+.dashboard-campaign-voice-agent-question-row--editing {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  border-color: #c7d7fe;
+  background: #fafbff;
+  box-shadow: 0 0 0 3px rgba(0, 80, 203, 0.08);
+}
+
+.dashboard-campaign-voice-agent-question-content {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.dashboard-campaign-voice-agent-question-text {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: #141b2b;
+}
+
+.dashboard-campaign-voice-agent-question-text--empty {
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.dashboard-campaign-voice-agent-question-action-toolbar {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.125rem;
+  padding: 0.1875rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  background: #f8fafc;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+.dashboard-campaign-voice-agent-question-action-btn {
+  display: inline-flex;
+  height: 1.875rem;
+  width: 1.875rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.1s ease;
+}
+
+.dashboard-campaign-voice-agent-question-action-btn .material-symbols-outlined {
+  font-size: 1.0625rem;
+  font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 20;
+}
+
+.dashboard-campaign-voice-agent-question-action-btn:hover {
+  transform: translateY(-1px);
+}
+
+.dashboard-campaign-voice-agent-question-action-btn:active {
+  transform: translateY(0);
+}
+
+.dashboard-campaign-voice-agent-question-action-btn--edit:hover,
+.dashboard-campaign-voice-agent-question-action-btn--edit:focus-visible {
+  background: #eef2ff;
+  color: #0050cb;
+}
+
+.dashboard-campaign-voice-agent-question-action-btn--delete:hover,
+.dashboard-campaign-voice-agent-question-action-btn--delete:focus-visible {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.dashboard-campaign-voice-agent-question-action-btn--save {
+  color: #0050cb;
+}
+
+.dashboard-campaign-voice-agent-question-action-btn--save:hover,
+.dashboard-campaign-voice-agent-question-action-btn--save:focus-visible {
+  background: #eef2ff;
+  color: #0043a8;
+}
+
+.dashboard-campaign-voice-agent-question-action-btn--cancel:hover,
+.dashboard-campaign-voice-agent-question-action-btn--cancel:focus-visible {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.dashboard-campaign-voice-agent-question-action-btn:focus-visible {
+  outline: 2px solid rgba(0, 80, 203, 0.35);
+  outline-offset: 1px;
+}
+
+.dashboard-campaign-voice-agent-question-action-divider {
+  width: 1px;
+  height: 1rem;
+  flex-shrink: 0;
+  background: #e2e8f0;
+}
+
+.dashboard-campaign-voice-agent-question-edit-panel {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.dashboard-campaign-voice-agent-question-edit-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .dashboard-campaign-voice-agent-question-index {
   display: inline-flex;
-  height: 1.5rem;
-  width: 1.5rem;
+  height: 1.75rem;
+  width: 1.75rem;
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
+  border-radius: 0.375rem;
   font-size: 0.75rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-  color: #94a3b8;
+  color: #0050cb;
+  background: #eef2ff;
 }
 
 .dashboard-campaign-voice-agent-question-field {
+  display: flex;
   min-width: 0;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.dashboard-campaign-voice-agent-question-topic {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.dashboard-campaign-voice-agent-question-textarea {
+  min-height: 4.5rem;
+  resize: vertical;
+  font-size: 0.8125rem;
+  line-height: 1.45;
 }
 
 .dashboard-campaign-voice-agent-section {
@@ -7402,29 +7582,64 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 0.875rem;
-  line-height: 1.4;
+  line-height: 1.45;
   color: var(--dash-on-surface-variant);
-  transition: color 0.15s ease;
+}
+
+.dashboard-campaign-voice-agent-prompt-summary-action {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.125rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+.dashboard-campaign-voice-agent-prompt-summary:hover:not(:disabled)
+  .dashboard-campaign-voice-agent-prompt-summary-action {
+  color: var(--dash-primary);
+}
+
+.dashboard-campaign-voice-agent-prompt-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 130;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem;
+  background: rgba(20, 27, 43, 0.45);
 }
 
 .dashboard-campaign-voice-agent-prompt-modal {
-  width: min(42rem, 100%);
-  max-height: min(90vh, 44rem);
   display: flex;
   flex-direction: column;
-  padding: 1.25rem 1.25rem 1rem;
+  width: min(56rem, 100%);
+  height: min(92vh, 100%);
+  max-height: 92vh;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.625rem;
+  background: #fff;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.16);
 }
 
 .dashboard-campaign-voice-agent-prompt-modal-head {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
+  gap: 0.5rem;
+  padding: 0.5rem 0.625rem 0.5rem 0.875rem;
+  border-bottom: 1px solid #e8eaed;
 }
 
 .dashboard-campaign-voice-agent-prompt-modal-title {
   margin: 0;
-  font-size: 1rem;
+  font-size: 0.875rem;
   font-weight: 600;
   line-height: 1.3;
   color: var(--dash-on-surface);
@@ -7432,13 +7647,13 @@
 
 .dashboard-campaign-voice-agent-prompt-modal-close {
   display: inline-flex;
-  height: 2rem;
-  width: 2rem;
+  height: 1.75rem;
+  width: 1.75rem;
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 0.5rem;
+  border-radius: 0.375rem;
   background: transparent;
   color: var(--dash-on-surface-variant);
   cursor: pointer;
@@ -7449,18 +7664,111 @@
   color: var(--dash-on-surface);
 }
 
-.dashboard-campaign-voice-agent-prompt-modal-textarea {
-  min-height: 18rem;
+.dashboard-campaign-voice-agent-prompt-modal-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  background: #fff;
 }
 
-.dashboard-campaign-voice-agent-prompt-modal-actions {
+.dashboard-campaign-voice-agent-prompt-modal-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 80, 203, 0.45) #eef2f7;
+}
+
+.dashboard-campaign-voice-agent-prompt-modal-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.dashboard-campaign-voice-agent-prompt-modal-scroll::-webkit-scrollbar-track {
+  margin: 0.375rem 0;
+  border-radius: 9999px;
+  background: #eef2f7;
+}
+
+.dashboard-campaign-voice-agent-prompt-modal-scroll::-webkit-scrollbar-thumb {
+  border: 1px solid transparent;
+  border-radius: 9999px;
+  background: linear-gradient(180deg, rgba(0, 80, 203, 0.55) 0%, rgba(0, 80, 203, 0.38) 100%);
+  background-clip: padding-box;
+}
+
+.dashboard-campaign-voice-agent-prompt-modal-scroll::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(0, 80, 203, 0.72) 0%, rgba(0, 80, 203, 0.52) 100%);
+  background-clip: padding-box;
+}
+
+.dashboard-campaign-voice-agent-prompt-modal-scroll:focus {
+  outline: none;
+}
+
+.dashboard-campaign-voice-agent-prompt-modal-scroll:focus-visible {
+  box-shadow: inset 0 0 0 2px rgba(0, 80, 203, 0.12);
+}
+
+.dashboard-campaign-voice-agent-prompt-modal-content {
+  margin: 0;
+  padding: 0.75rem 0.875rem 0.75rem 1rem;
+  font-family: inherit;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: #334155;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.dashboard-campaign-voice-agent-delete-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 140;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.dashboard-campaign-voice-agent-delete-modal {
+  width: min(100%, 20rem);
+  padding: 1.25rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  background: #fff;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12);
+}
+
+.dashboard-campaign-voice-agent-delete-modal-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: #141b2b;
+}
+
+.dashboard-campaign-voice-agent-delete-modal-message {
+  margin: 0.5rem 0 0;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: #64748b;
+}
+
+.dashboard-campaign-voice-agent-delete-modal-actions {
   display: flex;
   justify-content: flex-end;
-  margin-top: 1rem;
+  gap: 0.5rem;
+  margin-top: 1.25rem;
 }
 
-.dashboard-campaign-voice-agent-prompt-modal-done {
-  min-width: 6.5rem;
+.dashboard-campaign-voice-agent-delete-modal-btn {
+  min-width: 5rem;
+  padding: 0.5rem 0.875rem;
+  font-size: 0.875rem;
 }
 
 .dashboard-campaign-voice-agent-editor-footer {

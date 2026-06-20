@@ -2228,6 +2228,7 @@ export function CampaignWorkspace({
               key={campaign.id}
               locked={campaignFieldsLocked}
               outreachStatus={outreachStatus}
+              jobTitle={campaign.jobTitle ?? ""}
               initialConfig={campaign.voiceAgentConfig ?? null}
               onSaveAndContinue={async (payload) => {
                 const auth = getStoredAuth();

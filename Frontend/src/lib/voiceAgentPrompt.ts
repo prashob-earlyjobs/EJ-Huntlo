@@ -40,6 +40,10 @@ export type VoiceAgentPromptContext = {
     roleBrief?: string;
     screeningQuestions?: string[];
   } | null;
+  /** Recruiter-edited screening questions from the voice agent editor. */
+  userScreeningQuestions?: string[];
+  /** True when the call prompt includes the editor screening-questions section. */
+  useCustomScreeningQuestions?: boolean;
 };
 
 const PLACEHOLDER_JD_VALUE_PATTERNS = [
@@ -73,13 +77,139 @@ function buildDefaultRoleBrief(role: string, company: string): string {
   return `We have an opening for ${role}.`;
 }
 
-const SCREENING_QUESTION_COUNT = 8;
+export const DEFAULT_SCREENING_QUESTION_COUNT = 8;
 
-function buildDefaultScreeningQuestions(role = ""): string[] {
+export const MAX_SCREENING_QUESTIONS = 20;
+
+export type ResultAgentFieldLike = {
+  columnName: string;
+  expectedValue: string;
+};
+
+/** Short labels for the standard screening question slots (shown in the editor). */
+export const DEFAULT_SCREENING_QUESTION_LABELS = [
+  "Total experience",
+  "Relevant experience",
+  "Skills & tools",
+  "Recent project",
+  "CTC & expectations",
+  "Notice period",
+  "Location",
+  "Education",
+] as const;
+
+/** Default result columns for standard screening answers (Q5 maps to ctc + expected_ctc). */
+export const DEFAULT_SCREENING_RESULT_FIELDS: ResultAgentFieldLike[] = [
+  { columnName: "experience", expectedValue: "total years of work experience" },
+  {
+    columnName: "relevant_experience",
+    expectedValue: "years of experience relevant to the role",
+  },
+  {
+    columnName: "skills_and_tools",
+    expectedValue: "key skills, tools, or technologies mentioned",
+  },
+  {
+    columnName: "recent_project",
+    expectedValue: "recent project or accomplishment described",
+  },
+  { columnName: "ctc", expectedValue: "current CTC or salary" },
+  { columnName: "expected_ctc", expectedValue: "expected CTC or salary for this role" },
+  { columnName: "notice_period", expectedValue: "notice period or how soon they can join" },
+  { columnName: "location", expectedValue: "current location" },
+  { columnName: "education", expectedValue: "highest educational qualification" },
+];
+
+/** Topic labels for screening result columns in tables. */
+export const SCREENING_RESULT_TOPIC_LABELS: Record<string, string> = {
+  experience: "Experience",
+  relevant_experience: "Relevant exp",
+  skills_and_tools: "Skills & tools",
+  recent_project: "Recent proj",
+  ctc: "CTC",
+  expected_ctc: "Expected CTC",
+  notice_period: "Notice period",
+  location: "Location",
+  education: "Education",
+};
+
+const DEFAULT_SCREENING_QUESTION_RESULT_COLUMNS: string[][] = [
+  ["experience"],
+  ["relevant_experience"],
+  ["skills_and_tools"],
+  ["recent_project"],
+  ["ctc", "expected_ctc"],
+  ["notice_period"],
+  ["location"],
+  ["education"],
+];
+
+/** Outcome / call-meta columns shown before screening answers in the voice calls table. */
+export const DEFAULT_OUTCOME_RESULT_FIELDS: ResultAgentFieldLike[] = [
+  { columnName: "summary", expectedValue: "under 50 words" },
+  {
+    columnName: "candidate_status",
+    expectedValue: "Confirmed Candidate, Wrong Person, Unable To Verify, or Call Disconnected",
+  },
+  {
+    columnName: "interest_level",
+    expectedValue: "Interested, Not Interested, Requested Callback, or Unclear",
+  },
+  { columnName: "callback_requested", expectedValue: "Yes or No" },
+  { columnName: "callback_time", expectedValue: "callback time or Not provided" },
+  { columnName: "candidate_questions", expectedValue: "array of question strings" },
+  {
+    columnName: "final_outcome",
+    expectedValue:
+      "Interested, Not Interested, Callback Scheduled, Wrong Person, Incomplete Call, or Unable To Determine",
+  },
+];
+
+export const CALLEE_NAME_VARIABLE = "{callee_name}";
+
+const SCREENING_Q1_STORAGE_PREFIX = `So ${CALLEE_NAME_VARIABLE}, first — `;
+const SCREENING_AND_PREFIX = "And ";
+/** Default question slots (0-based) that use a leading "And" on the call. */
+const SCREENING_AND_QUESTION_INDICES = new Set([1, 5]);
+
+/** Strips template tokens and call-flow prefixes for recruiter-friendly editor display. */
+export function displayScreeningQuestionInEditor(question: string): string {
+  let text = String(question || "").trim();
+  text = text.replace(
+    /^So\s+\{callee_name\},?\s*(first\s*[—-]\s*)?/i,
+    ""
+  );
+  text = text.replace(/\{callee_name\}/gi, "");
+  text = text.replace(/^So\s*,?\s*(first\s*[—-]\s*)?/i, "");
+  text = text.replace(/^And\s+/i, "");
+  return text.replace(/\s{2,}/g, " ").trim();
+}
+
+/** Restores per-call phrasing before saving or syncing into the call prompt. */
+export function prepareScreeningQuestionForStorage(question: string, index: number): string {
+  let trimmed = String(question || "").trim();
+  if (!trimmed) return "";
+  if (index === 0) {
+    if (/\{callee_name\}/i.test(trimmed)) return trimmed;
+    return `${SCREENING_Q1_STORAGE_PREFIX}${trimmed}`;
+  }
+  if (SCREENING_AND_QUESTION_INDICES.has(index) && !/^And\s+/i.test(trimmed)) {
+    trimmed = `${SCREENING_AND_PREFIX}${trimmed}`;
+  }
+  return trimmed;
+}
+
+export function prepareScreeningQuestionsForStorage(questions: string[]): string[] {
+  return questions
+    .map((question, index) => prepareScreeningQuestionForStorage(question, index))
+    .filter(Boolean);
+}
+
+export function buildDefaultScreeningQuestions(role = ""): string[] {
   const roleLabel = String(role || "").trim();
   const relevantTarget = roleLabel || "this opportunity";
   return [
-    "So {callee_name}, first — how many years of total work experience do you have?",
+    `${SCREENING_Q1_STORAGE_PREFIX}how many years of total work experience do you have?`,
     `And how much of that is relevant to ${relevantTarget}?`,
     "Which key skills, tools, or technologies do you use that are relevant for this opportunity?",
     "Could you briefly describe a recent project or accomplishment that fits this role?",
@@ -90,17 +220,36 @@ function buildDefaultScreeningQuestions(role = ""): string[] {
   ];
 }
 
+export function buildDefaultScreeningQuestionsForEditor(role = ""): string[] {
+  return buildDefaultScreeningQuestions(role).map(displayScreeningQuestionInEditor);
+}
+
 function normalizeScreeningQuestions(questions: string[] | undefined, role = ""): string[] {
   const cleaned = (Array.isArray(questions) ? questions : [])
     .map((item) => String(item || "").trim())
     .filter(Boolean)
-    .slice(0, SCREENING_QUESTION_COUNT);
+    .slice(0, DEFAULT_SCREENING_QUESTION_COUNT);
 
   const defaults = buildDefaultScreeningQuestions(role);
-  while (cleaned.length < SCREENING_QUESTION_COUNT) {
+  while (cleaned.length < DEFAULT_SCREENING_QUESTION_COUNT) {
     cleaned.push(defaults[cleaned.length]);
   }
   return cleaned;
+}
+
+function sanitizeUserScreeningQuestions(
+  questions: string[] | undefined,
+  max = MAX_SCREENING_QUESTIONS
+): string[] {
+  return (Array.isArray(questions) ? questions : [])
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .slice(0, max);
+}
+
+export function getDefaultScreeningQuestionLabel(index: number): string | null {
+  if (index < 0 || index >= DEFAULT_SCREENING_QUESTION_LABELS.length) return null;
+  return DEFAULT_SCREENING_QUESTION_LABELS[index];
 }
 
 const GENERIC_SCREENING_PROBES_SECTION = `- Probing rules per question:
@@ -117,7 +266,7 @@ function formatScreeningQuestionsList(questions: string[]): string {
     .join("\n");
 }
 
-function formatScreeningCallFlowSteps(questionCount = SCREENING_QUESTION_COUNT): string {
+function formatScreeningCallFlowSteps(questionCount = DEFAULT_SCREENING_QUESTION_COUNT): string {
   const steps: string[] = [];
   const closingStep = 3 + questionCount + 1;
   for (let index = 0; index < questionCount; index += 1) {
@@ -128,6 +277,47 @@ function formatScreeningCallFlowSteps(questionCount = SCREENING_QUESTION_COUNT):
     );
   }
   return steps.join("\n\n");
+}
+
+function formatScreeningProbesSection(questionCount: number): string {
+  if (questionCount <= DEFAULT_SCREENING_QUESTION_COUNT) {
+    return GENERIC_SCREENING_PROBES_SECTION;
+  }
+  const extraLines: string[] = [];
+  for (let index = DEFAULT_SCREENING_QUESTION_COUNT + 1; index <= questionCount; index += 1) {
+    extraLines.push(
+      `  - Q${index}: If unclear, ask once for clarification — do not repeat the question verbatim.`
+    );
+  }
+  return `${GENERIC_SCREENING_PROBES_SECTION}\n${extraLines.join("\n")}`;
+}
+
+/** Rewrites hard-coded "eight questions" copy to match the configured screening count. */
+export function applyScreeningQuestionCountToPromptText(text: string, count: number): string {
+  const questionCount = Math.max(0, Number(count) || 0);
+  const closingStep = 3 + questionCount + 1;
+  const allQuestionsLabel =
+    questionCount === 1 ? "the screening question" : `all ${questionCount} screening questions`;
+  const askQuestionsLabel =
+    questionCount === 1 ? "ask the screening question" : `ask all ${questionCount} screening questions`;
+
+  let result = String(text || "");
+  result = result.replace(/\ball eight screening questions\b/gi, allQuestionsLabel);
+  result = result.replace(/\bask eight screening questions\b/gi, askQuestionsLabel);
+  result = result.replace(/\bask the eight questions\b/gi, "ask the screening questions");
+  result = result.replace(
+    /\beight questions from the Screening Questions section\b/gi,
+    "questions from the Screening Questions section"
+  );
+  result = result.replace(/\n(\d+)\. CLOSURE —/g, `\n${closingStep}. CLOSURE —`);
+  return result;
+}
+
+export function applyScreeningQuestionCountToCallObjective(objective: string, count: number): string {
+  const questionCount = Math.max(0, Number(count) || 0);
+  const askQuestionsLabel =
+    questionCount === 1 ? "ask the screening question" : `ask all ${questionCount} screening questions`;
+  return String(objective || "").replace(/\bask eight screening questions\b/gi, askQuestionsLabel);
 }
 
 function formatCompanyKnowledgeSection(company: string, role: string): string {
@@ -215,7 +405,12 @@ function buildJdVariableMap(context: VoiceAgentPromptContext = {}) {
     ? jdExtract.responsibilities.map((item) => sanitizeJdField(item)).filter(Boolean)
     : [];
   const roleBrief = sanitizeJdField(jdExtract.roleBrief) || buildDefaultRoleBrief(role, company);
-  const screeningQuestions = normalizeScreeningQuestions(jdExtract.screeningQuestions, role);
+  const userScreeningQuestions = sanitizeUserScreeningQuestions(context.userScreeningQuestions);
+  const screeningQuestions = context.useCustomScreeningQuestions
+    ? userScreeningQuestions
+    : userScreeningQuestions.length > 0
+      ? userScreeningQuestions
+      : normalizeScreeningQuestions(jdExtract.screeningQuestions, role);
 
   return {
     jd_company: company,
@@ -324,11 +519,6 @@ export function voiceAgentVariableHint(variable: VoiceAgentPromptVariable): stri
   return "";
 }
 
-export type ResultAgentFieldLike = {
-  columnName: string;
-  expectedValue: string;
-};
-
 function jsonPlaceholderForResultField(columnName: string, expectedValue: string): string {
   const key = columnName.trim().toLowerCase();
   const hint = expectedValue.trim().toLowerCase();
@@ -410,7 +600,13 @@ ${fieldRules || "- Populate every field using only explicit conversation evidenc
 export const VOICE_CALL_PROMPT_ADDITIONAL_QUESTIONS_HEADER =
   "=== ADDITIONAL QUESTIONS TO ASK ===";
 
+const SCREENING_QUESTIONS_NONE_MARKER = "(none)";
+
 const CALL_PROMPT_NEXT_SECTION_PATTERN = /\n=== [^\n]+ ===/;
+
+export function hasScreeningQuestionsSectionInCallPrompt(prompt: string): boolean {
+  return String(prompt || "").includes(VOICE_CALL_PROMPT_ADDITIONAL_QUESTIONS_HEADER);
+}
 
 /** Reads screening questions from the call prompt template. */
 export function parseAdditionalQuestionsFromCallPrompt(prompt: string): string[] {
@@ -427,15 +623,27 @@ export function parseAdditionalQuestionsFromCallPrompt(prompt: string): string[]
 
   const questions: string[] = [];
   for (const line of sectionBody.split("\n")) {
+    const trimmedLine = line.trim();
+    if (!trimmedLine || trimmedLine === SCREENING_QUESTIONS_NONE_MARKER) continue;
     const match = line.match(/^\s*[-*]\s*(.*)$/);
     if (!match) continue;
     const question = match[1].trim();
-    if (question) questions.push(question);
+    if (question && question !== SCREENING_QUESTIONS_NONE_MARKER) questions.push(question);
   }
   return questions;
 }
 
-/** Writes screening questions into the call prompt template. */
+/** Editor initial state: saved questions from the prompt, else the standard defaults (display form). */
+export function resolveInitialScreeningQuestions(callPrompt: string, role = ""): string[] {
+  if (hasScreeningQuestionsSectionInCallPrompt(callPrompt)) {
+    return parseAdditionalQuestionsFromCallPrompt(callPrompt).map(displayScreeningQuestionInEditor);
+  }
+  const parsed = parseAdditionalQuestionsFromCallPrompt(callPrompt);
+  const source = parsed.length > 0 ? parsed : buildDefaultScreeningQuestions(role);
+  return source.map(displayScreeningQuestionInEditor);
+}
+
+/** Writes screening questions into the call prompt metadata section. */
 export function mergeAdditionalQuestionsIntoCallPrompt(
   prompt: string,
   questions: string[]
@@ -444,16 +652,13 @@ export function mergeAdditionalQuestionsIntoCallPrompt(
   const questionsBlock =
     trimmedQuestions.length > 0
       ? trimmedQuestions.map((question) => `- ${question}`).join("\n")
-      : "-";
+      : SCREENING_QUESTIONS_NONE_MARKER;
 
   const text = String(prompt || "");
   const header = VOICE_CALL_PROMPT_ADDITIONAL_QUESTIONS_HEADER;
   const headerIdx = text.indexOf(header);
 
   if (headerIdx < 0) {
-    if (trimmedQuestions.length === 0) {
-      return text;
-    }
     const trimmed = text.trim();
     return trimmed ? `${trimmed}\n\n${header}\n${questionsBlock}` : `${header}\n${questionsBlock}`;
   }
@@ -467,6 +672,64 @@ export function mergeAdditionalQuestionsIntoCallPrompt(
   }
 
   return `${before}\n${questionsBlock}`;
+}
+
+/** Syncs recruiter screening questions into the call prompt body and metadata section. */
+export function syncScreeningQuestionsIntoCallPrompt(
+  prompt: string,
+  questions: string[],
+  options: { storageForm?: boolean } = {}
+): string {
+  const storageQuestions = options.storageForm
+    ? sanitizeUserScreeningQuestions(questions)
+    : prepareScreeningQuestionsForStorage(questions).filter(Boolean);
+  const questionsListBlock =
+    storageQuestions.length > 0
+      ? formatScreeningQuestionsList(storageQuestions)
+      : `  ${SCREENING_QUESTIONS_NONE_MARKER}`;
+  const callFlowBlock = formatScreeningCallFlowSteps(storageQuestions.length);
+  const probesBlock = formatScreeningProbesSection(storageQuestions.length);
+
+  let text = mergeAdditionalQuestionsIntoCallPrompt(prompt, storageQuestions);
+
+  if (text.includes("{jd_screening_questions_list}")) {
+    text = text.replaceAll("{jd_screening_questions_list}", questionsListBlock);
+  } else {
+    text = text.replace(
+      /(- These are the screening questions to ask —\s*\n\s*\n)([\s\S]*?)(\n\s*\n(?:\{jd_screening_probes_section\}|- Probing rules per question:))/,
+      `$1${questionsListBlock}$3`
+    );
+  }
+
+  if (text.includes("{jd_screening_probes_section}")) {
+    text = text.replaceAll("{jd_screening_probes_section}", probesBlock);
+  } else {
+    text = text.replace(
+      /- Probing rules per question:[\s\S]*?(?=\n---|\n## Objective|\n### Closure)/,
+      probesBlock
+    );
+  }
+
+  if (text.includes("{jd_screening_call_flow_steps}")) {
+    text = text.replaceAll("{jd_screening_call_flow_steps}", callFlowBlock);
+  } else if (storageQuestions.length > 0) {
+    text = text.replace(
+      /\n4\. SCREENING Q1[\s\S]*?(?=\n\d+\. CLOSURE —)/,
+      `\n${callFlowBlock}`
+    );
+  }
+
+  return applyScreeningQuestionCountToPromptText(text, storageQuestions.length);
+}
+
+/** Removes editor-only screening metadata before sending the prompt to the voice provider. */
+export function stripScreeningQuestionsMetadataSection(prompt: string): string {
+  const header = VOICE_CALL_PROMPT_ADDITIONAL_QUESTIONS_HEADER;
+  const headerIdx = String(prompt || "").indexOf(header);
+  if (headerIdx < 0) return String(prompt || "");
+  return String(prompt || "")
+    .slice(0, headerIdx)
+    .replace(/\s+$/u, "");
 }
 
 /** Snake_case key for a screening question in call result JSON. */
@@ -526,10 +789,74 @@ export function isAutoScreeningResultField(field: ResultAgentFieldLike): boolean
     .startsWith(SCREENING_ANSWER_EXPECTED_PREFIX);
 }
 
+export function isDefaultScreeningResultColumn(columnName: string): boolean {
+  const normalized = columnName.trim().toLowerCase();
+  return DEFAULT_SCREENING_RESULT_FIELDS.some(
+    (field) => field.columnName.toLowerCase() === normalized
+  );
+}
+
+export function isDefaultOutcomeResultColumn(columnName: string): boolean {
+  const normalized = columnName.trim().toLowerCase();
+  return DEFAULT_OUTCOME_RESULT_FIELDS.some(
+    (field) => field.columnName.toLowerCase() === normalized
+  );
+}
+
+/** Default or auto-synced screening rows cannot be removed in the editor. */
+export function isFixedDefaultResultField(field: ResultAgentFieldLike): boolean {
+  const columnName = field.columnName.trim();
+  if (isDefaultOutcomeResultColumn(columnName)) return true;
+  if (isDefaultScreeningResultColumn(columnName)) return true;
+  if (isAutoScreeningResultField(field)) return true;
+  return false;
+}
+
+export function isUserAddedResultField(field: ResultAgentFieldLike): boolean {
+  return !isFixedDefaultResultField(field);
+}
+
+export function getScreeningResultColumnsForQuestionIndex(
+  index: number,
+  question: string
+): string[] {
+  if (index >= 0 && index < DEFAULT_SCREENING_QUESTION_RESULT_COLUMNS.length) {
+    return DEFAULT_SCREENING_QUESTION_RESULT_COLUMNS[index];
+  }
+  return [slugifyVoiceResultColumnName(question)];
+}
+
+export function isOutcomeResultField(field: ResultAgentFieldLike): boolean {
+  const columnName = field.columnName.trim();
+  if (!columnName) return false;
+  if (isDefaultScreeningResultColumn(columnName)) return false;
+  if (isAutoScreeningResultField(field)) return false;
+  return true;
+}
+
+export function getResultFieldTopicLabel(field: ResultAgentFieldLike): string | null {
+  const topic = SCREENING_RESULT_TOPIC_LABELS[field.columnName.trim().toLowerCase()];
+  if (topic) return topic;
+  if (isAutoScreeningResultField(field)) return "Custom";
+  return null;
+}
+
+export function formatVoiceResultFieldLabel(field: ResultAgentFieldLike): string {
+  const topic = getResultFieldTopicLabel(field);
+  if (topic) return topic;
+  const columnName = field.columnName.trim();
+  return columnName
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 /** True when a result column already captures a screening question (manual or auto). */
 export function resultFieldCoversScreeningQuestion(
   field: ResultAgentFieldLike,
-  question: string
+  question: string,
+  questionIndex = -1
 ): boolean {
   const trimmedQuestion = question.trim();
   if (!trimmedQuestion) return false;
@@ -537,6 +864,13 @@ export function resultFieldCoversScreeningQuestion(
   const questionLower = trimmedQuestion.toLowerCase();
   const expected = field.expectedValue.trim().toLowerCase();
   const column = field.columnName.trim().toLowerCase();
+
+  if (questionIndex >= 0) {
+    const mappedColumns = getScreeningResultColumnsForQuestionIndex(questionIndex, trimmedQuestion);
+    if (mappedColumns.some((mappedColumn) => mappedColumn.toLowerCase() === column)) {
+      return true;
+    }
+  }
 
   if (expected.startsWith(SCREENING_ANSWER_EXPECTED_PREFIX)) {
     const linked = expected.slice(SCREENING_ANSWER_EXPECTED_PREFIX.length).trim();
@@ -560,9 +894,7 @@ export function resultFieldCoversScreeningQuestion(
   );
 }
 
-/** Adds result columns for screening questions so answers can be extracted after calls. */
-export function mergeScreeningQuestionsIntoResultFields(
-  questions: string[],
+function ensureDefaultScreeningResultFields(
   resultFields: ResultAgentFieldLike[]
 ): Array<{ columnName: string; expectedValue: string }> {
   const merged = resultFields.map((row) => ({
@@ -571,11 +903,51 @@ export function mergeScreeningQuestionsIntoResultFields(
   }));
   const existingColumns = new Set(merged.map((row) => row.columnName.toLowerCase()));
 
-  for (const question of questions) {
+  for (const field of DEFAULT_SCREENING_RESULT_FIELDS) {
+    const columnName = field.columnName.trim();
+    if (!columnName || existingColumns.has(columnName.toLowerCase())) continue;
+    merged.push({
+      columnName,
+      expectedValue: field.expectedValue.trim(),
+    });
+    existingColumns.add(columnName.toLowerCase());
+  }
+
+  return merged;
+}
+
+/** Adds result columns for screening questions so answers can be extracted after calls. */
+export function mergeScreeningQuestionsIntoResultFields(
+  questions: string[],
+  resultFields: ResultAgentFieldLike[]
+): Array<{ columnName: string; expectedValue: string }> {
+  const merged = ensureDefaultScreeningResultFields(resultFields);
+  const existingColumns = new Set(merged.map((row) => row.columnName.toLowerCase()));
+
+  questions.forEach((question, index) => {
     const trimmedQuestion = question.trim();
-    if (!trimmedQuestion) continue;
-    if (merged.some((field) => resultFieldCoversScreeningQuestion(field, trimmedQuestion))) {
-      continue;
+    if (!trimmedQuestion) return;
+
+    const mappedColumns = getScreeningResultColumnsForQuestionIndex(index, trimmedQuestion);
+    if (index < DEFAULT_SCREENING_QUESTION_COUNT) {
+      for (const columnName of mappedColumns) {
+        if (existingColumns.has(columnName.toLowerCase())) continue;
+        const defaultField = DEFAULT_SCREENING_RESULT_FIELDS.find(
+          (field) => field.columnName.toLowerCase() === columnName.toLowerCase()
+        );
+        merged.push({
+          columnName,
+          expectedValue: defaultField?.expectedValue.trim() || "",
+        });
+        existingColumns.add(columnName.toLowerCase());
+      }
+      return;
+    }
+
+    if (
+      merged.some((field) => resultFieldCoversScreeningQuestion(field, trimmedQuestion, index))
+    ) {
+      return;
     }
 
     let columnName = slugifyVoiceResultColumnName(trimmedQuestion);
@@ -590,9 +962,125 @@ export function mergeScreeningQuestionsIntoResultFields(
       expectedValue: `${SCREENING_ANSWER_EXPECTED_PREFIX} ${trimmedQuestion}`,
     });
     existingColumns.add(columnName.toLowerCase());
+  });
+
+  return merged.filter((field) => field.columnName && field.expectedValue);
+}
+
+/** Keeps outcome columns, default screening columns, and columns for current custom questions. */
+export function syncResultFieldsWithScreeningQuestions(
+  questions: string[],
+  resultFields: ResultAgentFieldLike[]
+): Array<{ columnName: string; expectedValue: string }> {
+  const storageQuestions = questions.map((question) => question.trim()).filter(Boolean);
+  const userAddedFields = resultFields.filter(isUserAddedResultField);
+  const outcomeFields = resultFields.filter(isOutcomeResultField);
+  const merged = mergeScreeningQuestionsIntoResultFields(storageQuestions, [
+    ...outcomeFields,
+    ...DEFAULT_SCREENING_RESULT_FIELDS,
+  ]);
+
+  const filtered = merged.filter((field) => {
+    if (!isAutoScreeningResultField(field)) return true;
+    const linkedQuestion = field.expectedValue
+      .slice(SCREENING_ANSWER_EXPECTED_PREFIX.length)
+      .trim()
+      .toLowerCase();
+    return storageQuestions.some(
+      (question, index) =>
+        index >= DEFAULT_SCREENING_QUESTION_COUNT &&
+        question.toLowerCase() === linkedQuestion
+    );
+  });
+
+  const existingColumns = new Set(filtered.map((field) => field.columnName.toLowerCase()).filter(Boolean));
+  for (const field of userAddedFields) {
+    const columnName = field.columnName.trim();
+    if (columnName && existingColumns.has(columnName.toLowerCase())) continue;
+    filtered.push({
+      columnName,
+      expectedValue: field.expectedValue.trim(),
+    });
+    if (columnName) existingColumns.add(columnName.toLowerCase());
   }
 
-  return merged;
+  return filtered.filter((field) => field.columnName || field.expectedValue);
+}
+
+export type VoiceCallTableColumn = {
+  columnName: string;
+  expectedValue: string;
+  topicLabel: string | null;
+  group: "screening" | "outcome";
+};
+
+/** Ordered columns for the voice calls table: screening answers first, then call outcomes. */
+export function buildVoiceCallTableColumns(
+  resultFields: ResultAgentFieldLike[],
+  screeningQuestions: string[] = []
+): VoiceCallTableColumn[] {
+  const deduped = dedupeVoiceResultFieldsForDisplay(resultFields);
+  const byColumn = new Map(
+    deduped.map((field) => [field.columnName.toLowerCase(), field] as const)
+  );
+
+  const screeningColumns: VoiceCallTableColumn[] = [];
+
+  for (const defaultField of DEFAULT_SCREENING_RESULT_FIELDS) {
+    const field =
+      byColumn.get(defaultField.columnName.toLowerCase()) ||
+      ({ ...defaultField } as ResultAgentFieldLike);
+    screeningColumns.push({
+      columnName: field.columnName,
+      expectedValue: field.expectedValue,
+      topicLabel: getResultFieldTopicLabel(field),
+      group: "screening",
+    });
+  }
+
+  screeningQuestions.forEach((question, index) => {
+    if (index < DEFAULT_SCREENING_QUESTION_COUNT) return;
+    const trimmedQuestion = question.trim();
+    if (!trimmedQuestion) return;
+
+    const matchedField = deduped.find((field) =>
+      resultFieldCoversScreeningQuestion(field, trimmedQuestion, index)
+    );
+    if (!matchedField) return;
+    if (
+      screeningColumns.some(
+        (column) => column.columnName.toLowerCase() === matchedField.columnName.toLowerCase()
+      )
+    ) {
+      return;
+    }
+
+    screeningColumns.push({
+      columnName: matchedField.columnName,
+      expectedValue: matchedField.expectedValue,
+      topicLabel: getResultFieldTopicLabel(matchedField) || "Custom",
+      group: "screening",
+    });
+  });
+
+  const screeningColumnNames = new Set(
+    screeningColumns.map((column) => column.columnName.toLowerCase())
+  );
+
+  const outcomeColumns = deduped
+    .filter(
+      (field) =>
+        field.columnName.toLowerCase() !== "summary" &&
+        !screeningColumnNames.has(field.columnName.toLowerCase())
+    )
+    .map((field) => ({
+      columnName: field.columnName,
+      expectedValue: field.expectedValue,
+      topicLabel: getResultFieldTopicLabel(field),
+      group: "outcome" as const,
+    }));
+
+  return [...screeningColumns, ...outcomeColumns];
 }
 
 /** Prefer manual result columns over auto-generated screening duplicates in the UI. */

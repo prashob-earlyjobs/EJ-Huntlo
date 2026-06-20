@@ -1,17 +1,24 @@
 "use client";
 
-import { useMemo, useLayoutEffect, useRef, useState, useEffect } from "react";
+import { useMemo, useRef, useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import {
-  VOICE_AGENT_PROMPT_VARIABLES,
   VOICE_CALL_PROMPT_ADDITIONAL_QUESTIONS_HEADER,
+  DEFAULT_SCREENING_QUESTION_COUNT,
+  MAX_SCREENING_QUESTIONS,
+  DEFAULT_OUTCOME_RESULT_FIELDS,
+  DEFAULT_SCREENING_RESULT_FIELDS,
+  applyScreeningQuestionCountToCallObjective,
+  buildDefaultScreeningQuestionsForEditor,
   buildResultPromptFromFields,
-  mergeAdditionalQuestionsIntoCallPrompt,
-  mergeScreeningQuestionsIntoResultFields,
-  parseAdditionalQuestionsFromCallPrompt,
-  voiceAgentVariableHint,
+  getDefaultScreeningQuestionLabel,
+  isFixedDefaultResultField,
+  prepareScreeningQuestionsForStorage,
+  resolveInitialScreeningQuestions,
+  syncResultFieldsWithScreeningQuestions,
+  syncScreeningQuestionsIntoCallPrompt,
 } from "@/lib/voiceAgentPrompt";
 import type { VoiceAgentConfigRecord } from "@/lib/campaigns";
 import {
@@ -37,8 +44,8 @@ export {
 const MIN_CALL_OBJECTIVE_CHARS = 10;
 const MIN_CALL_INTRO_CHARS = 10;
 const MIN_CALL_PROMPT_CHARS = 50;
-const MAX_RESULT_AGENT_ROWS = 12;
-const MAX_CANDIDATE_QUESTIONS = 10;
+const MAX_RESULT_AGENT_ROWS = 24;
+const MAX_CANDIDATE_QUESTIONS = MAX_SCREENING_QUESTIONS;
 
 type VoiceAgentSetupStep = "call" | "result";
 
@@ -75,37 +82,24 @@ export type VoiceAgentEditorPayload = {
   resultPrompt: string;
 };
 
+const DEFAULT_RESULT_AGENT_FIELDS: ResultAgentFieldRow[] = [
+  ...DEFAULT_OUTCOME_RESULT_FIELDS,
+  ...DEFAULT_SCREENING_RESULT_FIELDS,
+].map((row) => ({ ...row }));
+
 function createEmptyResultFieldRow(): ResultAgentFieldRow {
   return { columnName: "", expectedValue: "" };
 }
 
-const DEFAULT_RESULT_AGENT_FIELDS: ResultAgentFieldRow[] = [
-  { columnName: "summary", expectedValue: "under 50 words" },
-  {
-    columnName: "candidate_status",
-    expectedValue: "Confirmed Candidate, Wrong Person, Unable To Verify, or Call Disconnected",
-  },
-  {
-    columnName: "interest_level",
-    expectedValue: "Interested, Not Interested, Requested Callback, or Unclear",
-  },
-  { columnName: "callback_requested", expectedValue: "Yes or No" },
-  { columnName: "callback_time", expectedValue: "callback time or Not provided" },
-  { columnName: "candidate_questions", expectedValue: "array of question strings" },
-  {
-    columnName: "final_outcome",
-    expectedValue:
-      "Interested, Not Interested, Callback Scheduled, Wrong Person, Incomplete Call, or Unable To Determine",
-  },
-];
-
 function voiceAgentFieldsFromConfig(
-  config?: VoiceAgentConfigRecord | null
+  config?: VoiceAgentConfigRecord | null,
+  screeningQuestions: string[] = []
 ): ResultAgentFieldRow[] {
-  if (config?.resultFields?.length) {
-    return config.resultFields.map((row) => ({ ...row }));
-  }
-  return DEFAULT_RESULT_AGENT_FIELDS.map((row) => ({ ...row }));
+  const base =
+    config?.resultFields?.length
+      ? config.resultFields.map((row) => ({ ...row }))
+      : DEFAULT_RESULT_AGENT_FIELDS.map((row) => ({ ...row }));
+  return syncResultFieldsWithScreeningQuestions(screeningQuestions, base);
 }
 
 function callPromptSummaryLine(text: string): string {
@@ -125,6 +119,7 @@ function callPromptSummaryLine(text: string): string {
 type Props = {
   locked?: boolean;
   outreachStatus?: string;
+  jobTitle?: string;
   initialConfig?: VoiceAgentConfigRecord | null;
   onSaveAndContinue?: (payload: VoiceAgentEditorPayload) => void | Promise<void>;
 };
@@ -132,9 +127,11 @@ type Props = {
 export function CampaignVoiceAgentEditor({
   locked = false,
   outreachStatus = "idle",
+  jobTitle = "",
   initialConfig = null,
   onSaveAndContinue,
 }: Props) {
+  const roleLabel = jobTitle.trim();
   const initialCallPrompt = initialConfig?.callPrompt?.trim() || VOICE_CALL_PROMPT_DEFAULT;
   const [setupStep, setSetupStep] = useState<VoiceAgentSetupStep>("call");
   const [saveBusy, setSaveBusy] = useState(false);
@@ -148,22 +145,31 @@ export function CampaignVoiceAgentEditor({
   );
   const [callPrompt, setCallPrompt] = useState(() => initialCallPrompt);
   const [candidateQuestions, setCandidateQuestions] = useState(() =>
-    parseAdditionalQuestionsFromCallPrompt(initialCallPrompt)
+    resolveInitialScreeningQuestions(initialCallPrompt, roleLabel)
+  );
+  const [editingQuestionIndex, setEditingQuestionIndex] = useState<number | null>(null);
+  const [editingQuestionDraft, setEditingQuestionDraft] = useState("");
+  const [pendingDeleteQuestionIndex, setPendingDeleteQuestionIndex] = useState<number | null>(
+    null
   );
   const [resultFields, setResultFields] = useState<ResultAgentFieldRow[]>(() =>
-    voiceAgentFieldsFromConfig(initialConfig)
+    voiceAgentFieldsFromConfig(
+      initialConfig,
+      prepareScreeningQuestionsForStorage(resolveInitialScreeningQuestions(initialCallPrompt, roleLabel)).filter(Boolean)
+    )
   );
   const editorBodyRef = useRef<HTMLDivElement>(null);
-  const callPromptRef = useRef<HTMLTextAreaElement>(null);
-  const callPromptInsertMetaRef = useRef<{
-    cursor: number;
-    scrollTop: number | "bottom";
-  } | null>(null);
+  const questionEditRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => setPortalMounted(true), []);
 
   useEffect(() => {
-    setCallPrompt((prev) => mergeAdditionalQuestionsIntoCallPrompt(prev, candidateQuestions));
+    const storageQuestions = prepareScreeningQuestionsForStorage(candidateQuestions).filter(Boolean);
+    setCallPrompt((prev) => syncScreeningQuestionsIntoCallPrompt(prev, candidateQuestions));
+    setCallObjective((prev) =>
+      applyScreeningQuestionCountToCallObjective(prev, storageQuestions.length)
+    );
+    setResultFields((prev) => syncResultFieldsWithScreeningQuestions(storageQuestions, prev));
   }, [candidateQuestions]);
 
   useEffect(() => {
@@ -185,10 +191,19 @@ export function CampaignVoiceAgentEditor({
   }, [callPromptModalOpen]);
 
   useEffect(() => {
-    if (!callPromptModalOpen) return;
-    const frame = window.requestAnimationFrame(() => callPromptRef.current?.focus());
+    if (editingQuestionIndex === null) return;
+    const frame = window.requestAnimationFrame(() => questionEditRef.current?.focus());
     return () => window.cancelAnimationFrame(frame);
-  }, [callPromptModalOpen]);
+  }, [editingQuestionIndex]);
+
+  useEffect(() => {
+    if (editingQuestionIndex === null) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") cancelEditingQuestion();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [editingQuestionIndex, editingQuestionDraft, candidateQuestions]);
 
   const updateResultField = (
     index: number,
@@ -205,13 +220,17 @@ export function CampaignVoiceAgentEditor({
   };
 
   const removeResultFieldRow = (index: number) => {
-    if (locked || resultFields.length <= 1) return;
+    const row = resultFields[index];
+    if (locked || !row || isFixedDefaultResultField(row)) return;
     setResultFields((prev) => prev.filter((_, rowIndex) => rowIndex !== index));
   };
 
   const addCandidateQuestion = () => {
     if (locked || candidateQuestions.length >= MAX_CANDIDATE_QUESTIONS) return;
+    const nextIndex = candidateQuestions.length;
     setCandidateQuestions((prev) => [...prev, ""]);
+    setEditingQuestionIndex(nextIndex);
+    setEditingQuestionDraft("");
   };
 
   const updateCandidateQuestion = (index: number, value: string) => {
@@ -220,15 +239,72 @@ export function CampaignVoiceAgentEditor({
     );
   };
 
+  const startEditingQuestion = (index: number) => {
+    if (locked) return;
+    setEditingQuestionIndex(index);
+    setEditingQuestionDraft(candidateQuestions[index] ?? "");
+  };
+
+  const saveEditingQuestion = () => {
+    if (editingQuestionIndex === null) return;
+    updateCandidateQuestion(editingQuestionIndex, editingQuestionDraft);
+    setEditingQuestionIndex(null);
+    setEditingQuestionDraft("");
+  };
+
+  const cancelEditingQuestion = () => {
+    if (editingQuestionIndex === null) return;
+    const hadContent = Boolean(candidateQuestions[editingQuestionIndex]?.trim());
+    const draftHasContent = Boolean(editingQuestionDraft.trim());
+    if (!hadContent && !draftHasContent) {
+      setCandidateQuestions((prev) =>
+        prev.filter((_, questionIndex) => questionIndex !== editingQuestionIndex)
+      );
+    }
+    setEditingQuestionIndex(null);
+    setEditingQuestionDraft("");
+  };
+
   const removeCandidateQuestion = (index: number) => {
     if (locked) return;
+    if (editingQuestionIndex === index) {
+      setEditingQuestionIndex(null);
+      setEditingQuestionDraft("");
+    } else if (editingQuestionIndex !== null && index < editingQuestionIndex) {
+      setEditingQuestionIndex(editingQuestionIndex - 1);
+    }
     setCandidateQuestions((prev) => prev.filter((_, questionIndex) => questionIndex !== index));
   };
 
+  const requestDeleteCandidateQuestion = (index: number) => {
+    if (locked) return;
+    setPendingDeleteQuestionIndex(index);
+  };
+
+  const resetCandidateQuestions = () => {
+    if (locked) return;
+    setEditingQuestionIndex(null);
+    setEditingQuestionDraft("");
+    setCandidateQuestions(buildDefaultScreeningQuestionsForEditor(roleLabel));
+  };
+
   const closeCallPromptModal = () => {
-    setCandidateQuestions(parseAdditionalQuestionsFromCallPrompt(callPrompt));
     setCallPromptModalOpen(false);
   };
+
+  useEffect(() => {
+    if (pendingDeleteQuestionIndex === null) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPendingDeleteQuestionIndex(null);
+    };
+    window.addEventListener("keydown", onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [pendingDeleteQuestionIndex]);
 
   const trimmedCallObjective = callObjective.trim();
   const trimmedIntroductoryStatement = introductoryStatement.trim();
@@ -255,10 +331,30 @@ export function CampaignVoiceAgentEditor({
     [callStepReady, resultFieldsReady]
   );
 
-  const filledCandidateQuestions = useMemo(
-    () => candidateQuestions.map((question) => question.trim()).filter(Boolean),
+  const storedCandidateQuestions = useMemo(
+    () => prepareScreeningQuestionsForStorage(candidateQuestions),
     [candidateQuestions]
   );
+
+  const filledCandidateQuestions = useMemo(
+    () => storedCandidateQuestions.map((question) => question.trim()).filter(Boolean),
+    [storedCandidateQuestions]
+  );
+
+  const defaultQuestionsMatch = useMemo(() => {
+    const defaults = buildDefaultScreeningQuestionsForEditor(roleLabel);
+    if (candidateQuestions.length !== defaults.length) return false;
+    return candidateQuestions.every(
+      (question, index) => question.trim() === defaults[index]?.trim()
+    );
+  }, [candidateQuestions, roleLabel]);
+
+  const confirmDeleteCandidateQuestion = () => {
+    if (pendingDeleteQuestionIndex === null) return;
+    const index = pendingDeleteQuestionIndex;
+    setPendingDeleteQuestionIndex(null);
+    removeCandidateQuestion(index);
+  };
 
   const setupStepIndex = SETUP_STEPS.findIndex((step) => step.id === setupStep);
   const currentStep = SETUP_STEPS[setupStepIndex] ?? SETUP_STEPS[0];
@@ -270,18 +366,16 @@ export function CampaignVoiceAgentEditor({
   const canProceedFromCallStep = locked || callStepReady;
 
   const buildPayload = (): VoiceAgentEditorPayload => {
-    const mergedResultFields = mergeScreeningQuestionsIntoResultFields(
-      filledCandidateQuestions,
-      resultFields.map((row) => ({
-        columnName: row.columnName.trim(),
-        expectedValue: row.expectedValue.trim(),
-      }))
-    );
+    const storageQuestions = prepareScreeningQuestionsForStorage(filledCandidateQuestions).filter(Boolean);
+    const mergedResultFields = syncResultFieldsWithScreeningQuestions(storageQuestions, resultFields);
 
     return {
-      callObjective: trimmedCallObjective,
+      callObjective: applyScreeningQuestionCountToCallObjective(
+        trimmedCallObjective,
+        filledCandidateQuestions.length
+      ),
       introductoryStatement: trimmedIntroductoryStatement,
-      callPrompt: mergeAdditionalQuestionsIntoCallPrompt(trimmedCallPrompt, candidateQuestions),
+      callPrompt: syncScreeningQuestionsIntoCallPrompt(trimmedCallPrompt, candidateQuestions),
       resultFields: mergedResultFields,
       resultPrompt: buildResultPromptFromFields(mergedResultFields),
     };
@@ -296,39 +390,6 @@ export function CampaignVoiceAgentEditor({
       setSaveBusy(false);
     }
   };
-
-  const insertCallPromptVariable = (variable: string) => {
-    if (locked) return;
-    const token = `{${variable}}`;
-    const el = callPromptRef.current;
-    if (!el) {
-      setCallPrompt((prev) => prev + token);
-      return;
-    }
-    const start = el.selectionStart ?? callPrompt.length;
-    const end = el.selectionEnd ?? callPrompt.length;
-    const insertingAtEnd = start === callPrompt.length && end === callPrompt.length;
-    const next = callPrompt.slice(0, start) + token + callPrompt.slice(end);
-    callPromptInsertMetaRef.current = {
-      cursor: start + token.length,
-      scrollTop: insertingAtEnd ? "bottom" : el.scrollTop,
-    };
-    setCallPrompt(next);
-  };
-
-  useLayoutEffect(() => {
-    const meta = callPromptInsertMetaRef.current;
-    const el = callPromptRef.current;
-    if (!meta || !el) return;
-    callPromptInsertMetaRef.current = null;
-    el.focus();
-    el.setSelectionRange(meta.cursor, meta.cursor);
-    if (meta.scrollTop === "bottom") {
-      el.scrollTop = el.scrollHeight;
-    } else {
-      el.scrollTop = meta.scrollTop;
-    }
-  }, [callPrompt]);
 
   return (
     <div className="dashboard-campaign-voice-agent-editor flex min-h-0 flex-1 flex-col">
@@ -481,11 +542,10 @@ export function CampaignVoiceAgentEditor({
                   <span className="dashboard-campaign-voice-agent-prompt-summary-text">
                     {callPromptSummaryLine(trimmedCallPrompt)}
                   </span>
-                  <MaterialIcon
-                    name={locked ? "visibility" : "edit"}
-                    className="shrink-0 text-base"
-                    aria-hidden
-                  />
+                  <span className="dashboard-campaign-voice-agent-prompt-summary-action">
+                    View full prompt
+                    <MaterialIcon name="chevron_right" className="text-base" aria-hidden />
+                  </span>
                 </button>
               </div>
 
@@ -495,8 +555,9 @@ export function CampaignVoiceAgentEditor({
                     Screening questions
                   </h4>
                   <p className="dashboard-campaign-voice-agent-field-hint m-0">
-                    Optional — up to {MAX_CANDIDATE_QUESTIONS} questions for interested
-                    candidates.
+                    Standard questions asked after a candidate shows interest. Edit, remove, or add
+                    up to {MAX_CANDIDATE_QUESTIONS}. The candidate&apos;s name is added
+                    automatically on the first question during the call.
                   </p>
                 </div>
 
@@ -504,65 +565,195 @@ export function CampaignVoiceAgentEditor({
                   <p className="dashboard-campaign-voice-agent-field-hint m-0">
                     {filledCandidateQuestions.length} / {MAX_CANDIDATE_QUESTIONS} questions
                   </p>
-                  <button
-                    type="button"
-                    className={`${dashboardBtnSecondaryClass} dashboard-campaign-voice-agent-questions-add-btn`}
-                    disabled={locked || candidateQuestions.length >= MAX_CANDIDATE_QUESTIONS}
-                    onClick={addCandidateQuestion}
-                  >
-                    <MaterialIcon name="add" className="text-base" aria-hidden />
-                    Add question
-                  </button>
-                </div>
-
-                {candidateQuestions.length === 0 ? (
-                  <div className="dashboard-campaign-voice-agent-questions-empty">
-                    <p className="dashboard-campaign-voice-agent-questions-empty-text m-0">
-                      No questions added yet. Add screening questions for interested candidates,
-                      or continue without them.
-                    </p>
+                  <div className="dashboard-campaign-voice-agent-questions-toolbar-actions">
+                    {!defaultQuestionsMatch && candidateQuestions.length > 0 ? (
+                      <button
+                        type="button"
+                        className={`${dashboardBtnSecondaryClass} dashboard-campaign-voice-agent-questions-reset-btn`}
+                        disabled={locked}
+                        onClick={resetCandidateQuestions}
+                      >
+                        <MaterialIcon name="restart_alt" className="text-base" aria-hidden />
+                        Reset defaults
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       className={`${dashboardBtnSecondaryClass} dashboard-campaign-voice-agent-questions-add-btn`}
-                      disabled={locked}
+                      disabled={locked || candidateQuestions.length >= MAX_CANDIDATE_QUESTIONS}
                       onClick={addCandidateQuestion}
                     >
                       <MaterialIcon name="add" className="text-base" aria-hidden />
                       Add question
                     </button>
                   </div>
+                </div>
+
+                {candidateQuestions.length === 0 ? (
+                  <div className="dashboard-campaign-voice-agent-questions-empty">
+                    <MaterialIcon
+                      name="quiz"
+                      className="dashboard-campaign-voice-agent-questions-empty-icon"
+                      aria-hidden
+                    />
+                    <p className="dashboard-campaign-voice-agent-questions-empty-text m-0">
+                      No screening questions yet. Restore the standard set or add your own.
+                    </p>
+                    <div className="dashboard-campaign-voice-agent-questions-empty-actions">
+                      <button
+                        type="button"
+                        className={`${dashboardBtnPrimaryClass} dashboard-campaign-voice-agent-questions-add-btn`}
+                        disabled={locked}
+                        onClick={resetCandidateQuestions}
+                      >
+                        <MaterialIcon name="restart_alt" className="text-base" aria-hidden />
+                        Restore defaults
+                      </button>
+                      <button
+                        type="button"
+                        className={`${dashboardBtnSecondaryClass} dashboard-campaign-voice-agent-questions-add-btn`}
+                        disabled={locked}
+                        onClick={addCandidateQuestion}
+                      >
+                        <MaterialIcon name="add" className="text-base" aria-hidden />
+                        Add question
+                      </button>
+                    </div>
+                  </div>
                 ) : (
                   <ul className="dashboard-campaign-voice-agent-questions-list">
-                    {candidateQuestions.map((question, index) => (
-                      <li
-                        key={`candidate-question-${index}`}
-                        className="dashboard-campaign-voice-agent-question-row"
-                      >
-                        <span className="dashboard-campaign-voice-agent-question-index" aria-hidden>
-                          {index + 1}
-                        </span>
-                        <label className="dashboard-campaign-voice-agent-question-field">
-                          <span className="sr-only">Question {index + 1}</span>
-                          <input
-                            type="text"
-                            value={question}
-                            onChange={(e) => updateCandidateQuestion(index, e.target.value)}
-                            disabled={locked}
-                            placeholder="e.g. Are you open to relocating for this role?"
-                            className={`${dashboardInputClass} dashboard-input-sm w-full`}
-                          />
-                        </label>
-                        <button
-                          type="button"
-                          className="dashboard-table-icon-btn dashboard-table-icon-btn--danger"
-                          disabled={locked}
-                          onClick={() => removeCandidateQuestion(index)}
-                          aria-label={`Remove question ${index + 1}`}
+                    {candidateQuestions.map((question, index) => {
+                      const topicLabel =
+                        getDefaultScreeningQuestionLabel(index) ??
+                        (index >= DEFAULT_SCREENING_QUESTION_COUNT ? "Custom" : null);
+                      const isEditing = editingQuestionIndex === index;
+                      const displayText = question.trim();
+
+                      if (isEditing) {
+                        return (
+                          <li
+                            key={`candidate-question-${index}`}
+                            className="dashboard-campaign-voice-agent-question-row dashboard-campaign-voice-agent-question-row--editing"
+                          >
+                            <span
+                              className="dashboard-campaign-voice-agent-question-index"
+                              aria-hidden
+                            >
+                              {index + 1}
+                            </span>
+                            <div className="dashboard-campaign-voice-agent-question-edit-panel">
+                              {topicLabel ? (
+                                <span className="dashboard-campaign-voice-agent-question-topic">
+                                  {topicLabel}
+                                </span>
+                              ) : null}
+                              <label className="dashboard-campaign-voice-agent-question-field">
+                                <span className="sr-only">Edit question {index + 1}</span>
+                                <textarea
+                                  ref={questionEditRef}
+                                  value={editingQuestionDraft}
+                                  onChange={(e) => setEditingQuestionDraft(e.target.value)}
+                                  rows={3}
+                                  placeholder="e.g. How many years of relevant experience do you have?"
+                                  className={`${dashboardTextareaClass} dashboard-campaign-voice-agent-question-textarea w-full`}
+                                />
+                              </label>
+                              <div className="dashboard-campaign-voice-agent-question-edit-actions">
+                                <div
+                                  className="dashboard-campaign-voice-agent-question-action-toolbar"
+                                  role="group"
+                                  aria-label={`Edit question ${index + 1} actions`}
+                                >
+                                  <button
+                                    type="button"
+                                    className="dashboard-campaign-voice-agent-question-action-btn dashboard-campaign-voice-agent-question-action-btn--save"
+                                    onClick={saveEditingQuestion}
+                                    title="Save question"
+                                    aria-label={`Save question ${index + 1}`}
+                                  >
+                                    <MaterialIcon name="check" className="text-base" aria-hidden />
+                                  </button>
+                                  <span
+                                    className="dashboard-campaign-voice-agent-question-action-divider"
+                                    aria-hidden
+                                  />
+                                  <button
+                                    type="button"
+                                    className="dashboard-campaign-voice-agent-question-action-btn dashboard-campaign-voice-agent-question-action-btn--cancel"
+                                    onClick={cancelEditingQuestion}
+                                    title="Cancel editing"
+                                    aria-label={`Cancel editing question ${index + 1}`}
+                                  >
+                                    <MaterialIcon name="close" className="text-base" aria-hidden />
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </li>
+                        );
+                      }
+
+                      return (
+                        <li
+                          key={`candidate-question-${index}`}
+                          className="dashboard-campaign-voice-agent-question-row"
                         >
-                          <MaterialIcon name="close" className="text-base" aria-hidden />
-                        </button>
-                      </li>
-                    ))}
+                          <span
+                            className="dashboard-campaign-voice-agent-question-index"
+                            aria-hidden
+                          >
+                            {index + 1}
+                          </span>
+                          <div className="dashboard-campaign-voice-agent-question-content">
+                            {topicLabel ? (
+                              <span className="dashboard-campaign-voice-agent-question-topic">
+                                {topicLabel}
+                              </span>
+                            ) : null}
+                            <p
+                              className={[
+                                "dashboard-campaign-voice-agent-question-text",
+                                displayText ? "" : "dashboard-campaign-voice-agent-question-text--empty",
+                              ]
+                                .filter(Boolean)
+                                .join(" ")}
+                            >
+                              {displayText || "No question text yet"}
+                            </p>
+                          </div>
+                          {!locked ? (
+                            <div
+                              className="dashboard-campaign-voice-agent-question-action-toolbar"
+                              role="group"
+                              aria-label={`Question ${index + 1} actions`}
+                            >
+                              <button
+                                type="button"
+                                className="dashboard-campaign-voice-agent-question-action-btn dashboard-campaign-voice-agent-question-action-btn--edit"
+                                onClick={() => startEditingQuestion(index)}
+                                title="Edit question"
+                                aria-label={`Edit question ${index + 1}`}
+                              >
+                                <MaterialIcon name="edit" className="text-base" aria-hidden />
+                              </button>
+                              <span
+                                className="dashboard-campaign-voice-agent-question-action-divider"
+                                aria-hidden
+                              />
+                              <button
+                                type="button"
+                                className="dashboard-campaign-voice-agent-question-action-btn dashboard-campaign-voice-agent-question-action-btn--delete"
+                                onClick={() => requestDeleteCandidateQuestion(index)}
+                                title="Remove question"
+                                aria-label={`Remove question ${index + 1}`}
+                              >
+                                <MaterialIcon name="delete_outline" className="text-base" aria-hidden />
+                              </button>
+                            </div>
+                          ) : null}
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </div>
@@ -588,7 +779,9 @@ export function CampaignVoiceAgentEditor({
                     </tr>
                   </thead>
                   <tbody>
-                    {resultFields.map((row, index) => (
+                    {resultFields.map((row, index) => {
+                      const isFixedRow = isFixedDefaultResultField(row);
+                      return (
                       <tr key={`result-field-${index}`}>
                         <td className="dashboard-campaign-voice-agent-result-col-no">{index + 1}</td>
                         <td>
@@ -598,7 +791,7 @@ export function CampaignVoiceAgentEditor({
                             onChange={(e) =>
                               updateResultField(index, { columnName: e.target.value })
                             }
-                            disabled={locked}
+                            disabled={locked || isFixedRow}
                             placeholder="e.g. Interest level"
                             className={`${dashboardInputClass} dashboard-input-sm dashboard-campaign-voice-agent-result-cell-input`}
                             aria-label={`Column name row ${index + 1}`}
@@ -618,18 +811,21 @@ export function CampaignVoiceAgentEditor({
                           />
                         </td>
                         <td className="dashboard-campaign-voice-agent-result-col-action">
-                          <button
-                            type="button"
-                            className="dashboard-table-icon-btn dashboard-table-icon-btn--danger"
-                            disabled={locked || resultFields.length <= 1}
-                            onClick={() => removeResultFieldRow(index)}
-                            aria-label={`Remove row ${index + 1}`}
-                          >
-                            <MaterialIcon name="close" className="text-base" aria-hidden />
-                          </button>
+                          {!isFixedRow ? (
+                            <button
+                              type="button"
+                              className="dashboard-table-icon-btn dashboard-table-icon-btn--danger"
+                              disabled={locked}
+                              onClick={() => removeResultFieldRow(index)}
+                              aria-label={`Remove row ${index + 1}`}
+                            >
+                              <MaterialIcon name="close" className="text-base" aria-hidden />
+                            </button>
+                          ) : null}
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -710,7 +906,7 @@ export function CampaignVoiceAgentEditor({
       {portalMounted && callPromptModalOpen
         ? createPortal(
             <div
-              className="dashboard-modal-overlay z-[130] py-6"
+              className="dashboard-campaign-voice-agent-prompt-modal-overlay"
               role="presentation"
               onClick={closeCallPromptModal}
             >
@@ -718,12 +914,12 @@ export function CampaignVoiceAgentEditor({
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="voice-call-prompt-modal-title"
-                className="dashboard-modal dashboard-campaign-voice-agent-prompt-modal"
+                className="dashboard-campaign-voice-agent-prompt-modal"
                 onClick={(event) => event.stopPropagation()}
               >
                 <div className="dashboard-campaign-voice-agent-prompt-modal-head">
                   <h4 id="voice-call-prompt-modal-title" className="dashboard-campaign-voice-agent-prompt-modal-title">
-                    {locked ? "View call prompt" : "Edit call prompt"}
+                    Call prompt
                   </h4>
                   <button
                     type="button"
@@ -734,55 +930,61 @@ export function CampaignVoiceAgentEditor({
                     <MaterialIcon name="close" className="text-xl" aria-hidden />
                   </button>
                 </div>
-                <p
-                  id="voice-call-prompt-modal-hint"
-                  className="dashboard-campaign-voice-agent-field-hint dashboard-campaign-voice-agent-field-hint--compact m-0"
-                >
-                  {locked
-                    ? "Read-only view of the agent instructions saved for this campaign."
-                    : "Customize the full agent instructions. Placeholders resolve when you save the agent."}
-                </p>
-                <textarea
-                  ref={callPromptRef}
-                  value={callPrompt}
-                  onChange={(e) => setCallPrompt(e.target.value)}
-                  disabled={locked}
-                  minLength={MIN_CALL_PROMPT_CHARS}
-                  rows={18}
-                  placeholder="Describe the agent persona, conversation context, and step-by-step call flow…"
-                  className={`${dashboardTextareaClass} dashboard-campaign-jd-textarea dashboard-campaign-voice-agent-prompt-textarea dashboard-campaign-voice-agent-prompt-modal-textarea mt-3 w-full`}
-                  aria-describedby={
-                    locked ? "voice-call-prompt-modal-hint" : "voice-call-prompt-modal-variables"
-                  }
-                />
-                {!locked ? (
+                <div className="dashboard-campaign-voice-agent-prompt-modal-body">
                   <div
-                    id="voice-call-prompt-modal-variables"
-                    className="dashboard-campaign-voice-agent-variable-chips"
+                    className="dashboard-campaign-voice-agent-prompt-modal-scroll"
+                    tabIndex={0}
+                    role="document"
+                    aria-labelledby="voice-call-prompt-modal-title"
                   >
-                    <div className="dashboard-campaign-voice-agent-variable-chips-row">
-                      {VOICE_AGENT_PROMPT_VARIABLES.map((variable) => (
-                        <button
-                          key={variable}
-                          type="button"
-                          title={voiceAgentVariableHint(variable)}
-                          onClick={() => insertCallPromptVariable(variable)}
-                          className="dashboard-campaign-voice-agent-variable-chip"
-                        >
-                          {variable}
-                        </button>
-                      ))}
-                    </div>
+                    <pre className="dashboard-campaign-voice-agent-prompt-modal-content">
+                      {callPrompt}
+                    </pre>
                   </div>
-                ) : null}
-                <div className="dashboard-campaign-voice-agent-prompt-modal-actions">
+                </div>
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
+
+      {portalMounted && pendingDeleteQuestionIndex !== null
+        ? createPortal(
+            <div
+              className="dashboard-campaign-voice-agent-delete-modal-overlay"
+              role="presentation"
+              onClick={() => setPendingDeleteQuestionIndex(null)}
+            >
+              <div
+                role="alertdialog"
+                aria-modal="true"
+                aria-labelledby="voice-agent-delete-question-title"
+                className="dashboard-campaign-voice-agent-delete-modal"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <h4
+                  id="voice-agent-delete-question-title"
+                  className="dashboard-campaign-voice-agent-delete-modal-title"
+                >
+                  Delete question {pendingDeleteQuestionIndex + 1}?
+                </h4>
+                <p className="dashboard-campaign-voice-agent-delete-modal-message">
+                  This question will be removed from the screening flow.
+                </p>
+                <div className="dashboard-campaign-voice-agent-delete-modal-actions">
                   <button
                     type="button"
-                    className={`${dashboardBtnPrimaryClass} dashboard-campaign-voice-agent-prompt-modal-done`}
-                    disabled={!locked && trimmedCallPrompt.length < MIN_CALL_PROMPT_CHARS}
-                    onClick={closeCallPromptModal}
+                    className={`${dashboardBtnSecondaryClass} dashboard-campaign-voice-agent-delete-modal-btn`}
+                    onClick={() => setPendingDeleteQuestionIndex(null)}
                   >
-                    {locked ? "Close" : "Done"}
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="dashboard-btn-danger dashboard-campaign-voice-agent-delete-modal-btn"
+                    onClick={confirmDeleteCandidateQuestion}
+                  >
+                    Delete
                   </button>
                 </div>
               </div>
