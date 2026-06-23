@@ -1,59 +1,8 @@
-export type ComparisonFeatureValue = "yes" | "partial" | "limited" | "no" | string;
+export type { ComparisonFeatureValue, DetailedComparisonPage } from "./comparisonTypes";
+import { comparisonPage as page, type DetailedComparisonPage } from "./comparisonTypes";
+import { EXTENDED_COMPARISON_PAGES } from "./comparisonPagesExtended";
 
-export type DetailedComparisonPage = {
-  slug: string;
-  name: string;
-  shortName: string;
-  metaTitle: string;
-  metaDescription: string;
-  headline: string;
-  intro: string[];
-  quickComparisonRows: {
-    feature: string;
-    huntlo: ComparisonFeatureValue;
-    competitor: ComparisonFeatureValue;
-  }[];
-  bestFor: { huntlo: string; competitor: string };
-  chooseHuntlo: string[];
-  chooseCompetitor: string[];
-  whatIsHuntlo: {
-    lead: string;
-    bullets: string[];
-    philosophy: string;
-    closing: string;
-  };
-  whatIsCompetitor: {
-    lead: string;
-    bullets: string[];
-    closing: string;
-  };
-  featureComparison: { capability: string; huntlo: string; competitor: string }[];
-  biggestDifference: string;
-  workflowHuntlo: string[];
-  workflowCompetitor: string[];
-  workflowNote: string;
-  useCases: { useCase: string; recommended: string }[];
-  prosHuntlo: string[];
-  considerationHuntlo: string;
-  prosCompetitor: string[];
-  considerationCompetitor: string;
-  faq: { question: string; answer: string }[];
-  finalVerdict: string[];
-};
-
-function page(
-  partial: Omit<DetailedComparisonPage, "slug" | "shortName"> & {
-    slug: string;
-    shortName?: string;
-  }
-): DetailedComparisonPage {
-  return {
-    ...partial,
-    shortName: partial.shortName ?? partial.name,
-  };
-}
-
-export const DETAILED_COMPARISON_PAGES: DetailedComparisonPage[] = [
+const LEGACY_COMPARISON_PAGES = [
   page({
     slug: "prism",
     name: "Prism",
@@ -668,6 +617,11 @@ export const DETAILED_COMPARISON_PAGES: DetailedComparisonPage[] = [
       "For teams looking to own the entire recruiting workflow—not just hiring automation—Huntlo offers a more comprehensive solution.",
     ],
   }),
+];
+
+export const DETAILED_COMPARISON_PAGES = [
+  ...LEGACY_COMPARISON_PAGES,
+  ...EXTENDED_COMPARISON_PAGES,
 ];
 
 export function detailedComparisonBySlug(slug: string): DetailedComparisonPage | undefined {

@@ -1928,6 +1928,10 @@ html.landing-scroll-locked .landing-nav {
   color: var(--landing-on-surface-variant);
 }
 
+.landing-compare-hub-list {
+  margin-top: 0.5rem;
+}
+
 .landing-compare-switcher {
   margin-top: 1.75rem;
   padding-top: 1.5rem;

@@ -81,6 +81,14 @@ export const MARKETING_PAGES = {
       "See how Huntlo helps your team source candidates, automate outreach, and hire faster with AI.",
     ogImage: OG_IMAGES.bookDemo,
   },
+  demo: {
+    path: "/demo",
+    eyebrow: "Product demo",
+    title: "Watch the Huntlo demo",
+    description:
+      "See Huntlo in action — AI sourcing, multi-channel outreach, screening, and hiring workflows in one recruiting OS.",
+    ogImage: OG_IMAGES.bookDemo,
+  },
 } as const;
 
 export type MarketingPageKey = keyof typeof MARKETING_PAGES;
