@@ -39,6 +39,7 @@ const {
   sumContactCountsForCampaigns,
   updateCampaignContactFields,
 } = require("./campaignContactService");
+const { normalizeVoiceCallRetryConfig } = require("./voiceCallRetryConfig");
 
 async function assertCampaignsEnabledForUser(userId) {
   const user = await User.findById(userId).lean();
@@ -206,6 +207,7 @@ function formatCampaign(doc, listStats, options = {}) {
                   }))
                   .filter((row) => row.columnName && row.expectedValue)
               : [],
+            retryConfig: normalizeVoiceCallRetryConfig(doc.voiceAgentConfig.retryConfig),
           },
         }
       : {}),

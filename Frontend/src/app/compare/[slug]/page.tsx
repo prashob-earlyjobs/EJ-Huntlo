@@ -41,7 +41,7 @@ export default async function CompareSlugPage({ params }: PageProps) {
 
   const breadcrumbItems = [
     { name: "Home", href: "/" },
-    { name: "Compare", href: "/compare/juicebox" },
+    { name: "Compare", href: "/compare" },
     { name: `Huntlo vs ${page.shortName}` },
   ];
 

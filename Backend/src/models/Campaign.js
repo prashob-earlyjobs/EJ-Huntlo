@@ -38,6 +38,14 @@ const voiceAgentResultFieldSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const voiceCallRetryConfigSchema = new mongoose.Schema(
+  {
+    maxRetryCount: { type: Number, default: 0, min: 0, max: 10 },
+    retryIntervalHours: { type: Number, default: 0, min: 0 },
+  },
+  { _id: false }
+);
+
 const voiceAgentConfigSchema = new mongoose.Schema(
   {
     callObjective: { type: String, default: "" },
@@ -45,6 +53,7 @@ const voiceAgentConfigSchema = new mongoose.Schema(
     callPrompt: { type: String, default: "" },
     resultPrompt: { type: String, default: "" },
     resultFields: { type: [voiceAgentResultFieldSchema], default: [] },
+    retryConfig: { type: voiceCallRetryConfigSchema, default: () => ({}) },
   },
   { _id: false }
 );

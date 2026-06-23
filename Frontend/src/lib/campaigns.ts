@@ -49,12 +49,18 @@ export type HunarVoiceAgentRecord = {
   [key: string]: unknown;
 };
 
+export type VoiceCallRetryConfig = {
+  maxRetryCount: number;
+  retryIntervalHours: number;
+};
+
 export type VoiceAgentConfigRecord = {
   callObjective: string;
   introductoryStatement: string;
   callPrompt: string;
   resultPrompt: string;
   resultFields: Array<{ columnName: string; expectedValue: string }>;
+  retryConfig?: VoiceCallRetryConfig;
 };
 
 export type CampaignRecord = {
