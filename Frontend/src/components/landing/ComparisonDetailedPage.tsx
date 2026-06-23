@@ -143,6 +143,8 @@ export function ComparisonDetailedPage({ page, currentSlug }: Props) {
         <nav className="landing-compare-breadcrumb" aria-label="Breadcrumb">
           <Link href="/">Home</Link>
           <MaterialIcon name="chevron_right" className="landing-compare-breadcrumb-sep" />
+          <Link href="/compare">Compare</Link>
+          <MaterialIcon name="chevron_right" className="landing-compare-breadcrumb-sep" />
           <span>Huntlo vs {page.name}</span>
         </nav>
 

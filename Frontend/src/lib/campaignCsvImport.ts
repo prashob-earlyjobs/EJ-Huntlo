@@ -1,15 +1,23 @@
 import type { CampaignContact } from "@/lib/campaigns";
 
-/** Must match the sample CSV exactly (case-insensitive header names). */
+/** Required CSV column names (case-insensitive). */
 export const CSV_MANDATORY_HEADERS = [
   "name",
   "email",
   "phone",
   "role",
   "company",
-  "location",
-  "linkedinUrl",
 ] as const;
+
+/** Recognized if present in older CSVs; not shown in import UI. */
+const CSV_LEGACY_OPTIONAL_HEADERS = ["location", "linkedinUrl"] as const;
+
+const CSV_KNOWN_HEADERS = [
+  ...CSV_MANDATORY_HEADERS,
+  ...CSV_LEGACY_OPTIONAL_HEADERS,
+] as const;
+
+type CsvKnownHeader = (typeof CSV_KNOWN_HEADERS)[number];
 
 function headerLookupKey(header: string): string {
   return header.trim().toLowerCase();
@@ -50,8 +58,8 @@ function buildStrictHeaderIndex(rawHeaders: string[]): Map<string, number> {
   rawHeaders.forEach((h, i) => {
     const key = headerLookupKey(stripBom(h));
     if (!key) return;
-    for (const mandatory of CSV_MANDATORY_HEADERS) {
-      if (headerLookupKey(mandatory) === key) {
+    for (const header of CSV_KNOWN_HEADERS) {
+      if (headerLookupKey(header) === key) {
         if (!headerMap.has(key)) headerMap.set(key, i);
         break;
       }
@@ -99,9 +107,7 @@ export function parseCsvContacts(fileText: string): {
   const errors: string[] = [];
   if (missingHeaders.length > 0) {
     errors.push(`Missing mandatory headers: ${missingHeaders.join(", ")}`);
-    errors.push(
-      `Use the sample CSV column names exactly: ${CSV_MANDATORY_HEADERS.join(", ")}`
-    );
+    errors.push(`Use the sample CSV column names exactly: ${CSV_MANDATORY_HEADERS.join(", ")}`);
     return { contacts: [], errors };
   }
 
@@ -111,7 +117,7 @@ export function parseCsvContacts(fileText: string): {
 
   rows.slice(1).forEach((row, rowIx) => {
     const cols = parseCsvLine(row);
-    const get = (header: (typeof CSV_MANDATORY_HEADERS)[number]) => {
+    const get = (header: CsvKnownHeader) => {
       const ix = headerMap.get(headerLookupKey(header));
       return ix == null ? "" : String(cols[ix] ?? "").trim();
     };
@@ -143,14 +149,6 @@ export function parseCsvContacts(fileText: string): {
     }
     if (!company) {
       errors.push(`Row ${lineNo}: company is required.`);
-      return;
-    }
-    if (!location) {
-      errors.push(`Row ${lineNo}: location is required.`);
-      return;
-    }
-    if (!linkedinUrl) {
-      errors.push(`Row ${lineNo}: linkedinUrl is required.`);
       return;
     }
 
@@ -186,7 +184,7 @@ export function parseCsvContacts(fileText: string): {
 export function buildSampleCampaignContactsCsv(): string {
   return [
     CSV_MANDATORY_HEADERS.join(","),
-    'John Doe,john@example.com,+919999999999,Software Engineer,Acme,Bangalore,https://www.linkedin.com/in/johndoe',
-    'Jane Smith,jane@example.com,+919888877777,Product Manager,Globex,Mumbai,https://www.linkedin.com/in/janesmith',
+    "John Doe,john@example.com,+919999999999,Software Engineer,Acme",
+    "Jane Smith,jane@example.com,+919888877777,Product Manager,Globex",
   ].join("\n");
 }
