@@ -23,11 +23,14 @@ import {
 import type { VoiceAgentConfigRecord } from "@/lib/campaigns";
 import {
   buildVoiceCallRetryCountOptions,
-  DEFAULT_ENABLED_VOICE_CALL_RETRY_CONFIG,
+  getDefaultEnabledVoiceCallRetryConfig,
   DEFAULT_VOICE_CALL_RETRY_CONFIG,
+  getVoiceCallRetryIntervalOptions,
+  getVoiceCallRetryIntervalUnitLabel,
+  getVoiceCallRetryIntervalValue,
   isVoiceCallRetryEnabled,
   normalizeVoiceCallRetryConfig,
-  VOICE_CALL_RETRY_INTERVAL_OPTIONS,
+  patchVoiceCallRetryInterval,
   type VoiceCallRetryConfig,
 } from "@/lib/voiceCallRetryConfig";
 import {
@@ -172,6 +175,8 @@ export function CampaignVoiceAgentEditor({
     normalizeVoiceCallRetryConfig(initialConfig?.retryConfig)
   );
   const retryCountOptions = useMemo(() => buildVoiceCallRetryCountOptions(), []);
+  const retryIntervalOptions = useMemo(() => getVoiceCallRetryIntervalOptions(), []);
+  const retryIntervalUnitLabel = getVoiceCallRetryIntervalUnitLabel();
   const retryEnabled = isVoiceCallRetryEnabled(retryConfig);
   const editorBodyRef = useRef<HTMLDivElement>(null);
   const questionEditRef = useRef<HTMLTextAreaElement>(null);
@@ -795,7 +800,7 @@ export function CampaignVoiceAgentEditor({
                     onChange={(event) => {
                       setRetryConfig(
                         event.target.checked
-                          ? { ...DEFAULT_ENABLED_VOICE_CALL_RETRY_CONFIG }
+                          ? { ...getDefaultEnabledVoiceCallRetryConfig() }
                           : { ...DEFAULT_VOICE_CALL_RETRY_CONFIG }
                       );
                     }}
@@ -841,22 +846,17 @@ export function CampaignVoiceAgentEditor({
                     <label className={`${dashboardLabelClass} dashboard-campaign-jd-editor-label`}>
                       Wait between retries
                       <select
-                        value={retryConfig.retryIntervalHours}
+                        value={getVoiceCallRetryIntervalValue(retryConfig)}
                         disabled={locked}
                         className={`${dashboardInputClass} mt-2 w-full`}
                         onChange={(event) => {
-                          const retryIntervalHours = Number(event.target.value);
-                          setRetryConfig((prev) =>
-                            normalizeVoiceCallRetryConfig({
-                              ...prev,
-                              retryIntervalHours,
-                            })
-                          );
+                          const interval = Number(event.target.value);
+                          setRetryConfig((prev) => patchVoiceCallRetryInterval(prev, interval));
                         }}
                       >
-                        {VOICE_CALL_RETRY_INTERVAL_OPTIONS.map((hours) => (
-                          <option key={hours} value={hours}>
-                            {hours} hours
+                        {retryIntervalOptions.map((value) => (
+                          <option key={value} value={value}>
+                            {value} {retryIntervalUnitLabel}
                           </option>
                         ))}
                       </select>

@@ -42,6 +42,7 @@ const voiceCallRetryConfigSchema = new mongoose.Schema(
   {
     maxRetryCount: { type: Number, default: 0, min: 0, max: 10 },
     retryIntervalHours: { type: Number, default: 0, min: 0 },
+    retryIntervalMinutes: { type: Number, default: 0, min: 0 },
   },
   { _id: false }
 );
