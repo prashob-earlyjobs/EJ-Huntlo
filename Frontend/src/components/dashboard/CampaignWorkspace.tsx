@@ -438,6 +438,7 @@ export function CampaignWorkspace({
   const [contactsListTotal, setContactsListTotal] = useState(0);
   const [contactsListTotalPages, setContactsListTotalPages] = useState(1);
   const [removeContactBusyKey, setRemoveContactBusyKey] = useState("");
+  const [removingSelectedContacts, setRemovingSelectedContacts] = useState(false);
   const [removeContactConfirm, setRemoveContactConfirm] = useState<CampaignContact | null>(null);
   const unveilCompleteRef = useRef<(() => void) | undefined>(undefined);
   const [waCommsRefreshKey, setWaCommsRefreshKey] = useState(0);
@@ -1538,6 +1539,50 @@ export function CampaignWorkspace({
     [campaign.id, campaignFieldsLocked, refreshContactDependentViews, removeContactBusyKey]
   );
 
+  const handleRemoveSelectedVoiceContacts = useCallback(async () => {
+    if (campaignFieldsLocked || removingSelectedContacts) return;
+    const keys = voiceSelectedContactKeys.filter((key) => key.trim());
+    if (keys.length === 0) return;
+    const auth = getStoredAuth();
+    if (!auth?.token) return;
+    setRemovingSelectedContacts(true);
+    try {
+      let removedCount = 0;
+      let latestCampaign: CampaignRecord | null = null;
+      for (const key of keys) {
+        const result = await removeContactFromCampaignApi(auth.token, campaign.id, key);
+        if (result.removed > 0) removedCount += 1;
+        latestCampaign = result.campaign;
+      }
+      if (latestCampaign) onCampaignUpdatedRef.current?.(latestCampaign);
+      setVoiceSelectedContactKeys([]);
+      contactsFetchKeyRef.current = null;
+      void reloadContacts();
+      refreshContactDependentViews();
+      setSaveToast({
+        message:
+          removedCount > 0
+            ? `Removed ${removedCount} contact${removedCount === 1 ? "" : "s"} from campaign.`
+            : "No selected contacts were found in this campaign.",
+        variant: removedCount > 0 ? "success" : "error",
+      });
+    } catch (err) {
+      setSaveToast({
+        message: err instanceof Error ? err.message : "Could not remove selected contacts.",
+        variant: "error",
+      });
+    } finally {
+      setRemovingSelectedContacts(false);
+    }
+  }, [
+    campaign.id,
+    campaignFieldsLocked,
+    refreshContactDependentViews,
+    reloadContacts,
+    removingSelectedContacts,
+    voiceSelectedContactKeys,
+  ]);
+
   const handleSyncAllThreads = useCallback(async () => {
     const auth = getStoredAuth();
     if (!auth?.token || syncThreadsBusy) return;
@@ -2476,6 +2521,10 @@ export function CampaignWorkspace({
                         if (contact) await handleRemoveContactFromCampaign(contact);
                       }
                 }
+                onRemoveSelectedContacts={
+                  campaignFieldsLocked ? undefined : handleRemoveSelectedVoiceContacts
+                }
+                removingSelected={removingSelectedContacts}
               />
             ) : isVoiceCallCampaign ? (
               <CampaignVoiceCallsPanel
