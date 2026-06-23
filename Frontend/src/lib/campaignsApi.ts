@@ -1,6 +1,7 @@
 import { authHeaders } from "@/lib/auth";
 import { parseApiError } from "@/lib/apiErrors";
 import type { VoiceAgentEditorPayload } from "@/components/dashboard/CampaignVoiceAgentEditor";
+import { parseVoiceCallRetryConfigFromApi } from "@/lib/voiceCallRetryConfig";
 import type {
   CampaignContact,
   CampaignOutreachStatus,
@@ -151,6 +152,11 @@ function parseCampaign(raw: unknown): CampaignRecord | null {
       callPrompt: String(config.callPrompt || "").trim(),
       resultPrompt: String(config.resultPrompt || "").trim(),
       resultFields,
+      retryConfig: parseVoiceCallRetryConfigFromApi(
+        config.retryConfig && typeof config.retryConfig === "object"
+          ? (config.retryConfig as Record<string, unknown>)
+          : null
+      ),
     };
   }
 

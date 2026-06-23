@@ -22,6 +22,15 @@ import {
 } from "@/lib/voiceAgentPrompt";
 import type { VoiceAgentConfigRecord } from "@/lib/campaigns";
 import {
+  buildVoiceCallRetryCountOptions,
+  DEFAULT_ENABLED_VOICE_CALL_RETRY_CONFIG,
+  DEFAULT_VOICE_CALL_RETRY_CONFIG,
+  isVoiceCallRetryEnabled,
+  normalizeVoiceCallRetryConfig,
+  VOICE_CALL_RETRY_INTERVAL_OPTIONS,
+  type VoiceCallRetryConfig,
+} from "@/lib/voiceCallRetryConfig";
+import {
   VOICE_CALL_INTRO_DEFAULT,
   VOICE_CALL_OBJECTIVE_DEFAULT,
   VOICE_CALL_PROMPT_DEFAULT,
@@ -59,7 +68,7 @@ const SETUP_STEPS: Array<{
     id: "call",
     label: "Call setup",
     title: "Call agent",
-    lead: "Set the objective, opening line, agent instructions, and optional screening questions.",
+    lead: "Set the objective, opening line, agent instructions, screening questions, and retry settings.",
   },
   {
     id: "result",
@@ -80,6 +89,7 @@ export type VoiceAgentEditorPayload = {
   callPrompt: string;
   resultFields: ResultAgentFieldRow[];
   resultPrompt: string;
+  retryConfig: VoiceCallRetryConfig;
 };
 
 const DEFAULT_RESULT_AGENT_FIELDS: ResultAgentFieldRow[] = [
@@ -158,6 +168,11 @@ export function CampaignVoiceAgentEditor({
       prepareScreeningQuestionsForStorage(resolveInitialScreeningQuestions(initialCallPrompt, roleLabel)).filter(Boolean)
     )
   );
+  const [retryConfig, setRetryConfig] = useState<VoiceCallRetryConfig>(() =>
+    normalizeVoiceCallRetryConfig(initialConfig?.retryConfig)
+  );
+  const retryCountOptions = useMemo(() => buildVoiceCallRetryCountOptions(), []);
+  const retryEnabled = isVoiceCallRetryEnabled(retryConfig);
   const editorBodyRef = useRef<HTMLDivElement>(null);
   const questionEditRef = useRef<HTMLTextAreaElement>(null);
 
@@ -360,6 +375,7 @@ export function CampaignVoiceAgentEditor({
   const currentStep = SETUP_STEPS[setupStepIndex] ?? SETUP_STEPS[0];
 
   const goToSetupStep = (step: VoiceAgentSetupStep) => {
+    if (step === "result" && !locked && !callStepReady) return;
     setSetupStep(step);
   };
 
@@ -378,6 +394,7 @@ export function CampaignVoiceAgentEditor({
       callPrompt: syncScreeningQuestionsIntoCallPrompt(trimmedCallPrompt, candidateQuestions),
       resultFields: mergedResultFields,
       resultPrompt: buildResultPromptFromFields(mergedResultFields),
+      retryConfig: normalizeVoiceCallRetryConfig(retryConfig),
     };
   };
 
@@ -433,6 +450,7 @@ export function CampaignVoiceAgentEditor({
                       type="button"
                       className="dashboard-campaign-voice-agent-stepper-content"
                       onClick={() => goToSetupStep(step.id)}
+                      disabled={step.id === "result" && !locked && !callStepReady}
                       aria-current={isActive ? "step" : undefined}
                     >
                       <span className="dashboard-campaign-voice-agent-stepper-dot">
@@ -755,6 +773,100 @@ export function CampaignVoiceAgentEditor({
                       );
                     })}
                   </ul>
+                )}
+              </div>
+
+              <div className="dashboard-campaign-voice-agent-step-section">
+                <div className="dashboard-campaign-voice-agent-step-section-head">
+                  <h4 className="dashboard-campaign-voice-agent-step-section-title">
+                    Call schedule
+                  </h4>
+                  <p className="dashboard-campaign-voice-agent-field-hint m-0">
+                    Configure automatic retries for contacts who don&apos;t connect.
+                  </p>
+                </div>
+
+                <label className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    className="mt-1 h-4 w-4 rounded border-slate-300"
+                    checked={retryEnabled}
+                    disabled={locked}
+                    onChange={(event) => {
+                      setRetryConfig(
+                        event.target.checked
+                          ? { ...DEFAULT_ENABLED_VOICE_CALL_RETRY_CONFIG }
+                          : { ...DEFAULT_VOICE_CALL_RETRY_CONFIG }
+                      );
+                    }}
+                  />
+                  <span>
+                    <span className="text-sm font-medium text-slate-800">
+                      Retry when call doesn&apos;t connect
+                    </span>
+                    <p className="dashboard-campaign-voice-agent-field-hint mt-1.5 m-0">
+                      Automatically retry contacts with status{" "}
+                      <code className="dashboard-campaign-voice-agent-code">NOT_CONNECTED</code> after
+                      the interval you choose.
+                    </p>
+                  </span>
+                </label>
+
+                {retryEnabled ? (
+                  <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                    <label className={`${dashboardLabelClass} dashboard-campaign-jd-editor-label`}>
+                      Max retries
+                      <select
+                        value={retryConfig.maxRetryCount}
+                        disabled={locked}
+                        className={`${dashboardInputClass} mt-2 w-full`}
+                        onChange={(event) => {
+                          const maxRetryCount = Number(event.target.value);
+                          setRetryConfig((prev) =>
+                            normalizeVoiceCallRetryConfig({
+                              ...prev,
+                              maxRetryCount,
+                            })
+                          );
+                        }}
+                      >
+                        {retryCountOptions.map((count) => (
+                          <option key={count} value={count}>
+                            {count}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className={`${dashboardLabelClass} dashboard-campaign-jd-editor-label`}>
+                      Wait between retries
+                      <select
+                        value={retryConfig.retryIntervalHours}
+                        disabled={locked}
+                        className={`${dashboardInputClass} mt-2 w-full`}
+                        onChange={(event) => {
+                          const retryIntervalHours = Number(event.target.value);
+                          setRetryConfig((prev) =>
+                            normalizeVoiceCallRetryConfig({
+                              ...prev,
+                              retryIntervalHours,
+                            })
+                          );
+                        }}
+                      >
+                        {VOICE_CALL_RETRY_INTERVAL_OPTIONS.map((hours) => (
+                          <option key={hours} value={hours}>
+                            {hours} hours
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                ) : (
+                  <p className="dashboard-campaign-voice-agent-field-hint mt-4 m-0">
+                    No retries — each contact is called once. Hunar may still apply your organization
+                    default if configured.
+                  </p>
                 )}
               </div>
             </>

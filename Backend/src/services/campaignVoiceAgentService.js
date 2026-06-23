@@ -9,6 +9,10 @@ const {
 } = require("./hunarVoiceCallService");
 const { prepareResolvedVoiceAgentConfig } = require("./voiceLaunchPromptService");
 const { buildResultPromptFromFields } = require("./voiceAgentPromptService");
+const {
+  normalizeVoiceCallRetryConfig,
+  DEFAULT_VOICE_CALL_RETRY_CONFIG,
+} = require("./voiceCallRetryConfig");
 
 function normalizeVoiceAgentPayload(body) {
   const resultFields = Array.isArray(body?.resultFields)
@@ -26,6 +30,7 @@ function normalizeVoiceAgentPayload(body) {
     callPrompt: String(body?.callPrompt || "").trim(),
     resultPrompt: String(body?.resultPrompt || "").trim(),
     resultFields,
+    retryConfig: normalizeVoiceCallRetryConfig(body?.retryConfig),
   };
 }
 
@@ -123,6 +128,7 @@ async function saveCampaignVoiceAgent(actorUserId, campaignId, body) {
     callPrompt: payload.callPrompt,
     resultPrompt: payload.resultPrompt,
     resultFields: payload.resultFields,
+    retryConfig: payload.retryConfig || { ...DEFAULT_VOICE_CALL_RETRY_CONFIG },
   };
 
   const hunarVoiceAgent = mergeHunarVoiceAgent(storedAgent, agentResult.agent);

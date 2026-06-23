@@ -1,8 +1,12 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
+
 import { CampaignContactsSkeleton } from "@/components/dashboard/CampaignContactsSkeleton";
 import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { dashboardBtnSecondaryClass } from "@/lib/dashboardStyles";
 import type { CampaignContact } from "@/lib/campaigns";
 
 type Channel = "gmail" | "whatsapp" | "voice_call";
@@ -27,6 +31,8 @@ type Props = {
   onAddFromSearchHistory?: () => void;
   onUploadCsv?: () => void;
   onRemoveContact?: (candidateKey: string) => void | Promise<void>;
+  onRemoveSelectedContacts?: () => void | Promise<void>;
+  removingSelected?: boolean;
 };
 
 function contactChannelValue(contact: CampaignContact, channel: Channel): string {
@@ -60,6 +66,10 @@ function buildPageNumbers(currentPage: number, totalPages: number): number[] {
     .sort((a, b) => a - b);
 }
 
+type RemoveConfirm =
+  | { kind: "single"; contact: CampaignContact }
+  | { kind: "bulk"; count: number };
+
 export function CampaignPreLaunchContactsPanel({
   channel,
   contacts,
@@ -80,7 +90,11 @@ export function CampaignPreLaunchContactsPanel({
   onAddFromSearchHistory,
   onUploadCsv,
   onRemoveContact,
+  onRemoveSelectedContacts,
+  removingSelected = false,
 }: Props) {
+  const [removeConfirm, setRemoveConfirm] = useState<RemoveConfirm | null>(null);
+  const [portalMounted, setPortalMounted] = useState(false);
   const isWhatsApp = channel === "whatsapp";
   const isVoiceCall = channel === "voice_call";
   const showSelection = selectable && isVoiceCall;
@@ -96,6 +110,17 @@ export function CampaignPreLaunchContactsPanel({
   const pageNumbers = buildPageNumbers(page, totalPages);
   const channelLabel = isVoiceCall ? "AI voice call" : isWhatsApp ? "WhatsApp" : "Gmail";
   const contactFieldLabel = isVoiceCall || isWhatsApp ? "Phone" : "Email";
+
+  useEffect(() => {
+    setPortalMounted(true);
+  }, []);
+
+  const removeConfirmTitle =
+    removeConfirm?.kind === "single"
+      ? `Remove ${removeConfirm.contact.name.trim() || "this contact"}?`
+      : removeConfirm?.kind === "bulk"
+        ? `Remove ${removeConfirm.count} contact${removeConfirm.count === 1 ? "" : "s"}?`
+        : "";
 
   if (loading) {
     return (
@@ -137,6 +162,17 @@ export function CampaignPreLaunchContactsPanel({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {showSelection && selectedKeys.length > 0 && onRemoveSelectedContacts ? (
+            <button
+              type="button"
+              className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-red-200 px-3 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-55"
+              disabled={contactsLocked || removingSelected}
+              onClick={() => setRemoveConfirm({ kind: "bulk", count: selectedKeys.length })}
+            >
+              <MaterialIcon name="delete" className="text-base" />
+              {removingSelected ? "Deleting..." : `Delete all (${selectedKeys.length})`}
+            </button>
+          ) : null}
           <button
             type="button"
             className="dashboard-btn-primary inline-flex min-h-9 items-center gap-1.5 px-3 text-xs disabled:opacity-55"
@@ -221,15 +257,27 @@ export function CampaignPreLaunchContactsPanel({
                   <td className="px-3 py-2 text-right">
                     <button
                       type="button"
-                      className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
+                      className={`dashboard-table-icon-btn dashboard-table-icon-btn--sm dashboard-table-icon-btn--danger${
+                        removingKey === contact.candidateKey
+                          ? " dashboard-table-icon-btn--loading"
+                          : ""
+                      }`}
                       disabled={!onRemoveContact || removingKey === contact.candidateKey}
-                      onClick={async () => {
+                      aria-label={
+                        removingKey === contact.candidateKey
+                          ? `Removing ${contact.name.trim() || "contact"}`
+                          : `Remove ${contact.name.trim() || "contact"}`
+                      }
+                      onClick={() => {
                         if (!onRemoveContact || removingKey === contact.candidateKey) return;
-                        await onRemoveContact(contact.candidateKey);
+                        setRemoveConfirm({ kind: "single", contact });
                       }}
                     >
-                      <MaterialIcon name="delete" className="text-sm" />
-                      {removingKey === contact.candidateKey ? "Removing..." : "Remove"}
+                      {removingKey === contact.candidateKey ? (
+                        <span className="dashboard-reveal-spinner" aria-hidden />
+                      ) : (
+                        <MaterialIcon name="delete" className="text-base" aria-hidden />
+                      )}
                     </button>
                   </td>
                 </tr>
@@ -280,6 +328,57 @@ export function CampaignPreLaunchContactsPanel({
           </div>
         ) : null}
       </div>
+      {portalMounted && removeConfirm
+        ? createPortal(
+            <div
+              className="dashboard-campaign-voice-agent-delete-modal-overlay"
+              role="presentation"
+              onClick={() => setRemoveConfirm(null)}
+            >
+              <div
+                role="alertdialog"
+                aria-modal="true"
+                aria-labelledby="campaign-contact-remove-title"
+                className="dashboard-campaign-voice-agent-delete-modal"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <h4
+                  id="campaign-contact-remove-title"
+                  className="dashboard-campaign-voice-agent-delete-modal-title"
+                >
+                  {removeConfirmTitle}
+                </h4>
+                <div className="dashboard-campaign-voice-agent-delete-modal-actions">
+                  <button
+                    type="button"
+                    className={`${dashboardBtnSecondaryClass} dashboard-campaign-voice-agent-delete-modal-btn`}
+                    onClick={() => setRemoveConfirm(null)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="dashboard-btn-danger dashboard-campaign-voice-agent-delete-modal-btn"
+                    onClick={() => {
+                      if (removeConfirm.kind === "single") {
+                        if (!onRemoveContact) return;
+                        const candidateKey = removeConfirm.contact.candidateKey;
+                        setRemoveConfirm(null);
+                        void onRemoveContact(candidateKey);
+                        return;
+                      }
+                      setRemoveConfirm(null);
+                      void onRemoveSelectedContacts?.();
+                    }}
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
     </div>
   );
 }

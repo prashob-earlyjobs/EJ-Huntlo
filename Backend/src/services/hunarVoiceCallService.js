@@ -4,6 +4,7 @@ const {
   resolveVoiceAgentPromptTemplate,
   buildHunarResultSchema,
 } = require("./voiceAgentPromptService");
+const { buildHunarRetryConfig } = require("./voiceCallRetryConfig");
 
 const HUNAR_BULK_CALLS_URL =
   "https://api.voice.hunar.ai/external/v1/calls/bulk/";
@@ -257,10 +258,7 @@ async function createHunarBulkCalls({ campaign, contacts, requestId }) {
     agent_id: agentId,
     data,
     request_id: requestId || `${campaignId}-${randomUUID()}`,
-    retry_config: {
-      max_retry_count: 0,
-      retry_interval_hours: 0,
-    },
+    retry_config: buildHunarRetryConfig(campaign?.voiceAgentConfig?.retryConfig),
     timezone: null,
     callback_config: buildHunarCallbackUrls(campaignId),
     remove_invalid_rows: true,
