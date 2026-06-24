@@ -16,7 +16,7 @@ import {
   PLAN_PAYMENT_PROVIDERS,
   planPaymentAmountDisplay,
   planPaymentCurrencyLabel,
-  type PlanPaymentCurrency,
+  resolveTierBillingCurrency,
   type PlanPaymentProviderId,
 } from "@/lib/planPayment";
 import {
@@ -28,7 +28,6 @@ import type { PricingTier } from "@/lib/pricingPlans";
 type Props = {
   open: boolean;
   tier: PricingTier;
-  currency: PlanPaymentCurrency;
   isUpgrade: boolean;
   onClose: () => void;
   onPaymentSuccess?: (message: string) => void;
@@ -69,11 +68,13 @@ function ProviderMark({ id }: { id: PlanPaymentProviderId }) {
 export function PlanPaymentMethodModal({
   open,
   tier,
-  currency,
   isUpgrade,
   onClose,
   onPaymentSuccess,
 }: Props) {
+  const currency = resolveTierBillingCurrency(tier);
+  const defaultProvider: PlanPaymentProviderId | null =
+    currency === "usd" ? "dodo" : currency === "inr" ? "razorpay" : null;
   const [mounted, setMounted] = useState(false);
   const [provider, setProvider] = useState<PlanPaymentProviderId | null>(null);
   const [notice, setNotice] = useState<{ tone: "info" | "error" | "success"; text: string } | null>(
@@ -108,7 +109,7 @@ export function PlanPaymentMethodModal({
 
   useEffect(() => {
     if (!open) return;
-    setProvider(null);
+    setProvider(defaultProvider);
     setNotice(null);
     setProcessing(false);
     void loadProviderStatus();
@@ -123,11 +124,11 @@ export function PlanPaymentMethodModal({
       window.removeEventListener("keydown", onKeyDown);
       document.body.style.overflow = prevOverflow;
     };
-  }, [open, onClose, processing, loadProviderStatus]);
+  }, [open, onClose, processing, loadProviderStatus, defaultProvider]);
 
-  if (!open || !mounted) return null;
+  if (!open || !mounted || !currency) return null;
 
-  const amountLabel = planPaymentAmountDisplay(tier.id, currency);
+  const amountLabel = planPaymentAmountDisplay(tier);
   const actionLabel = isUpgrade ? "Upgrade" : "Subscribe";
   const planId = tier.id?.trim().toLowerCase() || "";
 
@@ -246,6 +247,10 @@ export function PlanPaymentMethodModal({
         ? "dashboard-plan-pay-modal-notice dashboard-plan-pay-modal-notice--success"
         : "dashboard-plan-pay-modal-notice";
 
+  const providerOptions = PLAN_PAYMENT_PROVIDERS.filter((option) =>
+    currency === "inr" ? option.id === "razorpay" : option.id === "dodo"
+  );
+
   return createPortal(
     <div
       className="dashboard-modal-overlay z-[140] py-6"
@@ -309,7 +314,7 @@ export function PlanPaymentMethodModal({
           ) : null}
 
           <ul className="dashboard-plan-pay-provider-list" role="listbox" aria-label="Payment providers">
-            {PLAN_PAYMENT_PROVIDERS.map((option) => {
+            {providerOptions.map((option) => {
               const selected = provider === option.id;
               const disabledOption =
                 processing ||

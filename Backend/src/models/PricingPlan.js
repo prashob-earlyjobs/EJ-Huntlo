@@ -8,6 +8,11 @@ const pricingPlanSchema = new mongoose.Schema(
     name: { type: String, required: true, trim: true, maxlength: 80 },
     primaryPrice: { type: String, default: "", maxlength: 120 },
     secondaryPrice: { type: String, default: "", maxlength: 160 },
+    /** Checkout charge in major units (e.g. 8999 INR or 99 USD) for paymentCurrency. */
+    paymentAmount: { type: Number, default: null, min: 0 },
+    paymentCurrency: { type: String, enum: ["inr", "usd", null], default: null },
+    /** Optional USD charge when paymentCurrency is INR (dual-currency checkout). */
+    paymentAmountUsd: { type: Number, default: null, min: 0 },
     description: { type: String, default: "", maxlength: 2000 },
     /** Non-negative integers only; labels are applied when rendering API/UI. */
     searches: { type: Number, default: null },

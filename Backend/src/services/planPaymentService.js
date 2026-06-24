@@ -41,7 +41,8 @@ async function assertCanPurchase(actorUserId, { planId, currency }) {
       ? billingUser.planId.trim()
       : "trial";
 
-  const purchaseCheck = canPurchasePlan(currentPlanId, planId);
+  const cur = String(currency || "inr").trim().toLowerCase();
+  const purchaseCheck = await canPurchasePlan(currentPlanId, planId, cur);
   if (!purchaseCheck.ok) {
     const err = new Error(purchaseCheck.message);
     err.code = "PLAN_PURCHASE_NOT_ALLOWED";
@@ -49,8 +50,7 @@ async function assertCanPurchase(actorUserId, { planId, currency }) {
     throw err;
   }
 
-  const cur = String(currency || "inr").trim().toLowerCase();
-  const pricing = getPlanPaymentAmount(planId, cur);
+  const pricing = await getPlanPaymentAmount(planId, cur);
   if (!pricing) {
     const err = new Error("Invalid plan pricing");
     err.code = "INVALID_PLAN";
