@@ -13,7 +13,9 @@ import {
   applyScreeningQuestionCountToCallObjective,
   buildDefaultScreeningQuestionsForEditor,
   buildResultPromptFromFields,
+  getAutoScreeningLinkedQuestion,
   getDefaultScreeningQuestionLabel,
+  isAutoScreeningResultField,
   isFixedDefaultResultField,
   prepareScreeningQuestionsForStorage,
   resolveInitialScreeningQuestions,
@@ -237,6 +239,22 @@ export function CampaignVoiceAgentEditor({
   const removeResultFieldRow = (index: number) => {
     const row = resultFields[index];
     if (locked || !row || isFixedDefaultResultField(row)) return;
+
+    if (isAutoScreeningResultField(row)) {
+      const linkedQuestion = getAutoScreeningLinkedQuestion(row);
+      if (linkedQuestion) {
+        const questionIndex = candidateQuestions.findIndex(
+          (question, questionIndex) =>
+            questionIndex >= DEFAULT_SCREENING_QUESTION_COUNT &&
+            question.trim().toLowerCase() === linkedQuestion.toLowerCase()
+        );
+        if (questionIndex >= 0) {
+          removeCandidateQuestion(questionIndex);
+          return;
+        }
+      }
+    }
+
     setResultFields((prev) => prev.filter((_, rowIndex) => rowIndex !== index));
   };
 
