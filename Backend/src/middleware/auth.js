@@ -1,6 +1,10 @@
 const { verifyToken } = require("../utils/jwt");
 const User = require("../models/User");
-const { timeStart, timeEnd } = require("../utils/timingLog");
+
+function isIntegrationsApiRequest(req) {
+  const url = String(req.originalUrl || req.url || "");
+  return url.startsWith("/api/integrations");
+}
 
 const authenticate = async (req, res, next) => {
   try {
@@ -13,9 +17,10 @@ const authenticate = async (req, res, next) => {
       });
     }
 
-    const jwtTimer = timeStart("jwt verify");
+    const timeAuth = isIntegrationsApiRequest(req);
+    if (timeAuth) console.time("jwt verify");
     const decoded = verifyToken(token);
-    timeEnd(jwtTimer);
+    if (timeAuth) console.timeEnd("jwt verify");
 
     req.auth = {
       userId: decoded.sub,
@@ -24,14 +29,13 @@ const authenticate = async (req, res, next) => {
     };
 
     if (decoded.role !== "admin") {
-      const userLookupTimer = timeStart("user lookup");
+      if (timeAuth) console.time("user lookup");
       const user = await User.findById(decoded.sub)
         .select(
           "memberStatus accountRole memberPermission organizationId ownerUserId onboardingCompleted role"
         )
         .lean();
-      timeEnd(userLookupTimer);
-
+      if (timeAuth) console.timeEnd("user lookup");
       if (user?.memberStatus === "blocked") {
         return res.status(403).json({
           success: false,
