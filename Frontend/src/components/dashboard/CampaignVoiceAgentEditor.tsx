@@ -13,7 +13,9 @@ import {
   applyScreeningQuestionCountToCallObjective,
   buildDefaultScreeningQuestionsForEditor,
   buildResultPromptFromFields,
+  getAutoScreeningLinkedQuestion,
   getDefaultScreeningQuestionLabel,
+  isAutoScreeningResultField,
   isFixedDefaultResultField,
   prepareScreeningQuestionsForStorage,
   resolveInitialScreeningQuestions,
@@ -23,14 +25,11 @@ import {
 import type { VoiceAgentConfigRecord } from "@/lib/campaigns";
 import {
   buildVoiceCallRetryCountOptions,
-  getDefaultEnabledVoiceCallRetryConfig,
+  DEFAULT_ENABLED_VOICE_CALL_RETRY_CONFIG,
   DEFAULT_VOICE_CALL_RETRY_CONFIG,
-  getVoiceCallRetryIntervalOptions,
-  getVoiceCallRetryIntervalUnitLabel,
-  getVoiceCallRetryIntervalValue,
   isVoiceCallRetryEnabled,
   normalizeVoiceCallRetryConfig,
-  patchVoiceCallRetryInterval,
+  VOICE_CALL_RETRY_INTERVAL_OPTIONS,
   type VoiceCallRetryConfig,
 } from "@/lib/voiceCallRetryConfig";
 import {
@@ -175,8 +174,6 @@ export function CampaignVoiceAgentEditor({
     normalizeVoiceCallRetryConfig(initialConfig?.retryConfig)
   );
   const retryCountOptions = useMemo(() => buildVoiceCallRetryCountOptions(), []);
-  const retryIntervalOptions = useMemo(() => getVoiceCallRetryIntervalOptions(), []);
-  const retryIntervalUnitLabel = getVoiceCallRetryIntervalUnitLabel();
   const retryEnabled = isVoiceCallRetryEnabled(retryConfig);
   const editorBodyRef = useRef<HTMLDivElement>(null);
   const questionEditRef = useRef<HTMLTextAreaElement>(null);
@@ -242,6 +239,22 @@ export function CampaignVoiceAgentEditor({
   const removeResultFieldRow = (index: number) => {
     const row = resultFields[index];
     if (locked || !row || isFixedDefaultResultField(row)) return;
+
+    if (isAutoScreeningResultField(row)) {
+      const linkedQuestion = getAutoScreeningLinkedQuestion(row);
+      if (linkedQuestion) {
+        const questionIndex = candidateQuestions.findIndex(
+          (question, questionIndex) =>
+            questionIndex >= DEFAULT_SCREENING_QUESTION_COUNT &&
+            question.trim().toLowerCase() === linkedQuestion.toLowerCase()
+        );
+        if (questionIndex >= 0) {
+          removeCandidateQuestion(questionIndex);
+          return;
+        }
+      }
+    }
+
     setResultFields((prev) => prev.filter((_, rowIndex) => rowIndex !== index));
   };
 
@@ -800,7 +813,7 @@ export function CampaignVoiceAgentEditor({
                     onChange={(event) => {
                       setRetryConfig(
                         event.target.checked
-                          ? { ...getDefaultEnabledVoiceCallRetryConfig() }
+                          ? { ...DEFAULT_ENABLED_VOICE_CALL_RETRY_CONFIG }
                           : { ...DEFAULT_VOICE_CALL_RETRY_CONFIG }
                       );
                     }}
@@ -846,17 +859,22 @@ export function CampaignVoiceAgentEditor({
                     <label className={`${dashboardLabelClass} dashboard-campaign-jd-editor-label`}>
                       Wait between retries
                       <select
-                        value={getVoiceCallRetryIntervalValue(retryConfig)}
+                        value={retryConfig.retryIntervalHours}
                         disabled={locked}
                         className={`${dashboardInputClass} mt-2 w-full`}
                         onChange={(event) => {
-                          const interval = Number(event.target.value);
-                          setRetryConfig((prev) => patchVoiceCallRetryInterval(prev, interval));
+                          const retryIntervalHours = Number(event.target.value);
+                          setRetryConfig((prev) =>
+                            normalizeVoiceCallRetryConfig({
+                              ...prev,
+                              retryIntervalHours,
+                            })
+                          );
                         }}
                       >
-                        {retryIntervalOptions.map((value) => (
-                          <option key={value} value={value}>
-                            {value} {retryIntervalUnitLabel}
+                        {VOICE_CALL_RETRY_INTERVAL_OPTIONS.map((hours) => (
+                          <option key={hours} value={hours}>
+                            {hours} hours
                           </option>
                         ))}
                       </select>

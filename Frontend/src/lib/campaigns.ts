@@ -52,7 +52,6 @@ export type HunarVoiceAgentRecord = {
 export type VoiceCallRetryConfig = {
   maxRetryCount: number;
   retryIntervalHours: number;
-  retryIntervalMinutes: number;
 };
 
 export type VoiceAgentConfigRecord = {
