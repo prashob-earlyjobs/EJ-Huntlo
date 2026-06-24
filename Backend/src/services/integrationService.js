@@ -22,6 +22,7 @@ const {
 } = require("./gupshupWhatsAppConfig");
 const { getGupshupWebhookSetupForClient } = require("../utils/gupshupWebhookSetup");
 const { getActiveMessagingChannel } = require("./platformSettingsService");
+const { timeStart, timeEnd } = require("../utils/timingLog");
 
 const { GMAIL_SCOPES } = require("./gmailClient");
 
@@ -224,10 +225,15 @@ async function connectGmail(userId, code) {
 
 async function listUserIntegrations(userId) {
   const userOid = new mongoose.Types.ObjectId(userId);
+
+  const queryTimer = timeStart("integrations query");
   const platformChannel = await getActiveMessagingChannel();
   const docs = await UserIntegration.find({ userId: userOid })
     .sort({ updatedAt: -1 })
     .lean();
+  timeEnd(queryTimer);
+
+  const mappingTimer = timeStart("response mapping");
   let fallbackSenderName = "";
   const needsSender = docs.some((d) => !d.senderName);
   if (needsSender) {
@@ -235,7 +241,7 @@ async function listUserIntegrations(userId) {
     fallbackSenderName =
       typeof user?.fullName === "string" ? user.fullName.trim() : "";
   }
-  return docs.map((doc) =>
+  const integrations = docs.map((doc) =>
     formatIntegrationRow(
       {
         ...doc,
@@ -244,6 +250,9 @@ async function listUserIntegrations(userId) {
       platformChannel
     )
   );
+  timeEnd(mappingTimer);
+
+  return integrations;
 }
 
 async function getGmailStatus(userId) {

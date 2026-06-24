@@ -6,8 +6,7 @@ import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { PlanPaymentButton } from "@/components/dashboard/PlanPaymentButton";
 import { PlansPricingSkeleton } from "@/components/dashboard/PlansPricingSkeleton";
 import {
-  planPaymentCurrencyLabel,
-  type PlanPaymentCurrency,
+  tierDashboardDisplayPriceLines,
 } from "@/lib/planPayment";
 import {
   quotaRemainingDisplay,
@@ -160,18 +159,17 @@ function PricingPlanCard({
   tier,
   isCurrent,
   currentPlanId,
-  paymentCurrency,
   onPaymentSuccess,
 }: {
   tier: PricingTier;
   isCurrent: boolean;
   currentPlanId: string;
-  paymentCurrency: PlanPaymentCurrency;
   onPaymentSuccess?: (message: string) => void;
 }) {
   const featured = Boolean(tier.isPopular) && !isCurrent;
   const lines = tierFeatureLines(tier);
   const cardKey = tier.id || tier.name;
+  const priceLines = tierDashboardDisplayPriceLines(tier);
 
   return (
     <article
@@ -194,9 +192,9 @@ function PricingPlanCard({
       ) : null}
 
       <h4 className="dashboard-pricing-card-name">{tier.name}</h4>
-      <p className="dashboard-pricing-card-price tabular-nums">{tier.primaryPrice}</p>
-      {tier.secondaryPrice ? (
-        <p className="dashboard-pricing-card-secondary">{tier.secondaryPrice}</p>
+      <p className="dashboard-pricing-card-price tabular-nums">{priceLines.primary}</p>
+      {priceLines.secondary && tier.id === "enterprise" ? (
+        <p className="dashboard-pricing-card-secondary">{priceLines.secondary}</p>
       ) : null}
       {tier.description ? (
         <p className="dashboard-pricing-card-desc">{tier.description}</p>
@@ -217,7 +215,6 @@ function PricingPlanCard({
         <PlanPaymentButton
           tier={tier}
           currentPlanId={currentPlanId}
-          currency={paymentCurrency}
           featured={featured}
           onPaymentSuccess={onPaymentSuccess}
         />
@@ -242,7 +239,6 @@ export function PlansPricingPanel({
   onPaymentSuccess,
   paymentSuccessToast,
 }: Props) {
-  const [paymentCurrency, setPaymentCurrency] = useState<PlanPaymentCurrency>("inr");
   const [dodoReturnMessage, setDodoReturnMessage] = useState<{
     tone: "success" | "error";
     text: string;
@@ -321,29 +317,6 @@ export function PlansPricingPanel({
             </p>
           ) : null}
 
-          <div className="dashboard-pricing-billing-row">
-            <p className="dashboard-pricing-billing-label">Billing currency</p>
-            <div
-              className="dashboard-pricing-billing-toggle"
-              role="group"
-              aria-label="Select billing currency for payment"
-            >
-              {(["inr", "usd"] as const).map((code) => (
-                <button
-                  key={code}
-                  type="button"
-                  className={`dashboard-pricing-billing-option${
-                    paymentCurrency === code ? " dashboard-pricing-billing-option--active" : ""
-                  }`}
-                  aria-pressed={paymentCurrency === code}
-                  onClick={() => setPaymentCurrency(code)}
-                >
-                  {planPaymentCurrencyLabel(code)}
-                </button>
-              ))}
-            </div>
-          </div>
-
           <div className="dashboard-pricing-grid">
             {plans.tiers.map((tier) => (
               <PricingPlanCard
@@ -351,7 +324,6 @@ export function PlansPricingPanel({
                 tier={tier}
                 isCurrent={tier.id === currentPlanId}
                 currentPlanId={currentPlanId}
-                paymentCurrency={paymentCurrency}
                 onPaymentSuccess={onPaymentSuccess}
               />
             ))}

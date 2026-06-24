@@ -9,14 +9,13 @@ import {
   dashboardPlanPaymentButtonLabel,
   isPayablePlan,
   isPlanUpgrade,
-  type PlanPaymentCurrency,
+  resolveTierBillingCurrency,
 } from "@/lib/planPayment";
 import { isEnterpriseTier, type PricingTier } from "@/lib/pricingPlans";
 
 type Props = {
   tier: PricingTier;
   currentPlanId: string;
-  currency: PlanPaymentCurrency;
   featured?: boolean;
   onPaymentSuccess?: (message: string) => void;
 };
@@ -24,7 +23,6 @@ type Props = {
 export function PlanPaymentButton({
   tier,
   currentPlanId,
-  currency,
   featured,
   onPaymentSuccess,
 }: Props) {
@@ -33,7 +31,8 @@ export function PlanPaymentButton({
   const planId = tier.id?.trim().toLowerCase() || "";
   const isCurrent = planId === currentPlanId.trim().toLowerCase();
   const isUpgrade = isPlanUpgrade(currentPlanId, planId);
-  const label = dashboardPlanPaymentButtonLabel(tier, currency, { isCurrent, isUpgrade });
+  const billingCurrency = resolveTierBillingCurrency(tier);
+  const label = dashboardPlanPaymentButtonLabel(tier, { isCurrent, isUpgrade });
 
   const baseClass = featured
     ? "dashboard-pricing-card-btn dashboard-pricing-card-btn--on-featured"
@@ -60,7 +59,7 @@ export function PlanPaymentButton({
     );
   }
 
-  if (!isPayablePlan(planId)) {
+  if (!billingCurrency || !isPayablePlan(tier)) {
     return null;
   }
 
@@ -87,7 +86,6 @@ export function PlanPaymentButton({
       <PlanPaymentMethodModal
         open={paymentModalOpen}
         tier={tier}
-        currency={currency}
         isUpgrade={isUpgrade}
         onClose={() => setPaymentModalOpen(false)}
         onPaymentSuccess={onPaymentSuccess}

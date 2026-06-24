@@ -1,5 +1,6 @@
 const { verifyToken } = require("../utils/jwt");
 const User = require("../models/User");
+const { timeStart, timeEnd } = require("../utils/timingLog");
 
 const authenticate = async (req, res, next) => {
   try {
@@ -12,7 +13,10 @@ const authenticate = async (req, res, next) => {
       });
     }
 
+    const jwtTimer = timeStart("jwt verify");
     const decoded = verifyToken(token);
+    timeEnd(jwtTimer);
+
     req.auth = {
       userId: decoded.sub,
       role: decoded.role,
@@ -20,9 +24,14 @@ const authenticate = async (req, res, next) => {
     };
 
     if (decoded.role !== "admin") {
-      const user = await User.findById(decoded.sub).select(
-        "memberStatus accountRole memberPermission organizationId ownerUserId onboardingCompleted role"
-      );
+      const userLookupTimer = timeStart("user lookup");
+      const user = await User.findById(decoded.sub)
+        .select(
+          "memberStatus accountRole memberPermission organizationId ownerUserId onboardingCompleted role"
+        )
+        .lean();
+      timeEnd(userLookupTimer);
+
       if (user?.memberStatus === "blocked") {
         return res.status(403).json({
           success: false,
