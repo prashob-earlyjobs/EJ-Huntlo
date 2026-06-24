@@ -5175,6 +5175,16 @@
   min-height: 1.75rem;
 }
 
+.dashboard-campaign-voice-launch-actions {
+  padding-top: 0.5rem;
+}
+
+@media (min-width: 640px) {
+  .dashboard-campaign-voice-launch-actions {
+    padding-top: 0.625rem;
+  }
+}
+
 @media (min-width: 640px) {
   .dashboard-campaign-workspace-topbar-row {
     min-height: 2rem;
@@ -5380,7 +5390,7 @@
 
 .dashboard-campaign-sequence-actions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
   gap: 0.625rem;
 }
 
@@ -5506,6 +5516,46 @@
 
 .dashboard-campaign-sequence-subpanel .dashboard-campaign-sequence-lead {
   margin-bottom: 1rem;
+}
+
+.dashboard-campaign-sequence-subpanel-header {
+  margin-bottom: 1.25rem;
+}
+
+.dashboard-campaign-sequence-subpanel-title {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: #141b2b;
+}
+
+.dashboard-campaign-sequence-subpanel-desc {
+  margin: 0.5rem 0 0;
+  max-width: 42rem;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: #424656;
+}
+
+.dashboard-campaign-sequence-action--described {
+  align-items: flex-start;
+  min-height: 4.75rem;
+  padding-top: 0.875rem;
+  padding-bottom: 0.875rem;
+}
+
+.dashboard-campaign-sequence-action--described .dashboard-campaign-sequence-action-top {
+  align-items: flex-start;
+}
+
+.dashboard-campaign-sequence-action-desc {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1.4;
+  color: #5f6368;
 }
 
 .dashboard-campaign-sequence-footer-actions {
