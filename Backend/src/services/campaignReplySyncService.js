@@ -286,6 +286,7 @@ async function syncEnrollmentReplies(enrollment, integrationEmail, provider, int
 
   let newReplies = 0;
   let candidateReplies = 0;
+  let newRecruiterMessages = 0;
   let latestCandidateReplyAt = null;
   let latestNewCandidateMessage = null;
 
@@ -314,6 +315,9 @@ async function syncEnrollmentReplies(enrollment, integrationEmail, provider, int
     }
 
     const isCandidate = parsed.isFromCandidate;
+    if (!isCandidate) {
+      newRecruiterMessages += 1;
+    }
     try {
       await CampaignOutreachReply.create({
         userId: enrollment.userId,
@@ -349,26 +353,35 @@ async function syncEnrollmentReplies(enrollment, integrationEmail, provider, int
     }
   }
 
-  if (candidateReplies > 0) {
-    const replyCount = await CampaignOutreachReply.countDocuments({
-      enrollmentId: enrollment._id,
-      isFromCandidate: true,
-    });
+  const shouldPauseSequence = candidateReplies > 0 || newRecruiterMessages > 0;
+  if (shouldPauseSequence) {
     const enrollmentUpdate = {
       hasReply: true,
-      replyCount,
-      lastReplyAt: latestCandidateReplyAt,
       lastReplySyncedAt: new Date(),
       lastThreadId: threadId,
     };
+    if (candidateReplies > 0) {
+      enrollmentUpdate.replyCount = await CampaignOutreachReply.countDocuments({
+        enrollmentId: enrollment._id,
+        isFromCandidate: true,
+      });
+      enrollmentUpdate.lastReplyAt = latestCandidateReplyAt;
+    }
     if (enrollment.status === "active") {
       enrollmentUpdate.status = "paused";
-      enrollmentUpdate.lastError = "Reply received — sequence paused";
+      enrollmentUpdate.lastError =
+        candidateReplies > 0
+          ? "Reply received — sequence paused"
+          : "Manual reply sent — sequence paused";
     }
     await CampaignSequenceEnrollment.updateOne(
       { _id: enrollment._id },
       { $set: enrollmentUpdate }
     );
+    if (enrollmentUpdate.status === "paused") {
+      const { maybeCompleteCampaign } = require("./campaignOutreachSendService");
+      await maybeCompleteCampaign(String(enrollment.campaignId));
+    }
   } else {
     await CampaignSequenceEnrollment.updateOne(
       { _id: enrollment._id },

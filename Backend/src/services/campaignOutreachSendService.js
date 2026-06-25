@@ -44,6 +44,9 @@ const {
 } = require("../utils/outreachScheduleUtils");
 const { syncEnrollmentSchedulesForPlan } = require("./campaignEnrollmentScheduleSync");
 const {
+  getEmailIntegrationForCampaign,
+} = require("./emailIntegrationService");
+const {
   assertGmailLaunchCapacity,
   reserveGmailDailySends,
   assertCanSendGmailToday,
@@ -90,6 +93,40 @@ async function claimEnrollmentForSend(enrollment) {
   ).lean();
 
   return claimed;
+}
+
+/** Refresh Gmail thread state before a follow-up so replies pause the sequence in time. */
+async function syncEnrollmentRepliesBeforeFollowUp(enrollment) {
+  if ((enrollment.sentCount || 0) === 0 || enrollment.hasReply) {
+    return enrollment;
+  }
+
+  const campaign = await Campaign.findById(enrollment.campaignId)
+    .select("userId emailIntegrationId outreachChannel")
+    .lean();
+  if (!campaign || campaign.outreachChannel === "whatsapp") {
+    return enrollment;
+  }
+
+  try {
+    const { syncEnrollmentReplies } = require("./campaignReplySyncService");
+    const integration = await getEmailIntegrationForCampaign(campaign);
+    await syncEnrollmentReplies(
+      enrollment,
+      integration.email || "",
+      integration.provider,
+      integration
+    );
+  } catch (err) {
+    console.warn(
+      `[outreach-send] pre-follow-up reply sync enrollment ${enrollment._id}:`,
+      err?.message || err
+    );
+  }
+
+  return (
+    (await CampaignSequenceEnrollment.findById(enrollment._id).lean()) || enrollment
+  );
 }
 
 async function getSenderFirstName(userId, integrationId) {
@@ -613,7 +650,16 @@ async function processEnrollmentDoc(enrollment) {
     return;
   }
 
-  const claimed = await claimEnrollmentForSend(enrollment);
+  let fresh = enrollment;
+  const stepOrder = enrollment.currentStepOrder || 1;
+  if (stepOrder > 1 && !enrollment.hasReply && campaign.outreachChannel !== "whatsapp") {
+    fresh = await syncEnrollmentRepliesBeforeFollowUp(enrollment);
+    if (!fresh || fresh.hasReply || fresh.status !== "active") {
+      return;
+    }
+  }
+
+  const claimed = await claimEnrollmentForSend(fresh);
   if (!claimed) {
     return;
   }
@@ -743,7 +789,6 @@ async function processGmailEnrollmentDoc(enrollment, campaign) {
     body,
     toEmail: email,
   });
-  await maybeCompleteCampaign(campaignId);
 
   const now = new Date();
   const sentCount = (enrollment.sentCount || 0) + 1;
@@ -765,6 +810,7 @@ async function processGmailEnrollmentDoc(enrollment, campaign) {
         },
       }
     );
+    await maybeCompleteCampaign(campaignId);
     notifyCampaignThreadUpdated(userId, {
       campaignId,
       candidateKey,
@@ -792,6 +838,7 @@ async function processGmailEnrollmentDoc(enrollment, campaign) {
       },
     }
   );
+  await maybeCompleteCampaign(campaignId);
   notifyCampaignThreadUpdated(userId, {
     campaignId,
     candidateKey,
@@ -939,7 +986,6 @@ async function processWhatsAppEnrollmentDoc(enrollment, campaign) {
     errorMessage: "",
     sentAt: new Date(),
   });
-  await maybeCompleteCampaign(campaignId);
 
   const now = new Date();
   const sentCount = (enrollment.sentCount || 0) + 1;
@@ -959,6 +1005,7 @@ async function processWhatsAppEnrollmentDoc(enrollment, campaign) {
         },
       }
     );
+    await maybeCompleteCampaign(campaignId);
     notifyCampaignThreadUpdated(userId, {
       campaignId,
       candidateKey,
@@ -985,6 +1032,7 @@ async function processWhatsAppEnrollmentDoc(enrollment, campaign) {
       },
     }
   );
+  await maybeCompleteCampaign(campaignId);
 
   notifyCampaignThreadUpdated(userId, {
     campaignId,
@@ -996,13 +1044,20 @@ async function processWhatsAppEnrollmentDoc(enrollment, campaign) {
 }
 
 /**
- * Mark campaign completed on the first successful email/WhatsApp send from the sequence.
- * Follow-up steps continue while status is completed (see processDueEnrollments).
+ * Mark campaign completed only after no enrollments still have pending sends.
  */
 async function maybeCompleteCampaign(campaignId) {
   const campaignOid = new mongoose.Types.ObjectId(campaignId);
+  const pendingEnrollment = await CampaignSequenceEnrollment.findOne({
+    campaignId: campaignOid,
+    status: { $in: ["active", "deferred"] },
+  })
+    .select("_id")
+    .lean();
+  if (pendingEnrollment) return false;
+
   const result = await Campaign.updateOne(
-    { _id: campaignOid, outreachStatus: "active" },
+    { _id: campaignOid, outreachStatus: { $in: ["active", "completed"] } },
     { $set: { outreachStatus: "completed" } }
   );
   if (!result.modifiedCount) return false;

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { CandidateFilterDrawer } from "@/components/CandidateFilterDrawer";
@@ -112,7 +112,7 @@ import {
   fetchCampaignsPage,
 } from "@/lib/campaignsApi";
 import { realtimeClient } from "@/lib/realtime/client";
-import { rememberCampaignRevealJobHint } from "@/lib/campaignRevealJob";
+import { campaignRevealStartedLabel, rememberCampaignRevealJobHint } from "@/lib/campaignRevealJob";
 import type { CampaignWorkspaceTab } from "@/lib/campaignRoutes";
 import {
   pathForDashboardTab,
@@ -1206,7 +1206,9 @@ export function UserDashboardPage() {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
+    readSidebarCollapsedPreference()
+  );
   const [engagementsNavExpanded, setEngagementsNavExpanded] = useState(true);
   const [collapsedNavGroupHover, setCollapsedNavGroupHover] = useState<string | null>(null);
   const [collapsedFlyoutLayout, setCollapsedFlyoutLayout] = useState<{
@@ -4059,12 +4061,15 @@ export function UserDashboardPage() {
           setCampaigns((prev) => [record, ...prev]);
           setAddToCampaignOpen(false);
           const createdCount = record.contactCount ?? incoming.length;
+          const revealNote = campaignRevealStartedLabel(payload.revealTypes);
           setSessionResultNotice(
-            `Added ${createdCount} candidate${createdCount === 1 ? "" : "s"} to "${record.name}". Phone unveil started — open Activity to track progress.`
+            revealNote
+              ? `Added ${createdCount} candidate${createdCount === 1 ? "" : "s"} to "${record.name}". ${revealNote} — open Activity to track progress.`
+              : `Added ${createdCount} candidate${createdCount === 1 ? "" : "s"} to "${record.name}".`
           );
           navigateToTab("Campaigns", {
             campaignId: record.id,
-            campaignWorkspaceTab: "Activity",
+            ...(revealNote ? { campaignWorkspaceTab: "Activity" as const } : {}),
           });
           return;
         }
@@ -4094,21 +4099,29 @@ export function UserDashboardPage() {
         );
         const campaignName = campaign.name || "Campaign";
         setAddToCampaignOpen(false);
+        const revealNote = campaignRevealStartedLabel(payload.revealTypes);
+        const revealSuffix = revealNote ? ` ${revealNote} — open Activity to track progress.` : "";
         if (addedCount === 0 && skippedCount > 0 && limitSkippedCount === 0) {
           setSessionResultNotice(`All selected candidates are already in "${campaignName}".`);
         } else if (skippedCount > 0) {
           setSessionResultNotice(
-            `Added ${addedCount} to "${campaignName}". ${skippedCount} duplicate${skippedCount === 1 ? " was" : "s were"} skipped. Phone unveil started — open Activity to track progress.`
+            `Added ${addedCount} to "${campaignName}". ${skippedCount} duplicate${skippedCount === 1 ? " was" : "s were"} skipped.${revealSuffix}`
           );
         } else {
           setSessionResultNotice(
-            `Added ${addedCount} candidate${addedCount === 1 ? "" : "s"} to "${campaignName}". Phone unveil started — open Activity to track progress.`
+            `Added ${addedCount} candidate${addedCount === 1 ? "" : "s"} to "${campaignName}".${revealSuffix}`
           );
         }
-        navigateToTab("Campaigns", {
-          campaignId: campaign.id,
-          campaignWorkspaceTab: "Activity",
-        });
+        if (revealNote) {
+          navigateToTab("Campaigns", {
+            campaignId: campaign.id,
+            campaignWorkspaceTab: "Activity",
+          });
+        } else {
+          navigateToTab("Campaigns", {
+            campaignId: campaign.id,
+          });
+        }
       } catch (err) {
         if (!userActionAlert.fromThrown(err)) {
           const message =
@@ -4148,10 +4161,6 @@ export function UserDashboardPage() {
     const key = candidateRowKey(candidate);
     return revealedContactValues[key]?.phone || candidate.phone || "";
   };
-
-  useLayoutEffect(() => {
-    setSidebarCollapsed(readSidebarCollapsedPreference());
-  }, []);
 
   const toggleSidebarCollapsed = () => {
     setSidebarCollapsed((prev) => {
@@ -4546,7 +4555,10 @@ export function UserDashboardPage() {
         </aside>
 
         <section className="dashboard-main-panel">
-          <div className="dashboard-main-scroll">
+          <div
+            key={activeTab}
+            className="dashboard-main-scroll dashboard-main-scroll--tab-transition"
+          >
             {revealContactNotice ? (
               <p className="mb-4 shrink-0 dashboard-alert-warning">{revealContactNotice}</p>
             ) : null}
