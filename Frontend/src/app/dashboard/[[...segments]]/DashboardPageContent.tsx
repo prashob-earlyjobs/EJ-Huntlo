@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { CandidateFilterDrawer } from "@/components/CandidateFilterDrawer";
@@ -1206,7 +1206,9 @@ export function UserDashboardPage() {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
+    readSidebarCollapsedPreference()
+  );
   const [engagementsNavExpanded, setEngagementsNavExpanded] = useState(true);
   const [collapsedNavGroupHover, setCollapsedNavGroupHover] = useState<string | null>(null);
   const [collapsedFlyoutLayout, setCollapsedFlyoutLayout] = useState<{
@@ -4160,10 +4162,6 @@ export function UserDashboardPage() {
     return revealedContactValues[key]?.phone || candidate.phone || "";
   };
 
-  useLayoutEffect(() => {
-    setSidebarCollapsed(readSidebarCollapsedPreference());
-  }, []);
-
   const toggleSidebarCollapsed = () => {
     setSidebarCollapsed((prev) => {
       const next = !prev;
@@ -4557,7 +4555,10 @@ export function UserDashboardPage() {
         </aside>
 
         <section className="dashboard-main-panel">
-          <div className="dashboard-main-scroll">
+          <div
+            key={activeTab}
+            className="dashboard-main-scroll dashboard-main-scroll--tab-transition"
+          >
             {revealContactNotice ? (
               <p className="mb-4 shrink-0 dashboard-alert-warning">{revealContactNotice}</p>
             ) : null}

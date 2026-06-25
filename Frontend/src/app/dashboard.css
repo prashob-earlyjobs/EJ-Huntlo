@@ -603,6 +603,10 @@
   padding: 1.5rem;
 }
 
+.dashboard-main-scroll--tab-transition {
+  animation: dashboard-tab-switch-in 180ms ease-out;
+}
+
 .dashboard-main-scroll:has(> .dashboard-campaign-workspace-card) {
   padding: 0.5rem;
 }
@@ -617,6 +621,24 @@
   min-height: 0;
   flex: 1 1 auto;
   max-height: 100%;
+}
+
+@keyframes dashboard-tab-switch-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-main-scroll--tab-transition {
+    animation: none;
+  }
 }
 
 .dashboard-main-scroll > *:not(.dashboard-card--fill) {
