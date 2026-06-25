@@ -70,6 +70,10 @@ import {
 import { useCampaignThreadRealtime } from "@/lib/realtime/useCampaignThreadRealtime";
 import { useCampaignRevealJob } from "@/lib/useCampaignRevealJob";
 import {
+  rememberCampaignRevealJobHint,
+  startCampaignReveal,
+} from "@/lib/campaignRevealJob";
+import {
   dashboardBtnPrimaryClass,
   dashboardBtnSecondaryClass,
   dashboardInputClass,
@@ -1375,6 +1379,66 @@ export function CampaignWorkspace({
     }
   }, [campaign.id, launchBusy, unveilJobActive, voiceSelectedContactKeys, reloadContacts]);
 
+  const missingVoicePhoneContacts = useMemo(
+    () =>
+      campaign.outreachChannel === "voice_call"
+        ? contacts.filter((contact) => !contact.phone.trim())
+        : [],
+    [campaign.outreachChannel, contacts]
+  );
+  const missingVoicePhoneContactKeys = useMemo(
+    () => missingVoicePhoneContacts.map((contact) => contact.candidateKey).filter(Boolean),
+    [missingVoicePhoneContacts]
+  );
+  const revealableMissingVoicePhoneCount = useMemo(
+    () =>
+      missingVoicePhoneContacts.filter(
+        (contact) => contact.linkedinUrl.trim() && contact.sourcingSessionId.trim()
+      ).length,
+    [missingVoicePhoneContacts]
+  );
+
+  const handleRevealMissingVoicePhones = useCallback(async () => {
+    const auth = getStoredAuth();
+    if (!auth?.token || launchBusy || unveilJobActive) return;
+    if (missingVoicePhoneContactKeys.length === 0) {
+      setLaunchNotice("All campaign contacts already have phone numbers.");
+      setLaunchError("");
+      return;
+    }
+
+    setLaunchError("");
+    setLaunchNotice("");
+    try {
+      const job = await startCampaignReveal(
+        auth.token,
+        campaign.id,
+        missingVoicePhoneContactKeys,
+        ["PHONE"]
+      );
+      rememberCampaignRevealJobHint(campaign.id, job.id);
+      await reloadRevealJob();
+      setLaunchNotice(
+        `Phone number reveal started for ${missingVoicePhoneContactKeys.length} contact${
+          missingVoicePhoneContactKeys.length === 1 ? "" : "s"
+        }.`
+      );
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Could not start phone number reveal.";
+      if (!tryShowQuotaExceededModal(message, onRevealQuotaExceeded)) {
+        setLaunchError(message);
+      }
+    }
+  }, [
+    campaign.id,
+    launchBusy,
+    missingVoicePhoneContactKeys,
+    onRevealQuotaExceeded,
+    reloadRevealJob,
+    unveilJobActive,
+  ]);
+
   const handleToggleVoiceContact = useCallback((candidateKey: string, selected: boolean) => {
     setVoiceSelectedContactKeys((prev) => {
       if (selected) {
@@ -2194,32 +2258,52 @@ export function CampaignWorkspace({
                   <span className="hidden sm:inline">Completed</span>
                 </button>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => void handleLaunchVoiceCampaign()}
-                  disabled={
-                    launchBusy ||
-                    unveilJobActive ||
-                    !hasSequence ||
-                    !hasContacts ||
-                    !campaign.jobDescription?.trim() ||
-                    voiceSelectedContactKeys.length === 0
-                  }
-                  title={voiceLaunchBlockedReason ?? "Launch campaign"}
-                  className={`${dashboardBtnPrimaryClass} inline-flex h-7 items-center justify-center gap-1 whitespace-nowrap px-2.5 text-xs disabled:opacity-55 sm:h-8 sm:gap-1.5 sm:px-3 sm:text-sm`}
-                >
-                  {launchBusy ? (
-                    <>
-                      <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-                      <span className="hidden sm:inline">Launching…</span>
-                    </>
-                  ) : (
-                    <>
-                      <MaterialIcon name="rocket_launch" className="text-base" />
-                      <span className="hidden sm:inline">Launch campaign</span>
-                    </>
-                  )}
-                </button>
+                <>
+                  {missingVoicePhoneContactKeys.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => void handleRevealMissingVoicePhones()}
+                      disabled={launchBusy || unveilJobActive}
+                      title={
+                        revealableMissingVoicePhoneCount > 0
+                          ? `Reveal phone numbers for ${missingVoicePhoneContactKeys.length} contact${
+                              missingVoicePhoneContactKeys.length === 1 ? "" : "s"
+                            }`
+                          : "Some contacts are missing phone numbers"
+                      }
+                      className={`${dashboardBtnSecondaryClass} inline-flex h-7 items-center justify-center gap-1 whitespace-nowrap px-2.5 text-xs disabled:opacity-55 sm:h-8 sm:gap-1.5 sm:px-3 sm:text-sm`}
+                    >
+                      <MaterialIcon name="contact_phone" className="text-base" />
+                      <span className="hidden sm:inline">Reveal phone numbers</span>
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => void handleLaunchVoiceCampaign()}
+                    disabled={
+                      launchBusy ||
+                      unveilJobActive ||
+                      !hasSequence ||
+                      !hasContacts ||
+                      !campaign.jobDescription?.trim() ||
+                      voiceSelectedContactKeys.length === 0
+                    }
+                    title={voiceLaunchBlockedReason ?? "Launch campaign"}
+                    className={`${dashboardBtnPrimaryClass} inline-flex h-7 items-center justify-center gap-1 whitespace-nowrap px-2.5 text-xs disabled:opacity-55 sm:h-8 sm:gap-1.5 sm:px-3 sm:text-sm`}
+                  >
+                    {launchBusy ? (
+                      <>
+                        <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
+                        <span className="hidden sm:inline">Launching…</span>
+                      </>
+                    ) : (
+                      <>
+                        <MaterialIcon name="rocket_launch" className="text-base" />
+                        <span className="hidden sm:inline">Launch campaign</span>
+                      </>
+                    )}
+                  </button>
+                </>
               )}
             </div>
           ) : null}

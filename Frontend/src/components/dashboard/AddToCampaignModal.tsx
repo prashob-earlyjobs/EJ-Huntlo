@@ -160,6 +160,8 @@ export function AddToCampaignModal({
   const [mounted, setMounted] = useState(false);
   const [choice, setChoice] = useState("");
   const [newName, setNewName] = useState("");
+  const [revealEmail, setRevealEmail] = useState(true);
+  const [revealPhone, setRevealPhone] = useState(true);
   const [submitError, setSubmitError] = useState("");
   const wasOpenRef = useRef(false);
 
@@ -169,12 +171,16 @@ export function AddToCampaignModal({
     if (!open) {
       setChoice("");
       setNewName("");
+      setRevealEmail(true);
+      setRevealPhone(true);
       setSubmitError("");
       wasOpenRef.current = false;
       return;
     }
     if (!wasOpenRef.current) {
       setChoice(NEW_CAMPAIGN_VALUE);
+      setRevealEmail(true);
+      setRevealPhone(true);
       wasOpenRef.current = true;
       return;
     }
@@ -202,8 +208,27 @@ export function AddToCampaignModal({
     [campaigns]
   );
 
-  /** Non-CSV adds only unveil phone numbers (email is not requested). */
-  const revealTypes = useMemo((): CampaignRevealType[] => ["PHONE"], []);
+  const revealTypes = useMemo((): CampaignRevealType[] => {
+    const types: CampaignRevealType[] = [];
+    if (revealEmail) types.push("EMAIL");
+    if (revealPhone) types.push("PHONE");
+    return types;
+  }, [revealEmail, revealPhone]);
+
+  const revealHint = useMemo(() => {
+    if (revealEmail && revealPhone) {
+      return "Email addresses and phone numbers will be unveiled for added candidates. Progress appears in the campaign Activity tab.";
+    }
+    if (revealEmail) {
+      return "Email addresses will be unveiled for added candidates. Progress appears in the campaign Activity tab.";
+    }
+    if (revealPhone) {
+      return "Phone numbers will be unveiled for added candidates. Progress appears in the campaign Activity tab.";
+    }
+    return "Select at least one option to unveil contact details.";
+  }, [revealEmail, revealPhone]);
+
+  const hasRevealChoice = revealEmail || revealPhone;
 
   if (!open || !mounted) return null;
 
@@ -214,12 +239,20 @@ export function AddToCampaignModal({
     Boolean(selectedCampaign) && isCampaignLaunched(selectedCampaign?.outreachStatus);
   const canSubmit =
     (isNew ? Boolean(trimmedNew) : Boolean(choice) && !selectedCampaignLaunched) &&
+    hasRevealChoice &&
     !submitting;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canSubmit || submitting) return;
+    if (submitting) return;
     setSubmitError("");
+    if (!hasRevealChoice) {
+      setSubmitError("Select at least one contact detail to unveil — email or phone.");
+      return;
+    }
+    if (!(isNew ? Boolean(trimmedNew) : Boolean(choice) && !selectedCampaignLaunched)) {
+      return;
+    }
     try {
       if (isNew) {
         await onConfirm({ newCampaignName: trimmedNew, revealTypes });
@@ -310,12 +343,38 @@ export function AddToCampaignModal({
           </div>
 
           <div className="dashboard-add-campaign-footer shrink-0">
-            <div className="dashboard-add-campaign-footer-section">
-              <p className="dashboard-add-campaign-footer-hint">
-                Phone numbers will be unveiled for added candidates. Progress appears in the
-                campaign Activity tab.
-              </p>
-            </div>
+            <fieldset className="dashboard-add-campaign-footer-section border-0 p-0">
+              <legend className={`${dashboardLabelClass} mb-2`}>Unveil contact details</legend>
+              <div className="flex flex-wrap gap-x-5 gap-y-2">
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-[#141b2b]">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-slate-300"
+                    checked={revealEmail}
+                    onChange={(e) => {
+                      setRevealEmail(e.target.checked);
+                      setSubmitError("");
+                    }}
+                    disabled={submitting}
+                  />
+                  Email address
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-[#141b2b]">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-slate-300"
+                    checked={revealPhone}
+                    onChange={(e) => {
+                      setRevealPhone(e.target.checked);
+                      setSubmitError("");
+                    }}
+                    disabled={submitting}
+                  />
+                  Phone number
+                </label>
+              </div>
+              <p className="dashboard-add-campaign-footer-hint mt-2">{revealHint}</p>
+            </fieldset>
 
             {isNew ? (
               <label className={`${dashboardLabelClass} dashboard-add-campaign-footer-section block`}>

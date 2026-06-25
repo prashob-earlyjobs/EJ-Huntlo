@@ -112,7 +112,7 @@ import {
   fetchCampaignsPage,
 } from "@/lib/campaignsApi";
 import { realtimeClient } from "@/lib/realtime/client";
-import { rememberCampaignRevealJobHint } from "@/lib/campaignRevealJob";
+import { campaignRevealStartedLabel, rememberCampaignRevealJobHint } from "@/lib/campaignRevealJob";
 import type { CampaignWorkspaceTab } from "@/lib/campaignRoutes";
 import {
   pathForDashboardTab,
@@ -4059,12 +4059,15 @@ export function UserDashboardPage() {
           setCampaigns((prev) => [record, ...prev]);
           setAddToCampaignOpen(false);
           const createdCount = record.contactCount ?? incoming.length;
+          const revealNote = campaignRevealStartedLabel(payload.revealTypes);
           setSessionResultNotice(
-            `Added ${createdCount} candidate${createdCount === 1 ? "" : "s"} to "${record.name}". Phone unveil started — open Activity to track progress.`
+            revealNote
+              ? `Added ${createdCount} candidate${createdCount === 1 ? "" : "s"} to "${record.name}". ${revealNote} — open Activity to track progress.`
+              : `Added ${createdCount} candidate${createdCount === 1 ? "" : "s"} to "${record.name}".`
           );
           navigateToTab("Campaigns", {
             campaignId: record.id,
-            campaignWorkspaceTab: "Activity",
+            ...(revealNote ? { campaignWorkspaceTab: "Activity" as const } : {}),
           });
           return;
         }
@@ -4094,21 +4097,29 @@ export function UserDashboardPage() {
         );
         const campaignName = campaign.name || "Campaign";
         setAddToCampaignOpen(false);
+        const revealNote = campaignRevealStartedLabel(payload.revealTypes);
+        const revealSuffix = revealNote ? ` ${revealNote} — open Activity to track progress.` : "";
         if (addedCount === 0 && skippedCount > 0 && limitSkippedCount === 0) {
           setSessionResultNotice(`All selected candidates are already in "${campaignName}".`);
         } else if (skippedCount > 0) {
           setSessionResultNotice(
-            `Added ${addedCount} to "${campaignName}". ${skippedCount} duplicate${skippedCount === 1 ? " was" : "s were"} skipped. Phone unveil started — open Activity to track progress.`
+            `Added ${addedCount} to "${campaignName}". ${skippedCount} duplicate${skippedCount === 1 ? " was" : "s were"} skipped.${revealSuffix}`
           );
         } else {
           setSessionResultNotice(
-            `Added ${addedCount} candidate${addedCount === 1 ? "" : "s"} to "${campaignName}". Phone unveil started — open Activity to track progress.`
+            `Added ${addedCount} candidate${addedCount === 1 ? "" : "s"} to "${campaignName}".${revealSuffix}`
           );
         }
-        navigateToTab("Campaigns", {
-          campaignId: campaign.id,
-          campaignWorkspaceTab: "Activity",
-        });
+        if (revealNote) {
+          navigateToTab("Campaigns", {
+            campaignId: campaign.id,
+            campaignWorkspaceTab: "Activity",
+          });
+        } else {
+          navigateToTab("Campaigns", {
+            campaignId: campaign.id,
+          });
+        }
       } catch (err) {
         if (!userActionAlert.fromThrown(err)) {
           const message =
