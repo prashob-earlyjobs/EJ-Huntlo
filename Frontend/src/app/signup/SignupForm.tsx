@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
 import { PhoneNumberField } from "@/components/ui/PhoneNumberField";
 import { getStoredAuth } from "@/lib/auth";
 import { resolveAuthRedirect } from "@/lib/claimPublicSearch";
@@ -373,7 +374,9 @@ export function SignupForm() {
             disabled={isLoading}
             className="w-full cursor-pointer rounded-xl bg-linear-to-r from-blue-600 to-cyan-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-500/25 transition hover:from-blue-700 hover:to-cyan-600 focus:outline-none focus:ring-4 focus:ring-blue-200/60 disabled:cursor-not-allowed"
           >
-            {isLoading ? "Creating account..." : "Sign up"}
+            <ButtonLoadingContent loading={isLoading} loadingLabel="Creating account">
+              Sign up
+            </ButtonLoadingContent>
           </button>
         </form>
 

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { MyProfileSkeleton } from "@/components/dashboard/MyProfileSkeleton";
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
 import { PhoneNumberField } from "@/components/ui/PhoneNumberField";
 import { resolveProfilePhotoUrl } from "@/lib/profilePhoto";
 
@@ -367,15 +368,13 @@ export function MyProfilePanel({
             disabled={saving || loading}
             className="dashboard-btn-primary"
           >
-            <MaterialIcon
-              name={isEditing ? "save" : "edit"}
-              className="text-base"
-            />
-            {isEditing
-              ? saving
-                ? "Saving…"
-                : "Save changes"
-              : "Edit profile"}
+            <ButtonLoadingContent loading={isEditing && saving} loadingLabel="Saving">
+              <MaterialIcon
+                name={isEditing ? "save" : "edit"}
+                className="text-base"
+              />
+              {isEditing ? "Save changes" : "Edit profile"}
+            </ButtonLoadingContent>
           </button>
         </div>
       </div>
@@ -570,8 +569,10 @@ export function MyProfilePanel({
                   disabled={passwordUpdateLoading}
                   className="dashboard-btn-secondary mt-1"
                 >
-                  <MaterialIcon name="key" className="text-base" />
-                  {passwordUpdateLoading ? "Updating…" : "Update password"}
+                  <ButtonLoadingContent loading={passwordUpdateLoading} loadingLabel="Updating password">
+                    <MaterialIcon name="key" className="text-base" />
+                    Update password
+                  </ButtonLoadingContent>
                 </button>
               </div>
             </section>

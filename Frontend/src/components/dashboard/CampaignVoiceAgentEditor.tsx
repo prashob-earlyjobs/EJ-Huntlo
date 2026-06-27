@@ -4,6 +4,7 @@ import { useMemo, useRef, useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
 import {
   VOICE_CALL_PROMPT_ADDITIONAL_QUESTIONS_HEADER,
   DEFAULT_SCREENING_QUESTION_COUNT,
@@ -1017,17 +1018,12 @@ export function CampaignVoiceAgentEditor({
               }
               onClick={() => void handleSaveAndContinue()}
             >
-              {saveBusy ? (
-                <>
-                  <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-                  Saving…
-                </>
-              ) : (
+              <ButtonLoadingContent loading={saveBusy} loadingLabel="Saving">
                 <>
                   Save and continue
                   <MaterialIcon name="arrow_forward" className="text-base" aria-hidden />
                 </>
-              )}
+              </ButtonLoadingContent>
             </button>
           )}
         </div>

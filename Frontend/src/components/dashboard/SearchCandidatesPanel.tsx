@@ -4,6 +4,7 @@ import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { HeroSearchPromptWarningModal } from "@/components/landing/HeroSearchPromptWarningModal";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
 import { checkHeroPromptWithBackend } from "@/lib/heroPromptCheckApi";
 import {
   detectHeroQueryDimensions,
@@ -203,12 +204,19 @@ export function SearchCandidatesPanel({
                 disabled={!canSearch}
                 className="dashboard-btn-primary dashboard-people-scout-search-btn px-5 disabled:opacity-55"
               >
-                <MaterialIcon name="tune" className="text-base" />
-                {promptCheckLoading
-                  ? "Checking…"
-                  : searchLoading
-                    ? "Preparing…"
-                    : "Continue to filters"}
+                <ButtonLoadingContent
+                  loading={promptCheckLoading || searchLoading}
+                  loadingLabel={
+                    promptCheckLoading
+                      ? "Checking"
+                      : searchLoading
+                        ? "Preparing"
+                        : "Loading"
+                  }
+                >
+                  <MaterialIcon name="tune" className="text-base" />
+                  Continue to filters
+                </ButtonLoadingContent>
               </button>
             </div>
           </form>

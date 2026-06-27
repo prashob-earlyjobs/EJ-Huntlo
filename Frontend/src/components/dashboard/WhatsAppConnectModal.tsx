@@ -6,6 +6,7 @@ import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLog
 import { WhatsAppGupshupWebhookSetupCard } from "@/components/dashboard/WhatsAppGupshupWebhookSetupCard";
 import { WhatsAppMetaWebhookSetupCard } from "@/components/dashboard/WhatsAppMetaWebhookSetupCard";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
 import { authHeaders, getStoredAuth } from "@/lib/auth";
 import type { MetaWebhookSetupPayload } from "@/lib/whatsappMetaWebhookSetup";
 import {
@@ -419,22 +420,19 @@ export function WhatsAppConnectModal({ open, busy, onClose, onSubmit }: Props) {
                 disabled={!canTest}
                 onClick={() => void handleTestCredentials()}
               >
-                {testing ? (
-                  <>
-                    <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-                    Checking…
-                  </>
-                ) : credsVerified ? (
-                  <>
-                    <MaterialIcon name="check_circle" className="text-base text-emerald-600" />
-                    Check again
-                  </>
-                ) : (
-                  <>
-                    <MaterialIcon name="verified_user" className="text-base" />
-                    Check availability
-                  </>
-                )}
+                <ButtonLoadingContent loading={testing} loadingLabel="Checking">
+                  {credsVerified ? (
+                    <>
+                      <MaterialIcon name="check_circle" className="text-base text-emerald-600" />
+                      Check again
+                    </>
+                  ) : (
+                    <>
+                      <MaterialIcon name="verified_user" className="text-base" />
+                      Check availability
+                    </>
+                  )}
+                </ButtonLoadingContent>
               </button>
             </div>
           ) : (
@@ -496,22 +494,19 @@ export function WhatsAppConnectModal({ open, busy, onClose, onSubmit }: Props) {
                   disabled={!canTest}
                   onClick={() => void handleTestCredentials()}
                 >
-                  {testing ? (
-                    <>
-                      <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-                      Testing…
-                    </>
-                  ) : credsVerified ? (
-                    <>
-                      <MaterialIcon name="check_circle" className="text-base text-emerald-600" />
-                      Test again
-                    </>
-                  ) : (
-                    <>
-                      <MaterialIcon name="verified_user" className="text-base" />
-                      Test credentials
-                    </>
-                  )}
+                  <ButtonLoadingContent loading={testing} loadingLabel="Testing">
+                    {credsVerified ? (
+                      <>
+                        <MaterialIcon name="check_circle" className="text-base text-emerald-600" />
+                        Test again
+                      </>
+                    ) : (
+                      <>
+                        <MaterialIcon name="verified_user" className="text-base" />
+                        Test credentials
+                      </>
+                    )}
+                  </ButtonLoadingContent>
                 </button>
                 {!credsVerified ? (
                   <span className="text-xs text-slate-500">
@@ -607,17 +602,12 @@ export function WhatsAppConnectModal({ open, busy, onClose, onSubmit }: Props) {
                           : undefined
               }
             >
-              {busy ? (
-                <>
-                  <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-                  Saving…
-                </>
-              ) : (
+              <ButtonLoadingContent loading={busy} loadingLabel="Saving">
                 <>
                   <MaterialIcon name="link" className="text-base" />
                   Connect WhatsApp
                 </>
-              )}
+              </ButtonLoadingContent>
             </button>
           </div>
         </form>

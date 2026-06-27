@@ -61,6 +61,8 @@ import { OutreachesPanel } from "@/components/dashboard/OutreachesPanel";
 import { SavedCandidatesPanel } from "@/components/dashboard/SavedCandidatesPanel";
 import { LandingLogo } from "@/components/landing/LandingLogo";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
+import { ButtonSpinner } from "@/components/ui/ButtonSpinner";
 import { authHeaders, getStoredAuth } from "@/lib/auth";
 import { authUploadHeaders, resolveProfilePhotoUrl } from "@/lib/profilePhoto";
 import {
@@ -4544,7 +4546,9 @@ export function UserDashboardPage() {
                       className="dashboard-sidebar-menu-item dashboard-sidebar-menu-item--danger w-full disabled:opacity-55"
                     >
                       <MaterialIcon name="logout" className="text-base" />
-                      {isLoggingOut ? "Logging out…" : "Logout"}
+                      <ButtonLoadingContent loading={isLoggingOut} loadingLabel="Logging out">
+                        Logout
+                      </ButtonLoadingContent>
                     </button>
                   </div>
                 ) : null}
@@ -4905,7 +4909,7 @@ export function UserDashboardPage() {
                                     }`}
                                   >
                                     {emailRevealBusy ? (
-                                      <span className="dashboard-reveal-spinner" aria-hidden />
+                                      <ButtonSpinner />
                                     ) : (
                                       <MaterialIcon name="mail" />
                                     )}
@@ -4929,7 +4933,7 @@ export function UserDashboardPage() {
                                     }`}
                                   >
                                     {phoneRevealBusy ? (
-                                      <span className="dashboard-reveal-spinner" aria-hidden />
+                                      <ButtonSpinner />
                                     ) : (
                                       <MaterialIcon name="call" />
                                     )}
@@ -4971,13 +4975,11 @@ export function UserDashboardPage() {
                                     } disabled:opacity-60`}
                                   >
                                     <MaterialIcon name="bookmark_border" className="text-base" />
-                                    <span>
-                                      {isSaveBusy
-                                        ? "Saving…"
-                                        : isSavedSessionCandidate
-                                          ? "Saved"
-                                          : "Save Candidate"}
-                                    </span>
+                                    <ButtonLoadingContent loading={isSaveBusy} loadingLabel="Saving candidate">
+                                      <span>
+                                        {isSavedSessionCandidate ? "Saved" : "Save Candidate"}
+                                      </span>
+                                    </ButtonLoadingContent>
                                   </button>
                                 </div>
                               </div>
@@ -5004,10 +5006,15 @@ export function UserDashboardPage() {
                           disabled={sessionFetchMoreLoading || applyFiltersLoading}
                           className="dashboard-btn-primary px-5 py-2.5 disabled:opacity-60"
                         >
-                          <MaterialIcon name="person_add" className="text-base" />
-                          {sessionFetchMoreLoading
-                            ? "Fetching more profiles…"
-                            : "Fetch more profiles"}
+                          <ButtonLoadingContent
+                            loading={sessionFetchMoreLoading}
+                            loadingLabel="Fetching more profiles"
+                          >
+                            <span className="inline-flex items-center gap-2">
+                              <MaterialIcon name="person_add" className="text-base" />
+                              Fetch more profiles
+                            </span>
+                          </ButtonLoadingContent>
                         </button>
                       </div>
                     ) : null}
