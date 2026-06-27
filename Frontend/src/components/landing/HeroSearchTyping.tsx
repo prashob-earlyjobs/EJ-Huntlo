@@ -9,6 +9,7 @@ import {
   HERO_TAG_TO_DIMENSION,
 } from "@/lib/heroQueryDimensions";
 import { checkHeroPromptWithBackend } from "@/lib/heroPromptCheckApi";
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
 import { HeroSearchPromptWarningModal } from "./HeroSearchPromptWarningModal";
 import { MaterialIcon } from "./MaterialIcon";
 
@@ -228,7 +229,9 @@ export function HeroSearchTyping() {
           disabled={!hasUserQuery || promptCheckLoading}
           className="landing-hero-search-footer-cta shrink-0 rounded-full bg-[#0050cb] px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-[#0050cb]/25 transition-colors hover:bg-[#003fa4] disabled:cursor-not-allowed disabled:bg-[#c3c6d6] disabled:text-white/90 disabled:shadow-none disabled:hover:bg-[#c3c6d6]"
         >
-          {promptCheckLoading ? "Checking…" : "Find Candidates"}
+          <ButtonLoadingContent loading={promptCheckLoading} loadingLabel="Checking">
+            Find Candidates
+          </ButtonLoadingContent>
         </button>
       </div>
 

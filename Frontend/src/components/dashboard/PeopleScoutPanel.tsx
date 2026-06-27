@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 
 import { CompanyLogo } from "@/components/dashboard/CompanyLogo";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
 import { companyFaviconUrl } from "@/lib/companyLogo";
 import { nameInitials } from "@/lib/sessionResultUi";
 
@@ -199,8 +200,10 @@ export function PeopleScoutPanel({
             disabled={!canSearch}
             className="dashboard-btn-primary dashboard-people-scout-search-btn disabled:opacity-55"
           >
-            <MaterialIcon name="search" className="text-base" />
-            {loading ? "Searching…" : "Search"}
+            <ButtonLoadingContent loading={loading} loadingLabel="Searching">
+              <MaterialIcon name="search" className="text-base" />
+              Search
+            </ButtonLoadingContent>
           </button>
         </form>
 

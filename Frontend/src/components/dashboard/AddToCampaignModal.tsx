@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
 import {
   dashboardBtnPrimaryClass,
   dashboardBtnSecondaryClass,
@@ -411,14 +412,9 @@ export function AddToCampaignModal({
                 disabled={!canSubmit}
                 className={`${dashboardBtnPrimaryClass} dashboard-add-campaign-btn`}
               >
-                {submitting ? (
-                  <>
-                    <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-                    Adding…
-                  </>
-                ) : (
-                  "Add to campaign"
-                )}
+                <ButtonLoadingContent loading={submitting} loadingLabel="Adding">
+                  Add to campaign
+                </ButtonLoadingContent>
               </button>
             </div>
           </div>

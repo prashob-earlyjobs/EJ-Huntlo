@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
 import { getStoredAuth } from "@/lib/auth";
 import {
   generateOutreachSequenceFromJd,
@@ -223,17 +224,12 @@ export function GenerateOutreachAiModal({
               disabled={generating || !jobTitle.trim() || jobDescription.trim().length < 20}
               className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border border-[#0050cb] bg-[#0050cb] px-5 text-sm font-medium text-white transition hover:bg-[#003d99] disabled:opacity-55"
             >
-              {generating ? (
-                <>
-                  <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-                  Generating…
-                </>
-              ) : (
+              <ButtonLoadingContent loading={generating} loadingLabel="Generating">
                 <>
                   <MaterialIcon name="auto_awesome" className="text-base" />
                   Generate sequence
                 </>
-              )}
+              </ButtonLoadingContent>
             </button>
           </div>
         </form>

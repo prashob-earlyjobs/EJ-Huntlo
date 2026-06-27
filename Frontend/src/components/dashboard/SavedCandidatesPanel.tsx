@@ -19,6 +19,7 @@ import { isOpenToWork } from "@/lib/openToWork";
 import { RevealContactIconButton } from "@/components/dashboard/RevealContactIconButton";
 import { SavedCandidatesSkeleton } from "@/components/dashboard/SavedCandidatesSkeleton";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
 type SavedRawDoc = {
   _id?: string;
   sourcingSessionId?: string;
@@ -369,7 +370,9 @@ export function SavedCandidatesPanel({
                       className="dashboard-btn-primary shrink-0 px-3 disabled:opacity-55"
                     >
                       <MaterialIcon name="add" className="text-base" />
-                      {createSaveListBusy ? "…" : "Add"}
+                      <ButtonLoadingContent loading={createSaveListBusy} loadingLabel="Adding">
+                        Add
+                      </ButtonLoadingContent>
                     </button>
                   </div>
                 </label>
@@ -397,9 +400,12 @@ export function SavedCandidatesPanel({
                     className="dashboard-btn-secondary mt-1 w-full justify-center text-[#b91c1c] hover:border-red-200 hover:bg-red-50 disabled:opacity-55"
                   >
                     <MaterialIcon name="delete_outline" className="text-base" />
-                    {deleteSaveListBusyId === saveListFilter
-                      ? "Deleting…"
-                      : `Delete “${filterLabel}”`}
+                    <ButtonLoadingContent
+                      loading={deleteSaveListBusyId === saveListFilter}
+                      loadingLabel="Deleting"
+                    >
+                      {`Delete “${filterLabel}”`}
+                    </ButtonLoadingContent>
                   </button>
                 ) : null}
               </div>

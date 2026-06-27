@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
 import {
   dashboardInputClass,
   dashboardLabelClass,
@@ -138,14 +139,9 @@ export function CreateCampaignModal({ open, busy = false, onClose, onCreate }: P
               disabled={!canSubmit}
               className="inline-flex h-9 cursor-pointer items-center rounded-md border border-[#0050cb] bg-[#0050cb] px-5 text-sm font-medium text-white transition hover:bg-[#003d99] disabled:opacity-55"
             >
-              {busy ? (
-                <>
-                  <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-                  Creating…
-                </>
-              ) : (
-                "Create campaign"
-              )}
+              <ButtonLoadingContent loading={busy} loadingLabel="Creating">
+                Create campaign
+              </ButtonLoadingContent>
             </button>
           </div>
         </form>

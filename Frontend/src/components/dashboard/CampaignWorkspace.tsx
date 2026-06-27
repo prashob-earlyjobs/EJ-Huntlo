@@ -37,6 +37,7 @@ import {
 } from "@/lib/campaignContactLimits";
 import { WhatsAppOutreachEditor } from "@/components/dashboard/WhatsAppOutreachEditor";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
 import { quotaAlertFromMessage } from "@/lib/apiErrors";
 import { authHeaders, getStoredAuth } from "@/lib/auth";
 import type { CampaignContact, CampaignRecord } from "@/lib/campaigns";
@@ -2230,17 +2231,12 @@ export function CampaignWorkspace({
                   title={launchBusy ? "Resuming…" : "Resume campaign"}
                   className={`${dashboardBtnPrimaryClass} inline-flex h-7 items-center justify-center gap-1 whitespace-nowrap px-2.5 text-xs disabled:opacity-55 sm:h-8 sm:gap-1.5 sm:px-3 sm:text-sm`}
                 >
-                  {launchBusy ? (
-                    <>
-                      <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-                      <span className="hidden sm:inline">Resuming…</span>
-                    </>
-                  ) : (
-                    <>
+                  <ButtonLoadingContent loading={launchBusy} loadingLabel="Resuming campaign">
+                    <span className="inline-flex items-center gap-1 sm:gap-1.5">
                       <MaterialIcon name="play_circle" className="text-base" />
                       <span className="hidden sm:inline">Resume</span>
-                    </>
-                  )}
+                    </span>
+                  </ButtonLoadingContent>
                 </button>
               ) : outreachStatus === "completed" ? (
                 <button
@@ -2291,17 +2287,12 @@ export function CampaignWorkspace({
                     title={voiceLaunchBlockedReason ?? "Launch campaign"}
                     className={`${dashboardBtnPrimaryClass} inline-flex h-7 items-center justify-center gap-1 whitespace-nowrap px-2.5 text-xs disabled:opacity-55 sm:h-8 sm:gap-1.5 sm:px-3 sm:text-sm`}
                   >
-                    {launchBusy ? (
-                      <>
-                        <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-                        <span className="hidden sm:inline">Launching…</span>
-                      </>
-                    ) : (
-                      <>
+                    <ButtonLoadingContent loading={launchBusy} loadingLabel="Launching campaign">
+                      <span className="inline-flex items-center gap-1 sm:gap-1.5">
                         <MaterialIcon name="rocket_launch" className="text-base" />
                         <span className="hidden sm:inline">Launch campaign</span>
-                      </>
-                    )}
+                      </span>
+                    </ButtonLoadingContent>
                   </button>
                 </>
               )}
@@ -2645,8 +2636,12 @@ export function CampaignWorkspace({
                     disabled={syncThreadsBusy}
                     onClick={() => void handleSyncAllThreads()}
                   >
-                    <MaterialIcon name="refresh" className="text-base" />
-                    {syncThreadsBusy ? "Syncing…" : "Refresh"}
+                    <ButtonLoadingContent loading={syncThreadsBusy} loadingLabel="Syncing">
+                      <span className="inline-flex items-center gap-1">
+                        <MaterialIcon name="refresh" className="text-base" />
+                        Refresh
+                      </span>
+                    </ButtonLoadingContent>
                   </button>
                 </div>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -2848,7 +2843,9 @@ export function CampaignWorkspace({
                             disabled={emailThreadLoading}
                             onClick={() => void loadSelectedEmailThread(true)}
                           >
-                            {emailThreadLoading ? "Refreshing…" : "Refresh"}
+                            <ButtonLoadingContent loading={emailThreadLoading} loadingLabel="Refreshing">
+                              Refresh
+                            </ButtonLoadingContent>
                           </button>
                         </header>
                         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
@@ -3024,7 +3021,12 @@ export function CampaignWorkspace({
                     disabled={Boolean(removeContactBusyKey)}
                     onClick={() => void handleRemoveContactFromCampaign(removeContactConfirm)}
                   >
-                    {removeContactBusyKey ? "Deleting..." : "Delete contact"}
+                    <ButtonLoadingContent
+                      loading={Boolean(removeContactBusyKey)}
+                      loadingLabel="Deleting contact"
+                    >
+                      Delete contact
+                    </ButtonLoadingContent>
                   </button>
                 </div>
               </div>

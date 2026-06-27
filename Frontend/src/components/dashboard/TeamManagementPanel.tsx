@@ -15,6 +15,7 @@ import {
   type TeamUtilisationRow,
 } from "@/lib/team";
 import { TeamManagementSkeleton } from "@/components/dashboard/TeamManagementSkeleton";
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
 import { PhoneNumberField } from "@/components/ui/PhoneNumberField";
 import {
   dashboardBtnPrimaryClass,
@@ -344,7 +345,9 @@ export function TeamManagementPanel() {
                 disabled={createBusy}
                 className={`${dashboardBtnPrimaryClass} disabled:opacity-60`}
               >
-                {createBusy ? "Creating…" : "Create sub-user"}
+                <ButtonLoadingContent loading={createBusy} loadingLabel="Creating">
+                  Create sub-user
+                </ButtonLoadingContent>
               </button>
             </div>
           </form>
@@ -468,7 +471,9 @@ export function TeamManagementPanel() {
                   disabled={resetBusy}
                   className={`${dashboardBtnPrimaryClass} disabled:opacity-60`}
                 >
-                  {resetBusy ? "Saving…" : "Reset password"}
+                  <ButtonLoadingContent loading={resetBusy} loadingLabel="Saving">
+                    Reset password
+                  </ButtonLoadingContent>
                 </button>
               </div>
             </form>

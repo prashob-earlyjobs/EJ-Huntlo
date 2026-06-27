@@ -7,6 +7,8 @@ import { CampaignContactsSkeleton } from "@/components/dashboard/CampaignContact
 import { CampaignWorkspaceEmptyState } from "@/components/dashboard/CampaignWorkspaceEmptyState";
 import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
+import { ButtonSpinner } from "@/components/ui/ButtonSpinner";
 import { getStoredAuth } from "@/lib/auth";
 import {
   fetchCampaignWhatsAppThreadMessages,
@@ -574,11 +576,10 @@ export function CampaignWhatsAppCommunicationsPanel({
               disabled={refreshing}
               aria-label="Refresh conversations"
             >
-              <MaterialIcon
-                name="refresh"
-                className={`text-base${refreshing ? " animate-spin" : ""}`}
-              />
-              {refreshing ? "Refreshing…" : "Refresh"}
+              <MaterialIcon name="refresh" className="text-base" />
+              <ButtonLoadingContent loading={refreshing} loadingLabel="Refreshing">
+                Refresh
+              </ButtonLoadingContent>
             </button>
           </div>
         </div>
@@ -805,9 +806,7 @@ export function CampaignWhatsAppCommunicationsPanel({
                     aria-label="Send message"
                     onClick={() => void handleSendMessage()}
                   >
-                    <MaterialIcon
-                      name={sending ? "hourglass_empty" : "send"}
-                    />
+                    {sending ? <ButtonSpinner /> : <MaterialIcon name="send" />}
                   </button>
                 </div>
               </footer>

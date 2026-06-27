@@ -4,6 +4,8 @@ import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
+
 import { AdminBlogPanel } from "@/components/admin/AdminBlogPanel";
 import {
   AdminMessagingChannelSettings,
@@ -1664,7 +1666,9 @@ export function AdminDashboardPage() {
                   disabled={isLoggingOut}
                   className="dashboard-btn-secondary"
                 >
-                  {isLoggingOut ? "Logging out…" : "Logout"}
+                  <ButtonLoadingContent loading={isLoggingOut} loadingLabel="Logging out">
+                    Logout
+                  </ButtonLoadingContent>
                 </button>
                 {activeTab === "Users" ? (
                   <button
@@ -2002,7 +2006,9 @@ export function AdminDashboardPage() {
                     disabled={settingsSaving || settingsLoading}
                     className="dashboard-btn-primary disabled:opacity-50"
                   >
-                    {settingsSaving ? "Saving…" : "Save"}
+                    <ButtonLoadingContent loading={settingsSaving} loadingLabel="Saving settings">
+                      Save
+                    </ButtonLoadingContent>
                   </button>
                 </div>
                 {settingsError ? (
@@ -2044,7 +2050,9 @@ export function AdminDashboardPage() {
                     disabled={pricingSaving || !pricingForm}
                     className="dashboard-btn-primary disabled:opacity-50"
                   >
-                    {pricingSaving ? "Saving…" : "Save"}
+                    <ButtonLoadingContent loading={pricingSaving} loadingLabel="Saving pricing">
+                      Save
+                    </ButtonLoadingContent>
                   </button>
                 </div>
                 {pricingError ? (
@@ -2532,7 +2540,9 @@ export function AdminDashboardPage() {
                       disabled={isCreating}
                       className="dashboard-btn-primary disabled:opacity-60"
                     >
-                      {isCreating ? "Creating…" : "Create User"}
+                      <ButtonLoadingContent loading={isCreating} loadingLabel="Creating user">
+                        Create User
+                      </ButtonLoadingContent>
                     </button>
                   </div>
                 </form>
@@ -2599,7 +2609,9 @@ export function AdminDashboardPage() {
                         onClick={() => void handleSaveUserPlan()}
                         className="dashboard-btn-primary py-2.5 disabled:opacity-60"
                       >
-                        {planSaving ? "Saving…" : "Save plan"}
+                        <ButtonLoadingContent loading={planSaving} loadingLabel="Saving plan">
+                          Save plan
+                        </ButtonLoadingContent>
                       </button>
                     </div>
                     <p className="mt-1 text-xs text-slate-500">

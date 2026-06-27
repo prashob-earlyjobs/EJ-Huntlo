@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
 import { authHeaders, getStoredAuth } from "@/lib/auth";
 import {
   dashboardBtnPrimaryClass,
@@ -201,22 +202,19 @@ export function CalendlyConnectModal({ open, busy, onClose, onSubmit }: Props) {
               disabled={!canTest}
               onClick={() => void handleTestCredentials()}
             >
-              {testing ? (
-                <>
-                  <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-                  Testing…
-                </>
-              ) : credsVerified ? (
-                <>
-                  <MaterialIcon name="check_circle" className="text-base text-emerald-600" />
-                  Test again
-                </>
-              ) : (
-                <>
-                  <MaterialIcon name="verified_user" className="text-base" />
-                  Test token
-                </>
-              )}
+              <ButtonLoadingContent loading={testing} loadingLabel="Testing">
+                {credsVerified ? (
+                  <>
+                    <MaterialIcon name="check_circle" className="text-base text-emerald-600" />
+                    Test again
+                  </>
+                ) : (
+                  <>
+                    <MaterialIcon name="verified_user" className="text-base" />
+                    Test token
+                  </>
+                )}
+              </ButtonLoadingContent>
             </button>
             {!credsVerified ? (
               <span className="text-xs text-slate-500">Test your token to enable Connect.</span>
@@ -250,17 +248,12 @@ export function CalendlyConnectModal({ open, busy, onClose, onSubmit }: Props) {
               className={`${dashboardBtnPrimaryClass} disabled:opacity-60`}
               title={!credsVerified ? "Test token first" : undefined}
             >
-              {busy ? (
-                <>
-                  <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-                  Saving…
-                </>
-              ) : (
+              <ButtonLoadingContent loading={busy} loadingLabel="Saving">
                 <>
                   <MaterialIcon name="link" className="text-base" />
                   Connect Calendly
                 </>
-              )}
+              </ButtonLoadingContent>
             </button>
           </div>
         </form>
