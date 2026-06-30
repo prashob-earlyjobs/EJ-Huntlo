@@ -153,6 +153,39 @@ function ScoutEmployerCompanyLine({ exp }: { exp: PeopleScoutExperience }) {
   );
 }
 
+function ContactCopyButton({ value, label }: { value: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // ignore clipboard failures
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      className="dashboard-profile-contact-copy-btn"
+      onClick={(e) => void handleCopy(e)}
+      disabled={!value}
+      aria-label={copied ? `${label} copied` : `Copy ${label}`}
+      title={copied ? "Copied" : `Copy ${label}`}
+    >
+      <MaterialIcon
+        name={copied ? "check" : "content_copy"}
+        className={`text-[13px]${copied ? " text-emerald-600" : ""}`}
+      />
+    </button>
+  );
+}
+
 function HeroIconAction({
   icon,
   label,
@@ -449,13 +482,18 @@ export function PeopleScoutDetailDrawer({
                       <div className="dashboard-profile-hero-contact-grid">
                         {emailRevealed ? (
                           displayedEmail ? (
-                            <a
-                              href={`mailto:${displayedEmail}`}
-                              className="dashboard-profile-contact-pill"
-                            >
+                            <div className="dashboard-profile-contact-pill">
                               <MaterialIcon name="mail" className="shrink-0 text-[16px]" />
-                              <span className="truncate">{displayedEmail}</span>
-                            </a>
+                              <div className="dashboard-profile-contact-pill-main">
+                                <a
+                                  href={`mailto:${displayedEmail}`}
+                                  className="dashboard-profile-contact-pill-text truncate"
+                                >
+                                  {displayedEmail}
+                                </a>
+                                <ContactCopyButton value={displayedEmail} label="email" />
+                              </div>
+                            </div>
                           ) : (
                             <span className="dashboard-profile-contact-pill text-[#424656]/70">
                               <MaterialIcon name="mail" className="shrink-0 text-[16px]" />
@@ -465,13 +503,18 @@ export function PeopleScoutDetailDrawer({
                         ) : null}
                         {phoneRevealed ? (
                           displayedPhone ? (
-                            <a
-                              href={`tel:${displayedPhone.replace(/\s/g, "")}`}
-                              className="dashboard-profile-contact-pill"
-                            >
+                            <div className="dashboard-profile-contact-pill">
                               <MaterialIcon name="call" className="shrink-0 text-[16px]" />
-                              <span className="truncate">{displayedPhone}</span>
-                            </a>
+                              <div className="dashboard-profile-contact-pill-main">
+                                <a
+                                  href={`tel:${displayedPhone.replace(/\s/g, "")}`}
+                                  className="dashboard-profile-contact-pill-text truncate"
+                                >
+                                  {displayedPhone}
+                                </a>
+                                <ContactCopyButton value={displayedPhone} label="phone number" />
+                              </div>
+                            </div>
                           ) : (
                             <span className="dashboard-profile-contact-pill text-[#424656]/70">
                               <MaterialIcon name="call" className="shrink-0 text-[16px]" />
