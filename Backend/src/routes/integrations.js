@@ -56,6 +56,16 @@ const {
 
 const router = express.Router();
 
+router.use((req, res, next) => {
+  const start = Date.now();
+  res.on("finish", () => {
+    console.log(
+      `[API] ${req.method} ${req.originalUrl} ${res.statusCode} ${Date.now() - start}ms`
+    );
+  });
+  next();
+});
+
 // Hunar AI voice call webhooks (public)
 router.post("/voice/hunar/call-status", receiveHunarCallStatusHandler);
 router.post("/voice/hunar/call-recording", receiveHunarCallRecordingHandler);

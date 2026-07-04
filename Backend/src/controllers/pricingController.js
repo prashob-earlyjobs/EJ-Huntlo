@@ -2,11 +2,13 @@ const PricingPlan = require("../models/PricingPlan");
 const PricingPlansMeta = require("../models/PricingPlansMeta");
 const PricingPlansConfig = require("../models/PricingPlansConfig");
 
+const {
+  normalizePaymentMajorAmount,
+} = require("../constants/planPaymentPricing");
+
 const DEFAULT_POPULAR_BADGE = "⭐ Most Popular";
 
 const QUOTA_MAX = 1e9;
-
-/** Until admin saves explicit flags, growth/enterprise keep prior product access. */
 function legacyPlanProductAccess(planId) {
   const id = String(planId || "").trim().toLowerCase();
   const enabled = id === "growth" || id === "enterprise";
@@ -129,11 +131,21 @@ function normalizePayload(body) {
       typeof t?.popularBadge === "string"
         ? t.popularBadge.trim().slice(0, 80)
         : DEFAULT_POPULAR_BADGE;
+    const paymentAmount = normalizePaymentMajorAmount(t?.paymentAmount);
+    const paymentCurrencyRaw = String(t?.paymentCurrency || "")
+      .trim()
+      .toLowerCase();
+    const paymentCurrency =
+      paymentCurrencyRaw === "inr" || paymentCurrencyRaw === "usd" ? paymentCurrencyRaw : null;
+    const paymentAmountUsd = normalizePaymentMajorAmount(t?.paymentAmountUsd);
     return {
       id,
       name,
       primaryPrice,
       secondaryPrice,
+      paymentAmount,
+      paymentCurrency: paymentAmount ? paymentCurrency : null,
+      paymentAmountUsd,
       description,
       searches,
       candidateUnlocks,
@@ -165,6 +177,12 @@ function validatePlansPayload(data) {
     const t = data.tiers[i];
     if (!t.name) return `Tier ${i + 1}: name is required`;
     if (!t.primaryPrice) return `Tier ${i + 1}: primary price is required`;
+    if (t.paymentAmount && !t.paymentCurrency) {
+      return `Tier ${i + 1}: payment currency is required when payment amount is set`;
+    }
+    if (t.paymentCurrency && !t.paymentAmount) {
+      return `Tier ${i + 1}: payment amount is required when payment currency is set`;
+    }
   }
   return null;
 }
@@ -244,6 +262,10 @@ function planDocumentToTierPayload(doc) {
     name: o.name || "Plan",
     primaryPrice: o.primaryPrice || "",
     secondaryPrice: o.secondaryPrice || "",
+    paymentAmount: normalizePaymentMajorAmount(o.paymentAmount),
+    paymentCurrency:
+      o.paymentCurrency === "inr" || o.paymentCurrency === "usd" ? o.paymentCurrency : null,
+    paymentAmountUsd: normalizePaymentMajorAmount(o.paymentAmountUsd),
     description: o.description || "",
     searches: coerceStoredQuota(o.searches),
     candidateUnlocks: coerceStoredQuota(o.candidateUnlocks),
@@ -282,6 +304,9 @@ async function upsertPricingPlanFromNormalized(t, sortOrder) {
         name: t.name,
         primaryPrice: t.primaryPrice,
         secondaryPrice: t.secondaryPrice,
+        paymentAmount: t.paymentAmount,
+        paymentCurrency: t.paymentCurrency,
+        paymentAmountUsd: t.paymentAmountUsd,
         description: t.description,
         searches: t.searches,
         candidateUnlocks: t.candidateUnlocks,

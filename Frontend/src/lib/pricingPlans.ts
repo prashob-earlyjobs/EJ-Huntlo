@@ -4,6 +4,11 @@ export type PricingTier = {
   primaryPrice: string;
   secondaryPrice: string;
   description: string;
+  /** Checkout charge in major units (e.g. 8999 or 99). */
+  paymentAmount?: number | null;
+  paymentCurrency?: "inr" | "usd" | null;
+  /** Optional USD charge when primary payment currency is INR. */
+  paymentAmountUsd?: number | null;
   searches?: number | null;
   candidateUnlocks?: number | null;
   verifiedEmails?: number | null;
@@ -103,6 +108,18 @@ export function parsePricingPlansFromApi(plans: unknown): PricingPlansPayload | 
         typeof t.secondaryPrice === "string" ? normalizePricingCopy(t.secondaryPrice) : "",
       description:
         typeof t.description === "string" ? normalizePricingCopy(t.description) : "",
+      paymentAmount:
+        typeof t.paymentAmount === "number" && t.paymentAmount > 0
+          ? Math.floor(t.paymentAmount)
+          : null,
+      paymentCurrency:
+        t.paymentCurrency === "inr" || t.paymentCurrency === "usd"
+          ? t.paymentCurrency
+          : null,
+      paymentAmountUsd:
+        typeof t.paymentAmountUsd === "number" && t.paymentAmountUsd > 0
+          ? Math.floor(t.paymentAmountUsd)
+          : null,
       searches: parsePricingQuotaFromApi(t.searches),
       candidateUnlocks: parsePricingQuotaFromApi(t.candidateUnlocks),
       verifiedEmails: parsePricingQuotaFromApi(t.verifiedEmails),
