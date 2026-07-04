@@ -2,12 +2,12 @@ import Link from "next/link";
 
 import { BookDemoLink } from "@/components/landing/BookDemoLink";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { tierDbDisplayPriceLines } from "@/lib/planPayment";
 import {
   isEnterpriseTier,
   landingDisplayTiers,
   landingPlanCtaLabel,
   landingTierFeatureLines,
-  splitPrimaryPriceDisplay,
   type PricingPlansPayload,
   type PricingTier,
 } from "@/lib/pricingPlans";
@@ -29,7 +29,8 @@ function PricingCheckIcon({ featured }: { featured: boolean }) {
 }
 
 function PricingPrice({ tier, featured }: { tier: PricingTier; featured: boolean }) {
-  const { amount, period } = splitPrimaryPriceDisplay(tier.primaryPrice);
+  const priceLines = tierDbDisplayPriceLines(tier, { seatSuffix: false });
+  const enterprise = isEnterpriseTier(tier);
 
   return (
     <div className="mt-4">
@@ -39,21 +40,21 @@ function PricingPrice({ tier, featured }: { tier: PricingTier; featured: boolean
             featured ? "text-white" : "text-[#141b2b]"
           }`}
         >
-          {amount}
+          {priceLines.amount}
         </span>
-        {period ? (
+        {priceLines.period ? (
           <span
             className={`landing-pricing-price-period ${
               featured ? "text-white/70" : "text-[#434654]"
             }`}
           >
-            {period}
+            {priceLines.period}
           </span>
         ) : null}
       </p>
-      {tier.secondaryPrice ? (
+      {priceLines.secondary && enterprise ? (
         <p className={`mt-1.5 text-sm ${featured ? "text-white/65" : "text-[#434654]/80"}`}>
-          {tier.secondaryPrice}
+          {priceLines.secondary}
         </p>
       ) : null}
     </div>

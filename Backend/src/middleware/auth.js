@@ -1,6 +1,11 @@
 const { verifyToken } = require("../utils/jwt");
 const User = require("../models/User");
 
+function isIntegrationsApiRequest(req) {
+  const url = String(req.originalUrl || req.url || "");
+  return url.startsWith("/api/integrations");
+}
+
 const authenticate = async (req, res, next) => {
   try {
     const header = req.headers.authorization || "";
@@ -12,7 +17,11 @@ const authenticate = async (req, res, next) => {
       });
     }
 
+    const timeAuth = isIntegrationsApiRequest(req);
+    if (timeAuth) console.time("jwt verify");
     const decoded = verifyToken(token);
+    if (timeAuth) console.timeEnd("jwt verify");
+
     req.auth = {
       userId: decoded.sub,
       role: decoded.role,
@@ -20,9 +29,13 @@ const authenticate = async (req, res, next) => {
     };
 
     if (decoded.role !== "admin") {
-      const user = await User.findById(decoded.sub).select(
-        "memberStatus accountRole memberPermission organizationId ownerUserId onboardingCompleted role"
-      );
+      if (timeAuth) console.time("user lookup");
+      const user = await User.findById(decoded.sub)
+        .select(
+          "memberStatus accountRole memberPermission organizationId ownerUserId onboardingCompleted role"
+        )
+        .lean();
+      if (timeAuth) console.timeEnd("user lookup");
       if (user?.memberStatus === "blocked") {
         return res.status(403).json({
           success: false,

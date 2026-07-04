@@ -14135,6 +14135,48 @@ select.dashboard-outreach-start-chip--select {
   gap: 0.375rem;
 }
 
+.dashboard-profile-drawer .dashboard-profile-contact-pill-main {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.dashboard-profile-drawer .dashboard-profile-contact-pill-text {
+  min-width: 0;
+  flex: 0 1 auto;
+  color: inherit;
+}
+
+.dashboard-profile-drawer .dashboard-profile-contact-copy-btn {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0.25rem;
+  background: transparent;
+  color: color-mix(in srgb, var(--dash-primary) 72%, transparent);
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.dashboard-profile-drawer .dashboard-profile-contact-copy-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--dash-primary) 8%, white);
+  color: var(--dash-primary);
+}
+
+.dashboard-profile-drawer .dashboard-profile-contact-copy-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .dashboard-profile-drawer .dashboard-profile-contact-pill {
   display: flex;
   min-width: 0;
@@ -14154,8 +14196,6 @@ select.dashboard-outreach-start-chip--select {
 
 .dashboard-profile-drawer .dashboard-profile-contact-pill:hover {
   background: color-mix(in srgb, var(--dash-primary) 4%, white);
-  text-decoration: underline;
-  text-underline-offset: 2px;
 }
 
 .dashboard-profile-sticky-tabs {

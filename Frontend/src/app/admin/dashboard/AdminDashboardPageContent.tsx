@@ -712,6 +712,9 @@ type PricingTierForm = {
   name: string;
   primaryPrice: string;
   secondaryPrice: string;
+  paymentAmount: string;
+  paymentCurrency: "" | "inr" | "usd";
+  paymentAmountUsd: string;
   description: string;
   searches: string;
   candidateUnlocks: string;
@@ -754,6 +757,23 @@ function tierUsesOutreachQuotas(tier: Pick<PricingTierForm, "campaignsEnabled" |
   return tier.campaignsEnabled || tier.outreachesEnabled;
 }
 
+function paymentAmountApiToForm(v: unknown): string {
+  if (typeof v === "number" && Number.isFinite(v) && v > 0) return String(Math.floor(v));
+  return "";
+}
+
+function paymentCurrencyApiToForm(v: unknown): "" | "inr" | "usd" {
+  if (v === "inr" || v === "usd") return v;
+  return "";
+}
+
+function formPaymentAmountToApi(s: string): number | null {
+  const t = s.trim();
+  if (t === "") return null;
+  const n = parseInt(t, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 function formQuotaFieldToApi(s: string): number | null {
   const t = s.trim();
   if (t === "") return null;
@@ -787,6 +807,9 @@ function apiPlansToForm(plans: { intro?: unknown; tiers?: unknown }): PricingPla
       name: typeof t.name === "string" ? t.name : "",
       primaryPrice: typeof t.primaryPrice === "string" ? t.primaryPrice : "",
       secondaryPrice: typeof t.secondaryPrice === "string" ? t.secondaryPrice : "",
+      paymentAmount: paymentAmountApiToForm(t.paymentAmount),
+      paymentCurrency: paymentCurrencyApiToForm(t.paymentCurrency),
+      paymentAmountUsd: paymentAmountApiToForm(t.paymentAmountUsd),
       description: typeof t.description === "string" ? t.description : "",
       searches: quotaApiValueToFormField(t.searches),
       candidateUnlocks: quotaApiValueToFormField(t.candidateUnlocks),
@@ -823,6 +846,9 @@ function formToApiPayload(form: PricingPlansFormState) {
       name: t.name,
       primaryPrice: t.primaryPrice,
       secondaryPrice: t.secondaryPrice,
+      paymentAmount: formPaymentAmountToApi(t.paymentAmount),
+      paymentCurrency: formPaymentAmountToApi(t.paymentAmount) ? t.paymentCurrency || null : null,
+      paymentAmountUsd: formPaymentAmountToApi(t.paymentAmountUsd),
       description: t.description,
       searches: formQuotaFieldToApi(t.searches),
       candidateUnlocks: formQuotaFieldToApi(t.candidateUnlocks),
@@ -2342,6 +2368,65 @@ export function AdminDashboardPage() {
                               }
                               className="mt-1 w-full dashboard-input"
                             />
+                          </div>
+                        </div>
+                        <div className="mt-4 border-t border-slate-200 pt-4">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Payment gateway
+                          </p>
+                          <p className="mt-1 text-[10px] text-slate-500">
+                            Amount charged at checkout. Set currency for Razorpay (INR) or Dodo
+                            (USD). Use optional USD amount when primary currency is INR.
+                          </p>
+                          <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                            <div>
+                              <label className="text-xs text-slate-600">Payment amount</label>
+                              <input
+                                type="number"
+                                min={1}
+                                step={1}
+                                inputMode="numeric"
+                                placeholder="e.g. 8999"
+                                value={tier.paymentAmount}
+                                onChange={(e) =>
+                                  patchPricingTier(idx, { paymentAmount: e.target.value })
+                                }
+                                className="mt-1 w-full dashboard-input"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-xs text-slate-600">Currency</label>
+                              <select
+                                value={tier.paymentCurrency}
+                                onChange={(e) =>
+                                  patchPricingTier(idx, {
+                                    paymentCurrency: e.target.value as "" | "inr" | "usd",
+                                  })
+                                }
+                                className="mt-1 w-full dashboard-input"
+                              >
+                                <option value="">—</option>
+                                <option value="inr">INR (Razorpay)</option>
+                                <option value="usd">USD (Dodo)</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="text-xs text-slate-600">
+                                Payment amount (USD)
+                              </label>
+                              <input
+                                type="number"
+                                min={1}
+                                step={1}
+                                inputMode="numeric"
+                                placeholder="e.g. 99"
+                                value={tier.paymentAmountUsd}
+                                onChange={(e) =>
+                                  patchPricingTier(idx, { paymentAmountUsd: e.target.value })
+                                }
+                                className="mt-1 w-full dashboard-input"
+                              />
+                            </div>
                           </div>
                         </div>
                         <div className="mt-3">

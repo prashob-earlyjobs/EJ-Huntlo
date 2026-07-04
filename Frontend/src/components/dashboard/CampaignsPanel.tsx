@@ -267,9 +267,9 @@ export function CampaignsPanel({
 
   const closeReportMetric = useCallback(() => {
     if (!workspaceCampaign) return;
-    replaceCampaignWorkspaceUrl(workspaceCampaign.id, "Report");
     setWorkspaceTab("Report");
-  }, [workspaceCampaign]);
+    router.replace(pathForCampaignWorkspace(workspaceCampaign.id, "Report"));
+  }, [workspaceCampaign, router]);
 
   const openWhatsAppConversation = useCallback(
     (candidateKey: string) => {
