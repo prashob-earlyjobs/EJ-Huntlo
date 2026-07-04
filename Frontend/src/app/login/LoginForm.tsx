@@ -6,6 +6,7 @@ import { FormEvent, useEffect, useState } from "react";
 
 import { BlockedAccountModal } from "@/components/dashboard/BlockedAccountModal";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
 import { getStoredAuth } from "@/lib/auth";
 import { resolveAuthRedirect } from "@/lib/claimPublicSearch";
 import { isBlockedAccountResponse, isBlockedMemberStatus } from "@/lib/sessionLogout";
@@ -166,7 +167,9 @@ export function LoginForm() {
               disabled={isLoading}
               className="w-full rounded-xl bg-linear-to-r from-blue-600 to-cyan-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-500/25 transition hover:from-blue-700 hover:to-cyan-600 focus:outline-none focus:ring-4 focus:ring-blue-200/60"
             >
-              {isLoading ? "Logging in..." : "Login"}
+              <ButtonLoadingContent loading={isLoading} loadingLabel="Logging in">
+                Login
+              </ButtonLoadingContent>
             </button>
           </form>
 

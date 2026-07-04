@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
 import {
   dashboardBtnPrimaryClass,
   dashboardBtnSecondaryClass,
@@ -204,17 +205,12 @@ export function ImportCampaignContactsCsvModal({
             disabled={!canImport}
             onClick={onImport}
           >
-            {busy ? (
-              <>
-                <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-                Importing…
-              </>
-            ) : (
+            <ButtonLoadingContent loading={busy} loadingLabel="Importing">
               <>
                 <MaterialIcon name="upload" className="text-base" />
                 Import contacts
               </>
-            )}
+            </ButtonLoadingContent>
           </button>
         </div>
       </div>

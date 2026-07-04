@@ -1,4 +1,5 @@
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { ButtonSpinner } from "@/components/ui/ButtonSpinner";
 
 type RevealContactIconButtonProps = {
   icon: "mail" | "call";
@@ -29,11 +30,7 @@ export function RevealContactIconButton({
           revealed ? " dashboard-table-icon-btn--active" : ""
         }${busy ? " dashboard-table-icon-btn--loading" : ""}`}
       >
-        {busy ? (
-          <span className="dashboard-reveal-spinner" aria-hidden />
-        ) : (
-          <MaterialIcon name={icon} />
-        )}
+        {busy ? <ButtonSpinner /> : <MaterialIcon name={icon} />}
       </button>
     </span>
   );

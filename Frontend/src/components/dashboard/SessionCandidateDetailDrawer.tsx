@@ -6,6 +6,8 @@ import { CompanyLogo, companyLogoFromEmployer } from "@/components/dashboard/Com
 import { ProfilePhotoLightbox } from "@/components/dashboard/ProfilePhotoLightbox";
 import { OpenToWorkBadge } from "@/components/dashboard/OpenToWorkBadge";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
+import { ButtonSpinner } from "@/components/ui/ButtonSpinner";
 import { isOpenToWork } from "@/lib/openToWork";
 import { formatCandidateScore, nameInitials } from "@/lib/sessionResultUi";
 import {
@@ -208,11 +210,7 @@ function HeroIconAction({
     .filter(Boolean)
     .join(" ");
 
-  const content = busy ? (
-    <span className="dashboard-reveal-spinner" aria-hidden />
-  ) : (
-    <MaterialIcon name={icon} />
-  );
+  const content = busy ? <ButtonSpinner /> : <MaterialIcon name={icon} />;
 
   if (href) {
     return (
@@ -968,7 +966,9 @@ export function SessionCandidateDetailDrawer({
               name={isSaved ? "bookmark" : "bookmark_add"}
               className="text-[18px]"
             />
-            {isSaveBusy ? "Saving…" : isSaved ? "Saved to list" : "Save candidate"}
+            <ButtonLoadingContent loading={isSaveBusy} loadingLabel="Saving">
+              {isSaved ? "Saved to list" : "Save candidate"}
+            </ButtonLoadingContent>
           </button>
         </footer>
       </aside>

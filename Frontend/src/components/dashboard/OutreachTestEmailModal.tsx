@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
 import {
   dashboardBtnPrimaryClass,
   dashboardBtnSecondaryClass,
@@ -256,17 +257,12 @@ export function OutreachTestEmailModal({
             onClick={() => void handleSend()}
             disabled={sending || !gmailConnected}
           >
-            {sending ? (
-              <>
-                <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-                Sending…
-              </>
-            ) : (
+            <ButtonLoadingContent loading={sending} loadingLabel="Sending">
               <>
                 <MaterialIcon name="send" className="text-base" />
                 Send test email
               </>
-            )}
+            </ButtonLoadingContent>
           </button>
         </div>
       </div>

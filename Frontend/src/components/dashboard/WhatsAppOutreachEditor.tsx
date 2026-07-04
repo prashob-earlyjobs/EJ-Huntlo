@@ -13,6 +13,7 @@ import {
 } from "@/components/dashboard/WhatsAppSetupWarningModal";
 import { OutreachPillSelect } from "@/components/dashboard/OutreachPillSelect";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
 import { authHeaders, getStoredAuth } from "@/lib/auth";
 import {
   dashboardBtnPrimaryClass,
@@ -826,7 +827,9 @@ export function WhatsAppOutreachEditor({
               }
               className={`${dashboardBtnSecondaryClass} dashboard-wa-outreach-save px-4 py-1.5 text-sm disabled:opacity-55`}
             >
-              {saving ? "Saving…" : "Save sequence"}
+              <ButtonLoadingContent loading={saving} loadingLabel="Saving sequence">
+                Save sequence
+              </ButtonLoadingContent>
             </button>
             {campaignOutreachStatus === "active" ? (
               <button
@@ -835,17 +838,12 @@ export function WhatsAppOutreachEditor({
                 disabled={actionBusy}
                 className={`${dashboardBtnSecondaryClass} inline-flex items-center gap-1.5 px-4 py-1.5 text-sm disabled:opacity-55`}
               >
-                {pausing ? (
-                  <>
-                    <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-                    Pausing…
-                  </>
-                ) : (
-                  <>
+                <ButtonLoadingContent loading={pausing} loadingLabel="Pausing campaign">
+                  <span className="inline-flex items-center gap-1.5">
                     <MaterialIcon name="pause_circle" className="text-base" />
                     Pause campaign
-                  </>
-                )}
+                  </span>
+                </ButtonLoadingContent>
               </button>
             ) : campaignOutreachStatus === "paused" ? (
               <button
@@ -854,17 +852,12 @@ export function WhatsAppOutreachEditor({
                 disabled={actionBusy}
                 className="dashboard-campaign-wa-launch-btn inline-flex items-center gap-1.5 px-4 py-1.5 text-sm disabled:opacity-55"
               >
-                {resuming ? (
-                  <>
-                    <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-                    Resuming…
-                  </>
-                ) : (
-                  <>
+                <ButtonLoadingContent loading={resuming} loadingLabel="Resuming campaign">
+                  <span className="inline-flex items-center gap-1.5">
                     <MaterialIcon name="play_circle" className="text-base" />
                     Resume campaign
-                  </>
-                )}
+                  </span>
+                </ButtonLoadingContent>
               </button>
             ) : campaignOutreachStatus === "completed" ? (
               <button
@@ -891,17 +884,12 @@ export function WhatsAppOutreachEditor({
                 }
                 className="dashboard-campaign-wa-launch-btn inline-flex items-center gap-1.5 px-4 py-1.5 text-sm disabled:opacity-55"
               >
-                {launching ? (
-                  <>
-                    <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-                    Launching…
-                  </>
-                ) : (
-                  <>
+                <ButtonLoadingContent loading={launching} loadingLabel="Launching campaign">
+                  <span className="inline-flex items-center gap-1.5">
                     <MaterialIcon name="rocket_launch" className="text-base" />
                     Launch campaign
-                  </>
-                )}
+                  </span>
+                </ButtonLoadingContent>
               </button>
             ) : null}
             </div>
@@ -940,7 +928,9 @@ export function WhatsAppOutreachEditor({
               }
                 className={`${dashboardBtnPrimaryClass} dashboard-wa-outreach-save px-4 py-2 text-sm disabled:opacity-55`}
               >
-                {saving ? "Saving…" : "Save sequence"}
+                <ButtonLoadingContent loading={saving} loadingLabel="Saving sequence">
+                Save sequence
+              </ButtonLoadingContent>
               </button>
             </div>
           </div>
@@ -1080,13 +1070,12 @@ export function WhatsAppOutreachEditor({
                     : undefined
                 }
               >
-                {calendlyLoading
-                  ? "Checking Calendly…"
-                  : calendlySaving
-                    ? "Saving…"
-                    : activeHasCalendlyLink
-                      ? "Change interview link"
-                      : "Add interview link"}
+                <ButtonLoadingContent
+                  loading={calendlyLoading || calendlySaving}
+                  loadingLabel={calendlyLoading ? "Checking Calendly" : "Saving"}
+                >
+                  {activeHasCalendlyLink ? "Change interview link" : "Add interview link"}
+                </ButtonLoadingContent>
               </button>
             ) : null}
             {calendlyError ? (

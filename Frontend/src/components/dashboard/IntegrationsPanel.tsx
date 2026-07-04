@@ -24,6 +24,7 @@ import {
 import { WhatsAppMetaWebhookSetupCard } from "@/components/dashboard/WhatsAppMetaWebhookSetupCard";
 import { IntegrationsPanelSkeleton } from "@/components/dashboard/IntegrationsPanelSkeleton";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
 import { authHeaders, getStoredAuth } from "@/lib/auth";
 import {
   hasIntegrationsAccess,
@@ -226,17 +227,12 @@ function ConnectOptionCard({
           disabled={busy}
           className="dashboard-btn-secondary mt-auto w-full justify-center disabled:opacity-55"
         >
-          {busy ? (
-            <>
-              <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-              Sending test…
-            </>
-          ) : (
-            <>
+          <ButtonLoadingContent loading={busy} loadingLabel="Sending test">
+            <span className="inline-flex items-center gap-2">
               <MaterialIcon name="send" className="text-base" />
               Test
-            </>
-          )}
+            </span>
+          </ButtonLoadingContent>
         </button>
       ) : showMultiConnected && !locked ? (
         <button
@@ -265,10 +261,12 @@ function ConnectOptionCard({
               Growth plan or higher
             </>
           ) : busy ? (
-            <>
-              <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-              Connecting…
-            </>
+            <ButtonLoadingContent loading loadingLabel="Connecting">
+              <span className="inline-flex items-center gap-2">
+                <MaterialIcon name="link" className="text-base" />
+                Connect
+              </span>
+            </ButtonLoadingContent>
           ) : (
             <>
               <MaterialIcon name="link" className="text-base" />
@@ -1135,14 +1133,9 @@ export function IntegrationsPanel({
                             disabled={disconnecting}
                             className="dashboard-integration-action-btn dashboard-integration-action-btn--danger"
                           >
-                            {disconnecting ? (
-                              <>
-                                <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-                                Disconnecting…
-                              </>
-                            ) : (
-                              "Disconnect"
-                            )}
+                            <ButtonLoadingContent loading={disconnecting} loadingLabel="Disconnecting">
+                              Disconnect
+                            </ButtonLoadingContent>
                           </button>
                         </div>
                       </td>

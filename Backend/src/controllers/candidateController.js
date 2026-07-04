@@ -121,6 +121,26 @@ function escapeRegexLiteral(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/** Parse YYYY-MM-DD (date input) or ISO datetime for admin session filters. */
+function parseAdminDateFilter(value, bound) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+  if (dateOnly) {
+    const year = Number(dateOnly[1]);
+    const month = Number(dateOnly[2]) - 1;
+    const day = Number(dateOnly[3]);
+    if (bound === "start") {
+      return new Date(year, month, day, 0, 0, 0, 0);
+    }
+    return new Date(year, month, day, 23, 59, 59, 999);
+  }
+
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 /** User-submitted drawer form wins; FJ round-trip may drop RANGE fields (e.g. years of experience). */
 function mergePersistedFilterForm(userForm, responseForm) {
   const userNorm = normalizeFilterFormForUi(userForm);
@@ -168,6 +188,72 @@ function mergePersistedFilterForm(userForm, responseForm) {
 function filterFormForApi(form) {
   const normalized = normalizeFilterFormForUi(form);
   return normalized || undefined;
+}
+
+function ownerDisplayFromPopulatedUser(userIdField) {
+  if (!userIdField || typeof userIdField !== "object") {
+    return {
+      userId: userIdField != null ? String(userIdField) : "",
+      searchedByName: "",
+      searchedByEmail: "",
+    };
+  }
+  return {
+    userId: userIdField._id != null ? String(userIdField._id) : "",
+    searchedByName:
+      typeof userIdField.fullName === "string" ? userIdField.fullName.trim() : "",
+    searchedByEmail:
+      typeof userIdField.email === "string" ? userIdField.email.trim() : "",
+  };
+}
+
+function serializeSourcingSessionListItem(d, storedCountBySession = {}) {
+  const sid =
+    typeof d.futureJobsSessionId === "string" ? d.futureJobsSessionId.trim() : "";
+  const storedCount = sid ? storedCountBySession[sid] : undefined;
+  const totalDocs =
+    typeof storedCount === "number"
+      ? storedCount
+      : typeof d.totalDocs === "number"
+        ? d.totalDocs
+        : null;
+  const owner = ownerDisplayFromPopulatedUser(d.userId);
+  const promptLabel =
+    (typeof d.prompt === "string" && d.prompt.trim()) ||
+    (typeof d.sessionTitle === "string" && d.sessionTitle.trim()) ||
+    "Untitled search";
+
+  return {
+    id: d._id.toString(),
+    futureJobsSessionId: d.futureJobsSessionId,
+    userId: owner.userId,
+    searchedByName: owner.searchedByName,
+    searchedByEmail: owner.searchedByEmail,
+    prompt: d.prompt,
+    sessionTitle: d.sessionTitle,
+    usingSessionOverride: d.usingSessionOverride,
+    futureJobsStatus: d.futureJobsStatus,
+    totalDocs,
+    candidateCountFirstPage: d.candidateCountFirstPage,
+    candidatePreview: Array.isArray(d.candidatePreview)
+      ? d.candidatePreview.map((c) => ({
+          id: c?.id || "",
+          sourcingSessionId: c?.sourcingSessionId || "",
+          linkedin_profile_url: c?.linkedin_profile_url || "",
+          name: c?.name || "",
+          role: c?.role || "",
+          location: c?.location || "",
+          status: c?.status || "",
+        }))
+      : [],
+    profilesFetchError: d.profilesFetchError,
+    filterForm: filterFormForApi(d.filterForm) ?? null,
+    createdAt: d.createdAt,
+    updatedAt: d.updatedAt,
+    label: owner.searchedByName
+      ? `${owner.searchedByName}: ${promptLabel}`
+      : promptLabel,
+  };
 }
 
 /** Case-insensitive match on stored candidate fields (name, role, company, skills, etc.). */
@@ -2112,7 +2198,7 @@ const listAllSourcedCandidatesAdmin = async (req, res) => {
 
 /**
  * GET /api/candidates/admin/sessions
- * Admin: sourcing sessions for pool filters (optional userId).
+ * Admin: sourcing sessions (optional userId, from/to dates).
  */
 const listSourcingSessionsAdmin = async (req, res) => {
   try {
@@ -2121,6 +2207,15 @@ const listSourcingSessionsAdmin = async (req, res) => {
       req.query.userId != null && String(req.query.userId).trim() !== ""
         ? String(req.query.userId).trim()
         : "";
+    const fromDate = parseAdminDateFilter(req.query.from, "start");
+    const toDate = parseAdminDateFilter(req.query.to, "end");
+
+    if (fromDate && toDate && fromDate.getTime() > toDate.getTime()) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid date range: from must be on or before to",
+      });
+    }
 
     const filter = {};
     if (userFilter) {
@@ -2133,6 +2228,12 @@ const listSourcingSessionsAdmin = async (req, res) => {
       filter.userId = new mongoose.Types.ObjectId(userFilter);
     }
 
+    if (fromDate || toDate) {
+      filter.createdAt = {};
+      if (fromDate) filter.createdAt.$gte = fromDate;
+      if (toDate) filter.createdAt.$lte = toDate;
+    }
+
     const docs = await SourcingSession.find(filter)
       .sort({ createdAt: -1 })
       .limit(limit)
@@ -2143,31 +2244,23 @@ const listSourcingSessionsAdmin = async (req, res) => {
       count: docs.length,
       limit,
       userFilter: userFilter || undefined,
+      from: fromDate ? fromDate.toISOString() : undefined,
+      to: toDate ? toDate.toISOString() : undefined,
     });
+
+    const storedCountScope = {};
+    if (userFilter) {
+      storedCountScope.userId = new mongoose.Types.ObjectId(userFilter);
+    }
+
+    const storedCountBySession = await storedProfileCountBySessionIds(
+      docs.map((d) => d.futureJobsSessionId),
+      storedCountScope
+    );
 
     return res.status(200).json({
       success: true,
-      sessions: docs.map((d) => {
-        const owner = d.userId;
-        const ownerName =
-          owner && typeof owner === "object" && typeof owner.fullName === "string"
-            ? owner.fullName.trim()
-            : "";
-        const promptLabel =
-          (typeof d.prompt === "string" && d.prompt.trim()) ||
-          (typeof d.sessionTitle === "string" && d.sessionTitle.trim()) ||
-          "Untitled search";
-        return {
-          id: d.futureJobsSessionId,
-          futureJobsSessionId: d.futureJobsSessionId,
-          userId: owner?._id != null ? String(owner._id) : String(d.userId || ""),
-          ownerName,
-          prompt: d.prompt,
-          sessionTitle: d.sessionTitle,
-          label: ownerName ? `${ownerName}: ${promptLabel}` : promptLabel,
-          createdAt: d.createdAt,
-        };
-      }),
+      sessions: docs.map((d) => serializeSourcingSessionListItem(d, storedCountBySession)),
     });
   } catch (error) {
     logApi("candidates/admin/sessions", "error", {
@@ -2352,50 +2445,7 @@ const listSourcingSessions = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      sessions: docs.map((d) => {
-        const sid =
-          typeof d.futureJobsSessionId === "string" ? d.futureJobsSessionId.trim() : "";
-        const storedCount = sid ? storedCountBySession[sid] : undefined;
-        const totalDocs =
-          typeof storedCount === "number"
-            ? storedCount
-            : typeof d.totalDocs === "number"
-              ? d.totalDocs
-              : null;
-        const searchedByName =
-          d.userId &&
-          typeof d.userId === "object" &&
-          typeof d.userId.fullName === "string" &&
-          d.userId.fullName.trim()
-            ? d.userId.fullName.trim()
-            : "";
-        return {
-        id: d._id.toString(),
-        futureJobsSessionId: d.futureJobsSessionId,
-        prompt: d.prompt,
-        sessionTitle: d.sessionTitle,
-        usingSessionOverride: d.usingSessionOverride,
-        futureJobsStatus: d.futureJobsStatus,
-        totalDocs,
-        candidateCountFirstPage: d.candidateCountFirstPage,
-        candidatePreview: Array.isArray(d.candidatePreview)
-          ? d.candidatePreview.map((c) => ({
-              id: c?.id || "",
-              sourcingSessionId: c?.sourcingSessionId || "",
-              linkedin_profile_url: c?.linkedin_profile_url || "",
-              name: c?.name || "",
-              role: c?.role || "",
-              location: c?.location || "",
-              status: c?.status || "",
-            }))
-          : [],
-        profilesFetchError: d.profilesFetchError,
-        filterForm: filterFormForApi(d.filterForm) ?? null,
-        searchedByName,
-        createdAt: d.createdAt,
-        updatedAt: d.updatedAt,
-        };
-      }),
+      sessions: docs.map((d) => serializeSourcingSessionListItem(d, storedCountBySession)),
     });
   } catch (error) {
     logApi("candidates/sessions", "error", {

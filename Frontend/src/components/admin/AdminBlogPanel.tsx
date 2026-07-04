@@ -10,6 +10,7 @@ import {
   type BlogPost,
 } from "@/lib/blog";
 import { AdminBlogRichTextEditor } from "@/components/admin/AdminBlogRichTextEditor";
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
 import {
   createAdminBlogPost,
   deleteAdminBlogPost,
@@ -389,7 +390,9 @@ export function AdminBlogPanel({ token }: Props) {
                 disabled={saving}
                 className="dashboard-btn-primary disabled:opacity-50"
               >
-                {saving ? "Saving…" : editingId ? "Update post" : "Create post"}
+                <ButtonLoadingContent loading={saving} loadingLabel="Saving">
+                  {editingId ? "Update post" : "Create post"}
+                </ButtonLoadingContent>
               </button>
               {editingId ? (
                 <button type="button" onClick={resetForm} className="dashboard-btn-secondary">

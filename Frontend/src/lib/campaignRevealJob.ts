@@ -34,6 +34,16 @@ export type CampaignRevealContactProgress = {
 
 export type CampaignRevealType = "EMAIL" | "PHONE";
 
+/** Short phrase for toasts after add-to-campaign (e.g. "Email and phone unveil started"). */
+export function campaignRevealStartedLabel(types: CampaignRevealType[]): string {
+  const wantsEmail = types.includes("EMAIL");
+  const wantsPhone = types.includes("PHONE");
+  if (wantsEmail && wantsPhone) return "Email and phone unveil started";
+  if (wantsEmail) return "Email unveil started";
+  if (wantsPhone) return "Phone unveil started";
+  return "";
+}
+
 export type CampaignRevealJob = {
   id: string;
   campaignId: string;
