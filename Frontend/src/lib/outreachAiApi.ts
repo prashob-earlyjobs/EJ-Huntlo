@@ -50,8 +50,9 @@ function parseWhatsAppTouchpoint(raw: unknown, index: number): WhatsAppTouchpoin
   const o = raw as Record<string, unknown>;
   const body = typeof o.body === "string" ? o.body.trim() : "";
   if (!body) return null;
+  const parsedOrder = Number(o.order);
   return {
-    order: typeof o.order === "number" ? o.order : index + 1,
+    order: Number.isFinite(parsedOrder) && parsedOrder > 0 ? parsedOrder : index + 1,
     label: typeof o.label === "string" ? o.label : `Step ${index + 1}`,
     body,
     waitHours: typeof o.waitHours === "number" ? Math.max(0, o.waitHours) : 0,
@@ -59,6 +60,51 @@ function parseWhatsAppTouchpoint(raw: unknown, index: number): WhatsAppTouchpoin
     isNoReplyFallback: Boolean(o.isNoReplyFallback),
     isReplyFollowUp: Boolean(o.isReplyFollowUp),
   };
+}
+
+function parseTopLevelReplyQuestions(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item) => String(item || "").trim()).filter(Boolean);
+}
+
+function mergeReplyQuestionsIntoTouchpoints(
+  touchpoints: WhatsAppTouchpointDraft[],
+  replyQuestions: string[]
+): WhatsAppTouchpointDraft[] {
+  const byReplyFlag = touchpoints
+    .filter((tp) => tp.isReplyFollowUp)
+    .sort((a, b) => a.order - b.order);
+  if (byReplyFlag.length > 0) return touchpoints;
+
+  const byOrder = touchpoints
+    .filter((tp) => tp.order > 3 && !tp.isNoReplyFallback)
+    .sort((a, b) => a.order - b.order);
+  if (byOrder.length > 0) {
+    const automated = touchpoints.filter((tp) => tp.order <= 3 || tp.isNoReplyFallback);
+    return [
+      ...automated,
+      ...byOrder.map((tp, index) => ({
+        ...tp,
+        order: 4 + index,
+        isReplyFollowUp: true,
+        isNoReplyFallback: false,
+        label: tp.label || `Reply question ${index + 1}`,
+      })),
+    ];
+  }
+
+  if (replyQuestions.length === 0) return touchpoints;
+
+  const automated = touchpoints.filter((tp) => tp.order <= 3 || tp.isNoReplyFallback);
+  const mergedReply = replyQuestions.map((body, index) => ({
+    order: 4 + index,
+    label: `Reply question ${index + 1}`,
+    body,
+    waitHours: 0,
+    isNoReplyFallback: false,
+    isReplyFollowUp: true,
+  }));
+  return [...automated, ...mergedReply];
 }
 
 export async function generateOutreachSequenceFromJd(
@@ -89,13 +135,16 @@ export async function generateOutreachSequenceFromJd(
     typeof data.planName === "string" ? data.planName : "AI outreach sequence";
 
   if (channel === "whatsapp") {
-    const touchpoints = Array.isArray(data.touchpoints)
-      ? ensureWhatsAppSequenceWithFallbacks(
-          (data.touchpoints as unknown[])
-            .map(parseWhatsAppTouchpoint)
-            .filter((t): t is WhatsAppTouchpointDraft => t !== null)
-        )
+    const topLevelReplyQuestions = parseTopLevelReplyQuestions(data.replyQuestions);
+    const parsedTouchpoints = Array.isArray(data.touchpoints)
+      ? (data.touchpoints as unknown[])
+          .map(parseWhatsAppTouchpoint)
+          .filter((t): t is WhatsAppTouchpointDraft => t !== null)
       : [];
+    const touchpoints = ensureWhatsAppSequenceWithFallbacks(
+      mergeReplyQuestionsIntoTouchpoints(parsedTouchpoints, topLevelReplyQuestions),
+      { minReplyFollowups: 4 }
+    );
     if (touchpoints.length === 0) {
       throw new Error("AI returned an empty WhatsApp sequence. Try again.");
     }

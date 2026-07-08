@@ -57,6 +57,9 @@ import {
 import { AddToCampaignModal } from "@/components/dashboard/AddToCampaignModal";
 import { CampaignsPanel } from "@/components/dashboard/CampaignsPanel";
 import { IntegrationsPanel } from "@/components/dashboard/IntegrationsPanel";
+import { OutreachPanel } from "@/components/dashboard/outreach/OutreachPanel";
+import { SchedulePanel } from "@/components/dashboard/schedule/SchedulePanel";
+import { ScreeningPanel } from "@/components/dashboard/screening/ScreeningPanel";
 import { OutreachesPanel } from "@/components/dashboard/OutreachesPanel";
 import { SavedCandidatesPanel } from "@/components/dashboard/SavedCandidatesPanel";
 import { LandingLogo } from "@/components/landing/LandingLogo";
@@ -163,6 +166,8 @@ type UserSidebarNavItem = {
   subtitle: string;
   icon: ReactNode;
   tabKey?: string;
+  /** Sidebar placeholder — no route yet. */
+  uiOnly?: boolean;
 };
 
 type UserSidebarNavGroup = {
@@ -177,6 +182,27 @@ type UserSidebarNavEntry = UserSidebarNavItem | UserSidebarNavGroup;
 function isSidebarNavGroup(entry: UserSidebarNavEntry): entry is UserSidebarNavGroup {
   return "children" in entry && Array.isArray(entry.children);
 }
+
+const outreachSidebarItem: UserSidebarNavItem = {
+  label: "Outreach",
+  subtitle: "Sequences & messaging",
+  icon: <MaterialIcon name="send" />,
+  tabKey: "Outreach",
+};
+
+const screenSidebarItem: UserSidebarNavItem = {
+  label: "Screen",
+  subtitle: "Interviews & screening",
+  icon: <MaterialIcon name="fact_check" />,
+  tabKey: "Screen",
+};
+
+const scheduleSidebarItem: UserSidebarNavItem = {
+  label: "Schedule",
+  subtitle: "Interviews & follow-ups",
+  icon: <MaterialIcon name="calendar_month" />,
+  tabKey: "Schedule",
+};
 
 const campaignsSidebarItem: UserSidebarNavItem = {
   label: "Campaigns",
@@ -204,7 +230,13 @@ const engagementsSidebarGroup: UserSidebarNavGroup = {
   label: "Engagements",
   subtitle: "Outreach & connections",
   icon: <MaterialIcon name="campaign" />,
-  children: [campaignsSidebarItem, integrationsSidebarItem],
+  children: [
+    outreachSidebarItem,
+    screenSidebarItem,
+    scheduleSidebarItem,
+    campaignsSidebarItem,
+    integrationsSidebarItem,
+  ],
 };
 
 const userSidebarNavEntries: UserSidebarNavEntry[] = [
@@ -4392,7 +4424,42 @@ export function UserDashboardPage() {
                         >
                           {entry.children.map((child) => {
                             const tabKey = child.tabKey ?? child.label;
-                            const isActive = activeTab === tabKey;
+                            const isActive = !child.uiOnly && activeTab === tabKey;
+                            const itemClassName = `dashboard-nav-item dashboard-nav-item--compact dashboard-nav-item--sub w-full ${
+                              isActive ? "dashboard-nav-item--active" : ""
+                            }${child.uiOnly ? " dashboard-nav-item--ui-only" : ""}`;
+                            const itemInner = (
+                              <span className="dashboard-nav-item-inner dashboard-nav-item-inner--sub">
+                                <span
+                                  className={`dashboard-nav-icon dashboard-nav-icon--compact ${
+                                    isActive ? "dashboard-nav-icon--active" : ""
+                                  }`}
+                                >
+                                  {child.icon}
+                                </span>
+                                <span className="dashboard-nav-item-text min-w-0">
+                                  <span className="dashboard-nav-label">{child.label}</span>
+                                  {!sidebarCollapsed ? (
+                                    <span className="dashboard-nav-subtitle">{child.subtitle}</span>
+                                  ) : null}
+                                </span>
+                              </span>
+                            );
+
+                            if (child.uiOnly) {
+                              return (
+                                <button
+                                  key={tabKey}
+                                  type="button"
+                                  disabled
+                                  title={`${child.label} — coming soon`}
+                                  className={itemClassName}
+                                >
+                                  {itemInner}
+                                </button>
+                              );
+                            }
+
                             return (
                               <Link
                                 key={tabKey}
@@ -4401,25 +4468,9 @@ export function UserDashboardPage() {
                                 )}
                                 title={child.label}
                                 role={sidebarCollapsed ? "menuitem" : undefined}
-                                className={`dashboard-nav-item dashboard-nav-item--compact dashboard-nav-item--sub w-full ${
-                                  isActive ? "dashboard-nav-item--active" : ""
-                                }`}
+                                className={itemClassName}
                               >
-                                <span className="dashboard-nav-item-inner dashboard-nav-item-inner--sub">
-                                  <span
-                                    className={`dashboard-nav-icon dashboard-nav-icon--compact ${
-                                      isActive ? "dashboard-nav-icon--active" : ""
-                                    }`}
-                                  >
-                                    {child.icon}
-                                  </span>
-                                  <span className="dashboard-nav-item-text min-w-0">
-                                    <span className="dashboard-nav-label">{child.label}</span>
-                                    {!sidebarCollapsed ? (
-                                      <span className="dashboard-nav-subtitle">{child.subtitle}</span>
-                                    ) : null}
-                                  </span>
-                                </span>
+                                {itemInner}
                               </Link>
                             );
                           })}
@@ -5216,6 +5267,12 @@ export function UserDashboardPage() {
                   })
                 }
               />
+            ) : activeTab === "Outreach" ? (
+              <OutreachPanel segments={segments} />
+            ) : activeTab === "Screen" ? (
+              <ScreeningPanel segments={segments} />
+            ) : activeTab === "Schedule" ? (
+              <SchedulePanel segments={segments} />
             ) : activeTab === "Outreaches" ? (
               <OutreachesPanel
                 currentPlanId={userPlanId}

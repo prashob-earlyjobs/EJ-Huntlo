@@ -1,4 +1,5 @@
 const { processDueEnrollments } = require("./campaignOutreachSendService");
+const { processDueOutreachModuleEnrollments } = require("./outreachModuleSendService");
 const { syncDueEnrollmentReplies } = require("./campaignReplySyncService");
 
 const DEFAULT_INTERVAL_MS = 60_000;
@@ -27,8 +28,14 @@ async function runTick() {
       );
     }
     const processed = await processDueEnrollments();
+    const moduleProcessed = await processDueOutreachModuleEnrollments();
     if (processed > 0) {
       console.log(`[outreach-scheduler] processed ${processed} due enrollment(s)`);
+    }
+    if (moduleProcessed > 0) {
+      console.log(
+        `[outreach-scheduler] processed ${moduleProcessed} outreach-module enrollment(s)`
+      );
     }
   } catch (err) {
     console.error("[outreach-scheduler]", err?.message || err);
