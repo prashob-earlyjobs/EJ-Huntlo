@@ -9,6 +9,7 @@ import {
   type CampaignOutreachChannel,
   type CampaignWorkspaceTab,
 } from "@/lib/campaignRoutes";
+import { isCampaignLaunched } from "@/lib/campaignContactLimits";
 
 type Props = {
   workspaceTab?: CampaignWorkspaceTab;
@@ -16,6 +17,8 @@ type Props = {
   outreachChannel?: CampaignOutreachChannel | null;
   /** When known, shows Job description tab during shimmer (Gmail campaigns with a saved JD). */
   hasJobDescription?: boolean;
+  /** When known, mirrors launched vs setup workspace chrome. */
+  outreachStatus?: string | null;
 };
 
 function WhatsAppCommsSkeleton() {
@@ -179,6 +182,7 @@ export function CampaignWorkspaceSkeleton({
   workspaceTab = "Editor",
   outreachChannel = null,
   hasJobDescription = false,
+  outreachStatus = null,
 }: Props) {
   const effectiveChannel = inferCampaignWorkspaceChannel(workspaceTab, outreachChannel);
   const channelLocked =
@@ -199,6 +203,8 @@ export function CampaignWorkspaceSkeleton({
   const skeletonTab = visibleTabs.includes(workspaceTab)
     ? workspaceTab
     : visibleTabs[0] ?? "Editor";
+  const showWorkspaceTabs =
+    isCampaignLaunched(outreachStatus ?? undefined) || channelLocked;
 
   return (
     <section
@@ -213,6 +219,7 @@ export function CampaignWorkspaceSkeleton({
           <div className="dashboard-shimmer h-9 w-9 shrink-0 rounded-lg" />
         </div>
 
+        {showWorkspaceTabs ? (
         <nav
           className="mt-3 flex gap-1 overflow-x-auto pb-0.5"
           aria-label="Campaign sections"
@@ -238,6 +245,7 @@ export function CampaignWorkspaceSkeleton({
             );
           })}
         </nav>
+        ) : null}
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col bg-[#f8f9fc]">

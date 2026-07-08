@@ -18,6 +18,7 @@ import {
 } from "@/components/dashboard/OutreachSequencePicker";
 import { CampaignEmailReportPanel } from "@/components/dashboard/CampaignEmailReportPanel";
 import { CampaignJobDescriptionPanel } from "@/components/dashboard/CampaignJobDescriptionPanel";
+import { CampaignMultiChannelEditorNav } from "@/components/dashboard/CampaignMultiChannelEditorNav";
 import { CampaignVoiceAgentEditor } from "@/components/dashboard/CampaignVoiceAgentEditor";
 import { CampaignContactsSkeleton } from "@/components/dashboard/CampaignContactsSkeleton";
 import { CampaignPreLaunchContactsPanel } from "@/components/dashboard/CampaignPreLaunchContactsPanel";
@@ -87,6 +88,12 @@ import {
   normalizeCampaignWorkspaceTab,
   type CampaignWorkspaceTab,
 } from "@/lib/campaignRoutes";
+import {
+  gmailTouchpointsFromArrange,
+  whatsappTouchpointsFromArrange,
+  type CampaignMultiChannelSetup,
+} from "@/lib/campaignMultiChannelSetup";
+import type { OutreachSequenceChannel } from "@/lib/campaignSetupPickerDraft";
 import {
   createEmptyTouchpoint,
   type OutreachTemplateListItem,
@@ -364,6 +371,9 @@ export function CampaignWorkspace({
   const [threadReloadByKey, setThreadReloadByKey] = useState<Record<string, number>>({});
   const [editorPhase, setEditorPhase] = useState<"choose" | "editing">("choose");
   const [editor, setEditor] = useState<ActiveEditor | null>(null);
+  const [multiChannelSetup, setMultiChannelSetup] = useState<CampaignMultiChannelSetup | null>(
+    null
+  );
   const [standaloneJobTitle, setStandaloneJobTitle] = useState(
     () => campaign.jobTitle?.trim() || ""
   );
@@ -606,6 +616,32 @@ export function CampaignWorkspace({
     setSavedPlansPage(1);
   }, [campaign.id]);
 
+  useEffect(() => {
+    if (activeTab !== "Editor") return;
+    if ((campaign.outreachStatus ?? "idle") !== "idle") return;
+    if (campaign.outreachChannel !== "voice_call") return;
+    if (editorPhase !== "choose" || bypassLinkedPlan) return;
+    const hasVoiceSetup = Boolean(campaign.voiceAgentConfig?.callPrompt?.trim());
+    const total = Math.max(
+      campaign.contactCount ?? campaign.contacts.length ?? 0,
+      contacts.length
+    );
+    if (hasVoiceSetup || total > 0) {
+      setEditorPhase("editing");
+    }
+  }, [
+    activeTab,
+    bypassLinkedPlan,
+    campaign.contactCount,
+    campaign.contacts.length,
+    campaign.id,
+    campaign.outreachChannel,
+    campaign.outreachStatus,
+    campaign.voiceAgentConfig?.callPrompt,
+    contacts.length,
+    editorPhase,
+  ]);
+
   useLayoutEffect(() => {
     if (activeTab !== "Editor" || editorPhase !== "choose" || bypassLinkedPlan) return;
     if (campaign.outreachPlanId?.trim()) return;
@@ -645,10 +681,73 @@ export function CampaignWorkspace({
 
   const backToSequenceChoose = () => {
     setEditor(null);
+    setMultiChannelSetup(null);
     setEditorPhase("choose");
     setEditorNotice("");
     setBypassLinkedPlan(true);
   };
+
+  const openEditorForMultiChannel = useCallback(
+    (channel: OutreachSequenceChannel, setup: CampaignMultiChannelSetup) => {
+      setEditorNotice("");
+      setEditorPhase("editing");
+      setBypassLinkedPlan(false);
+
+      if (channel === "voice_call") {
+        setEditor(null);
+        return;
+      }
+
+      const jd =
+        setup.jobDescription.trim() ||
+        standaloneJobDescription.trim() ||
+        campaign.jobDescription?.trim() ||
+        "";
+
+      if (channel === "whatsapp") {
+        openWhatsAppEditor({
+          planId: "new",
+          planName: campaign.name,
+          touchpoints: whatsappTouchpointsFromArrange(setup.arrange.messageSteps),
+          jobDescription: jd,
+          calendlySchedulingUrl: campaignCalendlySchedulingUrl(campaign),
+        });
+        return;
+      }
+
+      openGmailEditor({
+        planId: "new",
+        planName: campaign.name,
+        touchpoints: gmailTouchpointsFromArrange(setup.arrange.emailSteps),
+        lockSchedule: false,
+        calendlyAutomation: campaign.calendlyAutomation,
+      });
+    },
+    [campaign, standaloneJobDescription]
+  );
+
+  const handleMultiChannelSelect = useCallback(
+    (channel: OutreachSequenceChannel) => {
+      setMultiChannelSetup((prev) => {
+        if (!prev) return prev;
+        const nextSetup = { ...prev, activeChannel: channel };
+        openEditorForMultiChannel(channel, nextSetup);
+        return nextSetup;
+      });
+    },
+    [openEditorForMultiChannel]
+  );
+
+  const handleMultiChannelMove = useCallback((index: number, direction: -1 | 1) => {
+    setMultiChannelSetup((prev) => {
+      if (!prev) return prev;
+      const target = index + direction;
+      if (target < 0 || target >= prev.channels.length) return prev;
+      const nextChannels = [...prev.channels];
+      [nextChannels[index], nextChannels[target]] = [nextChannels[target], nextChannels[index]];
+      return { ...prev, channels: nextChannels };
+    });
+  }, []);
 
   const loadLinkedOutreachPlan = useCallback(async () => {
     const planId = campaign.outreachPlanId?.trim();
@@ -1056,6 +1155,13 @@ export function CampaignWorkspace({
     workspaceTab: activeTab,
     hasJobDescription: Boolean(String(campaign.jobDescription || "").trim()),
   });
+  const hideWorkspaceTabsDuringSetup =
+    outreachStatus === "idle" &&
+    activeTab === "Editor" &&
+    (editorPhase === "choose");
+  const showWorkspaceTabs =
+    isCampaignLaunched(outreachStatus) ||
+    (channelLocked && !hideWorkspaceTabsDuringSetup);
   const hasSequence =
     Boolean(campaign.outreachPlanId?.trim()) || campaign.outreachChannel === "voice_call";
   const campaignContactCount = campaign.contactCount ?? campaign.contacts.length;
@@ -1861,8 +1967,9 @@ export function CampaignWorkspace({
   );
 
   useEffect(() => {
-    const showPreLaunchContacts = activeTab === "Emails" && outreachStatus === "idle";
-    if (!showPreLaunchContacts) return;
+    const shouldLoadPreLaunchContacts =
+      outreachStatus === "idle" && activeTab === "Emails";
+    if (!shouldLoadPreLaunchContacts) return;
     void loadContactsListPage(contactsListPage);
   }, [
     activeTab,
@@ -1973,6 +2080,8 @@ export function CampaignWorkspace({
     if (choice.type === "scratch") {
       const title = choice.jobTitle.trim();
       const jd = choice.jobDescription.trim();
+      const channels =
+        choice.channels.length > 0 ? choice.channels : [choice.channel];
       if (title) setStandaloneJobTitle(title);
       if (jd) setStandaloneJobDescription(jd);
       if (title || jd) {
@@ -1984,7 +2093,23 @@ export function CampaignWorkspace({
           );
         }
       }
-      if (choice.channel === "voice_call") {
+
+      if (channels.length > 1) {
+        const setup: CampaignMultiChannelSetup = {
+          channels,
+          activeChannel: channels[0],
+          arrange: choice.arrange,
+          screeningChannel: choice.screeningChannel,
+          jobTitle: title,
+          jobDescription: jd,
+        };
+        setMultiChannelSetup(setup);
+        openEditorForMultiChannel(setup.activeChannel, setup);
+        return;
+      }
+
+      const onlyChannel = channels[0];
+      if (onlyChannel === "voice_call") {
         const auth = getStoredAuth();
         if (!auth?.token) {
           setEditorNotice("Please sign in again.");
@@ -2001,13 +2126,12 @@ export function CampaignWorkspace({
           onCampaignUpdatedRef.current?.(updated);
           setBypassLinkedPlan(false);
           setEditor(null);
-          setEditorPhase("choose");
+          setEditorPhase("editing");
           setEditorNotice("");
           setSaveToast({
             message: "AI voice call campaign ready.",
             variant: "success",
           });
-          onWorkspaceTabChange("Emails");
         } catch (err) {
           setEditorNotice(
             err instanceof Error ? err.message : "Could not set AI voice call channel."
@@ -2017,17 +2141,17 @@ export function CampaignWorkspace({
         }
         return;
       }
-      if (choice.channel === "whatsapp") {
+      if (onlyChannel === "whatsapp") {
         await autoSaveWhatsAppSequence({
           planName: campaign.name,
-          touchpoints: createInitialWhatsAppSequence(),
+          touchpoints: whatsappTouchpointsFromArrange(choice.arrange.messageSteps),
           jobDescription: jd,
         });
       } else {
         openGmailEditor({
           planId: "new",
           planName: campaign.name,
-          touchpoints: [createEmptyTouchpoint(1)],
+          touchpoints: gmailTouchpointsFromArrange(choice.arrange.emailSteps),
           lockSchedule: false,
           calendlyAutomation: campaign.calendlyAutomation,
         });
@@ -2197,6 +2321,48 @@ export function CampaignWorkspace({
     [campaign.id, campaignFieldsLocked, refreshContactDependentViews]
   );
 
+  const preLaunchContactsChannel: "gmail" | "whatsapp" | "voice_call" = isVoiceCallCampaign
+    ? "voice_call"
+    : campaign.outreachChannel === "whatsapp" || effectiveChannel === "whatsapp"
+      ? "whatsapp"
+      : "gmail";
+
+  const preLaunchContactsTotal = Math.max(
+    contactsListTotal,
+    campaignContactCount,
+    contacts.length
+  );
+
+  const preLaunchContactsPanelProps = {
+    channel: preLaunchContactsChannel,
+    contacts: contactsListRows,
+    totalContacts: preLaunchContactsTotal,
+    page: contactsListPage,
+    totalPages: contactsListTotalPages,
+    loading: contactsListLoading,
+    error: contactsListError,
+    revealInProgress: revealInProgress || launchBusy,
+    contactsLocked: campaignContactsLocked,
+    removingKey: removeContactBusyKey,
+    selectable: isVoiceCallCampaign,
+    selectedKeys: voiceSelectedContactKeys,
+    onToggleContact: handleToggleVoiceContact,
+    onToggleAllOnPage: handleToggleVoiceContactsOnPage,
+    onPageChange: setContactsListPage,
+    onAddFromSearchHistory:
+      campaignContactsLocked ? undefined : onAddFromSearchHistory,
+    onUploadCsv: campaignContactsLocked ? undefined : openCsvModal,
+    onRemoveContact: campaignFieldsLocked
+      ? undefined
+      : async (candidateKey: string) => {
+          const contact = contactsListRows.find((row) => row.candidateKey === candidateKey);
+          if (contact) await handleRemoveContactFromCampaign(contact);
+        },
+    onRemoveSelectedContacts:
+      campaignFieldsLocked ? undefined : handleRemoveSelectedVoiceContacts,
+    removingSelected: removingSelectedContacts,
+  } as const;
+
   return (
     <section className="flex h-full min-h-0 min-w-0 w-full flex-col overflow-hidden rounded-[inherit] bg-white">
       <header className="dashboard-campaign-workspace-topbar shrink-0 border-b border-slate-200 bg-white px-2 py-1 sm:px-5 sm:py-2">
@@ -2300,6 +2466,7 @@ export function CampaignWorkspace({
           ) : null}
         </div>
 
+        {showWorkspaceTabs ? (
         <nav
           className="dashboard-campaign-workspace-topbar-tabs mt-1 flex gap-0.5 overflow-x-auto pb-0 sm:mt-1.5 sm:gap-1"
           aria-label="Campaign sections"
@@ -2330,6 +2497,7 @@ export function CampaignWorkspace({
             );
           })}
         </nav>
+        ) : null}
         {launchError ? (
           <p className="dashboard-alert-warning mt-1 text-xs sm:mt-1.5 sm:text-sm" role="alert">
             {launchError}
@@ -2343,113 +2511,7 @@ export function CampaignWorkspace({
 
       <div className="flex min-h-0 flex-1 flex-col bg-[#f8f9fc]">
         {activeTab === "Editor" ? (
-          isVoiceCallCampaign ? (
-            <CampaignVoiceAgentEditor
-              key={campaign.id}
-              locked={campaignFieldsLocked}
-              outreachStatus={outreachStatus}
-              jobTitle={campaign.jobTitle ?? ""}
-              initialConfig={campaign.voiceAgentConfig ?? null}
-              onSaveAndContinue={async (payload) => {
-                const auth = getStoredAuth();
-                if (!auth?.token) {
-                  setSaveToast({ message: "Please sign in again.", variant: "error" });
-                  return;
-                }
-                const jd =
-                  campaign.jobDescription?.trim() || standaloneJobDescription.trim() || "";
-                if (!jd) {
-                  setSaveToast({
-                    message: "Add a job description before saving the voice agent.",
-                    variant: "warning",
-                  });
-                  return;
-                }
-                try {
-                  const result = await saveCampaignVoiceAgent(
-                    auth.token,
-                    campaign.id,
-                    payload
-                  );
-                  onCampaignUpdatedRef.current?.(result.campaign);
-                  setSaveToast({
-                    message:
-                      result.action === "updated"
-                        ? "Voice agent updated successfully."
-                        : "Voice agent created successfully.",
-                    variant: "success",
-                  });
-                  onWorkspaceTabChange("Emails");
-                } catch (error) {
-                  setSaveToast({
-                    message:
-                      error instanceof Error
-                        ? error.message
-                        : "Failed to save voice agent.",
-                    variant: "error",
-                  });
-                }
-              }}
-            />
-          ) : editorPhase === "editing" && editor?.channel === "gmail" ? (
-            <OutreachPlanEditor
-              key={editor.state.planId}
-              embedded
-              planId={editor.state.planId}
-              initialPlanName={editor.state.planName}
-              initialTouchpoints={editor.state.touchpoints}
-              initialStartSchedule={editor.state.startSchedule}
-              initialCalendlyAutomation={pickCampaignCalendly(
-                campaign,
-                editor.state.calendlyAutomation
-              )}
-              lockSchedule={editor.state.lockSchedule || campaignFieldsLocked}
-              editorLocked={campaignSequenceReadOnly}
-              sequenceLiveEditable={outreachStatus === "active"}
-              campaignOutreachStatus={outreachStatus}
-              hasCampaignContacts={hasContacts}
-              hasSequence={hasSequence}
-              launchBusy={launchBusy}
-              unveilInProgress={unveilJobActive}
-              emailSenders={emailSenderOptions}
-              selectedEmailIntegrationId={selectedEmailIntegrationId}
-              onEmailIntegrationChange={setSelectedEmailIntegrationId}
-              onLaunchCampaign={() => void handleLaunchSequence()}
-              onPauseCampaign={() => void handlePauseSequence()}
-              onResumeCampaign={() => void handleResumeSequence()}
-              onCancel={backToSequenceChoose}
-              onGoToIntegrations={onGoToIntegrations}
-              saveCalendlyToCampaign={(automation) => handleSaveCampaignCalendly(automation)}
-              onSaved={(message, saved) => void handlePlanSaved(message, saved)}
-            />
-          ) : editorPhase === "editing" && editor?.channel === "whatsapp" ? (
-            <WhatsAppOutreachEditor
-              embedded
-              planId={editor.state.planId}
-              initialPlanName={editor.state.planName}
-              initialTouchpoints={editor.state.touchpoints}
-              jobDescription={editor.state.jobDescription ?? ""}
-              onJobDescriptionChange={setWhatsappJobDescriptionValue}
-              initialCalendlySchedulingUrl={campaignCalendlySchedulingUrl(
-                campaign,
-                editor.state.calendlySchedulingUrl
-              )}
-              onCancel={backToSequenceChoose}
-              onGoToIntegrations={onGoToIntegrations}
-              saveCalendlyToCampaign={(automation) => handleSaveCampaignCalendly(automation)}
-              onSaved={(message, saved) => void handleWhatsAppPlanSaved(message, saved)}
-              onLaunchCampaign={(saved) => handleLaunchWhatsAppCampaign(saved)}
-              onPauseCampaign={() => handlePauseSequence()}
-              onResumeCampaign={() => handleResumeSequence()}
-              campaignOutreachStatus={outreachStatus}
-              hasCampaignContacts={hasContacts}
-              unveilInProgress={unveilJobActive}
-              onLaunchComplete={() => {
-                onWorkspaceTabChange("WhatsApp");
-                setWaCommsRefreshKey((k) => k + 1);
-              }}
-            />
-          ) : (
+          editorPhase === "choose" ? (
             <div className="dashboard-campaign-editor-panel flex min-h-0 flex-1 flex-col">
               {editorNotice ? (
                 <p className="dashboard-alert-notice dashboard-campaign-editor-notice shrink-0 text-sm">
@@ -2482,6 +2544,9 @@ export function CampaignWorkspace({
                 <div className="dashboard-campaign-editor-inner">
                   <OutreachSequencePicker
                     variant="campaign"
+                    campaignId={
+                      (campaign.outreachStatus ?? "idle") === "idle" ? campaign.id : undefined
+                    }
                     initialJobTitle={
                       campaign.jobTitle?.trim() || standaloneJobTitle.trim() || ""
                     }
@@ -2506,7 +2571,303 @@ export function CampaignWorkspace({
                 </div>
               </div>
             </div>
-          )
+          ) : editorPhase === "editing" &&
+            multiChannelSetup &&
+            multiChannelSetup.channels.length > 1 ? (
+            <div className="dashboard-campaign-editor-panel flex min-h-0 flex-1 flex-col overflow-hidden">
+              <CampaignMultiChannelEditorNav
+                setup={multiChannelSetup}
+                disabled={campaignFieldsLocked}
+                onSelectChannel={handleMultiChannelSelect}
+                onMoveChannel={handleMultiChannelMove}
+              />
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                {multiChannelSetup.activeChannel === "voice_call" ? (
+                  <CampaignVoiceAgentEditor
+                    key={`${campaign.id}-multi-voice`}
+                    locked={campaignFieldsLocked}
+                    outreachStatus={outreachStatus}
+                    jobTitle={
+                      multiChannelSetup.jobTitle ||
+                      campaign.jobTitle?.trim() ||
+                      standaloneJobTitle.trim() ||
+                      ""
+                    }
+                    initialConfig={campaign.voiceAgentConfig ?? null}
+                    onSaveAndContinue={async (payload) => {
+                      const auth = getStoredAuth();
+                      if (!auth?.token) {
+                        setSaveToast({ message: "Please sign in again.", variant: "error" });
+                        return;
+                      }
+                      const roleJd =
+                        multiChannelSetup.jobDescription.trim() ||
+                        campaign.jobDescription?.trim() ||
+                        standaloneJobDescription.trim() ||
+                        "";
+                      if (!roleJd) {
+                        setSaveToast({
+                          message: "Add a job description before saving the voice agent.",
+                          variant: "warning",
+                        });
+                        return;
+                      }
+                      try {
+                        const result = await saveCampaignVoiceAgent(
+                          auth.token,
+                          campaign.id,
+                          payload
+                        );
+                        onCampaignUpdatedRef.current?.(result.campaign);
+                        setSaveToast({
+                          message:
+                            result.action === "updated"
+                              ? "Voice agent updated successfully."
+                              : "Voice agent created successfully.",
+                          variant: "success",
+                        });
+                      } catch (error) {
+                        setSaveToast({
+                          message:
+                            error instanceof Error
+                              ? error.message
+                              : "Failed to save voice agent.",
+                          variant: "error",
+                        });
+                      }
+                    }}
+                  />
+                ) : editor?.channel === "gmail" ? (
+                  <OutreachPlanEditor
+                    key={`${editor.state.planId}-multi-gmail`}
+                    embedded
+                    planId={editor.state.planId}
+                    initialPlanName={editor.state.planName}
+                    initialTouchpoints={editor.state.touchpoints}
+                    initialStartSchedule={editor.state.startSchedule}
+                    initialCalendlyAutomation={pickCampaignCalendly(
+                      campaign,
+                      editor.state.calendlyAutomation
+                    )}
+                    lockSchedule={editor.state.lockSchedule || campaignFieldsLocked}
+                    editorLocked={campaignSequenceReadOnly}
+                    sequenceLiveEditable={outreachStatus === "active"}
+                    campaignOutreachStatus={outreachStatus}
+                    hasCampaignContacts={hasContacts}
+                    hasSequence={hasSequence}
+                    launchBusy={launchBusy}
+                    unveilInProgress={unveilJobActive}
+                    emailSenders={emailSenderOptions}
+                    selectedEmailIntegrationId={selectedEmailIntegrationId}
+                    onEmailIntegrationChange={setSelectedEmailIntegrationId}
+                    onLaunchCampaign={() => void handleLaunchSequence()}
+                    onPauseCampaign={() => void handlePauseSequence()}
+                    onResumeCampaign={() => void handleResumeSequence()}
+                    onCancel={backToSequenceChoose}
+                    onGoToIntegrations={onGoToIntegrations}
+                    saveCalendlyToCampaign={(automation) =>
+                      handleSaveCampaignCalendly(automation)
+                    }
+                    onSaved={(message, saved) => void handlePlanSaved(message, saved)}
+                  />
+                ) : editor?.channel === "whatsapp" ? (
+                  <WhatsAppOutreachEditor
+                    embedded
+                    planId={editor.state.planId}
+                    initialPlanName={editor.state.planName}
+                    initialTouchpoints={editor.state.touchpoints}
+                    jobDescription={editor.state.jobDescription ?? ""}
+                    onJobDescriptionChange={setWhatsappJobDescriptionValue}
+                    initialCalendlySchedulingUrl={campaignCalendlySchedulingUrl(
+                      campaign,
+                      editor.state.calendlySchedulingUrl
+                    )}
+                    onCancel={backToSequenceChoose}
+                    onGoToIntegrations={onGoToIntegrations}
+                    saveCalendlyToCampaign={(automation) =>
+                      handleSaveCampaignCalendly(automation)
+                    }
+                    onSaved={(message, saved) => void handleWhatsAppPlanSaved(message, saved)}
+                    onLaunchCampaign={(saved) => handleLaunchWhatsAppCampaign(saved)}
+                    onPauseCampaign={() => handlePauseSequence()}
+                    onResumeCampaign={() => handleResumeSequence()}
+                    campaignOutreachStatus={outreachStatus}
+                    hasCampaignContacts={hasContacts}
+                    unveilInProgress={unveilJobActive}
+                    onLaunchComplete={() => {
+                      onWorkspaceTabChange("WhatsApp");
+                      setWaCommsRefreshKey((k) => k + 1);
+                    }}
+                  />
+                ) : null}
+              </div>
+            </div>
+          ) : isVoiceCallCampaign && editorPhase === "editing" ? (
+              <CampaignVoiceAgentEditor
+                key={campaign.id}
+                locked={campaignFieldsLocked}
+                outreachStatus={outreachStatus}
+                jobTitle={campaign.jobTitle ?? ""}
+                initialConfig={campaign.voiceAgentConfig ?? null}
+                onSaveAndContinue={async (payload) => {
+                  const auth = getStoredAuth();
+                  if (!auth?.token) {
+                    setSaveToast({ message: "Please sign in again.", variant: "error" });
+                    return;
+                  }
+                  const jd =
+                    campaign.jobDescription?.trim() || standaloneJobDescription.trim() || "";
+                  if (!jd) {
+                    setSaveToast({
+                      message: "Add a job description before saving the voice agent.",
+                      variant: "warning",
+                    });
+                    return;
+                  }
+                  try {
+                    const result = await saveCampaignVoiceAgent(
+                      auth.token,
+                      campaign.id,
+                      payload
+                    );
+                    onCampaignUpdatedRef.current?.(result.campaign);
+                    setSaveToast({
+                      message:
+                        result.action === "updated"
+                          ? "Voice agent updated successfully."
+                          : "Voice agent created successfully.",
+                      variant: "success",
+                    });
+                  } catch (error) {
+                    setSaveToast({
+                      message:
+                        error instanceof Error
+                          ? error.message
+                          : "Failed to save voice agent.",
+                      variant: "error",
+                    });
+                  }
+                }}
+              />
+            ) : editorPhase === "editing" && editor?.channel === "gmail" ? (
+              <OutreachPlanEditor
+                key={editor.state.planId}
+                embedded
+                planId={editor.state.planId}
+                initialPlanName={editor.state.planName}
+                initialTouchpoints={editor.state.touchpoints}
+                initialStartSchedule={editor.state.startSchedule}
+                initialCalendlyAutomation={pickCampaignCalendly(
+                  campaign,
+                  editor.state.calendlyAutomation
+                )}
+                lockSchedule={editor.state.lockSchedule || campaignFieldsLocked}
+                editorLocked={campaignSequenceReadOnly}
+                sequenceLiveEditable={outreachStatus === "active"}
+                campaignOutreachStatus={outreachStatus}
+                hasCampaignContacts={hasContacts}
+                hasSequence={hasSequence}
+                launchBusy={launchBusy}
+                unveilInProgress={unveilJobActive}
+                emailSenders={emailSenderOptions}
+                selectedEmailIntegrationId={selectedEmailIntegrationId}
+                onEmailIntegrationChange={setSelectedEmailIntegrationId}
+                onLaunchCampaign={() => void handleLaunchSequence()}
+                onPauseCampaign={() => void handlePauseSequence()}
+                onResumeCampaign={() => void handleResumeSequence()}
+                onCancel={backToSequenceChoose}
+                onGoToIntegrations={onGoToIntegrations}
+                saveCalendlyToCampaign={(automation) => handleSaveCampaignCalendly(automation)}
+                onSaved={(message, saved) => void handlePlanSaved(message, saved)}
+              />
+            ) : editorPhase === "editing" && editor?.channel === "whatsapp" ? (
+              <WhatsAppOutreachEditor
+                embedded
+                planId={editor.state.planId}
+                initialPlanName={editor.state.planName}
+                initialTouchpoints={editor.state.touchpoints}
+                jobDescription={editor.state.jobDescription ?? ""}
+                onJobDescriptionChange={setWhatsappJobDescriptionValue}
+                initialCalendlySchedulingUrl={campaignCalendlySchedulingUrl(
+                  campaign,
+                  editor.state.calendlySchedulingUrl
+                )}
+                onCancel={backToSequenceChoose}
+                onGoToIntegrations={onGoToIntegrations}
+                saveCalendlyToCampaign={(automation) => handleSaveCampaignCalendly(automation)}
+                onSaved={(message, saved) => void handleWhatsAppPlanSaved(message, saved)}
+                onLaunchCampaign={(saved) => handleLaunchWhatsAppCampaign(saved)}
+                onPauseCampaign={() => handlePauseSequence()}
+                onResumeCampaign={() => handleResumeSequence()}
+                campaignOutreachStatus={outreachStatus}
+                hasCampaignContacts={hasContacts}
+                unveilInProgress={unveilJobActive}
+                onLaunchComplete={() => {
+                  onWorkspaceTabChange("WhatsApp");
+                  setWaCommsRefreshKey((k) => k + 1);
+                }}
+              />
+            ) : (
+              <div className="dashboard-campaign-editor-panel flex min-h-0 flex-1 flex-col">
+                {editorNotice ? (
+                  <p className="dashboard-alert-notice dashboard-campaign-editor-notice shrink-0 text-sm">
+                    {editorNotice}
+                  </p>
+                ) : null}
+                {campaignFieldsLocked ? (
+                  <p
+                    className="dashboard-alert-notice dashboard-campaign-editor-notice shrink-0 text-sm"
+                    role="status"
+                  >
+                    {outreachStatus === "completed"
+                      ? "This campaign is completed. Sequence and campaign settings are read-only."
+                      : "Campaign is running. You can still edit email copy in the sequence editor; pause to change contacts or schedule."}
+                  </p>
+                ) : null}
+                <div className="dashboard-campaign-report-toolbar shrink-0">
+                  <div className="dashboard-campaign-report-toolbar-row">
+                    <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                      <div className="min-w-0">
+                        <h2 className="dashboard-campaign-report-title">Campaign sequence</h2>
+                        <p className="dashboard-campaign-report-subtitle">
+                          Create or select an outreach sequence for this campaign
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="dashboard-campaign-editor-body dashboard-outreach-scroll min-h-0 flex-1 overflow-y-auto">
+                  <div className="dashboard-campaign-editor-inner">
+                    <OutreachSequencePicker
+                      variant="campaign"
+                      campaignId={
+                        (campaign.outreachStatus ?? "idle") === "idle" ? campaign.id : undefined
+                      }
+                      initialJobTitle={
+                        campaign.jobTitle?.trim() || standaloneJobTitle.trim() || ""
+                      }
+                      initialJobDescription={
+                        campaign.jobDescription?.trim() ||
+                        standaloneJobDescription.trim() ||
+                        ""
+                      }
+                      allowedChannels={allowedPickerChannels}
+                      existingPlans={modalPlans}
+                      plansLoading={modalPlansLoading}
+                      plansPage={savedPlansPage}
+                      plansTotalPages={savedPlansTotalPages}
+                      plansTotal={savedPlansTotal}
+                      onPlansPageChange={handleSavedPlansPageChange}
+                      templates={modalTemplates}
+                      templatesLoading={modalTemplatesLoading}
+                      optionsReady={sequenceOptionsReady}
+                      readOnly={campaignFieldsLocked}
+                      onChoose={(choice) => void handleSequenceChoice(choice)}
+                    />
+                  </div>
+                </div>
+              </div>
+            )
         ) : activeTab === "Job description" ? (
           <CampaignJobDescriptionPanel
             jobTitle={whatsappJobTitleValue}
@@ -2530,77 +2891,10 @@ export function CampaignWorkspace({
           />
         ) : activeTab === "Emails" ? (
           <div className="dashboard-campaign-emails-panel flex min-h-0 flex-1 flex-col overflow-hidden">
-            {!hasContacts &&
-            contactsListTotal === 0 &&
-            campaignContactCount === 0 &&
-            !emailListLoading &&
-            !contactsListLoading ? (
-              <CampaignWorkspaceEmptyState
-                brand="gmail"
-                title="No contacts yet"
-                description={
-                  <>
-                    Add candidates from{" "}
-                    <span className="font-medium text-[#141b2b]">Session Results</span> using{" "}
-                    <span className="font-medium text-[#141b2b]">Add to campaign</span>, or upload a
-                    CSV to build your outreach list before launch.
-                  </>
-                }
-                actions={[
-                  {
-                    label: "Add from search history",
-                    disabled: campaignContactsLocked,
-                    onClick: onAddFromSearchHistory,
-                  },
-                  {
-                    label: "Upload CSV",
-                    disabled: campaignContactsLocked,
-                    onClick: openCsvModal,
-                  },
-                ]}
-              />
-            ) : outreachStatus === "idle" ? (
-              <CampaignPreLaunchContactsPanel
-                channel={
-                  isVoiceCallCampaign
-                    ? "voice_call"
-                    : campaign.outreachChannel === "whatsapp" || effectiveChannel === "whatsapp"
-                      ? "whatsapp"
-                      : "gmail"
-                }
-                contacts={contactsListRows}
-                totalContacts={contactsListTotal}
-                page={contactsListPage}
-                totalPages={contactsListTotalPages}
-                loading={contactsListLoading}
-                error={contactsListError}
-                revealInProgress={revealInProgress || launchBusy}
-                contactsLocked={campaignContactsLocked}
-                removingKey={removeContactBusyKey}
-                selectable={isVoiceCallCampaign}
-                selectedKeys={voiceSelectedContactKeys}
-                onToggleContact={handleToggleVoiceContact}
-                onToggleAllOnPage={handleToggleVoiceContactsOnPage}
-                onPageChange={setContactsListPage}
-                onAddFromSearchHistory={
-                  campaignContactsLocked ? undefined : onAddFromSearchHistory
-                }
-                onUploadCsv={campaignContactsLocked ? undefined : openCsvModal}
-                onRemoveContact={
-                  campaignFieldsLocked
-                    ? undefined
-                    : async (candidateKey) => {
-                        const contact = contactsListRows.find(
-                          (row) => row.candidateKey === candidateKey
-                        );
-                        if (contact) await handleRemoveContactFromCampaign(contact);
-                      }
-                }
-                onRemoveSelectedContacts={
-                  campaignFieldsLocked ? undefined : handleRemoveSelectedVoiceContacts
-                }
-                removingSelected={removingSelectedContacts}
-              />
+            {outreachStatus === "idle" ? (
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                <CampaignPreLaunchContactsPanel {...preLaunchContactsPanelProps} />
+              </div>
             ) : isVoiceCallCampaign ? (
               <CampaignVoiceCallsPanel
                 campaignId={campaign.id}

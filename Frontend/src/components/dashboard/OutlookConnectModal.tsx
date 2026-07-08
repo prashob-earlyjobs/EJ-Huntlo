@@ -12,10 +12,11 @@ import { fetchOutlookOAuthUrl, fetchOutlookStatus } from "@/lib/outlookIntegrati
 type Props = {
   open: boolean;
   busy: boolean;
+  elevated?: boolean;
   onClose: () => void;
 };
 
-export function OutlookConnectModal({ open, busy, onClose }: Props) {
+export function OutlookConnectModal({ open, busy, elevated = false, onClose }: Props) {
   const [oauthLoading, setOauthLoading] = useState(false);
   const [error, setError] = useState("");
   const [oauthConfigured, setOauthConfigured] = useState<boolean | null>(null);
@@ -62,7 +63,7 @@ export function OutlookConnectModal({ open, busy, onClose }: Props) {
 
   return (
     <div
-      className="dashboard-modal-overlay py-6"
+      className={`dashboard-modal-overlay py-6${elevated ? " dashboard-modal-overlay--elevated" : ""}`}
       role="presentation"
       onClick={(e) => {
         if (e.target === e.currentTarget && !working) onClose();

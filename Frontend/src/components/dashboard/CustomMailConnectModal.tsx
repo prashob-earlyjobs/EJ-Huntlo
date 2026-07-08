@@ -43,6 +43,7 @@ const EMPTY_FORM: CustomMailConnectFormValues = {
 type Props = {
   open: boolean;
   busy: boolean;
+  elevated?: boolean;
   onClose: () => void;
   onSubmit: (values: CustomMailConnectFormValues) => void | Promise<void>;
 };
@@ -59,7 +60,13 @@ function buildPayload(form: CustomMailConnectFormValues): CustomMailConnectPaylo
   };
 }
 
-export function CustomMailConnectModal({ open, busy, onClose, onSubmit }: Props) {
+export function CustomMailConnectModal({
+  open,
+  busy,
+  elevated = false,
+  onClose,
+  onSubmit,
+}: Props) {
   const [form, setForm] = useState<CustomMailConnectFormValues>(EMPTY_FORM);
   const [error, setError] = useState("");
   const [testing, setTesting] = useState(false);
@@ -153,7 +160,7 @@ export function CustomMailConnectModal({ open, busy, onClose, onSubmit }: Props)
 
   return (
     <div
-      className="dashboard-modal-overlay py-6"
+      className={`dashboard-modal-overlay py-6${elevated ? " dashboard-modal-overlay--elevated" : ""}`}
       role="presentation"
       onClick={(e) => {
         if (e.target === e.currentTarget && !busy && !testing) onClose();

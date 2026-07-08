@@ -358,6 +358,7 @@ export function CampaignsPanel({
                 Boolean(listCampaign?.jobDescription?.trim()) ||
                 Boolean(skeletonNavHint?.hasJobDescription)
               }
+              outreachStatus={listCampaign?.outreachStatus ?? skeletonNavHint?.outreachStatus ?? null}
             />
           ) : (
             <div className="dashboard-card-body-scroll flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">

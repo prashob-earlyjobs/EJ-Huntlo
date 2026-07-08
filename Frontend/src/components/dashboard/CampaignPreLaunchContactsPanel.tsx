@@ -35,6 +35,8 @@ type Props = {
   onRemoveContact?: (candidateKey: string) => void | Promise<void>;
   onRemoveSelectedContacts?: () => void | Promise<void>;
   removingSelected?: boolean;
+  /** Dedicated contacts step in new-campaign setup (before sequence editor). */
+  setupStep?: boolean;
 };
 
 function contactChannelValue(contact: CampaignContact, channel: Channel): string {
@@ -94,6 +96,7 @@ export function CampaignPreLaunchContactsPanel({
   onRemoveContact,
   onRemoveSelectedContacts,
   removingSelected = false,
+  setupStep = false,
 }: Props) {
   const [removeConfirm, setRemoveConfirm] = useState<RemoveConfirm | null>(null);
   const [portalMounted, setPortalMounted] = useState(false);
@@ -228,7 +231,17 @@ export function CampaignPreLaunchContactsPanel({
               </tr>
             </thead>
             <tbody>
-              {contacts.map((contact) => (
+              {contacts.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={showSelection ? 7 : 6}
+                    className="px-3 py-10 text-center text-sm text-slate-500"
+                  >
+                    No contacts yet. Add candidates from search history or upload a CSV.
+                  </td>
+                </tr>
+              ) : (
+                contacts.map((contact) => (
                 <tr key={contact.candidateKey} className="border-t border-slate-100">
                   {showSelection ? (
                     <td className="px-3 py-2">
@@ -285,16 +298,19 @@ export function CampaignPreLaunchContactsPanel({
                     </button>
                   </td>
                 </tr>
-              ))}
+                ))
+              )}
             </tbody>
           </table>
         </div>
         <p className="mt-3 text-xs text-slate-500">
-          {isVoiceCall
-            ? "Select contacts with phone numbers, then launch the campaign to start AI voice calls."
-            : isWhatsApp
-              ? "Start the campaign sequence from the editor/workspace to activate WhatsApp conversations."
-              : "Launch the campaign sequence from the editor/workspace to activate Gmail conversations."}
+          {setupStep
+            ? "You can add contacts now or click Continue to finish sequence setup in the next step."
+            : isVoiceCall
+              ? "Select contacts with phone numbers, then launch the campaign to start AI voice calls."
+              : isWhatsApp
+                ? "Start the campaign sequence from the editor/workspace to activate WhatsApp conversations."
+                : "Launch the campaign sequence from the editor/workspace to activate Gmail conversations."}
         </p>
         {totalPages > 1 && onPageChange ? (
           <div className="mt-4 flex flex-wrap items-center justify-end gap-1.5 border-t border-slate-100 pt-3">

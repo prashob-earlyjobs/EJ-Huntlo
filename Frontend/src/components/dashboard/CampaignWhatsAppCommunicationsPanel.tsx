@@ -485,7 +485,7 @@ export function CampaignWhatsAppCommunicationsPanel({
     );
   }
 
-  if (threads.length === 0) {
+  if (threads.length === 0 && outreachStatus !== "idle") {
     return (
       <CampaignWorkspaceEmptyState
         brand="whatsapp"

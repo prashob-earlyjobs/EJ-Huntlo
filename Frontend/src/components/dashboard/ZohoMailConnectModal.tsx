@@ -40,11 +40,18 @@ type ConnectMode = "oauth" | "smtp";
 type Props = {
   open: boolean;
   busy: boolean;
+  elevated?: boolean;
   onClose: () => void;
   onSubmit: (values: ZohoMailConnectFormValues) => void;
 };
 
-export function ZohoMailConnectModal({ open, busy, onClose, onSubmit }: Props) {
+export function ZohoMailConnectModal({
+  open,
+  busy,
+  elevated = false,
+  onClose,
+  onSubmit,
+}: Props) {
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
 
   const [mode, setMode] = useState<ConnectMode>("oauth");
@@ -181,7 +188,7 @@ export function ZohoMailConnectModal({ open, busy, onClose, onSubmit }: Props) {
 
   return (
     <div
-      className="dashboard-modal-overlay py-6"
+      className={`dashboard-modal-overlay py-6${elevated ? " dashboard-modal-overlay--elevated" : ""}`}
       role="presentation"
       onClick={(e) => {
         if (e.target === e.currentTarget && !busy && !testing && !oauthLoading) onClose();
