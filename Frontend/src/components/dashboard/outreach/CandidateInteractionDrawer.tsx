@@ -59,7 +59,8 @@ export function CandidateInteractionDrawer({
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (!open || !candidate?.id) {
+    const candidateId = String(candidate?.id || "").trim();
+    if (!open || !candidateId) {
       setInteractions([]);
       setError("");
       return;
@@ -80,7 +81,7 @@ export function CandidateInteractionDrawer({
         const data = await fetchOutreachModuleCandidateInteractions(
           auth.token,
           campaignId,
-          candidate.id
+          candidateId
         );
         if (!cancelled) {
           setInteractions(data.interactions);

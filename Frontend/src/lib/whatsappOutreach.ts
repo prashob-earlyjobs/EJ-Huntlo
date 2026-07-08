@@ -294,7 +294,7 @@ export function createDefaultWhatsAppSingleChannelMessage(): WhatsAppSingleChann
 }
 
 export function resolveWhatsAppSingleChannelMessage(
-  partial: Partial<WhatsAppSingleChannelMessage> = {}
+  partial: Partial<WhatsAppSingleChannelMessage> & { replyBody?: string } = {}
 ): WhatsAppSingleChannelMessage {
   const defaults = createDefaultWhatsAppSingleChannelMessage();
   const templateId = partial.templateId?.trim() || defaults.templateId;

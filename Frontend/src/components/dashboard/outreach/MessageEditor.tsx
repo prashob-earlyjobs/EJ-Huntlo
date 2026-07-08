@@ -9,11 +9,11 @@ import {
 } from "@/lib/dashboardStyles";
 import type { OutreachChannel, VoiceTone } from "@/components/dashboard/outreach/types";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { mockEmailBody, mockEmailSubject } from "@/components/dashboard/outreach/mockData";
 import {
-  mockEmailBody,
-  mockEmailSubject,
-  mockVoiceScript,
-} from "@/components/dashboard/outreach/mockData";
+  VOICE_CALL_OBJECTIVE_DEFAULT,
+  VOICE_CALL_PROMPT_DEFAULT,
+} from "@/lib/defaultVoiceCallPrompt";
 import {
   createWhatsAppReplyQuestionPlaceholder,
   MAX_WHATSAPP_REPLY_QUESTIONS,
@@ -374,7 +374,7 @@ export function MessageEditor({
   onCallAttemptsChange,
   attemptGap = 4,
   onAttemptGapChange,
-  callObjective = "Confirm interest in the role",
+  callObjective = VOICE_CALL_OBJECTIVE_DEFAULT,
   onCallObjectiveChange,
 }: Props) {
   return (
@@ -575,7 +575,7 @@ export function MessageEditor({
                 id="voice-script"
                 className={dashboardTextareaClass}
                 rows={8}
-                value={message || mockVoiceScript}
+                value={message || VOICE_CALL_PROMPT_DEFAULT}
                 onChange={(e) => onMessageChange?.(e.target.value)}
               />
             </div>

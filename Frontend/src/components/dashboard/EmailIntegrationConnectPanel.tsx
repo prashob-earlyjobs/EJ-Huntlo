@@ -15,7 +15,7 @@ import {
 } from "@/components/dashboard/ZohoMailConnectModal";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { authHeaders, getStoredAuth } from "@/lib/auth";
-import { connectCustomMail } from "@/lib/customMailIntegrations";
+import { connectCustomMail as connectCustomMailApi } from "@/lib/customMailIntegrations";
 import { dashboardBtnPrimaryClass } from "@/lib/dashboardStyles";
 import { fetchConnectedEmailIntegrations } from "@/lib/emailIntegrations";
 
@@ -202,7 +202,7 @@ export function useEmailIntegrationConnect({ enabled = false, onConnected }: Hoo
         if (!auth?.token) {
           throw new Error("Please sign in again.");
         }
-        const { integration } = await connectCustomMail(auth.token, {
+        const { integration } = await connectCustomMailApi(auth.token, {
           fromEmail: values.fromEmail,
           displayName: values.displayName,
           smtpHost: values.smtpHost,
@@ -212,7 +212,9 @@ export function useEmailIntegrationConnect({ enabled = false, onConnected }: Hoo
           password: values.password,
         });
         setCustomMailModalOpen(false);
-        const email = integration.email?.trim() || values.fromEmail.trim();
+        const email =
+          (typeof integration.email === "string" ? integration.email.trim() : "") ||
+          values.fromEmail.trim();
         setNotice(email ? `SMTP connected as ${email}.` : "Custom SMTP connected.");
         await notifyConnected();
       } catch (err) {
