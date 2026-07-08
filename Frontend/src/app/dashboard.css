@@ -5228,6 +5228,48 @@
   scrollbar-color: color-mix(in srgb, var(--dash-outline) 70%, transparent) transparent;
 }
 
+.dashboard-outreach-builder-header--in-scroll {
+  padding-top: 0;
+}
+
+.dashboard-outreach-panel .dashboard-outreach-builder-toolbar {
+  flex-shrink: 0;
+  margin-bottom: 0.25rem;
+  padding-bottom: 0.625rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--dash-outline) 22%, transparent);
+  background: var(--dash-surface, #ffffff);
+}
+
+.dashboard-outreach-panel .dashboard-outreach-builder-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--dash-outline) 70%, transparent) transparent;
+}
+
+.dashboard-outreach-panel .dashboard-outreach-builder-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.dashboard-outreach-panel .dashboard-outreach-builder-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--dash-outline) 65%, transparent);
+}
+
+.dashboard-outreach-panel .dashboard-outreach-builder-step-panel-content {
+  flex: none;
+  min-height: auto;
+  overflow: visible;
+}
+
+.dashboard-outreach-panel .dashboard-outreach-builder-step-panel {
+  flex: none;
+  min-height: auto;
+}
+
 .dashboard-outreach-builder-step-panel-content::-webkit-scrollbar {
   width: 6px;
 }
@@ -5875,7 +5917,8 @@
   overflow: hidden;
 }
 
-.dashboard-outreach-panel .dashboard-outreach-builder-header,
+.dashboard-outreach-panel .dashboard-outreach-builder-toolbar,
+.dashboard-outreach-panel .dashboard-outreach-builder-footer--dock,
 .dashboard-outreach-panel .dashboard-outreach-builder-stepper-wrap,
 .dashboard-outreach-panel .dashboard-outreach-builder > .dashboard-outreach-stepper {
   flex-shrink: 0;
@@ -5884,12 +5927,12 @@
 .dashboard-outreach-panel .dashboard-outreach-builder-body {
   display: flex;
   flex-direction: column;
-  flex: 1 1 auto;
+  flex: none;
   width: 100%;
   min-width: 0;
-  min-height: 0;
+  min-height: auto;
   padding: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .dashboard-outreach-panel .dashboard-outreach-builder-body > * {
@@ -7176,10 +7219,10 @@
   margin: 0 0 1rem;
 }
 
-.dashboard-outreach-builder-step-panel-content:has(.dashboard-outreach-review) {
+.dashboard-outreach-panel .dashboard-outreach-builder-step-panel-content:has(.dashboard-outreach-review) {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .dashboard-outreach-review {
@@ -7680,6 +7723,12 @@
   padding-top: 1.125rem;
   border-top: 1px solid color-mix(in srgb, var(--dash-outline) 28%, transparent);
   background: #ffffff;
+}
+
+.dashboard-outreach-panel .dashboard-outreach-builder-footer--dock {
+  margin-top: 0;
+  padding: 1rem 0 0;
+  background: transparent;
 }
 
 .dashboard-outreach-builder-step-panel .dashboard-outreach-review > .dashboard-outreach-review-summary > .dashboard-section-title {
