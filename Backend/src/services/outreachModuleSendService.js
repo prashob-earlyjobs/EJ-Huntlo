@@ -28,6 +28,13 @@ const {
   assertCanSendGmailToday,
   recordGmailSend,
 } = require("./gmailDailySendLimitService");
+const {
+  ensureOutreachModuleVoiceAgent,
+  launchOutreachModuleVoiceBulk,
+  markOutreachModuleCandidatesVoiceQueued,
+  parseVoiceStepMessage,
+} = require("./outreachModuleVoiceService");
+const { normalizeToWhatsAppDigits } = require("./whatsappPhoneUtils");
 
 const SEND_BATCH_SIZE = Math.max(
   1,
@@ -94,7 +101,7 @@ function buildExecutionPlan(campaignDoc) {
     for (let i = 0; i < sequenceSteps.length; i += 1) {
       const step = sequenceSteps[i];
       const parsed = parseStepMessage(step.message);
-      steps.push({
+      const entry = {
         order: i + 1,
         channel: step.channel,
         label: String(step.label || `Step ${i + 1}`),
@@ -103,7 +110,18 @@ function buildExecutionPlan(campaignDoc) {
         subject: parsed.subject,
         body: parsed.body,
         templateId: parsed.templateId,
-      });
+      };
+      if (step.channel === "voice") {
+        const voiceFields = parseVoiceStepMessage(step.message);
+        entry.body = voiceFields.callObjective || voiceFields.body;
+        entry.voiceMeta = {
+          voiceTone: voiceFields.voiceTone,
+          callAttempts: voiceFields.callAttempts,
+          attemptGapHours: voiceFields.attemptGapHours,
+          callPrompt: voiceFields.body,
+        };
+      }
+      steps.push(entry);
     }
     return steps;
   }
@@ -211,6 +229,7 @@ function buildExecutionPlan(campaignDoc) {
         voiceTone: msg.voiceTone || "professional",
         callAttempts: Math.max(1, Number(msg.callAttempts) || 1),
         attemptGapHours: Math.max(0, Number(msg.attemptGapHours) || 24),
+        callPrompt: String(msg.body || "").trim(),
       },
     });
     return steps;
@@ -235,14 +254,24 @@ function campaignPayloadForMerge(campaignDoc) {
   };
 }
 
+function hasAutomatableSteps(plan) {
+  return plan.some(
+    (step) => step.channel === "whatsapp" || step.channel === "email" || step.channel === "voice"
+  );
+}
+
+function isVoiceOnlyPlan(plan) {
+  return plan.length > 0 && plan.every((step) => step.channel === "voice");
+}
+
 function hasSendableSteps(plan) {
-  return plan.some((step) => step.channel === "whatsapp" || step.channel === "email");
+  return hasAutomatableSteps(plan);
 }
 
 function channelsInPlan(plan) {
   const channels = new Set();
   for (const step of plan) {
-    if (step.channel === "whatsapp" || step.channel === "email") {
+    if (step.channel === "whatsapp" || step.channel === "email" || step.channel === "voice") {
       channels.add(step.channel);
     }
   }
@@ -425,7 +454,7 @@ async function skipToNextStep({
   let order = currentStepOrder + 1;
   let nextStep = getExecutionStep(plan, order);
 
-  while (nextStep && (nextStep.channel === "linkedin" || nextStep.channel === "voice")) {
+  while (nextStep && nextStep.channel === "linkedin") {
     order += 1;
     nextStep = getExecutionStep(plan, order);
   }
@@ -705,6 +734,99 @@ async function processWhatsAppStep({ enrollment, campaignDoc, step }) {
   });
 }
 
+async function processVoiceStep({ enrollment, campaignDoc, step }) {
+  const enrollmentId = enrollment._id;
+  const userId = String(enrollment.userId);
+  const campaignId = String(enrollment.outreachModuleCampaignId);
+
+  if (!normalizeToWhatsAppDigits(enrollment.contactPhone)) {
+    await OutreachModuleEnrollment.updateOne(
+      { _id: enrollmentId },
+      { $set: { status: "skipped", lastError: "No valid phone on file" } }
+    );
+    return;
+  }
+
+  const stepVoiceConfig = {
+    callObjective: String(step.body || "").trim(),
+    body: String(step.voiceMeta?.callPrompt || campaignDoc?.channelMessage?.body || "").trim(),
+    voiceTone: step.voiceMeta?.voiceTone || campaignDoc?.channelMessage?.voiceTone || "professional",
+    callAttempts:
+      step.voiceMeta?.callAttempts ?? campaignDoc?.channelMessage?.callAttempts ?? 1,
+    attemptGapHours:
+      step.voiceMeta?.attemptGapHours ?? campaignDoc?.channelMessage?.attemptGapHours ?? 24,
+  };
+
+  try {
+    await ensureOutreachModuleVoiceAgent(campaignDoc, { stepVoiceConfig });
+  } catch (err) {
+    await OutreachModuleEnrollment.updateOne(
+      { _id: enrollmentId },
+      {
+        $set: {
+          status: "failed",
+          lastError: err instanceof Error ? err.message : "Voice agent setup failed",
+        },
+      }
+    );
+    return;
+  }
+
+  const contact = {
+    candidateRefId: enrollment.candidateRefId,
+    candidateKey: enrollment.candidateRefId,
+    name: enrollment.contactName,
+    email: enrollment.contactEmail,
+    phone: enrollment.contactPhone,
+    role: enrollment.contactRole,
+    company: enrollment.contactCompany,
+  };
+
+  let launchResult;
+  try {
+    launchResult = await launchOutreachModuleVoiceBulk(userId, campaignDoc, [contact]);
+  } catch (err) {
+    await OutreachModuleEnrollment.updateOne(
+      { _id: enrollmentId },
+      {
+        $set: {
+          status: "failed",
+          lastError: err instanceof Error ? err.message : "AI voice call failed",
+        },
+      }
+    );
+    return;
+  }
+
+  const sentCount = (enrollment.sentCount || 0) + 1;
+  const plan = buildExecutionPlan(campaignDoc);
+
+  await updateEmbeddedCandidateAfterSend(campaignId, enrollment.candidateRefId, {
+    channel: "Voice",
+    lastStep: step.label,
+    nextAction: "Call placed",
+    incrementSent: true,
+    interaction: {
+      type: "voice",
+      summary: `Placed: ${step.label}`,
+      content: {
+        stepOrder: step.order,
+        requestId: launchResult.requestId || "",
+        status: "queued",
+      },
+    },
+  });
+
+  await advanceEnrollmentAfterSend({
+    enrollmentId,
+    plan,
+    currentStepOrder: step.order,
+    sentCount,
+    sendMeta: { messageId: launchResult.requestId || "" },
+    campaignDoc,
+  });
+}
+
 async function processOutreachModuleEnrollmentDoc(enrollment) {
   const campaignDoc = await OutreachModuleCampaign.findById(enrollment.outreachModuleCampaignId);
   if (!campaignDoc || !["active", "completed"].includes(campaignDoc.status)) {
@@ -736,7 +858,7 @@ async function processOutreachModuleEnrollmentDoc(enrollment) {
     return;
   }
 
-  if (step.channel === "linkedin" || step.channel === "voice") {
+  if (step.channel === "linkedin") {
     await skipToNextStep({
       enrollmentId: claimed._id,
       plan,
@@ -749,7 +871,7 @@ async function processOutreachModuleEnrollmentDoc(enrollment) {
       claimed.candidateRefId,
       {
         lastStep: step.label,
-        nextAction: step.channel === "voice" ? "Manual voice follow-up" : "Manual LinkedIn outreach",
+        nextAction: "Manual LinkedIn outreach",
         interaction: {
           type: "note",
           summary: `${step.label} skipped (automation not available)`,
@@ -757,6 +879,11 @@ async function processOutreachModuleEnrollmentDoc(enrollment) {
         },
       }
     );
+    return;
+  }
+
+  if (step.channel === "voice") {
+    await processVoiceStep({ enrollment: claimed, campaignDoc, step });
     return;
   }
 
@@ -866,9 +993,9 @@ async function launchOutreachModuleSequence(actorUserId, campaignDoc, options = 
     err.statusCode = 400;
     throw err;
   }
-  if (!hasSendableSteps(plan)) {
+  if (!hasAutomatableSteps(plan)) {
     const err = new Error(
-      "Automated sending supports WhatsApp and email only. Add at least one WhatsApp or email step."
+      "Automated sending supports WhatsApp, email, and AI voice calls. Add at least one supported step."
     );
     err.statusCode = 400;
     throw err;
@@ -879,6 +1006,28 @@ async function launchOutreachModuleSequence(actorUserId, campaignDoc, options = 
     const err = new Error("No candidates found for this campaign.");
     err.statusCode = 400;
     throw err;
+  }
+
+  if (isVoiceOnlyPlan(plan)) {
+    await ensureOutreachModuleVoiceAgent(campaignDoc);
+    const dialableContacts = contacts.filter((contact) =>
+      Boolean(normalizeToWhatsAppDigits(contact.phone))
+    );
+    const launchResult = await launchOutreachModuleVoiceBulk(
+      actorUserId,
+      campaignDoc,
+      dialableContacts
+    );
+    await markOutreachModuleCandidatesVoiceQueued(String(campaignDoc._id), dialableContacts, {
+      requestId: launchResult.requestId,
+    });
+    return {
+      enrolled: 0,
+      skipped: Math.max(0, contacts.length - launchResult.dialedCount),
+      touchpointCount: plan.length,
+      voiceDialed: launchResult.dialedCount,
+      voiceRequestId: launchResult.requestId,
+    };
   }
 
   const channels = channelsInPlan(plan);

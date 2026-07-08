@@ -14,6 +14,10 @@ import {
   resolveEmailSingleChannelMessage,
   type EmailSingleChannelMessage,
 } from "@/lib/emailSingleChannelOutreach";
+import {
+  resolveVoiceSingleChannelMessage,
+  type VoiceSingleChannelMessage,
+} from "@/lib/voiceSingleChannelOutreach";
 import { normalizeSequenceStepsFromApi } from "@/components/dashboard/outreach/outreachSequenceHelpers";
 
 type DetailsStep = Partial<CampaignDetailsForm>;
@@ -33,6 +37,10 @@ type MessageStep = {
     replyQuestions?: string[];
     replyBody?: string;
     emailTouchpoints?: EmailSingleChannelMessage["touchpoints"];
+    callObjective?: string;
+    voiceTone?: VoiceSingleChannelMessage["voiceTone"];
+    callAttempts?: number;
+    attemptGapHours?: number;
   };
 };
 type CandidatesStep = {
@@ -82,12 +90,21 @@ export function buildResumeEmailSubject(campaign: OutreachModuleCampaignDetail):
 }
 
 export function buildResumeMessage(campaign: OutreachModuleCampaignDetail): string {
+  return buildResumeVoiceMessage(campaign).body;
+}
+
+export function buildResumeVoiceMessage(
+  campaign: OutreachModuleCampaignDetail
+): VoiceSingleChannelMessage {
   const messageStep = (campaign.builder?.steps?.message ?? {}) as MessageStep;
-  const body =
-    messageStep.channelMessage?.body ||
-    campaign.channelMessage?.body ||
-    "";
-  return body;
+  const channelMessage = messageStep.channelMessage || campaign.channelMessage || {};
+  return resolveVoiceSingleChannelMessage({
+    body: channelMessage.body,
+    callObjective: channelMessage.callObjective,
+    voiceTone: channelMessage.voiceTone,
+    callAttempts: channelMessage.callAttempts,
+    attemptGapHours: channelMessage.attemptGapHours,
+  });
 }
 
 export function buildResumeEmailMessage(

@@ -58,6 +58,11 @@ import {
   emailMessageHasContent,
   type EmailSingleChannelMessage,
 } from "@/lib/emailSingleChannelOutreach";
+import {
+  resolveVoiceSingleChannelMessage,
+  voiceMessageHasContent,
+  type VoiceSingleChannelMessage,
+} from "@/lib/voiceSingleChannelOutreach";
 
 const SOURCE_LABELS: Record<CandidateSource, string> = {
   talent_pool: "Huntlo Talent Pool",
@@ -115,6 +120,7 @@ type Props = {
   initialChannel?: OutreachChannel;
   initialWhatsappMessage?: Partial<WhatsAppSingleChannelMessage>;
   initialMessage?: string;
+  initialVoiceMessage?: Partial<VoiceSingleChannelMessage>;
   initialEmailSubject?: string;
   initialEmailMessage?: Partial<EmailSingleChannelMessage> & {
     subject?: string;
@@ -137,6 +143,7 @@ export function SingleChannelBuilder({
   initialChannel = "whatsapp",
   initialWhatsappMessage,
   initialMessage = "",
+  initialVoiceMessage,
   initialEmailSubject = "",
   initialEmailMessage,
   initialAiPersonalize = true,
@@ -156,7 +163,12 @@ export function SingleChannelBuilder({
       body: initialWhatsappMessage?.body || initialMessage || undefined,
     })
   );
-  const [message, setMessage] = useState(initialMessage);
+  const [voiceMessage, setVoiceMessage] = useState<VoiceSingleChannelMessage>(() =>
+    resolveVoiceSingleChannelMessage({
+      ...initialVoiceMessage,
+      body: initialVoiceMessage?.body ?? (initialChannel === "voice" ? initialMessage : undefined),
+    })
+  );
   const [emailMessage, setEmailMessage] = useState<EmailSingleChannelMessage>(() =>
     resolveEmailSingleChannelMessage({
       ...initialEmailMessage,
@@ -217,8 +229,14 @@ export function SingleChannelBuilder({
       channel,
       whatsappMessage,
       aiPersonalize,
-      message,
+      message: voiceMessage.body,
       emailMessage,
+      voiceOptions: {
+        callObjective: voiceMessage.callObjective,
+        voiceTone: voiceMessage.voiceTone,
+        callAttempts: voiceMessage.callAttempts,
+        attemptGapHours: voiceMessage.attemptGapHours,
+      },
       initialCampaignId: resumeCampaignId ?? null,
       onDraftSaved,
     });
@@ -278,12 +296,27 @@ export function SingleChannelBuilder({
       channel,
       whatsappMessage,
       aiPersonalize,
-      message,
+      message: voiceMessage.body,
       emailMessage,
+      voiceOptions: {
+        callObjective: voiceMessage.callObjective,
+        voiceTone: voiceMessage.voiceTone,
+        callAttempts: voiceMessage.callAttempts,
+        attemptGapHours: voiceMessage.attemptGapHours,
+      },
       candidateIds: selectedIds,
       candidateSource: source,
     }),
-    [form, channel, whatsappMessage, aiPersonalize, message, emailMessage, selectedIds, source]
+    [
+      form,
+      channel,
+      whatsappMessage,
+      aiPersonalize,
+      voiceMessage,
+      emailMessage,
+      selectedIds,
+      source,
+    ]
   );
 
   const handleAiGenerated = useCallback(
@@ -407,12 +440,12 @@ export function SingleChannelBuilder({
                 detail: tp.body,
               }))
           : []
-        : message.trim()
+        : voiceMessageHasContent(voiceMessage)
           ? [
               {
                 icon: "record_voice_over",
-                title: "Outreach message",
-                detail: message,
+                title: "AI voice script",
+                detail: voiceMessage.body,
               },
             ]
           : [];
@@ -424,7 +457,7 @@ export function SingleChannelBuilder({
         }`
       : channel === "email"
         ? "4 automated emails"
-        : "1 message per candidate";
+        : "1 AI voice call per candidate";
 
   const handleReviewSaveDraft = async () => {
     setReviewError("");
@@ -486,7 +519,19 @@ export function SingleChannelBuilder({
       await maybeAutoGenerateMessages();
       return;
     } else if (step === 2) {
-      await persistMessageStep(3, { channel, whatsappMessage, aiPersonalize, message, emailMessage });
+      await persistMessageStep(3, {
+        channel,
+        whatsappMessage,
+        aiPersonalize,
+        message: voiceMessage.body,
+        emailMessage,
+        voiceOptions: {
+          callObjective: voiceMessage.callObjective,
+          voiceTone: voiceMessage.voiceTone,
+          callAttempts: voiceMessage.callAttempts,
+          attemptGapHours: voiceMessage.attemptGapHours,
+        },
+      });
     } else if (step === 3) {
       await persistCandidatesStep(4, {
         candidateIds: selectedIds,
@@ -581,7 +626,16 @@ export function SingleChannelBuilder({
                 key={ch}
                 channel={ch}
                 selected={channel === ch}
-                onSelect={() => setChannel(ch)}
+                onSelect={() => {
+                  setChannel(ch);
+                  if (ch === "voice") {
+                    setVoiceMessage((current) =>
+                      voiceMessageHasContent(current)
+                        ? current
+                        : resolveVoiceSingleChannelMessage()
+                    );
+                  }
+                }}
               />
             ))}
           </div>
@@ -639,8 +693,28 @@ export function SingleChannelBuilder({
             onReplyQuestionsChange={(questions) =>
               setWhatsappMessage((current) => ({ ...current, replyQuestions: questions }))
             }
-            message={channel === "whatsapp" ? whatsappMessage.body : channel === "voice" ? message : ""}
-            onMessageChange={channel === "voice" ? setMessage : undefined}
+            message={channel === "whatsapp" ? whatsappMessage.body : channel === "voice" ? voiceMessage.body : ""}
+            onMessageChange={
+              channel === "voice"
+                ? (value) => setVoiceMessage((current) => ({ ...current, body: value }))
+                : undefined
+            }
+            callObjective={voiceMessage.callObjective}
+            onCallObjectiveChange={(value) =>
+              setVoiceMessage((current) => ({ ...current, callObjective: value }))
+            }
+            voiceTone={voiceMessage.voiceTone}
+            onVoiceToneChange={(value) =>
+              setVoiceMessage((current) => ({ ...current, voiceTone: value }))
+            }
+            callAttempts={voiceMessage.callAttempts}
+            onCallAttemptsChange={(value) =>
+              setVoiceMessage((current) => ({ ...current, callAttempts: value }))
+            }
+            attemptGap={voiceMessage.attemptGapHours}
+            onAttemptGapChange={(value) =>
+              setVoiceMessage((current) => ({ ...current, attemptGapHours: value }))
+            }
             emailMessage={channel === "email" ? emailMessage : undefined}
             onEmailMessageChange={channel === "email" ? setEmailMessage : undefined}
           />
@@ -682,7 +756,7 @@ export function SingleChannelBuilder({
                     ? Boolean(whatsappMessage.body.trim())
                     : channel === "email"
                       ? emailMessageHasContent(emailMessage)
-                      : Boolean(message.trim()),
+                      : voiceMessageHasContent(voiceMessage),
               },
               { label: "Candidates selected", done: selectedIds.length > 0 },
             ]}

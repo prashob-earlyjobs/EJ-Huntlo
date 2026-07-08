@@ -5,12 +5,20 @@ const mongoose = require("mongoose");
  */
 const Campaign = require("../models/Campaign");
 const CampaignVoiceCall = require("../models/CampaignVoiceCall");
+const OutreachModuleCampaign = require("../models/OutreachModuleCampaign");
 const { findCampaignInScope } = require("../utils/campaignScope");
 const {
   loadAllContactsForCampaign,
 } = require("./campaignContactService");
 const { normalizeToWhatsAppDigits } = require("./whatsappPhoneUtils");
 const { resolvePendingVoiceCall } = require("./voiceCallCreditsService");
+const {
+  campaignHasVoiceCapability,
+  outreachModuleContactsForVoice,
+  syncOutreachModuleCandidateFromVoiceCall,
+  maybeCompleteOutreachModuleVoiceCampaign,
+  toHunarCampaignAdapter,
+} = require("./outreachModuleVoiceService");
 
 function userOid(userId) {
   return new mongoose.Types.ObjectId(String(userId));
@@ -154,9 +162,29 @@ function resolveSummaryText(doc, callResult) {
 async function loadCampaignForWebhook(campaignId, body) {
   const resolvedId = resolveCampaignId(campaignId, body);
   if (!mongoose.Types.ObjectId.isValid(resolvedId)) return null;
-  const campaign = await Campaign.findById(resolvedId).lean();
-  if (!campaign || campaign.outreachChannel !== "voice_call") return null;
-  return campaign;
+
+  const legacy = await Campaign.findById(resolvedId).lean();
+  if (legacy && legacy.outreachChannel === "voice_call") {
+    return { ...legacy, _outreachVoiceSource: "legacy" };
+  }
+
+  const moduleCampaign = await OutreachModuleCampaign.findById(resolvedId).lean();
+  if (moduleCampaign && campaignHasVoiceCapability(moduleCampaign)) {
+    return {
+      ...toHunarCampaignAdapter(moduleCampaign),
+      _outreachVoiceSource: "outreach_module",
+      _outreachModuleCampaign: moduleCampaign,
+    };
+  }
+
+  return null;
+}
+
+async function loadContactsForVoiceWebhook(campaign) {
+  if (campaign?._outreachVoiceSource === "outreach_module") {
+    return outreachModuleContactsForVoice(campaign._outreachModuleCampaign);
+  }
+  return loadAllContactsForCampaign(String(campaign._id));
 }
 
 async function resolveVoiceCallWebhook(campaignId, body) {
@@ -174,7 +202,7 @@ async function resolveVoiceCallWebhook(campaignId, body) {
     throw err;
   }
 
-  const contacts = await loadAllContactsForCampaign(String(campaign._id));
+  const contacts = await loadContactsForVoiceWebhook(campaign);
   const matched = matchContactForNumber(contacts, body?.to_number);
   const existing = await CampaignVoiceCall.findOne({
     campaignId: campaign._id,
@@ -293,7 +321,7 @@ async function upsertVoiceCallStatus(campaignId, body) {
   );
 
   const row = formatVoiceCallRow(doc);
-  void afterVoiceCallWebhook(String(campaign._id));
+  void afterVoiceCallWebhook(String(campaign._id), row);
   return row;
 }
 
@@ -340,7 +368,7 @@ async function upsertVoiceCallResult(campaignId, body) {
   );
 
   const row = formatVoiceCallRow(doc);
-  void afterVoiceCallWebhook(String(campaign._id));
+  void afterVoiceCallWebhook(String(campaign._id), row);
   return row;
 }
 
@@ -547,12 +575,24 @@ async function maybeCompleteVoiceCampaign(campaignId) {
   return true;
 }
 
-async function afterVoiceCallWebhook(campaignId) {
+async function afterVoiceCallWebhook(campaignId, callRow = null) {
   try {
     await maybeCompleteVoiceCampaign(campaignId);
   } catch (error) {
     console.error(
       "[hunar-voice] maybeCompleteVoiceCampaign failed:",
+      error?.message || error
+    );
+  }
+
+  try {
+    if (callRow) {
+      await syncOutreachModuleCandidateFromVoiceCall(campaignId, callRow);
+    }
+    await maybeCompleteOutreachModuleVoiceCampaign(campaignId);
+  } catch (error) {
+    console.error(
+      "[hunar-voice] outreach module voice webhook sync failed:",
       error?.message || error
     );
   }

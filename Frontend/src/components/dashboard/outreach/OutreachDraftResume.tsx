@@ -14,10 +14,11 @@ import {
   buildResumeMessage,
   buildResumeSequenceSteps,
   buildResumeStepMessages,
+  buildResumeVoiceMessage,
   buildResumeWhatsappReplyQuestions,
   buildResumeWhatsappMessage,
   resolveOutreachResumeStepIndex,
-} from "@/components/dashboard/outreach/outreachDraftResume";
+} from "@/components/dashboard/outreach/outreachResumeHelpers";
 import { SingleChannelBuilder } from "@/components/dashboard/outreach/SingleChannelBuilder";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { getStoredAuth } from "@/lib/auth";
@@ -40,6 +41,7 @@ type ResumeState = {
   form: ReturnType<typeof buildResumeDetailsForm>;
   channel: ReturnType<typeof buildResumeChannel>;
   message: string;
+  voiceMessage: ReturnType<typeof buildResumeVoiceMessage>;
   emailSubject: string;
   emailMessage: ReturnType<typeof buildResumeEmailMessage>;
   whatsappMessage: ReturnType<typeof buildResumeWhatsappMessage>;
@@ -93,6 +95,7 @@ export function OutreachDraftResume({
           form: buildResumeDetailsForm(campaign),
           channel: buildResumeChannel(campaign),
           message: buildResumeMessage(campaign),
+          voiceMessage: buildResumeVoiceMessage(campaign),
           emailSubject: buildResumeEmailSubject(campaign),
           emailMessage: buildResumeEmailMessage(campaign),
           whatsappMessage: buildResumeWhatsappMessage(campaign),
@@ -167,6 +170,7 @@ export function OutreachDraftResume({
       initialForm={resume.form}
       initialChannel={resume.channel}
       initialMessage={resume.message}
+      initialVoiceMessage={resume.voiceMessage}
       initialEmailSubject={resume.emailSubject}
       initialEmailMessage={resume.emailMessage}
       initialWhatsappMessage={resume.whatsappMessage}

@@ -295,6 +295,9 @@ const outreachModuleCampaignSchema = new mongoose.Schema(
       ref: "UserIntegration",
       default: null,
     },
+    hunarVoiceAgentId: { type: String, default: "", trim: true },
+    hunarVoiceAgent: { type: mongoose.Schema.Types.Mixed, default: null },
+    voiceAgentConfig: { type: mongoose.Schema.Types.Mixed, default: null },
     builder: {
       type: outreachModuleBuilderSchema,
       default: () => ({}),

@@ -40,7 +40,7 @@ import {
   buildResumeSequenceSteps,
   buildResumeStepMessages,
   buildResumeWhatsappReplyQuestions,
-} from "@/components/dashboard/outreach/outreachDraftResume";
+} from "@/components/dashboard/outreach/outreachResumeHelpers";
 import type {
   CampaignDetailsForm,
   CandidateSource,

@@ -23,6 +23,16 @@ import {
   emailMessageToChannelPayload,
   type EmailSingleChannelMessage,
 } from "@/lib/emailSingleChannelOutreach";
+import {
+  voiceMessageToChannelPayload,
+  resolveVoiceSingleChannelMessage,
+  type VoiceSingleChannelMessage,
+} from "@/lib/voiceSingleChannelOutreach";
+
+export type VoiceChannelOptions = Pick<
+  VoiceSingleChannelMessage,
+  "callObjective" | "voiceTone" | "callAttempts" | "attemptGapHours"
+>;
 
 export type SingleChannelSyncPayload = {
   form: CampaignDetailsForm;
@@ -31,6 +41,7 @@ export type SingleChannelSyncPayload = {
   aiPersonalize?: boolean;
   message?: string;
   emailMessage?: EmailSingleChannelMessage;
+  voiceOptions?: VoiceChannelOptions;
   candidateIds: string[];
   candidateSource: CandidateSource;
 };
@@ -54,6 +65,7 @@ type Options = {
   aiPersonalize?: boolean;
   message?: string;
   emailMessage?: EmailSingleChannelMessage;
+  voiceOptions?: VoiceChannelOptions;
   initialCampaignId?: string | null;
   onDraftSaved?: () => void;
 };
@@ -62,7 +74,8 @@ function buildChannelMessagePayload(
   channel: OutreachChannel,
   whatsappMessage: WhatsAppSingleChannelMessage | undefined,
   message: string,
-  emailMessage?: EmailSingleChannelMessage
+  emailMessage?: EmailSingleChannelMessage,
+  voiceOptions?: VoiceChannelOptions
 ): OutreachModuleChannelMessage {
   if (channel === "whatsapp" && whatsappMessage) {
     return {
@@ -87,6 +100,18 @@ function buildChannelMessagePayload(
     };
   }
 
+  if (channel === "voice") {
+    return voiceMessageToChannelPayload(
+      resolveVoiceSingleChannelMessage({
+        body: message,
+        callObjective: voiceOptions?.callObjective,
+        voiceTone: voiceOptions?.voiceTone,
+        callAttempts: voiceOptions?.callAttempts,
+        attemptGapHours: voiceOptions?.attemptGapHours,
+      })
+    );
+  }
+
   return {
     channel,
     body: message,
@@ -102,6 +127,7 @@ export function useOutreachBuilderDraft({
   aiPersonalize = true,
   message = "",
   emailMessage,
+  voiceOptions,
   initialCampaignId = null,
   onDraftSaved,
 }: Options) {
@@ -117,6 +143,7 @@ export function useOutreachBuilderDraft({
   const aiPersonalizeRef = useRef(aiPersonalize);
   const messageRef = useRef(message);
   const emailMessageRef = useRef(emailMessage);
+  const voiceOptionsRef = useRef(voiceOptions);
 
   formRef.current = form;
   stepRef.current = step;
@@ -125,6 +152,7 @@ export function useOutreachBuilderDraft({
   aiPersonalizeRef.current = aiPersonalize;
   messageRef.current = message;
   emailMessageRef.current = emailMessage;
+  voiceOptionsRef.current = voiceOptions;
   campaignIdRef.current = campaignId;
 
   useEffect(() => {
@@ -209,6 +237,7 @@ export function useOutreachBuilderDraft({
         aiPersonalize?: boolean;
         message?: string;
         emailMessage?: EmailSingleChannelMessage;
+        voiceOptions?: VoiceChannelOptions;
       } = {}
     ) => {
       setSavingDraft(true);
@@ -221,7 +250,8 @@ export function useOutreachBuilderDraft({
           activeChannel,
           payload.whatsappMessage ?? whatsappMessageRef.current,
           payload.message ?? messageRef.current,
-          payload.emailMessage ?? emailMessageRef.current
+          payload.emailMessage ?? emailMessageRef.current,
+          payload.voiceOptions ?? voiceOptionsRef.current
         );
 
         await saveOutreachModuleCampaignStep(session.auth.token, session.id, "message", {
@@ -349,7 +379,8 @@ export function useOutreachBuilderDraft({
         payload.channel,
         payload.whatsappMessage,
         payload.message ?? "",
-        payload.emailMessage
+        payload.emailMessage,
+        payload.voiceOptions
       );
 
       await saveReviewStep(session.auth.token, session.id, "details", { ...payload.form });

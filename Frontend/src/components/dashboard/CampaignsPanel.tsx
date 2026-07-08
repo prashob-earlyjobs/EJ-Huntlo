@@ -15,7 +15,7 @@ import {
   type CreateCampaignPayload,
 } from "@/components/dashboard/CreateCampaignModal";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
-import type { CampaignRecord } from "@/lib/campaigns";
+import type { CampaignOutreachStatus, CampaignRecord } from "@/lib/campaigns";
 import { fetchCampaign, type CampaignsListSummary } from "@/lib/campaignsApi";
 import { getStoredAuth } from "@/lib/auth";
 import type { ReportMetricKey } from "@/lib/campaignEmailReport";
@@ -109,6 +109,7 @@ export function CampaignsPanel({
     campaignId: string;
     outreachChannel: CampaignOutreachChannel | null;
     hasJobDescription: boolean;
+    outreachStatus: CampaignOutreachStatus | null;
   } | null>(null);
 
   const activeCampaignId = routeCampaignId.trim() || null;
@@ -128,6 +129,7 @@ export function CampaignsPanel({
       campaignId: resolvedCampaign.id,
       outreachChannel: resolveCampaignOutreachChannel(resolvedCampaign.outreachChannel),
       hasJobDescription: Boolean(resolvedCampaign.jobDescription?.trim()),
+      outreachStatus: resolvedCampaign.outreachStatus ?? null,
     });
   }, [resolvedCampaign]);
 
@@ -302,6 +304,7 @@ export function CampaignsPanel({
               campaignId: updated.id,
               outreachChannel: resolveCampaignOutreachChannel(updated.outreachChannel),
               hasJobDescription: Boolean(updated.jobDescription?.trim()),
+              outreachStatus: updated.outreachStatus ?? null,
             }
           : prev
       );

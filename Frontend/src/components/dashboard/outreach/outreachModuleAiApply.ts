@@ -463,7 +463,7 @@ export function readWhatsAppFromSequenceSteps(
       ? Math.max(1, sequenceStepDelayToHours(followUp1) || 48)
       : 48,
     followUp2TemplateId: followUp2Msg.templateId,
-    followUpBody: followUp2Msg.body,
+    followUp2Body: followUp2Msg.body,
     followUp2WaitHours: followUp2
       ? Math.max(1, sequenceStepDelayToHours(followUp2) || 96)
       : 96,
