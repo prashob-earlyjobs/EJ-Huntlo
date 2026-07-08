@@ -556,7 +556,7 @@ export function SingleChannelBuilder({
     <div className={`dashboard-outreach-builder${launching ? " dashboard-outreach-builder--launching" : ""}`}>
       {emailIntegrationModal}
       <CampaignLaunchAgentOverlay open={launching} channel={launchOverlayChannel} />
-      <header className="dashboard-outreach-builder-header">
+      <div className="dashboard-outreach-builder-toolbar">
         <div className="dashboard-outreach-builder-header-top">
           <button type="button" className="dashboard-outreach-back-btn" onClick={() => void goBack()}>
             <MaterialIcon name="arrow_back" className="text-sm" />
@@ -566,6 +566,9 @@ export function SingleChannelBuilder({
             Step {step + 1} of {STEPS.length}
           </span>
         </div>
+      </div>
+      <div className="dashboard-outreach-builder-scroll">
+      <header className="dashboard-outreach-builder-header dashboard-outreach-builder-header--in-scroll">
         <div className="dashboard-outreach-builder-header-main">
           <h1 className="dashboard-outreach-builder-title">Single channel campaign</h1>
           <p className="dashboard-outreach-builder-subtitle">{STEP_META[step].description}</p>
@@ -769,9 +772,12 @@ export function SingleChannelBuilder({
           />
         ) : null}
           </div>
+        </div>
+      </div>
+      </div>
 
         {step < 4 ? (
-          <footer className="dashboard-outreach-builder-footer">
+          <footer className="dashboard-outreach-builder-footer dashboard-outreach-builder-footer--dock">
             <button type="button" className={dashboardBtnSecondaryClass} onClick={() => void goBack()}>
               Back
             </button>
@@ -785,8 +791,6 @@ export function SingleChannelBuilder({
             </button>
           </footer>
         ) : null}
-        </div>
-      </div>
     </div>
   );
 }

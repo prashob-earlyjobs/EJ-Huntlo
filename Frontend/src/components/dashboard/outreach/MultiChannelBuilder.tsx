@@ -689,13 +689,15 @@ export function MultiChannelBuilder({
     <div className={`dashboard-outreach-builder${launching ? " dashboard-outreach-builder--launching" : ""}`}>
       {emailIntegrationModal}
       <CampaignLaunchAgentOverlay open={launching} channel={launchOverlayChannel} />
-      <header className="dashboard-outreach-builder-header">
-        <button type="button" className="dashboard-outreach-back-btn" onClick={() => void goBack()}>
-          <MaterialIcon name="arrow_back" className="text-sm" />
-          {step === 0 ? "Back to outreach" : "Previous step"}
-        </button>
-      </header>
-
+      <div className="dashboard-outreach-builder-toolbar">
+        <div className="dashboard-outreach-builder-header-top">
+          <button type="button" className="dashboard-outreach-back-btn" onClick={() => void goBack()}>
+            <MaterialIcon name="arrow_back" className="text-sm" />
+            {step === 0 ? "Back to outreach" : "Previous step"}
+          </button>
+        </div>
+      </div>
+      <div className="dashboard-outreach-builder-scroll">
       <OutreachStepper
         steps={STEPS}
         currentStep={step}
@@ -913,9 +915,12 @@ export function MultiChannelBuilder({
           />
         ) : null}
           </div>
+        </div>
+      </div>
+      </div>
 
         {step < 4 ? (
-          <footer className="dashboard-outreach-builder-footer">
+          <footer className="dashboard-outreach-builder-footer dashboard-outreach-builder-footer--dock">
             <button type="button" className={dashboardBtnSecondaryClass} onClick={() => void goBack()} disabled={stepNavigating}>
               Back
             </button>
@@ -933,8 +938,6 @@ export function MultiChannelBuilder({
             </button>
           </footer>
         ) : null}
-        </div>
-      </div>
     </div>
   );
 }
