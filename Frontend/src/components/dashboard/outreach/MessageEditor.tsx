@@ -8,6 +8,8 @@ import {
   dashboardTextareaClass,
 } from "@/lib/dashboardStyles";
 import type { OutreachChannel, VoiceTone } from "@/components/dashboard/outreach/types";
+import { OutreachEmailReplySetup } from "@/components/dashboard/outreach/OutreachEmailReplySetup";
+import type { CampaignCalendlyAutomation } from "@/lib/campaigns";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { mockEmailBody, mockEmailSubject } from "@/components/dashboard/outreach/mockData";
 import {
@@ -338,6 +340,10 @@ type Props = {
   onSubjectChange?: (value: string) => void;
   emailMessage?: EmailSingleChannelMessage;
   onEmailMessageChange?: (message: EmailSingleChannelMessage) => void;
+  emailAutoReplyEnabled?: boolean;
+  onEmailAutoReplyEnabledChange?: (enabled: boolean) => void;
+  calendlyAutomation?: CampaignCalendlyAutomation;
+  onCalendlyAutomationChange?: (value: CampaignCalendlyAutomation) => void;
   voiceTone?: VoiceTone;
   onVoiceToneChange?: (tone: VoiceTone) => void;
   callAttempts?: number;
@@ -368,6 +374,10 @@ export function MessageEditor({
   onSubjectChange,
   emailMessage,
   onEmailMessageChange,
+  emailAutoReplyEnabled = true,
+  onEmailAutoReplyEnabledChange,
+  calendlyAutomation,
+  onCalendlyAutomationChange,
   voiceTone = "professional",
   onVoiceToneChange,
   callAttempts = 2,
@@ -524,6 +534,15 @@ export function MessageEditor({
                   })}
                 </div>
               </div>
+
+              {onEmailAutoReplyEnabledChange && onCalendlyAutomationChange && calendlyAutomation ? (
+                <OutreachEmailReplySetup
+                  enabled={emailAutoReplyEnabled}
+                  onEnabledChange={onEmailAutoReplyEnabledChange}
+                  calendlyAutomation={calendlyAutomation}
+                  onCalendlyAutomationChange={onCalendlyAutomationChange}
+                />
+              ) : null}
             </div>
           ) : (
             <>

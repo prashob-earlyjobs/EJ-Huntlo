@@ -231,9 +231,8 @@ async function fetchZohoThreadMessagesImap(integrationDoc, enrollment, threadId)
 
         let bodyText = "";
         if (msg.source) {
-          const raw = msg.source.toString("utf8");
-          const plainMatch = raw.match(/\r?\n\r?\n([\s\S]*)$/);
-          bodyText = plainMatch ? plainMatch[1].trim().slice(0, 20_000) : "";
+          const { extractPlainTextFromMimeSource } = require("./emailMimeBodyUtils");
+          bodyText = extractPlainTextFromMimeSource(msg.source);
         }
 
         const contactNorm = parseEmailAddress(contactEmail);

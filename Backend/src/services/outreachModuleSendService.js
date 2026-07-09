@@ -321,13 +321,20 @@ async function updateEmbeddedCandidateAfterSend(campaignId, candidateRefId, upda
 
   const candidate = (campaign.candidates || []).find(
     (c) => String(c.candidateRefId) === String(candidateRefId)
-  );
+  ) || (update.matchEmail
+    ? (campaign.candidates || []).find(
+        (c) =>
+          String(c.email || "").trim().toLowerCase() ===
+          String(update.matchEmail).trim().toLowerCase()
+      )
+    : null);
   if (!candidate) return;
 
   if (update.channel) candidate.channel = update.channel;
   if (update.lastStep) candidate.lastStep = update.lastStep;
   if (update.nextAction) candidate.nextAction = update.nextAction;
   if (update.responseStatus) candidate.responseStatus = update.responseStatus;
+  if (update.lastResponse) candidate.lastResponse = update.lastResponse;
 
   if (update.interaction) {
     candidate.interactions.push({
@@ -338,16 +345,11 @@ async function updateEmbeddedCandidateAfterSend(campaignId, candidateRefId, upda
     });
   }
 
-  const stats = campaign.stats || {};
-  stats.total = campaign.candidates.length;
-  stats.sent = Math.min(stats.total, (Number(stats.sent) || 0) + (update.incrementSent ? 1 : 0));
-  if (update.incrementSent && stats.noResponse > 0) {
-    // sent count tracked separately; no_response stays until reply
-  }
-  campaign.stats = stats;
   campaign.markModified("candidates");
-  campaign.markModified("stats");
   await campaign.save();
+
+  const { recomputeCampaignDocStatsById } = require("./outreachModuleCampaignService");
+  await recomputeCampaignDocStatsById(campaignId);
 }
 
 function getCampaignReplyQuestions(campaignDoc) {
@@ -584,6 +586,7 @@ async function processEmailStep({
     channel: "Email",
     lastStep: step.label,
     nextAction: "Awaiting reply",
+    matchEmail: enrollment.contactEmail,
     incrementSent: true,
     interaction: {
       type: "email",
@@ -599,6 +602,19 @@ async function processEmailStep({
     sentCount,
     sendMeta: sendResult,
     campaignDoc,
+  });
+
+  const { recordOutboundSentMessage } = require("./campaignReplySyncService");
+  await recordOutboundSentMessage({
+    enrollment: {
+      ...enrollment,
+      campaignId: enrollment.outreachModuleCampaignId,
+      candidateKey: enrollment.candidateRefId,
+    },
+    sendResult,
+    subject,
+    body,
+    toEmail: email,
   });
 }
 
@@ -971,6 +987,11 @@ async function upsertModuleEnrollment({
         lastReplyAt: null,
         nextReplyQuestionIndex,
         replyDisposition: "unknown",
+        replyDispositionAt: null,
+        autoReplyCount: 0,
+        lastAutoRepliedToMessageId: "",
+        lastAutoReplyAt: null,
+        lastReplySyncedAt: null,
       },
       $unset: {
         lastSentAt: 1,
@@ -1383,4 +1404,5 @@ module.exports = {
   deleteOutreachModuleEnrollments,
   processDueOutreachModuleEnrollments,
   handleOutreachModuleInboundWhatsApp,
+  updateEmbeddedCandidateAfterSend,
 };

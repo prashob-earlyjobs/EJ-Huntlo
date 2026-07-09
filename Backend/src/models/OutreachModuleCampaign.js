@@ -31,6 +31,7 @@ const outreachModuleCandidateSchema = new mongoose.Schema(
         "interested",
         "not_interested",
         "no_response",
+        "replied",
         "follow_up_scheduled",
         "call_completed",
         "failed_delivery",
@@ -134,6 +135,18 @@ const outreachModuleFunnelStageSchema = new mongoose.Schema(
   {
     label: { type: String, required: true, trim: true },
     count: { type: Number, default: 0, min: 0 },
+  },
+  { _id: false }
+);
+
+const outreachModuleCalendlyAutomationSchema = new mongoose.Schema(
+  {
+    enabled: { type: Boolean, default: false },
+    meetingUri: { type: String, trim: true, default: "" },
+    meetingName: { type: String, trim: true, default: "" },
+    schedulingUrl: { type: String, trim: true, default: "" },
+    durationMinutes: { type: Number, default: 0, min: 0 },
+    kind: { type: String, trim: true, default: "" },
   },
   { _id: false }
 );
@@ -294,6 +307,12 @@ const outreachModuleCampaignSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "UserIntegration",
       default: null,
+    },
+    /** Gemini auto-reply when candidates reply to outreach emails. */
+    emailAutoReplyEnabled: { type: Boolean, default: true },
+    calendlyAutomation: {
+      type: outreachModuleCalendlyAutomationSchema,
+      default: () => ({ enabled: false }),
     },
     hunarVoiceAgentId: { type: String, default: "", trim: true },
     hunarVoiceAgent: { type: mongoose.Schema.Types.Mixed, default: null },

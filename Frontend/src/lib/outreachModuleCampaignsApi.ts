@@ -74,6 +74,15 @@ export type OutreachModuleCampaignDetail = OutreachCampaignRow & {
   sequenceSteps: SequenceStep[];
   launchedAt: string | null;
   completedAt: string | null;
+  emailAutoReplyEnabled?: boolean;
+  calendlyAutomation?: {
+    enabled?: boolean;
+    meetingUri?: string;
+    meetingName?: string;
+    schedulingUrl?: string;
+    durationMinutes?: number;
+    kind?: string;
+  };
   stats: CampaignDetailStats;
   funnel: { label: string; count: number }[];
   trackingCandidates: CampaignTrackingCandidate[];

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { CampaignFunnel, CampaignFunnelToggle } from "@/components/dashboard/outreach/CampaignFunnel";
 import { CampaignStatsCard } from "@/components/dashboard/outreach/CampaignStatsCard";
+import { CampaignTrackingSkeleton } from "@/components/dashboard/outreach/CampaignTrackingSkeleton";
 import { CampaignTrackingTable } from "@/components/dashboard/outreach/CampaignTrackingTable";
 import { CandidateInteractionDrawer } from "@/components/dashboard/outreach/CandidateInteractionDrawer";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
@@ -161,9 +162,7 @@ export function CampaignTrackingPage({ campaignId, onBack, onToast }: Props) {
   };
 
   if (loading) {
-    return (
-      <p className="dashboard-text-body dashboard-outreach-recent-loading">Loading campaign tracking…</p>
-    );
+    return <CampaignTrackingSkeleton />;
   }
 
   if (error || !campaign || !stats) {
@@ -228,7 +227,6 @@ export function CampaignTrackingPage({ campaignId, onBack, onToast }: Props) {
         <CampaignStatsCard label="Total candidates" value={stats.total} icon="groups" />
         <CampaignStatsCard label="Sent" value={stats.sent} icon="send" />
         <CampaignStatsCard label="Delivered" value={stats.delivered} icon="done_all" />
-        <CampaignStatsCard label="Opened" value={stats.opened} icon="drafts" />
         <CampaignStatsCard label="Replied" value={stats.replied} icon="reply" />
         <CampaignStatsCard label="Interested" value={stats.interested} icon="thumb_up" />
         <CampaignStatsCard label="Not interested" value={stats.notInterested} icon="thumb_down" />
