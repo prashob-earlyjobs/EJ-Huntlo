@@ -63,6 +63,7 @@ import {
   voiceMessageHasContent,
   type VoiceSingleChannelMessage,
 } from "@/lib/voiceSingleChannelOutreach";
+import type { CampaignCalendlyAutomation } from "@/lib/campaigns";
 
 const SOURCE_LABELS: Record<CandidateSource, string> = {
   talent_pool: "Huntlo Talent Pool",
@@ -128,6 +129,8 @@ type Props = {
     emailTouchpoints?: EmailSingleChannelMessage["touchpoints"];
   };
   initialAiPersonalize?: boolean;
+  initialEmailAutoReplyEnabled?: boolean;
+  initialCalendlyAutomation?: CampaignCalendlyAutomation;
   initialSelectedIds?: string[];
   initialSource?: CandidateSource;
 };
@@ -147,6 +150,8 @@ export function SingleChannelBuilder({
   initialEmailSubject = "",
   initialEmailMessage,
   initialAiPersonalize = true,
+  initialEmailAutoReplyEnabled = true,
+  initialCalendlyAutomation,
   initialSelectedIds = [],
   initialSource = "csv",
 }: Props) {
@@ -176,6 +181,18 @@ export function SingleChannelBuilder({
       body: initialEmailMessage?.body ?? initialMessage,
       emailTouchpoints: initialEmailMessage?.emailTouchpoints ?? initialEmailMessage?.touchpoints,
     })
+  );
+  const [emailAutoReplyEnabled, setEmailAutoReplyEnabled] = useState(initialEmailAutoReplyEnabled);
+  const [calendlyAutomation, setCalendlyAutomation] = useState<CampaignCalendlyAutomation>(
+    () =>
+      initialCalendlyAutomation ?? {
+        enabled: false,
+        meetingUri: "",
+        meetingName: "",
+        schedulingUrl: "",
+        durationMinutes: 0,
+        kind: "",
+      }
   );
   const [csvCandidates, setCsvCandidates] = useState<OutreachCandidate[]>([]);
   const [reviewError, setReviewError] = useState("");
@@ -298,6 +315,8 @@ export function SingleChannelBuilder({
       aiPersonalize,
       message: voiceMessage.body,
       emailMessage,
+      emailAutoReplyEnabled,
+      calendlyAutomation,
       voiceOptions: {
         callObjective: voiceMessage.callObjective,
         voiceTone: voiceMessage.voiceTone,
@@ -316,6 +335,8 @@ export function SingleChannelBuilder({
       emailMessage,
       selectedIds,
       source,
+      emailAutoReplyEnabled,
+      calendlyAutomation,
     ]
   );
 
@@ -456,7 +477,9 @@ export function SingleChannelBuilder({
           whatsappMessage.replyQuestions.filter((q) => q.trim()).length === 1 ? "" : "s"
         }`
       : channel === "email"
-        ? "4 automated emails"
+        ? emailAutoReplyEnabled
+          ? "4 automated emails + AI reply handling"
+          : "4 automated emails"
         : "1 AI voice call per candidate";
 
   const handleReviewSaveDraft = async () => {
@@ -525,6 +548,8 @@ export function SingleChannelBuilder({
         aiPersonalize,
         message: voiceMessage.body,
         emailMessage,
+        emailAutoReplyEnabled,
+        calendlyAutomation,
         voiceOptions: {
           callObjective: voiceMessage.callObjective,
           voiceTone: voiceMessage.voiceTone,
@@ -720,6 +745,12 @@ export function SingleChannelBuilder({
             }
             emailMessage={channel === "email" ? emailMessage : undefined}
             onEmailMessageChange={channel === "email" ? setEmailMessage : undefined}
+            emailAutoReplyEnabled={channel === "email" ? emailAutoReplyEnabled : undefined}
+            onEmailAutoReplyEnabledChange={
+              channel === "email" ? setEmailAutoReplyEnabled : undefined
+            }
+            calendlyAutomation={channel === "email" ? calendlyAutomation : undefined}
+            onCalendlyAutomationChange={channel === "email" ? setCalendlyAutomation : undefined}
           />
           </>
           )

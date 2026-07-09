@@ -31,6 +31,7 @@ export type CandidateResponseStatus =
   | "interested"
   | "not_interested"
   | "no_response"
+  | "replied"
   | "follow_up_scheduled"
   | "call_completed"
   | "failed_delivery";

@@ -41,6 +41,8 @@ export type SingleChannelSyncPayload = {
   aiPersonalize?: boolean;
   message?: string;
   emailMessage?: EmailSingleChannelMessage;
+  emailAutoReplyEnabled?: boolean;
+  calendlyAutomation?: import("@/lib/campaigns").CampaignCalendlyAutomation;
   voiceOptions?: VoiceChannelOptions;
   candidateIds: string[];
   candidateSource: CandidateSource;
@@ -52,6 +54,8 @@ export type MultiChannelSyncPayload = {
   aiPersonalize?: boolean;
   stepMessages?: { stepId: string; message: string | null }[];
   whatsappReplyQuestions?: string[];
+  emailAutoReplyEnabled?: boolean;
+  calendlyAutomation?: import("@/lib/campaigns").CampaignCalendlyAutomation;
   candidateIds: string[];
   candidateSource: CandidateSource;
 };
@@ -238,6 +242,8 @@ export function useOutreachBuilderDraft({
         message?: string;
         emailMessage?: EmailSingleChannelMessage;
         voiceOptions?: VoiceChannelOptions;
+        emailAutoReplyEnabled?: boolean;
+        calendlyAutomation?: import("@/lib/campaigns").CampaignCalendlyAutomation;
       } = {}
     ) => {
       setSavingDraft(true);
@@ -258,6 +264,8 @@ export function useOutreachBuilderDraft({
           data: {
             aiPersonalize: payload.aiPersonalize ?? aiPersonalizeRef.current,
             channelMessage,
+            emailAutoReplyEnabled: payload.emailAutoReplyEnabled !== false,
+            calendlyAutomation: payload.calendlyAutomation,
           },
           currentStep,
         });
@@ -324,6 +332,8 @@ export function useOutreachBuilderDraft({
         aiPersonalize?: boolean;
         stepMessages?: { stepId: string; message: string | null }[];
         whatsappReplyQuestions?: string[];
+        emailAutoReplyEnabled?: boolean;
+        calendlyAutomation?: import("@/lib/campaigns").CampaignCalendlyAutomation;
       } = {}
     ) => {
       setSavingDraft(true);
@@ -336,6 +346,8 @@ export function useOutreachBuilderDraft({
             aiPersonalize: payload.aiPersonalize ?? aiPersonalizeRef.current,
             stepMessages: payload.stepMessages ?? [],
             whatsappReplyQuestions: payload.whatsappReplyQuestions ?? [],
+            emailAutoReplyEnabled: payload.emailAutoReplyEnabled !== false,
+            calendlyAutomation: payload.calendlyAutomation,
           },
           currentStep,
         });
@@ -388,6 +400,8 @@ export function useOutreachBuilderDraft({
       await saveReviewStep(session.auth.token, session.id, "message", {
         aiPersonalize: payload.aiPersonalize !== false,
         channelMessage,
+        emailAutoReplyEnabled: payload.emailAutoReplyEnabled !== false,
+        calendlyAutomation: payload.calendlyAutomation,
       });
       await saveReviewStep(session.auth.token, session.id, "candidates", {
         candidateIds: payload.candidateIds,
@@ -428,6 +442,8 @@ export function useOutreachBuilderDraft({
         aiPersonalize: payload.aiPersonalize !== false,
         stepMessages: payload.stepMessages ?? [],
         whatsappReplyQuestions: payload.whatsappReplyQuestions ?? [],
+        emailAutoReplyEnabled: payload.emailAutoReplyEnabled !== false,
+        calendlyAutomation: payload.calendlyAutomation,
       });
       await saveReviewStep(session.auth.token, session.id, "candidates", {
         candidateIds: payload.candidateIds,

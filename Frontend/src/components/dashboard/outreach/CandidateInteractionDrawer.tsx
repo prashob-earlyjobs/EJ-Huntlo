@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import type { CampaignTrackingCandidate } from "@/components/dashboard/outreach/types";
 import { getStoredAuth } from "@/lib/auth";
+import { formatResponsePreview } from "@/lib/formatResponsePreview";
 import { dashboardBtnPrimaryClass, dashboardBtnSecondaryClass } from "@/lib/dashboardStyles";
 import { fetchOutreachModuleCandidateInteractions } from "@/lib/outreachModuleCampaignsApi";
 
@@ -143,7 +144,7 @@ export function CandidateInteractionDrawer({
               </div>
               <div>
                 <dt>Last response</dt>
-                <dd>{candidate.lastResponse || "—"}</dd>
+                <dd>{formatResponsePreview(candidate.lastResponse, 500)}</dd>
               </div>
             </dl>
           </section>

@@ -10,6 +10,9 @@ const {
   resumeOutreachModuleEnrollments,
   deleteOutreachModuleEnrollments,
 } = require("./outreachModuleSendService");
+const { syncOutreachModuleCampaignEmailReplies } = require("./campaignReplySyncService");
+const { toReplyPreview } = require("./emailMimeBodyUtils");
+const { syncReplyDispositionsForCampaign } = require("./replyDispositionUtils");
 
 const CHANNEL_LABELS = {
   whatsapp: "WhatsApp",
@@ -38,6 +41,18 @@ function defaultBuilderForMode() {
   };
 }
 
+function normalizeCalendlyAutomation(raw) {
+  const o = raw && typeof raw === "object" ? raw : {};
+  return {
+    enabled: Boolean(o.enabled),
+    meetingUri: String(o.meetingUri || "").trim(),
+    meetingName: String(o.meetingName || "").trim(),
+    schedulingUrl: String(o.schedulingUrl || "").trim(),
+    durationMinutes: Math.max(0, Number(o.durationMinutes) || 0),
+    kind: String(o.kind || "").trim(),
+  };
+}
+
 function formatBuilderStepData(stepKey, data, mode) {
   if (!data) return null;
   if (stepKey === "sequence" && Array.isArray(data.steps)) {
@@ -55,6 +70,15 @@ function formatBuilderStepData(stepKey, data, mode) {
     return {
       aiPersonalize: data.aiPersonalize !== false,
       channelMessage: normalizeChannelMessage(data.channelMessage),
+      emailAutoReplyEnabled: data.emailAutoReplyEnabled !== false,
+      calendlyAutomation: normalizeCalendlyAutomation(data.calendlyAutomation),
+    };
+  }
+  if (stepKey === "personalize") {
+    return {
+      ...data,
+      emailAutoReplyEnabled: data.emailAutoReplyEnabled !== false,
+      calendlyAutomation: normalizeCalendlyAutomation(data.calendlyAutomation),
     };
   }
   return data;
@@ -113,6 +137,8 @@ function validateAndNormalizeStep(mode, stepKey, data = {}) {
       return {
         aiPersonalize: data.aiPersonalize !== false,
         channelMessage: normalizeChannelMessage(data.channelMessage || data),
+        emailAutoReplyEnabled: data.emailAutoReplyEnabled !== false,
+        calendlyAutomation: normalizeCalendlyAutomation(data.calendlyAutomation),
       };
     }
     case "sequence": {
@@ -134,6 +160,8 @@ function validateAndNormalizeStep(mode, stepKey, data = {}) {
           message: item.message ?? null,
         })),
         whatsappReplyQuestions,
+        emailAutoReplyEnabled: data.emailAutoReplyEnabled !== false,
+        calendlyAutomation: normalizeCalendlyAutomation(data.calendlyAutomation),
       };
     }
     case "candidates": {
@@ -398,7 +426,20 @@ function buildStatsFromCandidates(candidates = []) {
   };
 
   for (const c of candidates) {
-    const status = c.responseStatus || "no_response";
+    let status = c.responseStatus || "no_response";
+    if (status === "no_response") {
+      const interactions = Array.isArray(c.interactions) ? c.interactions : [];
+      const hasReplyInteraction = interactions.some((row) => {
+        const summary = String(row?.summary || "").toLowerCase();
+        const type = String(row?.type || "").toLowerCase();
+        return (
+          summary.includes("candidate replied") ||
+          summary.startsWith("ai reply:") ||
+          type === "whatsapp" && summary.includes("replied")
+        );
+      });
+      if (hasReplyInteraction) status = "replied";
+    }
     if (status !== "no_response") {
       stats.noResponse = Math.max(0, stats.noResponse - 1);
     }
@@ -408,6 +449,8 @@ function buildStatsFromCandidates(candidates = []) {
     } else if (status === "not_interested") {
       stats.notInterested += 1;
       stats.replied += 1;
+    } else if (status === "replied") {
+      stats.replied += 1;
     } else if (
       status === "call_completed" ||
       status === "failed_delivery"
@@ -416,7 +459,20 @@ function buildStatsFromCandidates(candidates = []) {
     }
   }
 
-  if (total > 0 && stats.sent === 0 && stats.delivered === 0) {
+  const sentFromActivity = candidates.filter((c) => {
+    const status = c.responseStatus || "no_response";
+    if (status !== "no_response") return true;
+    const interactions = Array.isArray(c.interactions) ? c.interactions : [];
+    return interactions.some((row) => {
+      const summary = String(row?.summary || "").toLowerCase();
+      return summary.startsWith("sent:");
+    });
+  }).length;
+
+  if (sentFromActivity > 0) {
+    stats.sent = Math.min(total, sentFromActivity);
+    stats.delivered = Math.min(total, sentFromActivity);
+  } else if (total > 0 && stats.sent === 0 && stats.delivered === 0) {
     stats.sent = total;
     stats.delivered = total;
   }
@@ -435,6 +491,95 @@ function buildDefaultFunnel(candidates = [], stats = {}) {
     { label: "Interested", count: interested },
     { label: "Screened", count: 0 },
   ];
+}
+
+function applyStatsToCampaignDoc(campaignDoc, stats) {
+  const candidates = Array.isArray(campaignDoc.candidates) ? campaignDoc.candidates : [];
+  campaignDoc.stats = stats;
+  campaignDoc.funnel = buildDefaultFunnel(candidates, stats);
+  campaignDoc.responseRate = computeResponseRate(stats, candidates.length);
+  campaignDoc.markModified("stats");
+  campaignDoc.markModified("funnel");
+}
+
+function recomputeCampaignDocStats(campaignDoc, { preserveSentDelivered = true } = {}) {
+  const candidates = Array.isArray(campaignDoc.candidates) ? campaignDoc.candidates : [];
+  const prev = campaignDoc.stats || {};
+  const next = buildStatsFromCandidates(candidates);
+  if (preserveSentDelivered) {
+    const prevSent = Number(prev.sent) || 0;
+    const prevDelivered = Number(prev.delivered) || 0;
+    if (prevSent > 0) next.sent = Math.max(next.sent, prevSent);
+    if (prevDelivered > 0) next.delivered = Math.max(next.delivered, prevDelivered);
+  }
+  applyStatsToCampaignDoc(campaignDoc, next);
+  return next;
+}
+
+async function syncCandidateReplyStatusFromEnrollments(campaignDoc) {
+  const campaignId = campaignDoc._id;
+  if (!campaignId) return;
+
+  const enrollments = await OutreachModuleEnrollment.find({
+    outreachModuleCampaignId: campaignId,
+  })
+    .select("candidateRefId hasReply replyCount replyDisposition contactEmail lastReplyAt")
+    .lean();
+
+  if (enrollments.length === 0) return;
+
+  const candidates = Array.isArray(campaignDoc.candidates) ? campaignDoc.candidates : [];
+  let changed = false;
+
+  for (const enrollment of enrollments) {
+    const refId = String(enrollment.candidateRefId || "");
+    const email = String(enrollment.contactEmail || "").trim().toLowerCase();
+    let candidate = refId
+      ? candidates.find((c) => String(c.candidateRefId || "") === refId)
+      : null;
+    if (!candidate && email) {
+      candidate = candidates.find(
+        (c) => String(c.email || "").trim().toLowerCase() === email
+      );
+      if (candidate && refId && !candidate.candidateRefId) {
+        candidate.candidateRefId = refId;
+        changed = true;
+      }
+    }
+    if (!candidate) continue;
+
+    const hasInboundReply =
+      Boolean(enrollment.hasReply) || Number(enrollment.replyCount || 0) > 0;
+    const current = String(candidate.responseStatus || "no_response");
+    if (enrollment.replyDisposition === "interested" && current !== "interested") {
+      candidate.responseStatus = "interested";
+      changed = true;
+      continue;
+    }
+    if (enrollment.replyDisposition === "not_interested" && current !== "not_interested") {
+      candidate.responseStatus = "not_interested";
+      candidate.nextAction = candidate.nextAction || "Archive";
+      changed = true;
+      continue;
+    }
+    if (hasInboundReply && current === "no_response") {
+      candidate.responseStatus = "replied";
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    campaignDoc.markModified("candidates");
+  }
+}
+
+async function recomputeCampaignDocStatsById(campaignId) {
+  const campaign = await OutreachModuleCampaign.findById(campaignId);
+  if (!campaign) return null;
+  await syncCandidateReplyStatusFromEnrollments(campaign);
+  const stats = recomputeCampaignDocStats(campaign);
+  await campaign.save();
+  return stats;
 }
 
 function formatCampaignRow(doc) {
@@ -462,9 +607,20 @@ function formatCampaignRow(doc) {
   };
 }
 
-function formatTrackingCandidate(c, contact = {}) {
+function resolveCandidateDisplayStatus(candidate, enrollment) {
+  const current = String(candidate?.responseStatus || "no_response");
+  if (current === "interested" || current === "not_interested") return current;
+  if (!enrollment) return current;
+  if (enrollment.replyDisposition === "interested") return "interested";
+  if (enrollment.replyDisposition === "not_interested") return "not_interested";
+  if (enrollment.hasReply || Number(enrollment.replyCount || 0) > 0) return "replied";
+  return current;
+}
+
+function formatTrackingCandidate(c, contact = {}, enrollment = null) {
   const email = String(contact.email || c.email || "").trim();
   const phone = String(contact.phone || c.phone || "").trim();
+  const status = resolveCandidateDisplayStatus(c, enrollment);
   return {
     id: String(c._id),
     name: c.name || "",
@@ -473,9 +629,9 @@ function formatTrackingCandidate(c, contact = {}) {
     phone: phone || "-",
     channel: c.channel || "",
     lastStep: c.lastStep || "",
-    status: c.responseStatus || "no_response",
+    status,
     interest: c.interest || "-",
-    lastResponse: c.lastResponse || "-",
+    lastResponse: toReplyPreview(c.lastResponse) || "-",
     nextAction: c.nextAction || "",
   };
 }
@@ -514,6 +670,11 @@ async function loadCandidateContactMaps(campaignDoc, actorUserId) {
   const enrollmentByRef = new Map(
     enrollments.map((row) => [String(row.candidateRefId), row])
   );
+  const enrollmentByEmail = new Map(
+    enrollments
+      .filter((row) => String(row.contactEmail || "").includes("@"))
+      .map((row) => [String(row.contactEmail || "").trim().toLowerCase(), row])
+  );
 
   const plain = campaignDoc.toObject ? campaignDoc.toObject() : campaignDoc;
   const resolved = await resolveContactsForOutreachModuleCampaign(plain, actorUserId);
@@ -521,7 +682,19 @@ async function loadCandidateContactMaps(campaignDoc, actorUserId) {
     resolved.map((row) => [String(row.candidateRefId), row])
   );
 
-  return { enrollmentByRef, resolvedByRef };
+  return { enrollmentByRef, enrollmentByEmail, resolvedByRef };
+}
+
+function enrollmentForCandidate(candidate, maps) {
+  const refId = String(candidate.candidateRefId || "");
+  if (refId && maps.enrollmentByRef.has(refId)) {
+    return maps.enrollmentByRef.get(refId);
+  }
+  const email = String(candidate.email || "").trim().toLowerCase();
+  if (email && maps.enrollmentByEmail?.has(email)) {
+    return maps.enrollmentByEmail.get(email);
+  }
+  return null;
 }
 
 function contactForCandidate(candidate, maps) {
@@ -544,14 +717,22 @@ async function formatTrackingCandidates(doc, actorUserId) {
 
   const maps = await loadCandidateContactMaps(doc, actorUserId);
   return candidates.map((candidate) =>
-    formatTrackingCandidate(candidate, contactForCandidate(candidate, maps))
+    formatTrackingCandidate(
+      candidate,
+      contactForCandidate(candidate, maps),
+      enrollmentForCandidate(candidate, maps)
+    )
   );
 }
 
 async function formatSingleTrackingCandidate(doc, candidate, actorUserId) {
   const maps = await loadCandidateContactMaps(doc, actorUserId);
   const plain = candidate.toObject ? candidate.toObject() : candidate;
-  return formatTrackingCandidate(plain, contactForCandidate(plain, maps));
+  return formatTrackingCandidate(
+    plain,
+    contactForCandidate(plain, maps),
+    enrollmentForCandidate(plain, maps)
+  );
 }
 
 function formatSequenceStep(step) {
@@ -594,6 +775,8 @@ function formatCampaignDetail(doc) {
     createdDate: formatCreatedDate(doc.createdAt),
     launchedAt: doc.launchedAt ? new Date(doc.launchedAt).toISOString() : null,
     completedAt: doc.completedAt ? new Date(doc.completedAt).toISOString() : null,
+    emailAutoReplyEnabled: doc.emailAutoReplyEnabled !== false,
+    calendlyAutomation: doc.calendlyAutomation || { enabled: false },
     stats,
     funnel,
     trackingCandidates: candidates.map(formatTrackingCandidate),
@@ -710,6 +893,8 @@ function validateCreatePayload(payload = {}) {
       mode === "single" ? normalizeChannelMessage(payload.channelMessage || payload.message) : null,
     sequenceSteps: mode === "multi" ? normalizeSequenceSteps(payload.sequenceSteps) : [],
     candidateIds,
+    emailAutoReplyEnabled: payload.emailAutoReplyEnabled !== false,
+    calendlyAutomation: normalizeCalendlyAutomation(payload.calendlyAutomation),
   };
 }
 
@@ -957,6 +1142,8 @@ async function saveOutreachModuleCampaignStep(actorUserId, campaignId, stepKey, 
   if (stepKey === "message") {
     doc.aiPersonalize = normalized.aiPersonalize;
     doc.channelMessage = normalized.channelMessage;
+    doc.emailAutoReplyEnabled = normalized.emailAutoReplyEnabled !== false;
+    doc.calendlyAutomation = normalized.calendlyAutomation;
     doc.builder.message = normalized;
   }
 
@@ -970,6 +1157,12 @@ async function saveOutreachModuleCampaignStep(actorUserId, campaignId, stepKey, 
 
   if (stepKey === "personalize") {
     doc.aiPersonalize = normalized.aiPersonalize;
+    if (normalized.emailAutoReplyEnabled !== undefined) {
+      doc.emailAutoReplyEnabled = normalized.emailAutoReplyEnabled !== false;
+    }
+    if (normalized.calendlyAutomation) {
+      doc.calendlyAutomation = normalized.calendlyAutomation;
+    }
     doc.builder.personalize = normalized;
   }
 
@@ -1044,6 +1237,8 @@ async function createOutreachModuleCampaign(actorUserId, payload = {}) {
     funnel,
     responseRate: computeResponseRate(stats, candidates.length),
     launchedAt,
+    emailAutoReplyEnabled: normalized.emailAutoReplyEnabled,
+    calendlyAutomation: normalized.calendlyAutomation,
     builder: syncBuilderFromBulkPayload(normalized),
   });
 
@@ -1168,7 +1363,11 @@ async function resumeOutreachModuleCampaign(actorUserId, campaignId) {
 
 async function getOutreachModuleCampaignTracking(actorUserId, campaignId) {
   const doc = await findCampaignDocumentInScope(actorUserId, campaignId);
+  await syncOutreachModuleCampaignEmailReplies(doc);
   await syncEmbeddedCandidateContacts(doc, actorUserId);
+  await syncCandidateReplyStatusFromEnrollments(doc);
+  await syncReplyDispositionsForCampaign(doc._id);
+  recomputeCampaignDocStats(doc);
   await doc.save();
   const candidates = Array.isArray(doc.candidates) ? doc.candidates : [];
   const stats = doc.stats || buildStatsFromCandidates(candidates);
@@ -1228,9 +1427,8 @@ async function recordOutreachModuleCandidateAction(actorUserId, campaignId, cand
     });
   }
 
-  doc.stats = buildStatsFromCandidates(doc.candidates);
-  doc.funnel = buildDefaultFunnel(doc.candidates, doc.stats);
-  doc.responseRate = computeResponseRate(doc.stats, doc.candidates.length);
+  doc.markModified("candidates");
+  recomputeCampaignDocStats(doc);
 
   await doc.save();
 
@@ -1276,4 +1474,6 @@ module.exports = {
   getOutreachModuleCampaignTracking,
   recordOutreachModuleCandidateAction,
   getOutreachModuleCandidateInteractions,
+  recomputeCampaignDocStatsById,
+  syncCandidateReplyStatusFromEnrollments,
 };

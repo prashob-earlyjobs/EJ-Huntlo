@@ -1,3 +1,4 @@
+import type { CampaignCalendlyAutomation } from "@/lib/campaigns";
 import type { OutreachModuleBuilderState, OutreachModuleCampaignDetail } from "@/lib/outreachModuleCampaignsApi";
 import type {
   CampaignDetailsForm,
@@ -195,6 +196,43 @@ export function buildResumeWhatsappReplyQuestions(
   }
 
   return [];
+}
+
+export function buildResumeEmailAutoReplyEnabled(campaign: OutreachModuleCampaignDetail): boolean {
+  const messageStep = campaign.builder?.steps?.message as { emailAutoReplyEnabled?: boolean } | undefined;
+  const personalizeStep = campaign.builder?.steps?.personalize as
+    | { emailAutoReplyEnabled?: boolean }
+    | undefined;
+  if (messageStep?.emailAutoReplyEnabled != null) {
+    return messageStep.emailAutoReplyEnabled !== false;
+  }
+  if (personalizeStep?.emailAutoReplyEnabled != null) {
+    return personalizeStep.emailAutoReplyEnabled !== false;
+  }
+  return campaign.emailAutoReplyEnabled !== false;
+}
+
+export function buildResumeCalendlyAutomation(
+  campaign: OutreachModuleCampaignDetail
+): CampaignCalendlyAutomation {
+  const messageStep = campaign.builder?.steps?.message as
+    | { calendlyAutomation?: CampaignCalendlyAutomation }
+    | undefined;
+  const personalizeStep = campaign.builder?.steps?.personalize as
+    | { calendlyAutomation?: CampaignCalendlyAutomation }
+    | undefined;
+  const raw =
+    messageStep?.calendlyAutomation ||
+    personalizeStep?.calendlyAutomation ||
+    campaign.calendlyAutomation;
+  return {
+    enabled: Boolean(raw?.enabled),
+    meetingUri: String(raw?.meetingUri || ""),
+    meetingName: String(raw?.meetingName || ""),
+    schedulingUrl: String(raw?.schedulingUrl || ""),
+    durationMinutes: Number(raw?.durationMinutes) || 0,
+    kind: String(raw?.kind || ""),
+  };
 }
 
 type PersonalizeStepMessage = { stepId?: string; message?: string | null };

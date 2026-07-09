@@ -49,7 +49,8 @@ export const EMAIL_PROVIDER_OPTIONS: {
     id: "custom_mail",
     name: "Custom SMTP",
     provider: "SMTP",
-    description: "Use your own SMTP server or relay.",
+    description:
+      "Send via SMTP. Replies are detected via IMAP (for Gmail: enable IMAP in Gmail settings and use an app password).",
   },
 ];
 

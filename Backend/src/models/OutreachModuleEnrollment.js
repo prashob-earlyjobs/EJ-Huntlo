@@ -44,6 +44,12 @@ const outreachModuleEnrollmentSchema = new mongoose.Schema(
       enum: ["unknown", "interested", "not_interested"],
       default: "unknown",
     },
+    replyDispositionAt: { type: Date, default: null },
+    lastReplySyncedAt: { type: Date, default: null },
+    autoReplyCount: { type: Number, default: 0 },
+    lastAutoReplyAt: { type: Date, default: null },
+    /** Provider message id of the last candidate message we auto-replied to. */
+    lastAutoRepliedToMessageId: { type: String, default: "" },
   },
   { timestamps: true }
 );

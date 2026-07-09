@@ -1,8 +1,7 @@
 const mongoose = require("mongoose");
-const Campaign = require("../models/Campaign");
-const CampaignSequenceEnrollment = require("../models/CampaignSequenceEnrollment");
+const OutreachModuleCampaign = require("../models/OutreachModuleCampaign");
+const OutreachModuleEnrollment = require("../models/OutreachModuleEnrollment");
 const CampaignOutreachReply = require("../models/CampaignOutreachReply");
-const OutreachPlan = require("../models/OutreachPlan");
 const { buildReplySubject } = require("./gmailSendService");
 const { sendCampaignEmail } = require("./emailSendService");
 const { getSenderFirstNameForEmail } = require("./emailIntegrationService");
@@ -10,8 +9,10 @@ const {
   generateCampaignAutoReply,
   MAX_CONVERSATION_EXCHANGES,
 } = require("./outreachReplyAiService");
-const { notifyCampaignThreadUpdated } = require("../realtime/notify");
-const { maybeCompleteCampaign } = require("./campaignOutreachSendService");
+const {
+  isAutoReplyEnabled,
+  dispositionLabel,
+} = require("./campaignAutoReplyService");
 const { getAiConfig } = require("../config/ai");
 
 const MAX_AUTO_REPLIES = Math.max(
@@ -19,33 +20,8 @@ const MAX_AUTO_REPLIES = Math.max(
   Math.min(20, Number(process.env.OUTREACH_AUTO_REPLY_MAX) || MAX_CONVERSATION_EXCHANGES)
 );
 
-function isAutoReplyEnabled() {
-  const flag = String(process.env.OUTREACH_AUTO_REPLY_ENABLED ?? "true").trim().toLowerCase();
-  return flag !== "0" && flag !== "false" && flag !== "no";
-}
-
-function userOid(userId) {
-  return new mongoose.Types.ObjectId(userId);
-}
-
 function isFinalDisposition(disposition) {
   return disposition === "interested" || disposition === "not_interested";
-}
-
-async function getSenderFirstName(userId) {
-  return getSenderFirstNameForEmail(userId);
-}
-
-function summarizePlanTouchpoints(touchpoints) {
-  const sorted = [...(touchpoints || [])].sort((a, b) => (a.order || 0) - (b.order || 0));
-  return sorted
-    .slice(0, 4)
-    .map((tp, i) => {
-      const subj = String(tp.subject || "").trim();
-      const body = String(tp.body || "").trim().slice(0, 400);
-      return `Step ${i + 1}: ${subj}\n${body}`;
-    })
-    .join("\n\n");
 }
 
 function normalizeCalendlyAutomation(raw) {
@@ -66,25 +42,53 @@ function ensureCalendlyLinkInReply(replyBody, calendlyAutomation) {
   return `${body}\n\nYou can pick a time here: ${schedulingUrl}`;
 }
 
-async function loadAutoReplyContext(enrollment) {
-  const userId = String(enrollment.userId);
-  const campaign = await Campaign.findById(enrollment.campaignId)
-    .select("name jobTitle outreachPlanId calendlyAutomation jobDescription emailIntegrationId")
-    .lean();
+function summarizeEmailTouchpoints(campaignDoc) {
+  const touchpoints = Array.isArray(campaignDoc?.channelMessage?.emailTouchpoints)
+    ? campaignDoc.channelMessage.emailTouchpoints
+    : [];
+  const sorted = [...touchpoints].sort((a, b) => (a.order || 0) - (b.order || 0));
+  return sorted
+    .slice(0, 4)
+    .map((tp, i) => {
+      const subj = String(tp.subject || "").trim();
+      const body = String(tp.body || "").trim().slice(0, 400);
+      return `Step ${i + 1}: ${subj}\n${body}`;
+    })
+    .join("\n\n");
+}
 
-  let planSummary = "";
-  let calendlyAutomation = normalizeCalendlyAutomation(campaign?.calendlyAutomation);
-  if (campaign?.outreachPlanId) {
-    const plan = await OutreachPlan.findById(campaign.outreachPlanId)
-      .select("name touchpoints calendlyAutomation")
-      .lean();
-    if (plan) {
-      planSummary = `Plan: ${plan.name || ""}\n${summarizePlanTouchpoints(plan.touchpoints)}`;
-      if (!calendlyAutomation.enabled) {
-        calendlyAutomation = normalizeCalendlyAutomation(plan.calendlyAutomation);
-      }
+function summarizeModulePlanSummary(campaignDoc) {
+  const parts = [];
+  const emailSummary = summarizeEmailTouchpoints(campaignDoc);
+  if (emailSummary) parts.push(emailSummary);
+
+  for (const step of campaignDoc?.sequenceSteps || []) {
+    if (step.channel !== "email") continue;
+    const msg = step.message && typeof step.message === "object" ? step.message : {};
+    const touchpoints = Array.isArray(msg.emailTouchpoints) ? msg.emailTouchpoints : [];
+    if (touchpoints.length > 0) {
+      parts.push(
+        summarizeEmailTouchpoints({ channelMessage: { emailTouchpoints: touchpoints } })
+      );
+      continue;
+    }
+    const subj = String(msg.subject || "").trim();
+    const body = String(msg.body || "").trim().slice(0, 400);
+    if (subj || body) {
+      parts.push(`Sequence email: ${subj}\n${body}`);
     }
   }
+
+  return parts.filter(Boolean).join("\n\n");
+}
+
+async function loadOutreachModuleAutoReplyContext(enrollment, campaignDoc) {
+  const userId = String(enrollment.userId);
+  const campaign =
+    campaignDoc ||
+    (await OutreachModuleCampaign.findById(enrollment.outreachModuleCampaignId)
+      .select("name jobTitle jobDescription emailIntegrationId calendlyAutomation emailAutoReplyEnabled")
+      .lean());
 
   const docs = await CampaignOutreachReply.find({ enrollmentId: enrollment._id })
     .sort({ receivedAt: 1 })
@@ -112,6 +116,7 @@ async function loadAutoReplyContext(enrollment) {
 
   return {
     userId,
+    campaignDoc: campaign,
     emailIntegrationId: integrationId,
     campaignName: campaign?.name || "",
     jobTitle: String(campaign?.jobTitle || "").trim(),
@@ -119,28 +124,35 @@ async function loadAutoReplyContext(enrollment) {
     contactName: enrollment.contactName || "",
     contactRole: enrollment.contactRole || "",
     contactCompany: enrollment.contactCompany || "",
-    planSummary,
+    planSummary: summarizeModulePlanSummary(campaign),
     threadMessages,
     threadSubject,
     references,
     senderFirstName: await getSenderFirstNameForEmail(userId, integrationId),
-    calendlyAutomation,
+    calendlyAutomation: normalizeCalendlyAutomation(campaign?.calendlyAutomation),
+    emailAutoReplyEnabled: campaign?.emailAutoReplyEnabled !== false,
   };
 }
 
 /**
- * Send a Gemini-crafted auto-reply after a new candidate message (idempotent per message id).
+ * Send a Gemini-crafted auto-reply after a new candidate email (idempotent per message id).
  */
-async function maybeAutoReplyAfterCandidateMessage({
+async function maybeAutoReplyOutreachModuleAfterCandidateMessage({
   enrollment,
   candidateMessage,
   threadId,
+  campaignDoc = null,
 }) {
   if (!isAutoReplyEnabled()) return { sent: false, reason: "disabled" };
 
   const cfg = getAiConfig();
   if (!cfg.useVertex && !cfg.useAiStudio) {
     return { sent: false, reason: "ai_not_configured" };
+  }
+
+  const context = await loadOutreachModuleAutoReplyContext(enrollment, campaignDoc);
+  if (!context.emailAutoReplyEnabled) {
+    return { sent: false, reason: "campaign_disabled" };
   }
 
   const gmailMessageId = String(candidateMessage?.gmailMessageId || "").trim();
@@ -162,7 +174,6 @@ async function maybeAutoReplyAfterCandidateMessage({
   const tid = String(threadId || enrollment.lastThreadId || "").trim();
   if (!tid) return { sent: false, reason: "no_thread" };
 
-  const context = await loadAutoReplyContext(enrollment);
   const latestBody = String(
     candidateMessage?.bodyText || candidateMessage?.snippet || ""
   ).trim();
@@ -190,7 +201,7 @@ async function maybeAutoReplyAfterCandidateMessage({
     });
   } catch (err) {
     console.error(
-      `[outreach-auto-reply] enrollment ${enrollment._id}:`,
+      `[outreach-module-auto-reply] enrollment ${enrollment._id}:`,
       err?.message || err
     );
     return { sent: false, reason: "ai_error" };
@@ -209,20 +220,17 @@ async function maybeAutoReplyAfterCandidateMessage({
 
   if (!ai.shouldSendReply || !ai.replyBody) {
     if (isFinalDisposition(ai.disposition)) {
-      await CampaignSequenceEnrollment.updateOne(
-        { _id: enrollment._id },
-        {
-          $set: {
-            replyDisposition: ai.disposition,
-            replyDispositionAt: new Date(),
-            lastAutoRepliedToMessageId: gmailMessageId,
-            lastError: dispositionLabel(ai.disposition),
-          },
-        }
-      );
-      void maybeCompleteCampaign(String(enrollment.campaignId)).catch((err) => {
-        console.error("[outreach-auto-reply] maybeCompleteCampaign failed:", err?.message || err);
+      const { applyReplyDispositionToModuleEnrollment } = require("./replyDispositionUtils");
+      await applyReplyDispositionToModuleEnrollment({
+        enrollment,
+        disposition: ai.disposition,
+        latestBody,
+        source: "ai",
       });
+      await OutreachModuleEnrollment.updateOne(
+        { _id: enrollment._id },
+        { $set: { lastAutoRepliedToMessageId: gmailMessageId } }
+      );
     }
     return { sent: false, reason: "no_reply_body", disposition: ai.disposition };
   }
@@ -256,7 +264,7 @@ async function maybeAutoReplyAfterCandidateMessage({
     );
   } catch (err) {
     console.error(
-      `[outreach-auto-reply] send enrollment ${enrollment._id}:`,
+      `[outreach-module-auto-reply] send enrollment ${enrollment._id}:`,
       err?.message || err
     );
     return { sent: false, reason: "send_failed" };
@@ -264,7 +272,11 @@ async function maybeAutoReplyAfterCandidateMessage({
 
   const { recordOutboundSentMessage } = require("./campaignReplySyncService");
   await recordOutboundSentMessage({
-    enrollment,
+    enrollment: {
+      ...enrollment,
+      campaignId: enrollment.outreachModuleCampaignId,
+      candidateKey: enrollment.candidateRefId,
+    },
     sendResult,
     subject,
     body: replyBody,
@@ -284,29 +296,44 @@ async function maybeAutoReplyAfterCandidateMessage({
     update.replyDisposition = ai.disposition;
     update.replyDispositionAt = now;
     update.lastError = dispositionLabel(ai.disposition);
+    if (enrollment.status === "active" || enrollment.status === "paused") {
+      update.status = "paused";
+    }
   } else if (enrollment.status === "active") {
     update.status = "paused";
     update.lastError = "Reply received — auto-responding";
   }
 
-  await CampaignSequenceEnrollment.updateOne({ _id: enrollment._id }, { $set: update });
+  await OutreachModuleEnrollment.updateOne({ _id: enrollment._id }, { $set: update });
 
-  notifyCampaignThreadUpdated(context.userId, {
-    campaignId: String(enrollment.campaignId),
-    candidateKey: enrollment.candidateKey,
-    newMessages: 1,
-    hasNewCandidateReply: false,
-    source: "auto_reply",
-  });
-
-  if (isFinalDisposition(ai.disposition)) {
-    void maybeCompleteCampaign(String(enrollment.campaignId)).catch((err) => {
-      console.error("[outreach-auto-reply] maybeCompleteCampaign failed:", err?.message || err);
+  const campaignId = String(enrollment.outreachModuleCampaignId || "");
+  const candidateRefId = String(enrollment.candidateRefId || "");
+  if (campaignId && isFinalDisposition(ai.disposition)) {
+    const { applyReplyDispositionToModuleEnrollment } = require("./replyDispositionUtils");
+    await applyReplyDispositionToModuleEnrollment({
+      enrollment,
+      disposition: ai.disposition,
+      latestBody,
+      source: "ai",
+    });
+  } else if (campaignId && candidateRefId) {
+    const { updateEmbeddedCandidateAfterSend } = require("./outreachModuleSendService");
+    await updateEmbeddedCandidateAfterSend(campaignId, candidateRefId, {
+      matchEmail: enrollment.contactEmail,
+      lastResponse: latestBody.slice(0, 200),
+      nextAction: isFinalDisposition(ai.disposition)
+        ? "Conversation complete"
+        : "AI auto-reply sent",
+      interaction: {
+        type: "email",
+        summary: `AI reply: ${subject}`,
+        content: { bodyPreview: replyBody.slice(0, 280), disposition: ai.disposition },
+      },
     });
   }
 
   console.log(
-    `[outreach-auto-reply] sent enrollment ${enrollment._id} turn=${autoReplyTurn} disposition=${ai.disposition}`
+    `[outreach-module-auto-reply] sent enrollment ${enrollment._id} turn=${autoReplyTurn} disposition=${ai.disposition}`
   );
 
   return {
@@ -316,14 +343,8 @@ async function maybeAutoReplyAfterCandidateMessage({
   };
 }
 
-function dispositionLabel(disposition) {
-  if (disposition === "interested") return "Candidate interested — conversation complete";
-  if (disposition === "not_interested") return "Candidate not interested — conversation complete";
-  return "Reply received — auto-responding";
-}
-
 module.exports = {
-  maybeAutoReplyAfterCandidateMessage,
-  isAutoReplyEnabled,
-  dispositionLabel,
+  maybeAutoReplyOutreachModuleAfterCandidateMessage,
+  loadOutreachModuleAutoReplyContext,
+  summarizeModulePlanSummary,
 };

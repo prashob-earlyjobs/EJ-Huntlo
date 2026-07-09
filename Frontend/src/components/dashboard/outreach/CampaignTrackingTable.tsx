@@ -1,6 +1,7 @@
 "use client";
 
 import type { CampaignTrackingCandidate } from "@/components/dashboard/outreach/types";
+import { formatResponsePreview } from "@/lib/formatResponsePreview";
 
 type Props = {
   rows: CampaignTrackingCandidate[];
@@ -11,6 +12,7 @@ const STATUS_LABELS: Record<string, string> = {
   interested: "Interested",
   not_interested: "Not Interested",
   no_response: "No Response",
+  replied: "Replied",
   follow_up_scheduled: "Follow-up Scheduled",
   call_completed: "Call Completed",
   failed_delivery: "Failed Delivery",
@@ -64,7 +66,16 @@ export function CampaignTrackingTable({ rows, onView }: Props) {
                 </span>
               </td>
               <td>{row.interest}</td>
-              <td>{row.lastResponse}</td>
+              <td
+                className="dashboard-outreach-table-response"
+                title={
+                  row.lastResponse && row.lastResponse !== "-"
+                    ? formatResponsePreview(row.lastResponse, 500)
+                    : undefined
+                }
+              >
+                {formatResponsePreview(row.lastResponse)}
+              </td>
               <td>{row.nextAction}</td>
               <td>
                 <button

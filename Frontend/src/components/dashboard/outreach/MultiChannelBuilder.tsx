@@ -9,6 +9,7 @@ import {
 } from "@/components/dashboard/CampaignLaunchAgentOverlay";
 import { CandidateSelectionTable } from "@/components/dashboard/outreach/CandidateSelectionTable";
 import { MessageEditor } from "@/components/dashboard/outreach/MessageEditor";
+import { OutreachEmailReplySetup } from "@/components/dashboard/outreach/OutreachEmailReplySetup";
 import { OutreachAiGeneratingPanel } from "@/components/dashboard/outreach/OutreachAiGeneratingPanel";
 import { useOutreachBuilderChrome } from "@/components/dashboard/outreach/OutreachBuilderChrome";
 import {
@@ -105,6 +106,8 @@ type Props = {
   initialStepMessages?: Record<string, string>;
   initialAiPersonalize?: boolean;
   initialWhatsappReplyQuestions?: string[];
+  initialEmailAutoReplyEnabled?: boolean;
+  initialCalendlyAutomation?: import("@/lib/campaigns").CampaignCalendlyAutomation;
 };
 
 export function MultiChannelBuilder({
@@ -121,6 +124,8 @@ export function MultiChannelBuilder({
   initialStepMessages = {},
   initialAiPersonalize = true,
   initialWhatsappReplyQuestions = [],
+  initialEmailAutoReplyEnabled = true,
+  initialCalendlyAutomation,
 }: Props) {
   const [step, setStep] = useState(initialStep);
   const [form, setForm] = useState<CampaignDetailsForm>(initialForm);
@@ -133,6 +138,18 @@ export function MultiChannelBuilder({
   const [aiPersonalize, setAiPersonalize] = useState(initialAiPersonalize);
   const [whatsappReplyQuestions, setWhatsappReplyQuestions] = useState<string[]>(
     initialWhatsappReplyQuestions
+  );
+  const [emailAutoReplyEnabled, setEmailAutoReplyEnabled] = useState(initialEmailAutoReplyEnabled);
+  const [calendlyAutomation, setCalendlyAutomation] = useState(
+    () =>
+      initialCalendlyAutomation ?? {
+        enabled: false,
+        meetingUri: "",
+        meetingName: "",
+        schedulingUrl: "",
+        durationMinutes: 0,
+        kind: "",
+      }
   );
   const [activeTab, setActiveTab] = useState(0);
   const [csvCandidates, setCsvCandidates] = useState<OutreachCandidate[]>([]);
@@ -216,6 +233,8 @@ export function MultiChannelBuilder({
           aiPersonalize,
           stepMessages: buildStepMessagesPayload(sequenceSteps, stepMessages),
           whatsappReplyQuestions,
+          emailAutoReplyEnabled,
+          calendlyAutomation,
         });
         return;
       }
@@ -236,6 +255,8 @@ export function MultiChannelBuilder({
       whatsappReplyQuestions,
       selectedIds,
       source,
+      emailAutoReplyEnabled,
+      calendlyAutomation,
       persistDetailsStep,
       persistSequenceStep,
       persistPersonalizeStep,
@@ -471,10 +492,22 @@ export function MultiChannelBuilder({
       aiPersonalize,
       stepMessages: buildStepMessagesPayload(sequenceSteps, stepMessages),
       whatsappReplyQuestions,
+      emailAutoReplyEnabled,
+      calendlyAutomation,
       candidateIds: selectedIds,
       candidateSource: source,
     }),
-    [form, sequenceSteps, aiPersonalize, stepMessages, whatsappReplyQuestions, selectedIds, source]
+    [
+      form,
+      sequenceSteps,
+      aiPersonalize,
+      stepMessages,
+      whatsappReplyQuestions,
+      emailAutoReplyEnabled,
+      calendlyAutomation,
+      selectedIds,
+      source,
+    ]
   );
 
   const handleReviewSaveDraft = async () => {
@@ -586,6 +619,8 @@ export function MultiChannelBuilder({
         aiPersonalize,
         stepMessages: buildStepMessagesPayload(sequenceSteps, stepMessages),
         whatsappReplyQuestions,
+        emailAutoReplyEnabled,
+        calendlyAutomation,
       });
     } else if (step === 3) {
       await persistCandidatesStep(4, {
@@ -870,6 +905,14 @@ export function MultiChannelBuilder({
                     };
                   })
                 }
+              />
+            ) : null}
+            {launchNeedsEmail ? (
+              <OutreachEmailReplySetup
+                enabled={emailAutoReplyEnabled}
+                onEnabledChange={setEmailAutoReplyEnabled}
+                calendlyAutomation={calendlyAutomation}
+                onCalendlyAutomationChange={setCalendlyAutomation}
               />
             ) : null}
           </div>

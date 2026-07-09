@@ -11,6 +11,8 @@ import {
   buildResumeDetailsForm,
   buildResumeEmailMessage,
   buildResumeEmailSubject,
+  buildResumeEmailAutoReplyEnabled,
+  buildResumeCalendlyAutomation,
   buildResumeMessage,
   buildResumeSequenceSteps,
   buildResumeStepMessages,
@@ -51,6 +53,8 @@ type ResumeState = {
   sequenceSteps: ReturnType<typeof buildResumeSequenceSteps>;
   stepMessages: ReturnType<typeof buildResumeStepMessages>;
   whatsappReplyQuestions: ReturnType<typeof buildResumeWhatsappReplyQuestions>;
+  emailAutoReplyEnabled: boolean;
+  calendlyAutomation: ReturnType<typeof buildResumeCalendlyAutomation>;
 };
 
 export function OutreachDraftResume({
@@ -105,6 +109,8 @@ export function OutreachDraftResume({
           sequenceSteps: buildResumeSequenceSteps(campaign),
           stepMessages: buildResumeStepMessages(campaign),
           whatsappReplyQuestions: buildResumeWhatsappReplyQuestions(campaign),
+          emailAutoReplyEnabled: buildResumeEmailAutoReplyEnabled(campaign),
+          calendlyAutomation: buildResumeCalendlyAutomation(campaign),
         });
       } catch (err) {
         if (!cancelled) {
@@ -154,6 +160,8 @@ export function OutreachDraftResume({
         initialStepMessages={resume.stepMessages}
         initialAiPersonalize={resume.aiPersonalize}
         initialWhatsappReplyQuestions={resume.whatsappReplyQuestions}
+        initialEmailAutoReplyEnabled={resume.emailAutoReplyEnabled}
+        initialCalendlyAutomation={resume.calendlyAutomation}
         onBack={onBack}
         onSaveDraft={onSaveDraft}
         onLaunch={onLaunch}
@@ -175,6 +183,8 @@ export function OutreachDraftResume({
       initialEmailMessage={resume.emailMessage}
       initialWhatsappMessage={resume.whatsappMessage}
       initialAiPersonalize={resume.aiPersonalize}
+      initialEmailAutoReplyEnabled={resume.emailAutoReplyEnabled}
+      initialCalendlyAutomation={resume.calendlyAutomation}
       initialSelectedIds={resume.selectedIds}
       initialSource={resume.source}
       onBack={onBack}
