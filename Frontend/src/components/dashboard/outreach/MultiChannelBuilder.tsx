@@ -26,6 +26,7 @@ import {
 } from "@/components/dashboard/outreach/outreachModuleAiApply";
 import { SequenceBuilder } from "@/components/dashboard/outreach/SequenceBuilder";
 import { useEmailIntegrationLaunchGuard } from "@/components/dashboard/outreach/useEmailIntegrationLaunchGuard";
+import { useCampaignEmailSenders } from "@/components/dashboard/outreach/useCampaignEmailSenders";
 import { useOutreachBuilderDraft } from "@/components/dashboard/outreach/useOutreachBuilderDraft";
 import { mergeCsvContactsIntoCandidates } from "@/components/dashboard/outreach/mergeCsvContactsIntoCandidates";
 import { useOutreachCandidatePool } from "@/components/dashboard/outreach/useOutreachCandidatePool";
@@ -106,7 +107,6 @@ type Props = {
   initialStepMessages?: Record<string, string>;
   initialAiPersonalize?: boolean;
   initialWhatsappReplyQuestions?: string[];
-  initialEmailAutoReplyEnabled?: boolean;
   initialCalendlyAutomation?: import("@/lib/campaigns").CampaignCalendlyAutomation;
 };
 
@@ -124,7 +124,6 @@ export function MultiChannelBuilder({
   initialStepMessages = {},
   initialAiPersonalize = true,
   initialWhatsappReplyQuestions = [],
-  initialEmailAutoReplyEnabled = true,
   initialCalendlyAutomation,
 }: Props) {
   const [step, setStep] = useState(initialStep);
@@ -139,7 +138,6 @@ export function MultiChannelBuilder({
   const [whatsappReplyQuestions, setWhatsappReplyQuestions] = useState<string[]>(
     initialWhatsappReplyQuestions
   );
-  const [emailAutoReplyEnabled, setEmailAutoReplyEnabled] = useState(initialEmailAutoReplyEnabled);
   const [calendlyAutomation, setCalendlyAutomation] = useState(
     () =>
       initialCalendlyAutomation ?? {
@@ -174,6 +172,15 @@ export function MultiChannelBuilder({
     if (sequenceSteps.some((step) => step.channel === "whatsapp")) return "whatsapp";
     return "gmail";
   }, [sequenceSteps]);
+  const onReviewStep = step === 4;
+  const {
+    emailSenders,
+    selectedEmailIntegrationId,
+    setSelectedEmailIntegrationId,
+    loading: emailSendersLoading,
+    needsSenderSelection,
+    senderReady,
+  } = useCampaignEmailSenders(onReviewStep && launchNeedsEmail);
 
   const {
     campaignId,
@@ -233,7 +240,7 @@ export function MultiChannelBuilder({
           aiPersonalize,
           stepMessages: buildStepMessagesPayload(sequenceSteps, stepMessages),
           whatsappReplyQuestions,
-          emailAutoReplyEnabled,
+          emailAutoReplyEnabled: true,
           calendlyAutomation,
         });
         return;
@@ -255,7 +262,6 @@ export function MultiChannelBuilder({
       whatsappReplyQuestions,
       selectedIds,
       source,
-      emailAutoReplyEnabled,
       calendlyAutomation,
       persistDetailsStep,
       persistSequenceStep,
@@ -492,7 +498,7 @@ export function MultiChannelBuilder({
       aiPersonalize,
       stepMessages: buildStepMessagesPayload(sequenceSteps, stepMessages),
       whatsappReplyQuestions,
-      emailAutoReplyEnabled,
+      emailAutoReplyEnabled: true,
       calendlyAutomation,
       candidateIds: selectedIds,
       candidateSource: source,
@@ -503,7 +509,6 @@ export function MultiChannelBuilder({
       aiPersonalize,
       stepMessages,
       whatsappReplyQuestions,
-      emailAutoReplyEnabled,
       calendlyAutomation,
       selectedIds,
       source,
@@ -532,7 +537,12 @@ export function MultiChannelBuilder({
 
       setLaunching(true);
       const overlayStartedAt = Date.now();
-      const id = await launchFromReview(() => syncMultiChannelDraft(buildSyncPayload()));
+      const id = await launchFromReview(
+        () => syncMultiChannelDraft(buildSyncPayload()),
+        selectedEmailIntegrationId
+          ? { emailIntegrationId: selectedEmailIntegrationId }
+          : undefined
+      );
 
       const elapsed = Date.now() - overlayStartedAt;
       if (elapsed < LAUNCH_AGENT_MIN_DURATION_MS) {
@@ -619,7 +629,7 @@ export function MultiChannelBuilder({
         aiPersonalize,
         stepMessages: buildStepMessagesPayload(sequenceSteps, stepMessages),
         whatsappReplyQuestions,
-        emailAutoReplyEnabled,
+        emailAutoReplyEnabled: true,
         calendlyAutomation,
       });
     } else if (step === 3) {
@@ -909,8 +919,6 @@ export function MultiChannelBuilder({
             ) : null}
             {launchNeedsEmail ? (
               <OutreachEmailReplySetup
-                enabled={emailAutoReplyEnabled}
-                onEnabledChange={setEmailAutoReplyEnabled}
                 calendlyAutomation={calendlyAutomation}
                 onCalendlyAutomationChange={setCalendlyAutomation}
               />
@@ -948,7 +956,15 @@ export function MultiChannelBuilder({
               { label: "Campaign details completed", done: Boolean(form.name.trim() && form.jobTitle.trim()) },
               { label: "Sequence configured", done: sequenceSteps.length > 0 },
               { label: "Candidates selected", done: selectedIds.length > 0 },
+              ...(needsSenderSelection
+                ? [{ label: "Sender account selected", done: senderReady }]
+                : []),
             ]}
+            needsEmailSender={launchNeedsEmail}
+            emailSenders={emailSenders}
+            selectedEmailIntegrationId={selectedEmailIntegrationId}
+            onEmailIntegrationChange={setSelectedEmailIntegrationId}
+            emailSendersLoading={emailSendersLoading}
             submitting={submittingReview || launching}
             submitMode={reviewSubmitMode}
             error={reviewError}

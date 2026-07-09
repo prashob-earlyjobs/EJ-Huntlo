@@ -12,6 +12,7 @@ type Props = {
   onSaveDraft: () => void;
   onLaunch: () => void;
   launchLabel: string;
+  launchDisabled?: boolean;
 };
 
 export function ScreeningReviewSummary({
@@ -23,6 +24,7 @@ export function ScreeningReviewSummary({
   onSaveDraft,
   onLaunch,
   launchLabel,
+  launchDisabled = false,
 }: Props) {
   return (
     <div className="dashboard-screening-review">
@@ -38,11 +40,15 @@ export function ScreeningReviewSummary({
       </dl>
       <p className="dashboard-screening-review-warning">
         <MaterialIcon name="info" className="text-sm" />
-        UI preview only — launch will not run real screenings.
+        Launching will place AI voice calls to selected candidates with valid phone numbers.
       </p>
       <div className="dashboard-screening-review-actions">
-        <button type="button" className="dashboard-btn-secondary" onClick={onSaveDraft}>Save draft</button>
-        <button type="button" className="dashboard-btn-primary" onClick={onLaunch}>{launchLabel}</button>
+        <button type="button" className="dashboard-btn-secondary" onClick={onSaveDraft} disabled={launchDisabled}>
+          Save draft
+        </button>
+        <button type="button" className="dashboard-btn-primary" onClick={onLaunch} disabled={launchDisabled}>
+          {launchLabel}
+        </button>
       </div>
     </div>
   );

@@ -96,11 +96,15 @@ export function decodeEmailStepMessage(raw: string): { subject: string; body: st
 
 function touchpointToDelay(
   index: number,
-  touchpoint: { waitDays?: number; waitHours?: number }
+  touchpoint: { waitDays?: number; waitHours?: number; waitMinutes?: number }
 ): Pick<SequenceStep, "delayValue" | "delayUnit"> {
   if (index === 0) return { delayValue: 0, delayUnit: "days" };
+  const waitMinutes = Math.max(0, Number(touchpoint.waitMinutes) || 0);
   const waitHours = Math.max(0, Number(touchpoint.waitHours) || 0);
   const waitDays = Math.max(0, Number(touchpoint.waitDays) || 0);
+  if (waitMinutes > 0 && waitDays === 0 && waitHours === 0) {
+    return { delayValue: waitMinutes, delayUnit: "minutes" };
+  }
   if (waitHours > 0 && waitDays === 0) {
     return { delayValue: waitHours, delayUnit: "hours" };
   }
@@ -117,6 +121,9 @@ export function applyGmailAiToSingleChannel(
       subject: String(touchpoint.subject || "").trim(),
       body: String(touchpoint.body || "").trim(),
       waitDays: Math.max(0, Number(touchpoint.waitDays ?? EMAIL_SEQUENCE_DEFAULT_WAITS[index])),
+      waitHours: Math.max(0, Number(touchpoint.waitHours) || 0),
+      waitMinutes: Math.max(0, Number(touchpoint.waitMinutes) || 0),
+      waitUnit: touchpoint.waitUnit,
     })),
   });
 }

@@ -469,7 +469,10 @@ export function useOutreachBuilderDraft({
   );
 
   const launchFromReview = useCallback(
-    async (sync: () => Promise<string>) => {
+    async (
+      sync: () => Promise<string>,
+      options?: { emailIntegrationId?: string }
+    ) => {
       setSubmittingReview(true);
       try {
         const session = await ensureCampaignId();
@@ -477,7 +480,12 @@ export function useOutreachBuilderDraft({
           throw new Error("Sign in to launch your campaign.");
         }
         const id = await sync();
-        const campaign = await launchOutreachModuleCampaign(session.auth.token, id);
+        const integrationId = options?.emailIntegrationId?.trim();
+        const campaign = await launchOutreachModuleCampaign(
+          session.auth.token,
+          id,
+          integrationId ? { emailIntegrationId: integrationId } : undefined
+        );
         onDraftSaved?.();
         return campaign.id;
       } finally {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { ScreeningCandidateTable } from "@/components/dashboard/screening/ScreeningCandidateTable";
 import { VoiceQuestionBuilder } from "@/components/dashboard/screening/QuestionBuilder";
@@ -8,13 +8,13 @@ import { ScreeningReviewSummary } from "@/components/dashboard/screening/Screeni
 import { ScreeningStepper } from "@/components/dashboard/screening/ScreeningStepper";
 import { VoiceScreeningConfig } from "@/components/dashboard/screening/VoiceScreeningConfig";
 import {
-  mockCandidates,
   mockVoiceQuestions,
   mockVoiceScript,
 } from "@/components/dashboard/screening/mockData";
 import type {
   CallLanguage,
   CandidateSource,
+  ScreeningCandidate,
   ScreeningDetailsForm,
   ScreeningGoal,
   ScreeningQuestion,
@@ -22,6 +22,10 @@ import type {
   VoiceTone,
 } from "@/components/dashboard/screening/types";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { getStoredAuth } from "@/lib/auth";
+import type { VoiceScreeningPayload } from "@/lib/screeningApi";
+import { generateScreeningQuestions } from "@/lib/screeningApi";
+import { fetchOutreachModuleCandidatePool } from "@/lib/outreachModuleCampaignsApi";
 import {
   dashboardBtnPrimaryClass,
   dashboardBtnSecondaryClass,
@@ -49,15 +53,54 @@ const DEFAULT_FORM: ScreeningDetailsForm = {
 
 type Props = {
   onBack: () => void;
-  onSaveDraft: () => void;
-  onLaunch: () => void;
+  onSaveDraft: (payload: VoiceScreeningPayload) => void | Promise<void>;
+  onLaunch: (payload: VoiceScreeningPayload) => void | Promise<void>;
   onToast: (msg: string) => void;
+  submitting?: boolean;
 };
 
-export function VoiceScreeningBuilder({ onBack, onSaveDraft, onLaunch, onToast }: Props) {
+function buildPayload(state: {
+  form: ScreeningDetailsForm;
+  selectedIds: string[];
+  source: CandidateSource;
+  language: CallLanguage;
+  voiceTone: VoiceTone;
+  attempts: number;
+  attemptGap: string;
+  durationLimit: string;
+  autoFollowUp: boolean;
+  consentMessage: boolean;
+  script: VoiceScriptSections;
+  questions: ScreeningQuestion[];
+  launch: boolean;
+}): VoiceScreeningPayload {
+  return {
+    details: state.form,
+    candidateIds: state.selectedIds,
+    candidateSource: state.source,
+    language: state.language,
+    voiceTone: state.voiceTone,
+    attempts: state.attempts,
+    attemptGap: state.attemptGap,
+    durationLimit: state.durationLimit,
+    autoFollowUp: state.autoFollowUp,
+    consentMessage: state.consentMessage,
+    script: state.script,
+    questions: state.questions,
+    launch: state.launch,
+  };
+}
+
+export function VoiceScreeningBuilder({
+  onBack,
+  onSaveDraft,
+  onLaunch,
+  onToast,
+  submitting = false,
+}: Props) {
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<ScreeningDetailsForm>(DEFAULT_FORM);
-  const [selectedIds, setSelectedIds] = useState<string[]>(["c1", "c2"]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [source, setSource] = useState<CandidateSource>("talent_pool");
   const [language, setLanguage] = useState<CallLanguage>("english");
   const [voiceTone, setVoiceTone] = useState<VoiceTone>("professional");
@@ -70,14 +113,82 @@ export function VoiceScreeningBuilder({ onBack, onSaveDraft, onLaunch, onToast }
   const [questions, setQuestions] = useState<ScreeningQuestion[]>(
     () => mockVoiceQuestions.map((q) => ({ ...q }))
   );
+  const [candidates, setCandidates] = useState<ScreeningCandidate[]>([]);
+  const [candidatesLoading, setCandidatesLoading] = useState(true);
+
+  const loadCandidates = useCallback(async () => {
+    const auth = getStoredAuth();
+    if (!auth?.token) {
+      setCandidatesLoading(false);
+      return;
+    }
+    setCandidatesLoading(true);
+    try {
+      const pool = await fetchOutreachModuleCandidatePool(auth.token);
+      setCandidates(
+        pool.map((c) => ({
+          id: c.id,
+          name: c.name,
+          role: c.role,
+          location: c.location,
+          experience: c.experience,
+          matchScore: c.matchScore,
+          status: c.status,
+        }))
+      );
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : "Could not load candidates");
+    } finally {
+      setCandidatesLoading(false);
+    }
+  }, [onToast]);
+
+  useEffect(() => {
+    void loadCandidates();
+  }, [loadCandidates]);
+
+  const payloadState = {
+    form,
+    selectedIds,
+    source,
+    language,
+    voiceTone,
+    attempts,
+    attemptGap,
+    durationLimit,
+    autoFollowUp,
+    consentMessage,
+    script,
+    questions,
+  };
 
   const canNext =
-    (step === 0 && form.name.trim()) ||
+    (step === 0 && form.name.trim() && form.jobTitle.trim()) ||
     (step === 1 && selectedIds.length > 0) ||
     step >= 2;
 
   const goNext = () => step < STEPS.length - 1 && setStep((s) => s + 1);
   const goBack = () => (step === 0 ? onBack() : setStep((s) => s - 1));
+
+  const handleGenerateAi = async () => {
+    const auth = getStoredAuth();
+    if (!auth?.token) {
+      onToast("Please sign in again");
+      return;
+    }
+    if (!form.jobTitle.trim()) {
+      onToast("Add a job title before generating questions");
+      return;
+    }
+    try {
+      const result = await generateScreeningQuestions(auth.token, form);
+      if (result.questions.length > 0) setQuestions(result.questions);
+      if (result.script) setScript(result.script);
+      onToast("AI screening questions generated");
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : "Could not generate questions");
+    }
+  };
 
   return (
     <div className="dashboard-screening-builder">
@@ -131,13 +242,17 @@ export function VoiceScreeningBuilder({ onBack, onSaveDraft, onLaunch, onToast }
         ) : null}
 
         {step === 1 ? (
-          <ScreeningCandidateTable
-            candidates={mockCandidates}
-            selectedIds={selectedIds}
-            onSelectionChange={setSelectedIds}
-            source={source}
-            onSourceChange={setSource}
-          />
+          candidatesLoading ? (
+            <p className="dashboard-text-body">Loading candidates…</p>
+          ) : (
+            <ScreeningCandidateTable
+              candidates={candidates}
+              selectedIds={selectedIds}
+              onSelectionChange={setSelectedIds}
+              source={source}
+              onSourceChange={setSource}
+            />
+          )
         ) : null}
 
         {step === 2 ? (
@@ -165,7 +280,7 @@ export function VoiceScreeningBuilder({ onBack, onSaveDraft, onLaunch, onToast }
             onScriptChange={setScript}
             questions={questions}
             onQuestionsChange={setQuestions}
-            onGenerateAi={() => onToast("AI questions generated (UI preview)")}
+            onGenerateAi={() => void handleGenerateAi()}
           />
         ) : null}
 
@@ -181,9 +296,10 @@ export function VoiceScreeningBuilder({ onBack, onSaveDraft, onLaunch, onToast }
               { label: "Est. duration", value: durationLimit },
               { label: "Consent", value: consentMessage ? "Enabled" : "Disabled" },
             ]}
-            onSaveDraft={onSaveDraft}
-            onLaunch={onLaunch}
-            launchLabel="Launch voice screening"
+            onSaveDraft={() => onSaveDraft(buildPayload({ ...payloadState, launch: false }))}
+            onLaunch={() => onLaunch(buildPayload({ ...payloadState, launch: true }))}
+            launchLabel={submitting ? "Launching…" : "Launch voice screening"}
+            launchDisabled={submitting}
           />
         ) : null}
       </div>

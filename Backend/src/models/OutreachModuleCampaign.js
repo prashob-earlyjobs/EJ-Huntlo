@@ -57,7 +57,7 @@ const outreachModuleSequenceStepSchema = new mongoose.Schema(
     },
     label: { type: String, default: "", trim: true },
     delayValue: { type: Number, default: 0, min: 0 },
-    delayUnit: { type: String, enum: ["hours", "days"], default: "days" },
+    delayUnit: { type: String, enum: ["minutes", "hours", "days"], default: "days" },
     condition: {
       type: String,
       enum: [
@@ -101,6 +101,13 @@ const outreachModuleChannelMessageSchema = new mongoose.Schema(
           subject: { type: String, default: "", trim: true },
           body: { type: String, default: "" },
           waitDays: { type: Number, default: 0, min: 0 },
+          waitHours: { type: Number, default: 0, min: 0 },
+          waitMinutes: { type: Number, default: 0, min: 0 },
+          waitUnit: {
+            type: String,
+            enum: ["minutes", "hours", "days"],
+            default: "days",
+          },
         },
       ],
       default: [],
@@ -257,6 +264,20 @@ const outreachModuleCampaignSchema = new mongoose.Schema(
       enum: ["interest", "screening", "job_opportunity", "follow_up"],
       default: "interest",
     },
+    /** `outreach` (default) or `screening` — screenings use voice calls via Hunar. */
+    sourceModule: {
+      type: String,
+      enum: ["outreach", "screening"],
+      default: "outreach",
+      index: true,
+    },
+    screeningType: {
+      type: String,
+      enum: ["voice", "video", ""],
+      default: "",
+    },
+    screeningConfig: { type: mongoose.Schema.Types.Mixed, default: null },
+    voiceJdExtract: { type: mongoose.Schema.Types.Mixed, default: null },
     mode: {
       type: String,
       enum: ["single", "multi"],

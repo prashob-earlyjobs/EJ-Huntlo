@@ -209,8 +209,10 @@ function parseStepMessageForCompile(message) {
 
 function stepDelayToHours(step) {
   const delayValue = Math.max(0, Number(step?.delayValue) || 0);
-  const delayUnit = step?.delayUnit === "hours" ? "hours" : "days";
+  const delayUnit =
+    step?.delayUnit === "minutes" || step?.delayUnit === "hours" ? step.delayUnit : "days";
   if (delayValue <= 0) return 0;
+  if (delayUnit === "minutes") return delayValue / 60;
   if (delayUnit === "hours") return delayValue;
   return delayValue * 24;
 }
@@ -784,6 +786,28 @@ function formatCampaignDetail(doc) {
   };
 }
 
+function emailTouchpointDelayFields(tp, index, fallbackDays) {
+  if (index === 0) {
+    return { waitHours: 0, waitDays: 0, waitMinutes: 0 };
+  }
+
+  const waitMinutes = Math.max(0, Number(tp?.waitMinutes) || 0);
+  const waitHours = Math.max(0, Number(tp?.waitHours) || 0);
+  const waitDays = Math.max(0, Number(tp?.waitDays) || 0);
+
+  if (waitMinutes > 0 && waitDays === 0 && waitHours === 0) {
+    return { waitHours: 0, waitDays: 0, waitMinutes };
+  }
+  if (waitHours > 0 && waitDays === 0) {
+    return { waitHours: Math.max(1, waitHours), waitDays: 0, waitMinutes: 0 };
+  }
+  return {
+    waitHours: 0,
+    waitDays: Math.max(1, waitDays || fallbackDays || 1),
+    waitMinutes: 0,
+  };
+}
+
 function normalizeChannelMessage(payload = {}) {
   if (!payload || typeof payload !== "object") return null;
   const replyQuestions = Array.isArray(payload.replyQuestions)
@@ -795,13 +819,28 @@ function normalizeChannelMessage(payload = {}) {
   const EMAIL_STEP_WAITS = [0, 3, 4, 5];
 
   let emailTouchpoints = Array.isArray(payload.emailTouchpoints)
-    ? payload.emailTouchpoints.slice(0, 4).map((tp, index) => ({
-        order: index + 1,
-        label: String(tp?.label || EMAIL_STEP_LABELS[index] || `Email ${index + 1}`).trim(),
-        subject: String(tp?.subject || "").trim(),
-        body: String(tp?.body || "").trim(),
-        waitDays: Math.max(0, Number(tp?.waitDays ?? EMAIL_STEP_WAITS[index])),
-      }))
+    ? payload.emailTouchpoints.slice(0, 4).map((tp, index) => {
+        const waitFields = emailTouchpointDelayFields(
+          tp,
+          index,
+          EMAIL_STEP_WAITS[index]
+        );
+        return {
+          order: index + 1,
+          label: String(tp?.label || EMAIL_STEP_LABELS[index] || `Email ${index + 1}`).trim(),
+          subject: String(tp?.subject || "").trim(),
+          body: String(tp?.body || "").trim(),
+          ...waitFields,
+          waitUnit:
+            tp?.waitUnit === "minutes" || tp?.waitUnit === "hours" || tp?.waitUnit === "days"
+              ? tp.waitUnit
+              : waitFields.waitMinutes > 0
+                ? "minutes"
+                : waitFields.waitHours > 0
+                  ? "hours"
+                  : "days",
+        };
+      })
     : [];
 
   const subject = String(payload.subject || emailTouchpoints[0]?.subject || "").trim();
@@ -850,7 +889,8 @@ function normalizeSequenceSteps(steps = []) {
     channel: step.channel,
     label: String(step.label || channelLabel(step.channel)),
     delayValue: Math.max(0, Number(step.delayValue) || 0),
-    delayUnit: step.delayUnit === "hours" ? "hours" : "days",
+    delayUnit:
+      step.delayUnit === "minutes" || step.delayUnit === "hours" ? step.delayUnit : "days",
     condition: step.condition || "all",
     timingLabel: String(step.timingLabel || ""),
     message: step.message ?? null,
@@ -895,6 +935,9 @@ function validateCreatePayload(payload = {}) {
     candidateIds,
     emailAutoReplyEnabled: payload.emailAutoReplyEnabled !== false,
     calendlyAutomation: normalizeCalendlyAutomation(payload.calendlyAutomation),
+    sourceModule: payload.sourceModule === "screening" ? "screening" : "outreach",
+    screeningType: String(payload.screeningType || "").trim(),
+    screeningConfig: payload.screeningConfig ?? null,
   };
 }
 
@@ -997,7 +1040,10 @@ async function getOutreachModuleDashboardStats(actorUserId) {
     throw err;
   }
 
-  const campaigns = await OutreachModuleCampaign.find(access)
+  const campaigns = await OutreachModuleCampaign.find({
+    ...access,
+    sourceModule: { $ne: "screening" },
+  })
     .select("status candidates stats")
     .lean();
 
@@ -1042,7 +1088,7 @@ async function listOutreachModuleCampaigns(actorUserId, options = {}) {
   const { page, limit, skip } = parsePagination(options);
   const statusFilter = String(options.status || "").trim();
 
-  const filter = { ...access };
+  const filter = { ...access, sourceModule: { $ne: "screening" } };
   if (statusFilter) filter.status = statusFilter;
 
   const [docs, total] = await Promise.all([
@@ -1239,6 +1285,9 @@ async function createOutreachModuleCampaign(actorUserId, payload = {}) {
     launchedAt,
     emailAutoReplyEnabled: normalized.emailAutoReplyEnabled,
     calendlyAutomation: normalized.calendlyAutomation,
+    sourceModule: normalized.sourceModule,
+    screeningType: normalized.screeningType || "",
+    screeningConfig: normalized.screeningConfig,
     builder: syncBuilderFromBulkPayload(normalized),
   });
 

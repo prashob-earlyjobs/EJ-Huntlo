@@ -15,6 +15,7 @@ import type {
   SequenceStep,
 } from "@/components/dashboard/outreach/types";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { isQaEnv } from "@/lib/appEnv";
 import { dashboardBtnSecondaryClass, dashboardSelectClass } from "@/lib/dashboardStyles";
 
 const ADD_CHANNELS: OutreachChannel[] = ["whatsapp", "email", "voice", "linkedin"];
@@ -32,6 +33,16 @@ export function SequenceBuilder({ steps, onStepsChange, onEditMessage }: Props) 
   const addStepSectionRef = useRef<HTMLDivElement>(null);
   const stepRefs = useRef(new Map<string, HTMLLIElement>());
   const journeyPreview = useMemo(() => buildJourneyPreviewItems(steps, { compact: true }), [steps]);
+  const delayUnitOptions = useMemo(() => {
+    const options: { value: DelayUnit; label: string }[] = [
+      { value: "hours", label: "Hours" },
+      { value: "days", label: "Days" },
+    ];
+    if (isQaEnv()) {
+      options.unshift({ value: "minutes", label: "Minutes" });
+    }
+    return options;
+  }, []);
 
   const updateStep = (id: string, patch: Partial<SequenceStep>) => {
     onStepsChange(
@@ -252,8 +263,11 @@ export function SequenceBuilder({ steps, onStepsChange, onEditMessage }: Props) 
                         }
                         disabled={index === 0}
                       >
-                        <option value="hours">Hours</option>
-                        <option value="days">Days</option>
+                        {delayUnitOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
                       </select>
                     </div>
                   </div>

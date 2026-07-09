@@ -81,8 +81,11 @@ function parseStepMessage(message) {
 
 function stepDelayToTouchpoint(step) {
   const delayValue = Math.max(0, Number(step?.delayValue) || 0);
-  const delayUnit = step?.delayUnit === "hours" ? "hours" : "days";
+  const delayUnit = step?.delayUnit === "minutes" || step?.delayUnit === "hours" ? step.delayUnit : "days";
   if (delayValue <= 0) return { waitHours: 0, waitDays: 0, waitMinutes: 0 };
+  if (delayUnit === "minutes") {
+    return { waitHours: 0, waitDays: 0, waitMinutes: delayValue };
+  }
   if (delayUnit === "hours") {
     return { waitHours: delayValue, waitDays: 0, waitMinutes: 0 };
   }
@@ -92,6 +95,28 @@ function stepDelayToTouchpoint(step) {
 /**
  * Flatten campaign config into an ordered execution plan (1-based order).
  */
+function emailTouchpointDelayFields(tp, index, fallbackDays) {
+  if (index === 0) {
+    return { waitHours: 0, waitDays: 0, waitMinutes: 0 };
+  }
+
+  const waitMinutes = Math.max(0, Number(tp?.waitMinutes) || 0);
+  const waitHours = Math.max(0, Number(tp?.waitHours) || 0);
+  const waitDays = Math.max(0, Number(tp?.waitDays) || 0);
+
+  if (waitMinutes > 0 && waitDays === 0 && waitHours === 0) {
+    return { waitHours: 0, waitDays: 0, waitMinutes };
+  }
+  if (waitHours > 0 && waitDays === 0) {
+    return { waitHours: Math.max(1, waitHours), waitDays: 0, waitMinutes: 0 };
+  }
+  return {
+    waitHours: 0,
+    waitDays: Math.max(1, waitDays || fallbackDays || 1),
+    waitMinutes: 0,
+  };
+}
+
 function buildExecutionPlan(campaignDoc) {
   const plain = campaignDoc.toObject ? campaignDoc.toObject() : campaignDoc;
   const steps = [];
@@ -201,12 +226,7 @@ function buildExecutionPlan(campaignDoc) {
         channel: "email",
         label: String(tp.label || EMAIL_STEP_LABELS[index] || `Email ${index + 1}`).trim(),
         condition: index === 0 ? "all" : "no_response",
-        delay: {
-          waitHours: 0,
-          waitDays:
-            index === 0 ? 0 : Math.max(1, Number(tp.waitDays ?? EMAIL_STEP_WAITS[index]) || 1),
-          waitMinutes: 0,
-        },
+        delay: emailTouchpointDelayFields(tp, index, EMAIL_STEP_WAITS[index]),
         subject,
         body,
         templateId: "",

@@ -28,7 +28,8 @@ function buildJourneyTimingLabel(
   }
   const full = buildSequenceTimingLabel(step, index);
   if (!compact) return full;
-  const unit = step.delayUnit === "hours" ? "h" : "d";
+  const unit =
+    step.delayUnit === "minutes" ? "m" : step.delayUnit === "hours" ? "h" : "d";
   return `After ${step.delayValue}${unit}`;
 }
 
@@ -82,8 +83,9 @@ export function buildSequenceTimingLabel(
   index: number
 ) {
   if (index === 0) return "Immediately";
-  const unit: DelayUnit = step.delayUnit === "hours" ? "hours" : "days";
-  const label = unit === "hours" ? "hour" : "day";
+  const unit: DelayUnit =
+    step.delayUnit === "minutes" || step.delayUnit === "hours" ? step.delayUnit : "days";
+  const label = unit === "minutes" ? "minute" : unit === "hours" ? "hour" : "day";
   const plural = step.delayValue === 1 ? label : `${label}s`;
   return `After ${step.delayValue} ${plural}`;
 }
@@ -96,7 +98,8 @@ export function normalizeSequenceStepsFromApi(
   return steps.map((step, index) => {
     const channel = (step.channel || "whatsapp") as OutreachChannel;
     const delayValue = index === 0 ? 0 : Math.max(0, Number(step.delayValue) || 0);
-    const delayUnit: DelayUnit = step.delayUnit === "hours" ? "hours" : "days";
+    const delayUnit: DelayUnit =
+      step.delayUnit === "minutes" || step.delayUnit === "hours" ? step.delayUnit : "days";
     const normalized: SequenceStep = {
       id: String(step.id || step._id || createClientSequenceStepId()),
       channel,

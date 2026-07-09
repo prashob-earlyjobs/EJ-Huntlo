@@ -19,6 +19,7 @@ import {
   singleChannelMissingAiMessages,
 } from "@/components/dashboard/outreach/outreachModuleAiApply";
 import { useEmailIntegrationLaunchGuard } from "@/components/dashboard/outreach/useEmailIntegrationLaunchGuard";
+import { useCampaignEmailSenders } from "@/components/dashboard/outreach/useCampaignEmailSenders";
 import { useOutreachBuilderDraft } from "@/components/dashboard/outreach/useOutreachBuilderDraft";
 import { mergeCsvContactsIntoCandidates } from "@/components/dashboard/outreach/mergeCsvContactsIntoCandidates";
 import { useOutreachCandidatePool } from "@/components/dashboard/outreach/useOutreachCandidatePool";
@@ -30,7 +31,7 @@ import type {
   OutreachChannel,
 } from "@/components/dashboard/outreach/types";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
-import { getStoredAuth } from "@/lib/auth";
+import { formatGmailWaitConnectorLabel } from "@/lib/outreachWait";
 import {
   dashboardBtnPrimaryClass,
   dashboardBtnSecondaryClass,
@@ -129,7 +130,6 @@ type Props = {
     emailTouchpoints?: EmailSingleChannelMessage["touchpoints"];
   };
   initialAiPersonalize?: boolean;
-  initialEmailAutoReplyEnabled?: boolean;
   initialCalendlyAutomation?: CampaignCalendlyAutomation;
   initialSelectedIds?: string[];
   initialSource?: CandidateSource;
@@ -150,7 +150,6 @@ export function SingleChannelBuilder({
   initialEmailSubject = "",
   initialEmailMessage,
   initialAiPersonalize = true,
-  initialEmailAutoReplyEnabled = true,
   initialCalendlyAutomation,
   initialSelectedIds = [],
   initialSource = "csv",
@@ -182,7 +181,6 @@ export function SingleChannelBuilder({
       emailTouchpoints: initialEmailMessage?.emailTouchpoints ?? initialEmailMessage?.touchpoints,
     })
   );
-  const [emailAutoReplyEnabled, setEmailAutoReplyEnabled] = useState(initialEmailAutoReplyEnabled);
   const [calendlyAutomation, setCalendlyAutomation] = useState<CampaignCalendlyAutomation>(
     () =>
       initialCalendlyAutomation ?? {
@@ -228,6 +226,15 @@ export function SingleChannelBuilder({
     useEmailIntegrationLaunchGuard();
   const launchNeedsEmail = channel === "email";
   const launchOverlayChannel = channel === "whatsapp" ? "whatsapp" : "gmail";
+  const onReviewStep = step === 4;
+  const {
+    emailSenders,
+    selectedEmailIntegrationId,
+    setSelectedEmailIntegrationId,
+    loading: emailSendersLoading,
+    needsSenderSelection,
+    senderReady,
+  } = useCampaignEmailSenders(onReviewStep && launchNeedsEmail);
 
   const {
     savingDraft,
@@ -315,7 +322,7 @@ export function SingleChannelBuilder({
       aiPersonalize,
       message: voiceMessage.body,
       emailMessage,
-      emailAutoReplyEnabled,
+      emailAutoReplyEnabled: true,
       calendlyAutomation,
       voiceOptions: {
         callObjective: voiceMessage.callObjective,
@@ -335,7 +342,6 @@ export function SingleChannelBuilder({
       emailMessage,
       selectedIds,
       source,
-      emailAutoReplyEnabled,
       calendlyAutomation,
     ]
   );
@@ -456,7 +462,7 @@ export function SingleChannelBuilder({
                 title:
                   index === 0
                     ? tp.subject.trim() || tp.label
-                    : `${tp.label} · after ${tp.waitDays}d`,
+                    : `${tp.label} · ${formatGmailWaitConnectorLabel(tp).toLowerCase()}`,
                 subtitle: index === 0 ? tp.label : "No-reply follow-up",
                 detail: tp.body,
               }))
@@ -477,9 +483,7 @@ export function SingleChannelBuilder({
           whatsappMessage.replyQuestions.filter((q) => q.trim()).length === 1 ? "" : "s"
         }`
       : channel === "email"
-        ? emailAutoReplyEnabled
-          ? "4 automated emails + AI reply handling"
-          : "4 automated emails"
+        ? "4 automated emails + AI reply handling"
         : "1 AI voice call per candidate";
 
   const handleReviewSaveDraft = async () => {
@@ -504,7 +508,12 @@ export function SingleChannelBuilder({
 
       setLaunching(true);
       const overlayStartedAt = Date.now();
-      const id = await launchFromReview(() => syncSingleChannelDraft(buildSyncPayload()));
+      const id = await launchFromReview(
+        () => syncSingleChannelDraft(buildSyncPayload()),
+        selectedEmailIntegrationId
+          ? { emailIntegrationId: selectedEmailIntegrationId }
+          : undefined
+      );
 
       const elapsed = Date.now() - overlayStartedAt;
       if (elapsed < LAUNCH_AGENT_MIN_DURATION_MS) {
@@ -548,7 +557,7 @@ export function SingleChannelBuilder({
         aiPersonalize,
         message: voiceMessage.body,
         emailMessage,
-        emailAutoReplyEnabled,
+        emailAutoReplyEnabled: true,
         calendlyAutomation,
         voiceOptions: {
           callObjective: voiceMessage.callObjective,
@@ -745,10 +754,6 @@ export function SingleChannelBuilder({
             }
             emailMessage={channel === "email" ? emailMessage : undefined}
             onEmailMessageChange={channel === "email" ? setEmailMessage : undefined}
-            emailAutoReplyEnabled={channel === "email" ? emailAutoReplyEnabled : undefined}
-            onEmailAutoReplyEnabledChange={
-              channel === "email" ? setEmailAutoReplyEnabled : undefined
-            }
             calendlyAutomation={channel === "email" ? calendlyAutomation : undefined}
             onCalendlyAutomationChange={channel === "email" ? setCalendlyAutomation : undefined}
           />
@@ -793,7 +798,15 @@ export function SingleChannelBuilder({
                       : voiceMessageHasContent(voiceMessage),
               },
               { label: "Candidates selected", done: selectedIds.length > 0 },
+              ...(needsSenderSelection
+                ? [{ label: "Sender account selected", done: senderReady }]
+                : []),
             ]}
+            needsEmailSender={launchNeedsEmail}
+            emailSenders={emailSenders}
+            selectedEmailIntegrationId={selectedEmailIntegrationId}
+            onEmailIntegrationChange={setSelectedEmailIntegrationId}
+            emailSendersLoading={emailSendersLoading}
             submitting={submittingReview || launching}
             submitMode={reviewSubmitMode}
             error={reviewError}
