@@ -14,16 +14,12 @@ import { dashboardBtnSecondaryClass } from "@/lib/dashboardStyles";
 const apiBase = () => process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
 
 type Props = {
-  enabled: boolean;
-  onEnabledChange: (enabled: boolean) => void;
   calendlyAutomation: CampaignCalendlyAutomation;
   onCalendlyAutomationChange: (value: CampaignCalendlyAutomation) => void;
   disabled?: boolean;
 };
 
 export function OutreachEmailReplySetup({
-  enabled,
-  onEnabledChange,
   calendlyAutomation,
   onCalendlyAutomationChange,
   disabled = false,
@@ -120,39 +116,11 @@ export function OutreachEmailReplySetup({
           </div>
         </div>
 
-        <div className="dashboard-outreach-calendly-rail-card dashboard-outreach-calendly-rail-card--on">
-          <div className="dashboard-outreach-calendly-rail-card-head">
-            <div>
-              <div className="dashboard-outreach-calendly-rail-card-label-row">
-                <span className="dashboard-outreach-calendly-rail-card-label">AI auto-reply</span>
-                <button
-                  type="button"
-                  className={`dashboard-outreach-calendly-toggle${
-                    enabled ? " dashboard-outreach-calendly-toggle--on" : ""
-                  }`}
-                  role="switch"
-                  aria-checked={enabled}
-                  disabled={disabled}
-                  onClick={() => onEnabledChange(!enabled)}
-                >
-                  <span className="dashboard-outreach-calendly-toggle-knob" />
-                </button>
-              </div>
-              <p className="dashboard-outreach-calendly-rail-card-meeting">
-                {enabled
-                  ? "Enabled — replies are classified and answered automatically."
-                  : "Disabled — candidate replies are recorded but not auto-answered."}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {enabled ? (
-          <div
-            className={`dashboard-outreach-calendly-rail-card${
-              calendlyOn ? " dashboard-outreach-calendly-rail-card--on" : ""
-            }`}
-          >
+        <div
+          className={`dashboard-outreach-calendly-rail-card${
+            calendlyOn ? " dashboard-outreach-calendly-rail-card--on" : ""
+          }`}
+        >
             <div className="dashboard-outreach-calendly-rail-card-head">
               <img
                 src="/integrations/calendly_logo.png"
@@ -209,8 +177,7 @@ export function OutreachEmailReplySetup({
                 {calendlyError}
               </p>
             ) : null}
-          </div>
-        ) : null}
+        </div>
       </div>
 
       <CalendlyMeetingPickerModal

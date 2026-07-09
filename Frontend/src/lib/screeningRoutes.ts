@@ -1,5 +1,5 @@
 /**
- * Screening module URL helpers (UI-only; no backend).
+ * Screening module URL helpers.
  */
 
 export type ScreeningBuilderMode = "voice" | "video";

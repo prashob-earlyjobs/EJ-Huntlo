@@ -13,6 +13,9 @@ export type EmailSingleChannelTouchpoint = {
   subject: string;
   body: string;
   waitDays: number;
+  waitHours?: number;
+  waitMinutes?: number;
+  waitUnit?: "minutes" | "hours" | "days";
 };
 
 export type EmailSingleChannelMessage = {
@@ -57,6 +60,9 @@ export function resolveEmailSingleChannelMessage(
           subject: String(src.subject || "").trim(),
           body: String(src.body || "").trim(),
           waitDays: Math.max(0, Number(src.waitDays ?? def.waitDays)),
+          waitHours: Math.max(0, Number(src.waitHours) || 0),
+          waitMinutes: Math.max(0, Number(src.waitMinutes) || 0),
+          waitUnit: src.waitUnit,
         };
       }),
     };
@@ -100,6 +106,9 @@ export function emailMessageToChannelPayload(message: EmailSingleChannelMessage)
       subject: tp.subject,
       body: tp.body,
       waitDays: tp.waitDays,
+      ...(Number(tp.waitHours) > 0 ? { waitHours: tp.waitHours } : {}),
+      ...(Number(tp.waitMinutes) > 0 ? { waitMinutes: tp.waitMinutes } : {}),
+      ...(tp.waitUnit ? { waitUnit: tp.waitUnit } : {}),
     })),
   };
 }

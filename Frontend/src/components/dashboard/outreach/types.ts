@@ -23,7 +23,7 @@ export type SequenceCondition =
   | "not_interested"
   | "whatsapp_not_delivered";
 
-export type DelayUnit = "hours" | "days";
+export type DelayUnit = "minutes" | "hours" | "days";
 
 export type VoiceTone = "professional" | "friendly" | "direct";
 

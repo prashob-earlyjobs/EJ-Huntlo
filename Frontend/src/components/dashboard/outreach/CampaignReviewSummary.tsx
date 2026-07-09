@@ -2,10 +2,12 @@
 
 import { useMemo } from "react";
 
+import { CampaignEmailSenderSelect } from "@/components/dashboard/CampaignEmailSenderSelect";
 import { getChannelLabel } from "@/components/dashboard/outreach/ChannelCard";
 import { buildJourneyPreviewItems } from "@/components/dashboard/outreach/outreachSequenceHelpers";
 import type { OutreachCampaignMode, OutreachChannel, SequenceStep } from "@/components/dashboard/outreach/types";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import type { CampaignEmailSenderOption } from "@/lib/emailIntegrations";
 import {
   dashboardBtnPrimaryClass,
   dashboardBtnSecondaryClass,
@@ -36,6 +38,11 @@ type Props = {
   steps?: SequenceStep[];
   estimatedDuration?: string;
   checklist?: ReviewChecklistItem[];
+  needsEmailSender?: boolean;
+  emailSenders?: CampaignEmailSenderOption[];
+  selectedEmailIntegrationId?: string;
+  onEmailIntegrationChange?: (integrationId: string) => void;
+  emailSendersLoading?: boolean;
   submitting?: boolean;
   submitMode?: "save" | "launch" | null;
   error?: string;
@@ -64,6 +71,11 @@ export function CampaignReviewSummary({
   steps = [],
   estimatedDuration,
   checklist = [],
+  needsEmailSender = false,
+  emailSenders = [],
+  selectedEmailIntegrationId = "",
+  onEmailIntegrationChange,
+  emailSendersLoading = false,
   submitting = false,
   submitMode = null,
   error = "",
@@ -72,7 +84,12 @@ export function CampaignReviewSummary({
   onLaunch,
 }: Props) {
   const allChecksDone = checklist.length === 0 || checklist.every((item) => item.done);
-  const canLaunch = candidateCount > 0 && allChecksDone && !submitting;
+  const senderReady =
+    !needsEmailSender ||
+    emailSenders.length <= 1 ||
+    Boolean(selectedEmailIntegrationId.trim());
+  const showSenderPicker = needsEmailSender && emailSenders.length > 1;
+  const canLaunch = candidateCount > 0 && allChecksDone && senderReady && !submitting;
   const checklistDoneCount = checklist.filter((item) => item.done).length;
   const journeyPreview = useMemo(() => buildJourneyPreviewItems(steps), [steps]);
   const uniqueChannels = useMemo(() => [...new Set(channels.filter(Boolean))], [channels]);
@@ -249,6 +266,28 @@ export function CampaignReviewSummary({
           </div>
 
           <aside className="dashboard-outreach-review-aside">
+            {showSenderPicker ? (
+              <section className="dashboard-outreach-review-panel dashboard-outreach-review-sender">
+                <div className="dashboard-outreach-review-panel-head">
+                  <h4 className="dashboard-outreach-review-section-title">Sender account</h4>
+                  <p className="dashboard-outreach-review-section-lead">
+                    Choose which connected inbox sends this campaign&apos;s emails.
+                  </p>
+                </div>
+                {emailSendersLoading ? (
+                  <p className="dashboard-outreach-review-section-lead">Loading connected accounts…</p>
+                ) : onEmailIntegrationChange ? (
+                  <CampaignEmailSenderSelect
+                    value={selectedEmailIntegrationId}
+                    options={emailSenders}
+                    onChange={onEmailIntegrationChange}
+                    disabled={submitting}
+                    className="dashboard-campaign-sender-field--rail"
+                  />
+                ) : null}
+              </section>
+            ) : null}
+
             {checklist.length > 0 ? (
               <section className="dashboard-outreach-review-panel dashboard-outreach-review-checklist">
                 <div className="dashboard-outreach-review-panel-head dashboard-outreach-review-panel-head--row">

@@ -25,6 +25,13 @@ import {
   type WhatsAppMessageTemplate,
 } from "@/lib/whatsappOutreach";
 import type { EmailSingleChannelMessage } from "@/lib/emailSingleChannelOutreach";
+import {
+  clampWaitAmount,
+  getGmailWaitUnitOptions,
+  gmailWaitFromDisplay,
+  inferGmailWaitDisplay,
+  type GmailWaitUnit,
+} from "@/lib/outreachWait";
 
 function WhatsAppTemplateSelector({
   templates,
@@ -139,10 +146,10 @@ function EmailFollowUpBlock({
   label,
   subject,
   body,
-  waitDays,
+  wait,
   onSubjectChange,
   onBodyChange,
-  onWaitDaysChange,
+  onWaitChange,
   isOpening = false,
   isLast = false,
 }: {
@@ -150,13 +157,24 @@ function EmailFollowUpBlock({
   label: string;
   subject: string;
   body: string;
-  waitDays: number;
+  wait: { waitDays: number; waitHours?: number; waitMinutes?: number };
   onSubjectChange: (value: string) => void;
   onBodyChange: (value: string) => void;
-  onWaitDaysChange?: (days: number) => void;
+  onWaitChange?: (
+    fields: Pick<
+      EmailSingleChannelMessage["touchpoints"][number],
+      "waitDays" | "waitHours" | "waitMinutes" | "waitUnit"
+    >
+  ) => void;
   isOpening?: boolean;
   isLast?: boolean;
 }) {
+  const waitDisplay = inferGmailWaitDisplay(wait);
+  const waitUnitOptions = getGmailWaitUnitOptions();
+
+  const applyWaitDisplay = (amount: number, unit: GmailWaitUnit) => {
+    onWaitChange?.(gmailWaitFromDisplay(amount, unit));
+  };
   return (
     <div
       className={`dashboard-outreach-message-block dashboard-outreach-message-block--followup${
@@ -184,19 +202,42 @@ function EmailFollowUpBlock({
         </div>
       </div>
 
-      {!isOpening && onWaitDaysChange ? (
+      {!isOpening && onWaitChange ? (
         <div className="dashboard-outreach-wa-timing">
           <MaterialIcon name="schedule" className="dashboard-outreach-wa-timing-icon" />
           <span className="dashboard-outreach-wa-timing-label">Send after</span>
           <input
             type="number"
             min={1}
-            value={waitDays}
-            onChange={(e) => onWaitDaysChange(Math.max(1, Number(e.target.value) || 1))}
+            max={waitDisplay.unit === "minutes" ? 120 : waitDisplay.unit === "hours" ? 168 : 30}
+            value={waitDisplay.amount}
+            onChange={(e) =>
+              applyWaitDisplay(
+                clampWaitAmount(Number(e.target.value) || 1, waitDisplay.unit),
+                waitDisplay.unit
+              )
+            }
             className="dashboard-outreach-wa-timing-input"
-            aria-label={`${label} wait days`}
+            aria-label={`${label} wait amount`}
           />
-          <span className="dashboard-outreach-wa-timing-suffix">days with no response</span>
+          <select
+            className={`${dashboardSelectClass} dashboard-outreach-wa-timing-select`}
+            value={waitDisplay.unit}
+            onChange={(e) =>
+              applyWaitDisplay(
+                clampWaitAmount(waitDisplay.amount || 1, e.target.value as GmailWaitUnit),
+                e.target.value as GmailWaitUnit
+              )
+            }
+            aria-label={`${label} wait unit`}
+          >
+            {waitUnitOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <span className="dashboard-outreach-wa-timing-suffix">with no response</span>
         </div>
       ) : null}
 
@@ -340,8 +381,6 @@ type Props = {
   onSubjectChange?: (value: string) => void;
   emailMessage?: EmailSingleChannelMessage;
   onEmailMessageChange?: (message: EmailSingleChannelMessage) => void;
-  emailAutoReplyEnabled?: boolean;
-  onEmailAutoReplyEnabledChange?: (enabled: boolean) => void;
   calendlyAutomation?: CampaignCalendlyAutomation;
   onCalendlyAutomationChange?: (value: CampaignCalendlyAutomation) => void;
   voiceTone?: VoiceTone;
@@ -374,8 +413,6 @@ export function MessageEditor({
   onSubjectChange,
   emailMessage,
   onEmailMessageChange,
-  emailAutoReplyEnabled = true,
-  onEmailAutoReplyEnabledChange,
   calendlyAutomation,
   onCalendlyAutomationChange,
   voiceTone = "professional",
@@ -466,7 +503,7 @@ export function MessageEditor({
                 label={emailMessage.touchpoints[0]?.label || "Introduction"}
                 subject={emailMessage.touchpoints[0]?.subject || ""}
                 body={emailMessage.touchpoints[0]?.body || ""}
-                waitDays={0}
+                wait={{ waitDays: 0 }}
                 isOpening
                 onSubjectChange={(value) =>
                   onEmailMessageChange({
@@ -506,7 +543,11 @@ export function MessageEditor({
                         label={touchpoint.label}
                         subject={touchpoint.subject}
                         body={touchpoint.body}
-                        waitDays={touchpoint.waitDays}
+                        wait={{
+                          waitDays: touchpoint.waitDays,
+                          waitHours: touchpoint.waitHours,
+                          waitMinutes: touchpoint.waitMinutes,
+                        }}
                         isLast={slot === 4}
                         onSubjectChange={(value) =>
                           onEmailMessageChange({
@@ -522,10 +563,10 @@ export function MessageEditor({
                             ),
                           })
                         }
-                        onWaitDaysChange={(days) =>
+                        onWaitChange={(waitFields) =>
                           onEmailMessageChange({
                             touchpoints: emailMessage.touchpoints.map((tp, i) =>
-                              i === touchpointIndex ? { ...tp, waitDays: days } : tp
+                              i === touchpointIndex ? { ...tp, ...waitFields } : tp
                             ),
                           })
                         }
@@ -535,10 +576,8 @@ export function MessageEditor({
                 </div>
               </div>
 
-              {onEmailAutoReplyEnabledChange && onCalendlyAutomationChange && calendlyAutomation ? (
+              {onCalendlyAutomationChange && calendlyAutomation ? (
                 <OutreachEmailReplySetup
-                  enabled={emailAutoReplyEnabled}
-                  onEnabledChange={onEmailAutoReplyEnabledChange}
                   calendlyAutomation={calendlyAutomation}
                   onCalendlyAutomationChange={onCalendlyAutomationChange}
                 />

@@ -2,11 +2,15 @@
 
 import { ScreeningStatsCard } from "@/components/dashboard/screening/ScreeningStatsCard";
 import { ScreeningTypeCard } from "@/components/dashboard/screening/ScreeningTypeCard";
-import { mockScreenings, mockScreeningStats } from "@/components/dashboard/screening/mockData";
+import type { ScreeningRow } from "@/components/dashboard/screening/types";
+import type { ScreeningDashboardStats } from "@/lib/screeningApi";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { dashboardBtnPrimaryClass } from "@/lib/dashboardStyles";
 
 type Props = {
+  stats: ScreeningDashboardStats;
+  screenings: ScreeningRow[];
+  loading?: boolean;
   onNewScreening: () => void;
   onStartVoice: () => void;
   onStartVideo: () => void;
@@ -14,6 +18,9 @@ type Props = {
 };
 
 export function ScreeningLandingPage({
+  stats,
+  screenings,
+  loading = false,
   onNewScreening,
   onStartVoice,
   onStartVideo,
@@ -63,15 +70,17 @@ export function ScreeningLandingPage({
       </section>
 
       <section className="dashboard-screening-stats-grid">
-        <ScreeningStatsCard label="Total screenings" value={mockScreeningStats.totalScreenings} icon="fact_check" />
-        <ScreeningStatsCard label="Completed" value={mockScreeningStats.completed} icon="task_alt" />
-        <ScreeningStatsCard label="Shortlisted" value={mockScreeningStats.shortlisted} icon="thumb_up" />
-        <ScreeningStatsCard label="Avg score" value={mockScreeningStats.avgScore} icon="analytics" />
+        <ScreeningStatsCard label="Total screenings" value={loading ? "…" : stats.totalScreenings} icon="fact_check" />
+        <ScreeningStatsCard label="Completed" value={loading ? "…" : stats.completed} icon="task_alt" />
+        <ScreeningStatsCard label="Shortlisted" value={loading ? "…" : stats.shortlisted} icon="thumb_up" />
+        <ScreeningStatsCard label="Avg score" value={loading ? "…" : stats.avgScore} icon="analytics" />
       </section>
 
       <section>
         <h2 className="dashboard-screening-subsection-title">Recent screenings</h2>
-        {mockScreenings.length === 0 ? (
+        {loading ? (
+          <p className="dashboard-text-body">Loading screenings…</p>
+        ) : screenings.length === 0 ? (
           <div className="dashboard-screening-empty-state">
             <MaterialIcon name="inbox" />
             <p>No screenings yet.</p>
@@ -92,7 +101,7 @@ export function ScreeningLandingPage({
                 </tr>
               </thead>
               <tbody>
-                {mockScreenings.map((row) => (
+                {screenings.map((row) => (
                   <tr key={row.id}>
                     <td>{row.name}</td>
                     <td>{row.type === "voice" ? "Voice" : "Video"}</td>

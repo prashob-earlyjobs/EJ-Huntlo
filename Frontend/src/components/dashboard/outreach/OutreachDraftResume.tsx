@@ -160,7 +160,6 @@ export function OutreachDraftResume({
         initialStepMessages={resume.stepMessages}
         initialAiPersonalize={resume.aiPersonalize}
         initialWhatsappReplyQuestions={resume.whatsappReplyQuestions}
-        initialEmailAutoReplyEnabled={resume.emailAutoReplyEnabled}
         initialCalendlyAutomation={resume.calendlyAutomation}
         onBack={onBack}
         onSaveDraft={onSaveDraft}
@@ -183,7 +182,6 @@ export function OutreachDraftResume({
       initialEmailMessage={resume.emailMessage}
       initialWhatsappMessage={resume.whatsappMessage}
       initialAiPersonalize={resume.aiPersonalize}
-      initialEmailAutoReplyEnabled={resume.emailAutoReplyEnabled}
       initialCalendlyAutomation={resume.calendlyAutomation}
       initialSelectedIds={resume.selectedIds}
       initialSource={resume.source}

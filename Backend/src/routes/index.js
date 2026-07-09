@@ -10,6 +10,7 @@ const platformSettingsRoutes = require("./platformSettings");
 const billingRoutes = require("./billing");
 const publicCandidatesRoutes = require("./publicCandidates");
 const blogRoutes = require("./blog");
+const screeningRoutes = require("./screenings");
 
 const router = express.Router();
 
@@ -32,5 +33,6 @@ router.use("/platform-settings", platformSettingsRoutes);
 router.use("/billing", billingRoutes);
 router.use("/public-candidates", publicCandidatesRoutes);
 router.use("/blog", blogRoutes);
+router.use("/screenings", screeningRoutes);
 
 module.exports = router;
