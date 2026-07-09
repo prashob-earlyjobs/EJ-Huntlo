@@ -31,6 +31,7 @@ import type {
   OutreachChannel,
 } from "@/components/dashboard/outreach/types";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { getStoredAuth } from "@/lib/auth";
 import { formatGmailWaitConnectorLabel } from "@/lib/outreachWait";
 import {
   dashboardBtnPrimaryClass,
