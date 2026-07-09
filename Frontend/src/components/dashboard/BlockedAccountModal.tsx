@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
 import { BLOCKED_ACCOUNT_MESSAGE, performLogout } from "@/lib/sessionLogout";
 import { dashboardBtnPrimaryClass } from "@/lib/dashboardStyles";
 
@@ -51,7 +52,9 @@ export function BlockedAccountModal({ open }: Props) {
           disabled={loggingOut}
           className={`${dashboardBtnPrimaryClass} mt-6 w-full disabled:opacity-60`}
         >
-          {loggingOut ? "Signing out…" : "Logout"}
+          <ButtonLoadingContent loading={loggingOut} loadingLabel="Signing out">
+            Logout
+          </ButtonLoadingContent>
         </button>
       </div>
     </div>

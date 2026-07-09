@@ -299,7 +299,7 @@ async function maybeAutoReplyAfterCandidateMessage({
     source: "auto_reply",
   });
 
-  if (isFinalDisposition(ai.disposition)) {
+  if (isFinalDisposition(ai.disposition) || update.status === "paused") {
     void maybeCompleteCampaign(String(enrollment.campaignId)).catch((err) => {
       console.error("[outreach-auto-reply] maybeCompleteCampaign failed:", err?.message || err);
     });

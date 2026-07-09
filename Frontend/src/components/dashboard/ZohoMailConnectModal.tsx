@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
 import { authHeaders, getStoredAuth } from "@/lib/auth";
 import {
   dashboardBtnPrimaryClass,
@@ -315,12 +316,7 @@ export function ZohoMailConnectModal({
                 disabled={busy || oauthLoading || oauthConfigured !== true}
                 onClick={() => void handleOAuthSignIn()}
               >
-                {oauthLoading ? (
-                  <>
-                    <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-                    Redirecting to Zoho…
-                  </>
-                ) : (
+                <ButtonLoadingContent loading={oauthLoading} loadingLabel="Redirecting to Zoho">
                   <>
                     <IntegrationBrandLogo
                       provider="zoho_mail"
@@ -329,7 +325,7 @@ export function ZohoMailConnectModal({
                     />
                     Sign in with Zoho
                   </>
-                )}
+                </ButtonLoadingContent>
               </button>
 
               {oauthConfigured === false ? (
@@ -408,22 +404,19 @@ export function ZohoMailConnectModal({
                   disabled={!canTest}
                   onClick={() => void handleTestCredentials()}
                 >
-                  {testing ? (
-                    <>
-                      <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-                      Testing…
-                    </>
-                  ) : credsVerified ? (
-                    <>
-                      <MaterialIcon name="check_circle" className="text-base text-emerald-600" />
-                      Test again
-                    </>
-                  ) : (
-                    <>
-                      <MaterialIcon name="verified_user" className="text-base" />
-                      Test credentials
-                    </>
-                  )}
+                  <ButtonLoadingContent loading={testing} loadingLabel="Testing">
+                    {credsVerified ? (
+                      <>
+                        <MaterialIcon name="check_circle" className="text-base text-emerald-600" />
+                        Test again
+                      </>
+                    ) : (
+                      <>
+                        <MaterialIcon name="verified_user" className="text-base" />
+                        Test credentials
+                      </>
+                    )}
+                  </ButtonLoadingContent>
                 </button>
                 {!credsVerified ? (
                   <span className="text-xs text-slate-500">Test credentials to enable Connect.</span>
@@ -460,17 +453,12 @@ export function ZohoMailConnectModal({
                 className={`${dashboardBtnPrimaryClass} disabled:opacity-60`}
                 title={!credsVerified ? "Test credentials first" : undefined}
               >
-                {busy ? (
-                  <>
-                    <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-                    Saving…
-                  </>
-                ) : (
+                <ButtonLoadingContent loading={busy} loadingLabel="Saving">
                   <>
                     <MaterialIcon name="link" className="text-base" />
                     Connect Zoho Mail
                   </>
-                )}
+                </ButtonLoadingContent>
               </button>
             ) : null}
           </div>

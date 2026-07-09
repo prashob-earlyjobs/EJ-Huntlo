@@ -4,6 +4,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { MdLanguage, MdPhone, MdReplay, MdSchedule, MdTimer } from "react-icons/md";
 import { CampaignContactsSkeleton } from "@/components/dashboard/CampaignContactsSkeleton";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
 import {
   DEFAULT_VOICE_RESULT_FIELDS,
   fetchCampaignVoiceCalls,
@@ -652,7 +653,9 @@ export function CampaignVoiceCallsPanel({
           onClick={() => void load(page, { soft: true })}
         >
           <MaterialIcon name="refresh" className="text-base" />
-          {refreshing ? "Refreshing…" : "Refresh"}
+          <ButtonLoadingContent loading={refreshing} loadingLabel="Refreshing">
+            Refresh
+          </ButtonLoadingContent>
         </button>
       </div>
 

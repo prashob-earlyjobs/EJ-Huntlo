@@ -222,7 +222,7 @@ export function splitPrimaryPriceDisplay(primaryPrice: string): {
 }
 
 /** Marketing bullets for landing cards (prefer configured features). */
-export function landingTierFeatureLines(tier: PricingTier, max = 5): string[] {
+export function landingTierFeatureLines(tier: PricingTier, max = 10): string[] {
   const configured = tier.features
     .map((f) => String(f ?? "").trim())
     .filter(Boolean);

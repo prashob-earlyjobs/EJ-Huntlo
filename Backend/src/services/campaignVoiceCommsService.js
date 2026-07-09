@@ -9,7 +9,6 @@ const OutreachModuleCampaign = require("../models/OutreachModuleCampaign");
 const { findCampaignInScope } = require("../utils/campaignScope");
 const {
   loadAllContactsForCampaign,
-  listCampaignContactsPaginated,
 } = require("./campaignContactService");
 const { normalizeToWhatsAppDigits } = require("./whatsappPhoneUtils");
 const { resolvePendingVoiceCall } = require("./voiceCallCreditsService");
@@ -610,8 +609,8 @@ async function getCampaignVoiceCalls(actorUserId, campaignId, options = {}) {
   const page = Math.max(1, Number(options.page) || 1);
   const limit = Math.min(100, Math.max(1, Number(options.limit) || 25));
 
-  const [contactsPage, callDocs] = await Promise.all([
-    listCampaignContactsPaginated(campaignId, { page, limit }),
+  const [allContacts, callDocs] = await Promise.all([
+    loadAllContactsForCampaign(campaignId),
     CampaignVoiceCall.find({ campaignId: campaignOid(campaignId) })
       .sort({ lastEventAt: -1, updatedAt: -1 })
       .lean(),
@@ -639,7 +638,16 @@ async function getCampaignVoiceCalls(actorUserId, campaignId, options = {}) {
     }
   }
 
-  const rows = contactsPage.contacts.map((contact) => {
+  const dialableContacts = allContacts.filter((contact) =>
+    Boolean(normalizeToWhatsAppDigits(contact.phone))
+  );
+  const total = dialableContacts.length;
+  const totalPages = Math.max(1, Math.ceil(total / limit) || 1);
+  const safePage = Math.min(page, totalPages);
+  const start = (safePage - 1) * limit;
+  const pagedContacts = dialableContacts.slice(start, start + limit);
+
+  const rows = pagedContacts.map((contact) => {
     const call = pickLatestCallForContact(callsByKey, callsByPhone, contact);
     const displayStatus =
       call?.status ||
@@ -657,7 +665,13 @@ async function getCampaignVoiceCalls(actorUserId, campaignId, options = {}) {
     outreachStatus: campaign.outreachStatus || "idle",
     outreachChannel: "voice_call",
     rows,
-    pagination: contactsPage.pagination,
+    pagination: {
+      page: safePage,
+      limit,
+      total,
+      totalPages,
+      hasMore: safePage < totalPages,
+    },
   };
 }
 

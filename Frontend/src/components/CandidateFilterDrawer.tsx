@@ -1,6 +1,8 @@
 "use client";
 
 import { CountryRegionField } from "@/components/dashboard/CountryRegionField";
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
+import { ButtonSpinner } from "@/components/ui/ButtonSpinner";
 import type { CandidateFilterForm } from "@/lib/sourcingFilters";
 import {
   dashboardBtnPrimaryClass,
@@ -99,7 +101,7 @@ export function CandidateFilterDrawer({
 
           {annotateLoading ? (
             <p className="flex items-center gap-2 rounded-lg border border-[#c2c6d8]/50 bg-[#f1f3ff] px-3 py-2.5 text-sm text-[#424656]">
-              <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
+              <ButtonSpinner className="shrink-0" />
               Analyzing your prompt and prefilling filters…
             </p>
           ) : null}
@@ -491,7 +493,7 @@ export function CandidateFilterDrawer({
         <div className="sticky bottom-0 border-t border-slate-200 bg-white px-4 py-3">
           {applyLoading ? (
             <div className="dashboard-apply-progress mb-3" role="status" aria-live="polite">
-              <span className="dashboard-apply-progress-spinner" aria-hidden />
+              <ButtonSpinner className="shrink-0" />
               <div className="min-w-0">
                 <p className="dashboard-apply-progress-title">
                   {applyStatusMessage || "Setting up your search"}
@@ -517,11 +519,18 @@ export function CandidateFilterDrawer({
               disabled={applyLoading || annotateLoading}
               className={`${dashboardBtnPrimaryClass} disabled:opacity-60`}
             >
-              {applyLoading
-                ? "Creating search…"
-                : annotateLoading
-                  ? "Analyzing prompt…"
-                  : "Apply filters"}
+              <ButtonLoadingContent
+                loading={applyLoading || annotateLoading}
+                loadingLabel={
+                  applyLoading
+                    ? "Creating search"
+                    : annotateLoading
+                      ? "Analyzing prompt"
+                      : "Loading"
+                }
+              >
+                Apply filters
+              </ButtonLoadingContent>
             </button>
           </div>
         </div>

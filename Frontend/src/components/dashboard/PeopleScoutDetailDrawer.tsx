@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { CompanyLogo } from "@/components/dashboard/CompanyLogo";
 import { ProfilePhotoLightbox } from "@/components/dashboard/ProfilePhotoLightbox";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { ButtonSpinner } from "@/components/ui/ButtonSpinner";
 import { companyFaviconUrl } from "@/lib/companyLogo";
 import { nameInitials } from "@/lib/sessionResultUi";
 
@@ -209,11 +210,7 @@ function HeroIconAction({
     .filter(Boolean)
     .join(" ");
 
-  const content = busy ? (
-    <span className="dashboard-reveal-spinner" aria-hidden />
-  ) : (
-    <MaterialIcon name={icon} />
-  );
+  const content = busy ? <ButtonSpinner /> : <MaterialIcon name={icon} />;
 
   if (href) {
     return (

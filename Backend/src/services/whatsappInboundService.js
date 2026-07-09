@@ -9,6 +9,7 @@ const {
   maybeHandleWhatsAppAiQualification,
   isWhatsAppAiEnabled,
 } = require("./whatsappQualificationAiService");
+const { maybeCompleteCampaign } = require("./campaignOutreachSendService");
 const { sendWhatsAppSessionMessage } = require("./whatsappSendService");
 const { applyMergeFields } = require("./outreachMergeService");
 const WhatsAppOutreachPlan = require("../models/WhatsAppOutreachPlan");
@@ -245,6 +246,9 @@ async function storeInboundWhatsAppMessage({
       },
     }
   );
+  if (nextStatus === "paused") {
+    await maybeCompleteCampaign(String(enrollment.campaignId));
+  }
 
   notifyCampaignThreadUpdated(String(enrollment.userId), {
     campaignId: String(enrollment.campaignId),

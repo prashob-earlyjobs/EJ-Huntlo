@@ -6,6 +6,8 @@ import { createPortal } from "react-dom";
 import { CampaignContactsSkeleton } from "@/components/dashboard/CampaignContactsSkeleton";
 import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
+import { ButtonSpinner } from "@/components/ui/ButtonSpinner";
 import { dashboardBtnSecondaryClass } from "@/lib/dashboardStyles";
 import type { CampaignContact } from "@/lib/campaigns";
 
@@ -172,8 +174,10 @@ export function CampaignPreLaunchContactsPanel({
               disabled={contactsLocked || removingSelected}
               onClick={() => setRemoveConfirm({ kind: "bulk", count: selectedKeys.length })}
             >
-              <MaterialIcon name="delete" className="text-base" />
-              {removingSelected ? "Deleting..." : `Delete all (${selectedKeys.length})`}
+              <ButtonLoadingContent loading={removingSelected} loadingLabel="Deleting">
+                <MaterialIcon name="delete" className="text-base" />
+                {`Delete all (${selectedKeys.length})`}
+              </ButtonLoadingContent>
             </button>
           ) : null}
           <button
@@ -287,7 +291,7 @@ export function CampaignPreLaunchContactsPanel({
                       }}
                     >
                       {removingKey === contact.candidateKey ? (
-                        <span className="dashboard-reveal-spinner" aria-hidden />
+                        <ButtonSpinner />
                       ) : (
                         <MaterialIcon name="delete" className="text-base" aria-hidden />
                       )}

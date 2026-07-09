@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 
 import { LandingLogo } from "@/components/landing/LandingLogo";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
 import { authHeaders, getStoredAuth } from "@/lib/auth";
 import {
   clearClaimedPublicSessionId,
@@ -122,7 +123,9 @@ function NavButtons({
         disabled={continueDisabled || loading}
         className="onboarding-option-btn flex items-center gap-2 rounded-lg bg-[#0050cb] px-8 py-3 text-sm font-medium text-white shadow-[0_4px_14px_rgba(0,80,203,0.3)] transition-colors hover:bg-[#003fa4] disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {loading ? "Saving…" : continueLabel}
+        <ButtonLoadingContent loading={Boolean(loading)} loadingLabel="Saving">
+          {continueLabel}
+        </ButtonLoadingContent>
         {!loading ? <MaterialIcon name="arrow_forward" className="text-sm" /> : null}
       </button>
     </div>
