@@ -18,10 +18,6 @@ type Props = {
   onAttemptGapChange: (v: string) => void;
   durationLimit: string;
   onDurationLimitChange: (v: string) => void;
-  autoFollowUp: boolean;
-  onAutoFollowUpChange: (v: boolean) => void;
-  consentMessage: boolean;
-  onConsentMessageChange: (v: boolean) => void;
 };
 
 export function VoiceScreeningConfig({
@@ -35,10 +31,6 @@ export function VoiceScreeningConfig({
   onAttemptGapChange,
   durationLimit,
   onDurationLimitChange,
-  autoFollowUp,
-  onAutoFollowUpChange,
-  consentMessage,
-  onConsentMessageChange,
 }: Props) {
   return (
     <div className="dashboard-screening-config">
@@ -112,15 +104,6 @@ export function VoiceScreeningConfig({
           </select>
         </div>
       </div>
-
-      <label className="dashboard-screening-toggle">
-        <input type="checkbox" checked={autoFollowUp} onChange={(e) => onAutoFollowUpChange(e.target.checked)} />
-        <span>Send WhatsApp reminder if candidate misses call</span>
-      </label>
-      <label className="dashboard-screening-toggle">
-        <input type="checkbox" checked={consentMessage} onChange={(e) => onConsentMessageChange(e.target.checked)} />
-        <span>Inform candidate that this is an AI screening call</span>
-      </label>
 
       <aside className="dashboard-screening-config-preview">
         <MaterialIcon name="auto_awesome" />

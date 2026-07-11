@@ -7,6 +7,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
 
 import { AdminBlogPanel } from "@/components/admin/AdminBlogPanel";
+import { AdminOutreachTriggersPanel } from "@/components/admin/AdminOutreachTriggersPanel";
 import { AdminSearchHistoryPanel } from "@/components/admin/AdminSearchHistoryPanel";
 import { type AdminUserSearchOption } from "@/components/admin/AdminUserSearchPicker";
 import {
@@ -118,6 +119,21 @@ const sidebarItems = [
     ),
   },
   {
+    label: "Outreach triggers",
+    subtitle: "Scheduled sends across users",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
+        <path
+          d="M12 6V12L16 14M21 12C21 16.97 16.97 21 12 21C7.03 21 3 16.97 3 12C3 7.03 7.03 3 12 3C16.97 3 21 7.03 21 12Z"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    ),
+  },
+  {
     label: "Blog",
     subtitle: "Publish articles on /blog",
     icon: (
@@ -180,6 +196,7 @@ const sidebarItems = [
 const ADMIN_POOL_TAB = "Candidate pool";
 const ADMIN_SEARCH_HISTORY_TAB = "Search history";
 const ADMIN_ANALYTICS_TAB = "Analytics";
+const ADMIN_OUTREACH_TRIGGERS_TAB = "Outreach triggers";
 const ADMIN_SETTINGS_TAB = "Settings";
 const ADMIN_BLOG_TAB = "Blog";
 
@@ -190,6 +207,7 @@ const ADMIN_TAB_SLUGS: Record<string, string> = {
   users: "Users",
   analytics: ADMIN_ANALYTICS_TAB,
   "candidate-pool": ADMIN_POOL_TAB,
+  "outreach-triggers": ADMIN_OUTREACH_TRIGGERS_TAB,
   blog: ADMIN_BLOG_TAB,
   "plans-pricing": "Plans & pricing",
   settings: ADMIN_SETTINGS_TAB,
@@ -2266,6 +2284,8 @@ export function AdminDashboardPage() {
               </article>
             ) : activeTab === ADMIN_BLOG_TAB ? (
               auth?.token ? <AdminBlogPanel token={auth.token} /> : null
+            ) : activeTab === ADMIN_OUTREACH_TRIGGERS_TAB ? (
+              auth?.token ? <AdminOutreachTriggersPanel token={auth.token} /> : null
             ) : activeTab === "Plans & pricing" ? (
               <article className="dashboard-card dashboard-admin-scroll-panel p-6">
                 <div className="flex flex-wrap items-center justify-between gap-3">

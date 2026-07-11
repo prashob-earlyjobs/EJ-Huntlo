@@ -40,6 +40,67 @@ const SYNC_BATCH_SIZE = Math.max(
   Math.min(30, Number(process.env.OUTREACH_REPLY_SYNC_BATCH_SIZE) || 15)
 );
 
+/** Allow small clock skew between mail server and app when comparing reply time to send time. */
+const OUTREACH_REPLY_SKEW_MS = 2 * 60 * 1000;
+
+function outreachSendCutoff(enrollment) {
+  const raw = enrollment?.lastSentAt;
+  if (!raw) return null;
+  const d = raw instanceof Date ? raw : new Date(raw);
+  return Number.isFinite(d.getTime()) ? d : null;
+}
+
+/** Only treat inbound mail as a campaign reply if it arrived at or after our outreach send. */
+function messageQualifiesForEnrollmentReply(enrollment, message) {
+  const cutoff = outreachSendCutoff(enrollment);
+  if (!cutoff) return true;
+  const receivedAt =
+    message?.receivedAt instanceof Date ? message.receivedAt : new Date(message?.receivedAt || 0);
+  if (!Number.isFinite(receivedAt.getTime())) return false;
+  return receivedAt.getTime() >= cutoff.getTime() - OUTREACH_REPLY_SKEW_MS;
+}
+
+function verifiedCandidateReplyQuery(enrollment) {
+  const contactEmail = String(enrollment.contactEmail || "").trim().toLowerCase();
+  const query = {
+    enrollmentId: enrollment._id,
+    isFromCandidate: true,
+  };
+  const cutoff = outreachSendCutoff(enrollment);
+  if (cutoff) {
+    query.receivedAt = { $gte: new Date(cutoff.getTime() - OUTREACH_REPLY_SKEW_MS) };
+  }
+  if (contactEmail.includes("@")) {
+    query.fromEmail = new RegExp(`^${contactEmail.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i");
+  }
+  return query;
+}
+
+async function purgePreOutreachCandidateReplies(enrollment) {
+  const cutoff = outreachSendCutoff(enrollment);
+  if (!cutoff) return 0;
+
+  const contactEmail = String(enrollment.contactEmail || "").trim().toLowerCase();
+  const stale = await CampaignOutreachReply.find({
+    enrollmentId: enrollment._id,
+    isFromCandidate: true,
+    receivedAt: { $lt: new Date(cutoff.getTime() - OUTREACH_REPLY_SKEW_MS) },
+  })
+    .select("_id fromEmail")
+    .lean();
+
+  const ids = stale
+    .filter((row) => {
+      if (!contactEmail.includes("@")) return true;
+      return String(row.fromEmail || "").trim().toLowerCase() === contactEmail;
+    })
+    .map((row) => row._id);
+
+  if (ids.length === 0) return 0;
+  await CampaignOutreachReply.deleteMany({ _id: { $in: ids } });
+  return ids.length;
+}
+
 function userOid(userId) {
   return new mongoose.Types.ObjectId(userId);
 }
@@ -61,6 +122,109 @@ function replyCandidateKey(enrollment) {
 
 function isModuleEnrollment(enrollment) {
   return Boolean(enrollment?.outreachModuleCampaignId && !enrollment?.campaignId);
+}
+
+/**
+ * Outbound campaign emails synced from the inbox were incorrectly flagged as replies
+ * (hasReply + paused), blocking no-response follow-up steps such as voice calls.
+ */
+async function countVerifiedCandidateReplies(enrollment) {
+  return CampaignOutreachReply.countDocuments(verifiedCandidateReplyQuery(enrollment));
+}
+
+async function repairFalsePositiveEnrollmentReplyFlags(enrollment) {
+  await purgePreOutreachCandidateReplies(enrollment);
+
+  const verifiedReplyCount = await countVerifiedCandidateReplies(enrollment);
+  const storedCount = Number(enrollment.replyCount || 0);
+  const flagged = Boolean(enrollment?.hasReply) || storedCount > 0;
+
+  if (verifiedReplyCount > 0) {
+    if (!enrollment.hasReply || storedCount !== verifiedReplyCount) {
+      await enrollmentModelFor(enrollment).updateOne(
+        { _id: enrollment._id },
+        { $set: { hasReply: true, replyCount: verifiedReplyCount } }
+      );
+    }
+    return { repaired: false, resumed: false };
+  }
+
+  if (!flagged) return { repaired: false, resumed: false };
+
+  const moduleEnrollment = isModuleEnrollment(enrollment);
+  const $set = {
+    hasReply: false,
+    replyCount: 0,
+    lastError: "",
+  };
+  const $unset = { lastReplyAt: "" };
+  let resumed = false;
+
+  if (moduleEnrollment && ["paused", "active"].includes(enrollment.status)) {
+    const OutreachModuleCampaign = require("../models/OutreachModuleCampaign");
+    const { buildExecutionPlan, findNextPendingAutomatableStep } = require("./outreachModuleSendService");
+    const campaign = await OutreachModuleCampaign.findById(
+      enrollment.outreachModuleCampaignId
+    ).lean();
+    if (campaign && ["active", "completed"].includes(campaign.status)) {
+      const plan = buildExecutionPlan(campaign);
+      const pendingStep = findNextPendingAutomatableStep(plan, enrollment);
+      if (pendingStep) {
+        $set.status = "active";
+        $set.currentStepOrder = pendingStep.order;
+        const nextSendAt = enrollment.nextSendAt ? new Date(enrollment.nextSendAt) : null;
+        $set.nextSendAt =
+          nextSendAt && nextSendAt.getTime() > Date.now() ? nextSendAt : new Date();
+        resumed = true;
+      }
+    }
+  }
+
+  await enrollmentModelFor(enrollment).updateOne({ _id: enrollment._id }, { $set, $unset });
+  return { repaired: true, resumed };
+}
+
+async function repairOutreachModuleFalsePositiveReplyFlags(campaignId) {
+  const enrollments = await OutreachModuleEnrollment.find({
+    outreachModuleCampaignId: campaignId,
+    sentCount: { $gt: 0 },
+  }).lean();
+
+  let resumed = 0;
+  for (const enrollment of enrollments) {
+    await purgePreOutreachCandidateReplies(enrollment);
+    const verified = await countVerifiedCandidateReplies(enrollment);
+    const stored = Number(enrollment.replyCount || 0);
+
+    if (verified > 0) {
+      if (!enrollment.hasReply || stored !== verified) {
+        await OutreachModuleEnrollment.updateOne(
+          { _id: enrollment._id },
+          { $set: { hasReply: true, replyCount: verified } }
+        );
+      }
+      continue;
+    }
+
+    if (!enrollment.hasReply && stored <= 0) continue;
+
+    const result = await repairFalsePositiveEnrollmentReplyFlags(enrollment);
+    if (result.resumed) resumed += 1;
+  }
+
+  if (resumed > 0) {
+    setImmediate(() => {
+      const { processDueOutreachModuleEnrollments } = require("./outreachModuleSendService");
+      processDueOutreachModuleEnrollments().catch((err) => {
+        console.error(
+          "[outreach-module-reply-sync] post-repair send tick:",
+          err?.message || err
+        );
+      });
+    });
+  }
+
+  return { checked: enrollments.length, resumed };
 }
 
 /** Gmail API message/thread ids — not Meta WhatsApp wamid.* values stored on WA enrollments. */
@@ -385,6 +549,17 @@ async function applyKeywordDispositionAfterAutoReply(enrollmentId) {
 }
 
 async function syncEnrollmentReplies(enrollment, integrationEmail, provider, integrationDoc) {
+  const repairResult = await repairFalsePositiveEnrollmentReplyFlags(enrollment);
+  let resumedEnrollment = Boolean(repairResult.resumed);
+  if (repairResult.repaired) {
+    enrollment = await enrollmentModelFor(enrollment).findById(enrollment._id).lean();
+    if (!enrollment) {
+      return { newReplies: 0, candidateReplies: 0, threadId: "", resumed: resumedEnrollment };
+    }
+  }
+
+  await purgePreOutreachCandidateReplies(enrollment);
+
   const userId = String(enrollment.userId);
   const threadId = await ensureThreadId(enrollment, userId, provider, integrationDoc);
   if (!threadId) {
@@ -429,6 +604,10 @@ async function syncEnrollmentReplies(enrollment, integrationEmail, provider, int
 
   for (const parsed of messages) {
     if (!parsed.gmailMessageId) continue;
+
+    if (!messageQualifiesForEnrollmentReply(enrollment, parsed)) {
+      continue;
+    }
 
     // Outbound bodies are stored at send time; provider sync may omit our sent body.
     if (!parsed.isFromCandidate && !String(parsed.bodyText || "").trim()) {
@@ -490,27 +669,30 @@ async function syncEnrollmentReplies(enrollment, integrationEmail, provider, int
     }
   }
 
-  const shouldPauseSequence = candidateReplies > 0 || newRecruiterMessages > 0;
+  const moduleEnrollment = isModuleEnrollment(enrollment);
+  // Module sequences: only pause on real candidate replies — synced outbound mail is not a reply.
+  const shouldPauseSequence =
+    candidateReplies > 0 || (newRecruiterMessages > 0 && !moduleEnrollment);
   if (shouldPauseSequence) {
-    const moduleEnrollment = isModuleEnrollment(enrollment);
     const latestBody = String(
       latestNewCandidateMessage?.bodyText || latestNewCandidateMessage?.snippet || ""
     ).trim();
 
     const enrollmentUpdate = {
-      hasReply: true,
       lastReplySyncedAt: new Date(),
       lastThreadId: threadId,
     };
     if (candidateReplies > 0) {
-      enrollmentUpdate.replyCount = await CampaignOutreachReply.countDocuments({
-        enrollmentId: enrollment._id,
-        isFromCandidate: true,
+      enrollmentUpdate.hasReply = true;
+      enrollmentUpdate.replyCount = await countVerifiedCandidateReplies({
+        ...enrollment,
+        _id: enrollment._id,
       });
       enrollmentUpdate.lastReplyAt = latestCandidateReplyAt;
     }
     if (enrollment.status === "active") {
       enrollmentUpdate.status = "paused";
+      enrollmentUpdate.nextSendAt = null;
       enrollmentUpdate.lastError = moduleEnrollment
         ? "Reply received — auto-responding"
         : candidateReplies > 0
@@ -593,7 +775,7 @@ async function syncEnrollmentReplies(enrollment, integrationEmail, provider, int
     await applyKeywordDispositionAfterAutoReply(enrollment._id);
   }
 
-  return { newReplies, candidateReplies, threadId };
+  return { newReplies, candidateReplies, threadId, resumed: resumedEnrollment };
 }
 
 /**
@@ -942,6 +1124,7 @@ async function syncOutreachModuleCampaignEmailReplies(campaignDoc) {
   }).lean();
 
   let newReplies = 0;
+  let resumedEnrollments = 0;
   const provider = integration.provider;
   const integrationEmail = integration.email || "";
 
@@ -955,12 +1138,25 @@ async function syncOutreachModuleCampaignEmailReplies(campaignDoc) {
         integration
       );
       newReplies += result.newReplies;
+      if (result.resumed) resumedEnrollments += 1;
     } catch (err) {
       console.error(
         `[outreach-module-reply-sync] campaign ${campaignId} enrollment ${enrollment._id}:`,
         err?.message || err
       );
     }
+  }
+
+  if (resumedEnrollments > 0) {
+    setImmediate(() => {
+      const { processDueOutreachModuleEnrollments } = require("./outreachModuleSendService");
+      processDueOutreachModuleEnrollments().catch((err) => {
+        console.error(
+          "[outreach-module-reply-sync] post-repair send tick:",
+          err?.message || err
+        );
+      });
+    });
   }
 
   return newReplies;
@@ -972,10 +1168,40 @@ async function deleteRepliesForCampaign(campaignId) {
   });
 }
 
+/** Clear false reply flags and resume sequences before the send tick (voice/email follow-ups). */
+async function repairStuckOutreachModuleEnrollmentsBeforeSend() {
+  const now = new Date();
+  const campaignIds = await OutreachModuleEnrollment.distinct("outreachModuleCampaignId", {
+    status: { $in: ["active", "paused", "completed", "failed", "skipped"] },
+    $or: [
+      { status: "active", nextSendAt: { $lte: now } },
+      { status: "paused", hasReply: true },
+      { status: "paused", replyCount: { $gt: 0 } },
+      { status: "completed" },
+      { status: "failed" },
+      { status: "skipped" },
+    ],
+  });
+
+  let resumed = 0;
+  for (const campaignId of campaignIds) {
+    const result = await repairOutreachModuleFalsePositiveReplyFlags(campaignId);
+    resumed += Number(result.resumed) || 0;
+  }
+
+  const { reconcileOutreachModuleEnrollmentsWithPlan } = require("./outreachModuleSendService");
+  const reconcile = await reconcileOutreachModuleEnrollmentsWithPlan();
+  resumed += Number(reconcile.reopened) || 0;
+
+  return { campaigns: campaignIds.length, resumed };
+}
+
 module.exports = {
   syncDueEnrollmentReplies,
   syncDueOutreachModuleEnrollmentReplies,
   syncOutreachModuleCampaignEmailReplies,
+  repairOutreachModuleFalsePositiveReplyFlags,
+  repairStuckOutreachModuleEnrollmentsBeforeSend,
   syncCampaignReplies,
   syncEnrollmentReplies,
   recordOutboundSentMessage,

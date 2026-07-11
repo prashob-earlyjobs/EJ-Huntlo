@@ -33,6 +33,7 @@ export type CandidateResponseStatus =
   | "no_response"
   | "replied"
   | "follow_up_scheduled"
+  | "interview_scheduled"
   | "call_completed"
   | "failed_delivery";
 
@@ -82,6 +83,19 @@ export type CampaignTrackingCandidate = {
   interest: string;
   lastResponse: string;
   nextAction: string;
+  /** Outreach enrollment — used for live sequence flow counts */
+  sentCount?: number;
+  hasReply?: boolean;
+  replyCount?: number;
+  currentStepOrder?: number | null;
+};
+
+export type SequenceFlowStepCounts = {
+  stepOrder: number;
+  contacted: number;
+  replied: number;
+  noReply: number;
+  awaiting: number;
 };
 
 export type CampaignDetailStats = {
@@ -93,6 +107,30 @@ export type CampaignDetailStats = {
   interested: number;
   notInterested: number;
   noResponse: number;
+};
+
+export type CampaignScheduledInterview = {
+  id: string;
+  candidateId: string;
+  candidateRefId: string;
+  candidateName: string;
+  inviteeEmail: string;
+  inviteeName: string;
+  eventName: string;
+  hostName: string;
+  startTime: string | null;
+  endTime: string | null;
+  status: "active" | "canceled";
+  rescheduleUrl: string;
+  cancelUrl: string;
+  timezone: string;
+  locationLabel: string;
+};
+
+export type CampaignCalendlyConfig = {
+  enabled: boolean;
+  meetingName: string;
+  schedulingUrl: string;
 };
 
 export type CampaignDetailsForm = {

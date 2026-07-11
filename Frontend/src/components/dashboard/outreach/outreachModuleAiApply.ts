@@ -18,6 +18,11 @@ import {
   type WhatsAppSingleChannelMessage,
   type WhatsAppTouchpointDraft,
 } from "@/lib/whatsappOutreach";
+import {
+  resolveVoiceSingleChannelMessage,
+  decodeVoiceStepMessage,
+  type VoiceSingleChannelMessage,
+} from "@/lib/voiceSingleChannelOutreach";
 
 export function singleChannelMissingAiMessages(
   channel: OutreachChannel,
@@ -73,6 +78,23 @@ export function encodeEmailStepMessage(subject: string, body: string): string {
     subject: String(subject || "").trim(),
     body: String(body || "").trim(),
   });
+}
+
+export { decodeVoiceStepMessage, encodeVoiceStepMessage } from "@/lib/voiceSingleChannelOutreach";
+
+export function mergeVoiceStepMessage(
+  current: Record<string, string>,
+  stepId: string,
+  patch: Partial<VoiceSingleChannelMessage>
+): Record<string, string> {
+  const resolved = resolveVoiceSingleChannelMessage({
+    ...decodeVoiceStepMessage(current[stepId] ?? ""),
+    ...patch,
+  });
+  return {
+    ...current,
+    [stepId]: encodeVoiceStepMessage(resolved),
+  };
 }
 
 export function decodeEmailStepMessage(raw: string): { subject: string; body: string } {
@@ -236,8 +258,8 @@ export function mergeWhatsAppAiIntoSequence(
   messages: Record<string, string>;
   replyQuestions: string[];
 } {
-  const firstWaIndex = sequenceSteps.findIndex((step) => step.channel === "whatsapp");
-  if (firstWaIndex < 0) {
+  const existingWaSteps = sequenceSteps.filter((step) => step.channel === "whatsapp");
+  if (existingWaSteps.length === 0) {
     return { sequenceSteps, messages: {}, replyQuestions: [] };
   }
 
@@ -247,37 +269,8 @@ export function mergeWhatsAppAiIntoSequence(
     .map((tp) => String(tp.body || "").trim())
     .filter(Boolean);
 
-  const lastWaIndex = sequenceSteps.reduce(
-    (last, step, index) => (step.channel === "whatsapp" ? index : last),
-    firstWaIndex
-  );
-
-  const waStepsToInsert: SequenceStep[] = automated.slice(0, 3).map((touchpoint, index) => {
-    const delay = touchpointToDelay(index, touchpoint);
-    return {
-      id: createClientSequenceStepId(),
-      channel: "whatsapp",
-      label:
-        touchpoint.label ||
-        (index === 0
-          ? "Opening message"
-          : index === 1
-            ? "No-reply follow-up 1"
-            : "No-reply follow-up 2"),
-      ...delay,
-      condition: index === 0 ? "all" : "no_response",
-      timingLabel: buildSequenceTimingLabel(delay, index),
-    };
-  });
-
-  const nextSequenceSteps = [
-    ...sequenceSteps.slice(0, firstWaIndex),
-    ...waStepsToInsert,
-    ...sequenceSteps.slice(lastWaIndex + 1).filter((step) => step.channel !== "whatsapp"),
-  ];
-
   const messages: Record<string, string> = {};
-  waStepsToInsert.forEach((step, index) => {
+  existingWaSteps.forEach((step, index) => {
     const touchpoint = automated[index];
     if (!touchpoint) return;
     messages[step.id] = encodeWhatsAppStepMessage(
@@ -287,7 +280,7 @@ export function mergeWhatsAppAiIntoSequence(
   });
 
   return {
-    sequenceSteps: nextSequenceSteps,
+    sequenceSteps,
     messages,
     replyQuestions,
   };
@@ -383,48 +376,21 @@ export function applyAiResultToMultiChannel(result: GenerateOutreachFromJdResult
   return applyWhatsAppTouchpointsToMultiChannel(result.touchpoints);
 }
 
-export type PersonalizeTabGroup =
-  | { kind: "step"; step: SequenceStep; stepIndex: number; label: string }
-  | { kind: "whatsapp"; stepIndices: number[]; label: string };
+export type PersonalizeTabGroup = {
+  kind: "step";
+  step: SequenceStep;
+  stepIndex: number;
+  label: string;
+};
 
-function sequenceStepDelayToHours(step: Pick<SequenceStep, "delayValue" | "delayUnit">) {
-  const delayValue = Math.max(0, Number(step.delayValue) || 0);
-  if (delayValue <= 0) return 0;
-  if (step.delayUnit === "hours") return delayValue;
-  return delayValue * 24;
-}
-
-/** Collapse consecutive WhatsApp sequence steps into one personalize tab. */
+/** One personalize tab per sequence step (multi-channel uses the builder sequence only). */
 export function buildPersonalizeTabGroups(sequenceSteps: SequenceStep[]): PersonalizeTabGroup[] {
-  const groups: PersonalizeTabGroup[] = [];
-  let index = 0;
-
-  while (index < sequenceSteps.length) {
-    const step = sequenceSteps[index];
-    if (step.channel === "whatsapp") {
-      const stepIndices: number[] = [];
-      while (index < sequenceSteps.length && sequenceSteps[index].channel === "whatsapp") {
-        stepIndices.push(index);
-        index += 1;
-      }
-      groups.push({
-        kind: "whatsapp",
-        stepIndices,
-        label: "WhatsApp",
-      });
-      continue;
-    }
-
-    groups.push({
-      kind: "step",
-      step,
-      stepIndex: index,
-      label: step.label,
-    });
-    index += 1;
-  }
-
-  return groups;
+  return sequenceSteps.map((step, stepIndex) => ({
+    kind: "step",
+    step,
+    stepIndex,
+    label: step.label?.trim() || `Step ${stepIndex + 1}`,
+  }));
 }
 
 export function findPersonalizeTabIndexForStep(
@@ -432,15 +398,15 @@ export function findPersonalizeTabIndexForStep(
   stepId: string
 ): number {
   const stepIndex = sequenceSteps.findIndex((step) => step.id === stepId);
-  if (stepIndex < 0) return 0;
+  return stepIndex >= 0 ? stepIndex : 0;
+}
 
-  const groups = buildPersonalizeTabGroups(sequenceSteps);
-  const tabIndex = groups.findIndex((group) =>
-    group.kind === "step"
-      ? group.stepIndex === stepIndex
-      : group.stepIndices.includes(stepIndex)
-  );
-  return tabIndex >= 0 ? tabIndex : 0;
+function sequenceStepDelayToHours(step: Pick<SequenceStep, "delayValue" | "delayUnit">) {
+  const delayValue = Math.max(0, Number(step.delayValue) || 0);
+  if (delayValue <= 0) return 0;
+  if (step.delayUnit === "minutes") return delayValue / 60;
+  if (step.delayUnit === "hours") return delayValue;
+  return delayValue * 24;
 }
 
 export function readWhatsAppFromSequenceSteps(
@@ -461,7 +427,7 @@ export function readWhatsAppFromSequenceSteps(
     ? decodeWhatsAppStepMessage(stepMessages[followUp2.id] ?? "")
     : { body: "", templateId: "" };
 
-  return resolveWhatsAppSingleChannelMessage({
+  return {
     templateId: openingMsg.templateId,
     body: openingMsg.body,
     followUpTemplateId: followUp1Msg.templateId,
@@ -475,10 +441,68 @@ export function readWhatsAppFromSequenceSteps(
       ? Math.max(1, sequenceStepDelayToHours(followUp2) || 96)
       : 96,
     replyQuestions,
-  });
+  };
 }
 
-/** Normalize WhatsApp block to 3 sequence steps and sync encoded messages. */
+const WHATSAPP_SEQUENCE_STEP_LABELS = [
+  "Opening message",
+  "No-reply follow-up 1",
+  "No-reply follow-up 2",
+] as const;
+
+function whatsAppContentStepCount(message: WhatsAppSingleChannelMessage): number {
+  let count = 1;
+  if (String(message.followUpBody || "").trim() || String(message.followUpTemplateId || "").trim()) {
+    count = 2;
+  }
+  if (String(message.followUp2Body || "").trim() || String(message.followUp2TemplateId || "").trim()) {
+    count = 3;
+  }
+  return count;
+}
+
+function resolveWhatsAppSequenceStepCount(
+  existingWaSteps: SequenceStep[],
+  message: WhatsAppSingleChannelMessage
+): number {
+  const existing = existingWaSteps.length;
+  const fromContent = whatsAppContentStepCount(message);
+  if (existing <= 0) return Math.min(3, fromContent);
+  return Math.min(3, Math.max(existing, fromContent));
+}
+
+function whatsAppMessagePartAtIndex(
+  message: WhatsAppSingleChannelMessage,
+  index: number
+): { body: string; templateId: string; delay?: Pick<SequenceStep, "delayValue" | "delayUnit"> } {
+  if (index === 0) {
+    return {
+      body: message.body,
+      templateId: message.templateId,
+      delay: { delayValue: 0, delayUnit: "days" },
+    };
+  }
+  if (index === 1) {
+    return {
+      body: message.followUpBody,
+      templateId: message.followUpTemplateId,
+      delay: {
+        delayValue: Math.max(1, message.followUpWaitHours),
+        delayUnit: "hours",
+      },
+    };
+  }
+  return {
+    body: message.followUp2Body,
+    templateId: message.followUp2TemplateId,
+    delay: {
+      delayValue: Math.max(1, message.followUp2WaitHours),
+      delayUnit: "hours",
+    },
+  };
+}
+
+/** Sync WhatsApp personalize editor onto existing sequence steps (grow only when follow-ups have content). */
 export function applyWhatsAppMessageToSequence(
   sequenceSteps: SequenceStep[],
   stepMessages: Record<string, string>,
@@ -495,42 +519,21 @@ export function applyWhatsAppMessageToSequence(
   );
 
   const existingWaSteps = sequenceSteps.filter((step) => step.channel === "whatsapp");
-  const followUp1Delay = {
-    delayValue: Math.max(1, message.followUpWaitHours),
-    delayUnit: "hours" as const,
-  };
-  const followUp2Delay = {
-    delayValue: Math.max(1, message.followUp2WaitHours),
-    delayUnit: "hours" as const,
-  };
+  const stepCount = resolveWhatsAppSequenceStepCount(existingWaSteps, message);
 
-  const waSteps: SequenceStep[] = [
-    {
-      id: existingWaSteps[0]?.id ?? createClientSequenceStepId(),
+  const waSteps: SequenceStep[] = Array.from({ length: stepCount }, (_, index) => {
+    const existing = existingWaSteps[index];
+    const part = whatsAppMessagePartAtIndex(message, index);
+    const delay = part.delay ?? { delayValue: 0, delayUnit: "days" as const };
+    return {
+      id: existing?.id ?? createClientSequenceStepId(),
       channel: "whatsapp",
-      label: "Opening message",
-      delayValue: 0,
-      delayUnit: "days",
-      condition: "all",
-      timingLabel: buildSequenceTimingLabel({ delayValue: 0, delayUnit: "days" }, 0),
-    },
-    {
-      id: existingWaSteps[1]?.id ?? createClientSequenceStepId(),
-      channel: "whatsapp",
-      label: "No-reply follow-up 1",
-      ...followUp1Delay,
-      condition: "no_response",
-      timingLabel: buildSequenceTimingLabel(followUp1Delay, 1),
-    },
-    {
-      id: existingWaSteps[2]?.id ?? createClientSequenceStepId(),
-      channel: "whatsapp",
-      label: "No-reply follow-up 2",
-      ...followUp2Delay,
-      condition: "no_response",
-      timingLabel: buildSequenceTimingLabel(followUp2Delay, 2),
-    },
-  ];
+      label: existing?.label?.trim() || WHATSAPP_SEQUENCE_STEP_LABELS[index] || `WhatsApp ${index + 1}`,
+      ...delay,
+      condition: index === 0 ? "all" : "no_response",
+      timingLabel: buildSequenceTimingLabel(delay, index),
+    };
+  });
 
   const nextSequenceSteps = [
     ...sequenceSteps.slice(0, firstWaIndex),
@@ -539,18 +542,80 @@ export function applyWhatsAppMessageToSequence(
   ];
 
   const nextStepMessages = { ...stepMessages };
-  nextStepMessages[waSteps[0].id] = encodeWhatsAppStepMessage(message.body, message.templateId);
-  nextStepMessages[waSteps[1].id] = encodeWhatsAppStepMessage(
-    message.followUpBody,
-    message.followUpTemplateId
-  );
-  nextStepMessages[waSteps[2].id] = encodeWhatsAppStepMessage(
-    message.followUp2Body,
-    message.followUp2TemplateId
-  );
+  waSteps.forEach((step, index) => {
+    const part = whatsAppMessagePartAtIndex(message, index);
+    nextStepMessages[step.id] = encodeWhatsAppStepMessage(part.body, part.templateId);
+  });
 
   return {
     sequenceSteps: nextSequenceSteps,
     stepMessages: nextStepMessages,
   };
+}
+
+export type MultiChannelReviewFlowItem = {
+  icon: string;
+  title: string;
+  subtitle?: string;
+  detail?: string;
+};
+
+/** Message-level flow items for multi-channel review (mirrors single-channel review). */
+export function buildMultiChannelReviewFlowItems(
+  sequenceSteps: SequenceStep[],
+  stepMessages: Record<string, string>,
+  whatsappReplyQuestions: string[] = []
+): MultiChannelReviewFlowItem[] {
+  const items: MultiChannelReviewFlowItem[] = [];
+
+  sequenceSteps.forEach((step, index) => {
+    if (step.channel === "email") {
+      const { subject, body } = decodeEmailStepMessage(stepMessages[step.id] ?? "");
+      if (!subject.trim() && !body.trim()) return;
+      items.push({
+        icon: "mail",
+        title: index === 0 ? subject.trim() || step.label : step.label,
+        subtitle: index === 0 ? step.label : buildSequenceTimingLabel(step, index),
+        detail: body,
+      });
+      return;
+    }
+
+    if (step.channel === "whatsapp") {
+      const { body, templateId } = decodeWhatsAppStepMessage(stepMessages[step.id] ?? "");
+      if (!body.trim() && !templateId.trim()) return;
+      items.push({
+        icon: "chat",
+        title: step.label || `WhatsApp step ${index + 1}`,
+        subtitle: templateId.trim() || "WhatsApp template",
+        detail: body,
+      });
+      return;
+    }
+
+    if (step.channel === "voice") {
+      const { body } = decodeVoiceStepMessage(stepMessages[step.id] ?? "");
+      if (!body.trim()) return;
+      items.push({
+        icon: "record_voice_over",
+        title: step.label || "Voice call",
+        subtitle: buildSequenceTimingLabel(step, index),
+        detail: body,
+      });
+    }
+  });
+
+  whatsappReplyQuestions
+    .map((question) => question.trim())
+    .filter(Boolean)
+    .forEach((question, index) => {
+      items.push({
+        icon: "quiz",
+        title: `Qualification question ${index + 1}`,
+        subtitle: "When candidate replies on WhatsApp",
+        detail: question,
+      });
+    });
+
+  return items;
 }

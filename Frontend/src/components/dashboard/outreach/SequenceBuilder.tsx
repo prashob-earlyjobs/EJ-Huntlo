@@ -15,7 +15,7 @@ import type {
   SequenceStep,
 } from "@/components/dashboard/outreach/types";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
-import { isQaEnv } from "@/lib/appEnv";
+import { getSequenceDelayUnitOptions, maxWaitAmountForUnit, clampWaitAmount } from "@/lib/outreachWait";
 import { dashboardBtnSecondaryClass, dashboardSelectClass } from "@/lib/dashboardStyles";
 
 const ADD_CHANNELS: OutreachChannel[] = ["whatsapp", "email", "voice", "linkedin"];
@@ -24,31 +24,37 @@ type Props = {
   steps: SequenceStep[];
   onStepsChange: (steps: SequenceStep[]) => void;
   onEditMessage?: (stepId: string) => void;
+  allowedChannels?: OutreachChannel[];
 };
 
-export function SequenceBuilder({ steps, onStepsChange, onEditMessage }: Props) {
+export function SequenceBuilder({ steps, onStepsChange, onEditMessage, allowedChannels }: Props) {
   const [addOpen, setAddOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const pendingScrollStepIdRef = useRef<string | null>(null);
   const addStepSectionRef = useRef<HTMLDivElement>(null);
   const stepRefs = useRef(new Map<string, HTMLLIElement>());
   const journeyPreview = useMemo(() => buildJourneyPreviewItems(steps, { compact: true }), [steps]);
-  const delayUnitOptions = useMemo(() => {
-    const options: { value: DelayUnit; label: string }[] = [
-      { value: "hours", label: "Hours" },
-      { value: "days", label: "Days" },
-    ];
-    if (isQaEnv()) {
-      options.unshift({ value: "minutes", label: "Minutes" });
-    }
-    return options;
-  }, []);
+  const addChannels = useMemo(
+    () =>
+      allowedChannels?.length
+        ? ADD_CHANNELS.filter((ch) => allowedChannels.includes(ch))
+        : ADD_CHANNELS,
+    [allowedChannels]
+  );
+  const selectableChannels = useMemo(
+    () => (allowedChannels?.length ? allowedChannels : (["whatsapp", "email", "voice"] as OutreachChannel[])),
+    [allowedChannels]
+  );
+  const delayUnitOptions = useMemo(() => getSequenceDelayUnitOptions(), []);
 
   const updateStep = (id: string, patch: Partial<SequenceStep>) => {
     onStepsChange(
       steps.map((step, index) => {
         if (step.id !== id) return step;
         const next = { ...step, ...patch };
+        if (patch.delayUnit != null) {
+          next.delayValue = clampWaitAmount(next.delayValue, next.delayUnit);
+        }
         if (
           patch.delayValue != null ||
           patch.delayUnit != null ||
@@ -237,9 +243,11 @@ export function SequenceBuilder({ steps, onStepsChange, onEditMessage }: Props) 
                         })
                       }
                     >
-                      <option value="whatsapp">WhatsApp</option>
-                      <option value="email">Email</option>
-                      <option value="voice">AI Voice Call</option>
+                      {selectableChannels.map((channel) => (
+                        <option key={channel} value={channel}>
+                          {getChannelLabel(channel)}
+                        </option>
+                      ))}
                     </select>
                   </div>
                   <div className="dashboard-outreach-sequence-control">
@@ -248,6 +256,7 @@ export function SequenceBuilder({ steps, onStepsChange, onEditMessage }: Props) 
                       <input
                         type="number"
                         min={0}
+                        max={maxWaitAmountForUnit(step.delayUnit)}
                         className="dashboard-input dashboard-input-sm dashboard-outreach-delay-input"
                         value={step.delayValue}
                         onChange={(e) =>
@@ -315,7 +324,7 @@ export function SequenceBuilder({ steps, onStepsChange, onEditMessage }: Props) 
           </button>
           {addOpen ? (
             <div className="dashboard-outreach-add-step-picker">
-              {ADD_CHANNELS.map((ch) => (
+              {addChannels.map((ch) => (
                 <ChannelCard
                   key={ch}
                   channel={ch}

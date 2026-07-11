@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { ImportCampaignContactsCsvModal } from "@/components/dashboard/ImportCampaignContactsCsvModal";
+import { CandidateSelectionTableSkeleton } from "@/components/dashboard/outreach/CandidateSelectionTableSkeleton";
 import type { CandidateSource, OutreachCandidate } from "@/components/dashboard/outreach/types";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import {
@@ -189,10 +190,6 @@ export function CandidateSelectionTable({
         </p>
       ) : null}
 
-      {loading && isTalentPool ? (
-        <p className="dashboard-outreach-recent-loading">Loading talent pool…</p>
-      ) : null}
-
       {canSelect ? (
         selectedIds.length === 0 ? (
           <p className="dashboard-outreach-empty-hint">
@@ -230,7 +227,13 @@ export function CandidateSelectionTable({
       )}
 
       {canSelect ? (
-        <div className="dashboard-outreach-table-wrap">
+        <div
+          className={`dashboard-outreach-table-wrap${
+            loading && isTalentPool ? " dashboard-outreach-table-wrap--skeleton" : ""
+          }`}
+          aria-busy={loading && isTalentPool ? true : undefined}
+          aria-label={loading && isTalentPool ? "Loading candidates" : undefined}
+        >
           <table className="dashboard-outreach-table">
             <thead>
               <tr>
@@ -254,11 +257,7 @@ export function CandidateSelectionTable({
             </thead>
             <tbody>
               {loading && isTalentPool ? (
-                <tr>
-                  <td colSpan={8} className="dashboard-outreach-table-empty">
-                    Loading candidates…
-                  </td>
-                </tr>
+                <CandidateSelectionTableSkeleton rowCount={6} />
               ) : candidates.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="dashboard-outreach-table-empty">

@@ -17,6 +17,7 @@ const {
   getOutreachModuleCandidateInteractions,
 } = require("../services/outreachModuleCampaignService");
 const { listOutreachModuleCandidatePool, importOutreachModuleCandidatesFromCsv } = require("../services/outreachModuleCandidatePoolService");
+const { listAdminUpcomingOutreachTriggers } = require("../services/adminOutreachTriggersService");
 
 function invalidSession(res) {
   return res.status(401).json({ success: false, message: "Authentication required" });
@@ -79,6 +80,7 @@ const listCampaignsHandler = async (req, res) => {
       page: req.query?.page,
       limit: req.query?.limit,
       status: req.query?.status,
+      sourceModule: req.query?.sourceModule,
     });
     return res.status(200).json({ success: true, ...result });
   } catch (error) {
@@ -205,7 +207,13 @@ const getTrackingHandler = async (req, res) => {
   try {
     const uid = req.auth?.userId;
     if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
-    const result = await getOutreachModuleCampaignTracking(uid, req.params.id);
+    const syncReplies =
+      String(req.query.syncReplies || req.query.sync || "")
+        .trim()
+        .toLowerCase() === "1";
+    const result = await getOutreachModuleCampaignTracking(uid, req.params.id, {
+      syncReplies,
+    });
     return res.status(200).json({ success: true, ...result });
   } catch (error) {
     return handleError(res, error);
@@ -243,6 +251,21 @@ const recordCandidateActionHandler = async (req, res) => {
   }
 };
 
+const listAdminUpcomingTriggersHandler = async (req, res) => {
+  try {
+    const result = await listAdminUpcomingOutreachTriggers({
+      page: req.query.page,
+      limit: req.query.limit,
+      campaignId: req.query.campaignId,
+      dueOnly: String(req.query.dueOnly || "").trim() === "1",
+      phase: req.query.phase,
+    });
+    return res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
 module.exports = {
   getDashboardStatsHandler,
   listCandidatePoolHandler,
@@ -261,4 +284,5 @@ module.exports = {
   getTrackingHandler,
   getCandidateInteractionsHandler,
   recordCandidateActionHandler,
+  listAdminUpcomingTriggersHandler,
 };

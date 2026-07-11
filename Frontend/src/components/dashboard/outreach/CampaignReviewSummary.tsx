@@ -1,10 +1,9 @@
 "use client";
 
 import { useMemo } from "react";
-
 import { CampaignEmailSenderSelect } from "@/components/dashboard/CampaignEmailSenderSelect";
+import { CampaignSequenceFlowPanel } from "@/components/dashboard/outreach/CampaignSequenceFlowPanel";
 import { getChannelLabel } from "@/components/dashboard/outreach/ChannelCard";
-import { buildJourneyPreviewItems } from "@/components/dashboard/outreach/outreachSequenceHelpers";
 import type { OutreachCampaignMode, OutreachChannel, SequenceStep } from "@/components/dashboard/outreach/types";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import type { CampaignEmailSenderOption } from "@/lib/emailIntegrations";
@@ -36,6 +35,7 @@ type Props = {
   touchpointSummary?: string;
   flowItems?: ReviewFlowItem[];
   steps?: SequenceStep[];
+  whatsappReplyQuestions?: string[];
   estimatedDuration?: string;
   checklist?: ReviewChecklistItem[];
   needsEmailSender?: boolean;
@@ -69,6 +69,7 @@ export function CampaignReviewSummary({
   touchpointSummary,
   flowItems = [],
   steps = [],
+  whatsappReplyQuestions = [],
   estimatedDuration,
   checklist = [],
   needsEmailSender = false,
@@ -91,7 +92,6 @@ export function CampaignReviewSummary({
   const showSenderPicker = needsEmailSender && emailSenders.length > 1;
   const canLaunch = candidateCount > 0 && allChecksDone && senderReady && !submitting;
   const checklistDoneCount = checklist.filter((item) => item.done).length;
-  const journeyPreview = useMemo(() => buildJourneyPreviewItems(steps), [steps]);
   const uniqueChannels = useMemo(() => [...new Set(channels.filter(Boolean))], [channels]);
 
   return (
@@ -200,40 +200,14 @@ export function CampaignReviewSummary({
           ) : null}
         </div>
 
-        {journeyPreview.length > 0 ? (
-          <section className="dashboard-outreach-review-panel dashboard-outreach-review-panel--sequence">
-            <div className="dashboard-outreach-review-panel-head">
-              <h4 className="dashboard-outreach-review-section-title">Sequence preview</h4>
-              <p className="dashboard-outreach-review-section-lead">
-                How candidates will move through your outreach steps.
-              </p>
-            </div>
-            <ol className="dashboard-outreach-review-journey">
-              {journeyPreview.map((item, index) => (
-                <li key={`review-journey-${item.stepNumber}`} className="dashboard-outreach-review-journey-item">
-                  <div
-                    className={`dashboard-outreach-review-journey-step${
-                      item.isInitial ? " dashboard-outreach-review-journey-step--initial" : ""
-                    }`}
-                  >
-                    <span className="dashboard-outreach-review-journey-index">{item.stepNumber}</span>
-                    <span
-                      className={`dashboard-outreach-review-journey-icon dashboard-outreach-review-journey-icon--${item.channel}`}
-                    >
-                      <MaterialIcon name={item.channelIcon} className="text-sm" />
-                    </span>
-                    <span className="dashboard-outreach-review-journey-label">{item.channelLabel}</span>
-                    <span className="dashboard-outreach-review-journey-timing">{item.timing}</span>
-                  </div>
-                  {index < journeyPreview.length - 1 ? (
-                    <span className="dashboard-outreach-review-journey-connector" aria-hidden>
-                      <MaterialIcon name="chevron_right" />
-                    </span>
-                  ) : null}
-                </li>
-              ))}
-            </ol>
-          </section>
+        {mode === "multi" && steps.length > 0 ? (
+          <CampaignSequenceFlowPanel
+            steps={steps}
+            whatsappReplyQuestions={whatsappReplyQuestions}
+            title="Sequence flow"
+            lead="How candidates move when they reply or stay silent between channels."
+            variant="preview"
+          />
         ) : null}
 
         <div className="dashboard-outreach-review-layout">

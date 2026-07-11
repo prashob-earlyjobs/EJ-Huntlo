@@ -1,7 +1,7 @@
-const { ImapFlow } = require("imapflow");
 const { parseEmailAddress } = require("./gmailReadService");
 const { smtpConfigFromIntegrationDoc } = require("./customMailSmtpService");
 const { extractPlainTextFromMimeSource } = require("./emailMimeBodyUtils");
+const { createSafeImapClient, closeImapClient } = require("./imapClientUtils");
 
 /** Map common SMTP hosts to IMAP (e.g. smtp.gmail.com → imap.gmail.com). */
 function inferImapHost(smtpHost) {
@@ -35,21 +35,23 @@ async function fetchCustomMailThreadMessages(integrationDoc, enrollment, threadI
 
   const userEmail = String(config.fromEmail || "").trim();
   const since = enrollment.lastSentAt
-    ? new Date(enrollment.lastSentAt.getTime() - 86_400_000)
-    : new Date(Date.now() - 30 * 86_400_000);
+    ? new Date(enrollment.lastSentAt)
+    : new Date(Date.now() - 7 * 86_400_000);
 
-  const client = new ImapFlow({
+  const client = createSafeImapClient({
     host: imapHost,
     port: 993,
     secure: true,
     auth: { user: config.username, pass: config.password },
-    logger: false,
   });
 
   const normalized = [];
+  let connected = false;
+  let lock = null;
   try {
     await client.connect();
-    const lock = await client.getMailboxLock("INBOX");
+    connected = true;
+    lock = await client.getMailboxLock("INBOX");
     try {
       const uids = await client.search({
         or: [{ from: contactEmail }, { to: contactEmail }],
@@ -90,7 +92,7 @@ async function fetchCustomMailThreadMessages(integrationDoc, enrollment, threadI
         });
       }
     } finally {
-      lock.release();
+      if (lock) lock.release();
     }
   } catch (err) {
     console.warn(
@@ -99,7 +101,7 @@ async function fetchCustomMailThreadMessages(integrationDoc, enrollment, threadI
     );
     return [];
   } finally {
-    await client.logout().catch(() => undefined);
+    await closeImapClient(client, connected);
   }
 
   normalized.sort((a, b) => a.receivedAt - b.receivedAt);

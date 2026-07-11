@@ -10,19 +10,23 @@ import {
 import { CandidateSelectionTable } from "@/components/dashboard/outreach/CandidateSelectionTable";
 import { MessageEditor } from "@/components/dashboard/outreach/MessageEditor";
 import { OutreachEmailReplySetup } from "@/components/dashboard/outreach/OutreachEmailReplySetup";
+import { Huntlo360JourneyBar } from "@/components/dashboard/huntlo360/Huntlo360JourneyBar";
 import { OutreachAiGeneratingPanel } from "@/components/dashboard/outreach/OutreachAiGeneratingPanel";
 import { useOutreachBuilderChrome } from "@/components/dashboard/outreach/OutreachBuilderChrome";
 import {
   channelsMissingAiMessages,
-  applyWhatsAppMessageToSequence,
+  buildMultiChannelReviewFlowItems,
   buildPersonalizeTabGroups,
   decodeEmailStepMessage,
+  decodeVoiceStepMessage,
+  decodeWhatsAppStepMessage,
   encodeEmailStepMessage,
+  encodeWhatsAppStepMessage,
   findPersonalizeTabIndexForStep,
   mergeAiIntoExistingSequence,
   mergeStepMessagesFromSteps,
+  mergeVoiceStepMessage,
   mergeWhatsAppAiIntoSequence,
-  readWhatsAppFromSequenceSteps,
 } from "@/components/dashboard/outreach/outreachModuleAiApply";
 import { SequenceBuilder } from "@/components/dashboard/outreach/SequenceBuilder";
 import { useEmailIntegrationLaunchGuard } from "@/components/dashboard/outreach/useEmailIntegrationLaunchGuard";
@@ -34,8 +38,10 @@ import { OutreachStepper } from "@/components/dashboard/outreach/OutreachStepper
 import {
   buildStepMessagesPayload,
   createDefaultMultiSequenceSteps,
+  ensureVoiceStepDefaults,
   pruneStepMessages,
   remapStepMessagesByIndex,
+  sequenceStepsEquivalent,
 } from "@/components/dashboard/outreach/outreachSequenceHelpers";
 import {
   buildResumeAiPersonalize,
@@ -59,10 +65,7 @@ import {
 } from "@/lib/outreachModuleCampaignsApi";
 import { generateOutreachSequenceFromJd } from "@/lib/outreachAiApi";
 import type { OutreachTouchpointDraft } from "@/lib/outreachTemplates";
-import {
-  resolveWhatsAppSingleChannelMessage,
-  type WhatsAppTouchpointDraft,
-} from "@/lib/whatsappOutreach";
+import type { WhatsAppTouchpointDraft } from "@/lib/whatsappOutreach";
 import {
   dashboardBtnPrimaryClass,
   dashboardBtnSecondaryClass,
@@ -79,6 +82,17 @@ const STEPS = [
   { key: "review", label: "Review" },
 ];
 
+const HUNTLO360_STEPS = [
+  { key: "details", label: "Details" },
+  { key: "sequence", label: "Sequence" },
+  { key: "personalize", label: "Messages" },
+  { key: "schedule", label: "Schedule" },
+  { key: "candidates", label: "Candidates" },
+  { key: "launch", label: "Launch" },
+];
+
+type BuilderVariant = "outreach" | "huntlo360";
+
 const DEFAULT_FORM: CampaignDetailsForm = {
   name: "",
   jobTitle: "",
@@ -94,6 +108,7 @@ const SOURCE_LABELS: Record<CandidateSource, string> = {
 };
 
 type Props = {
+  variant?: BuilderVariant;
   onBack: () => void;
   onSaveDraft: (campaignId: string) => void;
   onLaunch: (campaignId: string) => void;
@@ -111,6 +126,7 @@ type Props = {
 };
 
 export function MultiChannelBuilder({
+  variant = "outreach",
   onBack,
   onSaveDraft,
   onLaunch,
@@ -126,14 +142,31 @@ export function MultiChannelBuilder({
   initialWhatsappReplyQuestions = [],
   initialCalendlyAutomation,
 }: Props) {
+  const isHuntlo360 = variant === "huntlo360";
+  const flowSteps = isHuntlo360 ? HUNTLO360_STEPS : STEPS;
+  const reviewStepIndex = isHuntlo360 ? 5 : 4;
+  const candidatesStepIndex = isHuntlo360 ? 4 : 3;
+  const scheduleStepIndex = isHuntlo360 ? 3 : -1;
+  const personalizeStepIndex = 2;
+  const sequenceStepIndex = 1;
+  const backToModuleLabel = isHuntlo360 ? "Back to Huntlo 360" : "Back to outreach";
+  const builderTitle = isHuntlo360 ? "Huntlo 360 flow" : "Multi channel campaign";
+
   const [step, setStep] = useState(initialStep);
+  const journeyPhase =
+    step <= sequenceStepIndex ? "outreach" : step <= candidatesStepIndex ? "schedule" : ("track" as const);
   const [form, setForm] = useState<CampaignDetailsForm>(initialForm);
   const [selectedIds, setSelectedIds] = useState<string[]>(initialSelectedIds);
   const [source, setSource] = useState<CandidateSource>(initialSource);
   const [sequenceSteps, setSequenceSteps] = useState<SequenceStep[]>(() =>
     initialSequenceSteps?.length ? initialSequenceSteps : createDefaultMultiSequenceSteps()
   );
-  const [stepMessages, setStepMessages] = useState<Record<string, string>>(initialStepMessages);
+  const [stepMessages, setStepMessages] = useState<Record<string, string>>(() =>
+    ensureVoiceStepDefaults(
+      initialSequenceSteps?.length ? initialSequenceSteps : createDefaultMultiSequenceSteps(),
+      initialStepMessages
+    )
+  );
   const [aiPersonalize, setAiPersonalize] = useState(initialAiPersonalize);
   const [whatsappReplyQuestions, setWhatsappReplyQuestions] = useState<string[]>(
     initialWhatsappReplyQuestions
@@ -167,12 +200,16 @@ export function MultiChannelBuilder({
     () => sequenceSteps.some((step) => step.channel === "email"),
     [sequenceSteps]
   );
+  const launchNeedsCalendlySetup = useMemo(
+    () => sequenceSteps.some((step) => step.channel === "email" || step.channel === "whatsapp"),
+    [sequenceSteps]
+  );
   const launchOverlayChannel = useMemo<"gmail" | "whatsapp">(() => {
     if (sequenceSteps.some((step) => step.channel === "email")) return "gmail";
     if (sequenceSteps.some((step) => step.channel === "whatsapp")) return "whatsapp";
     return "gmail";
   }, [sequenceSteps]);
-  const onReviewStep = step === 4;
+  const onReviewStep = step === reviewStepIndex;
   const {
     emailSenders,
     selectedEmailIntegrationId,
@@ -198,6 +235,7 @@ export function MultiChannelBuilder({
     mode: "multi",
     form,
     step,
+    sourceModule: isHuntlo360 ? "huntlo360" : "outreach",
     initialCampaignId: resumeCampaignId ?? null,
     onDraftSaved,
   });
@@ -212,6 +250,7 @@ export function MultiChannelBuilder({
   const applySavedSequenceSteps = useCallback(
     (savedSteps: SequenceStep[] | null | undefined, previousSteps: SequenceStep[]) => {
       if (!savedSteps?.length) return;
+      if (sequenceStepsEquivalent(previousSteps, savedSteps)) return;
       sequenceSaveSkipRef.current = true;
       setSequenceSteps(savedSteps);
       setStepMessages((messages) => remapStepMessagesByIndex(previousSteps, savedSteps, messages));
@@ -228,15 +267,29 @@ export function MultiChannelBuilder({
         return;
       }
 
-      if (step === 1) {
+      if (step === sequenceStepIndex) {
         if (sequenceSteps.length === 0) return;
         const savedSteps = await persistSequenceStep(targetStep, sequenceSteps, { silent: true });
         applySavedSequenceSteps(savedSteps, sequenceSteps);
         return;
       }
 
-      if (step === 2) {
-        await persistPersonalizeStep(targetStep, {
+      if (step === personalizeStepIndex) {
+        await persistPersonalizeStep(
+          isHuntlo360 ? scheduleStepIndex : candidatesStepIndex,
+          {
+            aiPersonalize,
+            stepMessages: buildStepMessagesPayload(sequenceSteps, stepMessages),
+            whatsappReplyQuestions,
+            emailAutoReplyEnabled: true,
+            calendlyAutomation,
+          }
+        );
+        return;
+      }
+
+      if (isHuntlo360 && step === scheduleStepIndex) {
+        await persistPersonalizeStep(candidatesStepIndex, {
           aiPersonalize,
           stepMessages: buildStepMessagesPayload(sequenceSteps, stepMessages),
           whatsappReplyQuestions,
@@ -246,8 +299,8 @@ export function MultiChannelBuilder({
         return;
       }
 
-      if (step === 3 && selectedIds.length > 0) {
-        await persistCandidatesStep(targetStep, {
+      if (step === candidatesStepIndex && selectedIds.length > 0) {
+        await persistCandidatesStep(reviewStepIndex, {
           candidateIds: selectedIds,
           candidateSource: source,
         });
@@ -262,6 +315,11 @@ export function MultiChannelBuilder({
       whatsappReplyQuestions,
       selectedIds,
       source,
+      isHuntlo360,
+      personalizeStepIndex,
+      scheduleStepIndex,
+      candidatesStepIndex,
+      reviewStepIndex,
       calendlyAutomation,
       persistDetailsStep,
       persistSequenceStep,
@@ -275,7 +333,7 @@ export function MultiChannelBuilder({
     candidates: poolCandidates,
     loading: poolLoading,
     error: poolError,
-  } = useOutreachCandidatePool(step === 3 && source === "talent_pool");
+  } = useOutreachCandidatePool(step === candidatesStepIndex && source === "talent_pool");
 
   useEffect(() => {
     if (!campaignId || builderHydratedRef.current) return;
@@ -297,10 +355,11 @@ export function MultiChannelBuilder({
           setSequenceSteps(savedSteps);
         }
 
-        const savedMessages = buildResumeStepMessages(campaign);
-        if (Object.keys(savedMessages).length > 0) {
-          setStepMessages(savedMessages);
-        }
+        const stepsForDefaults =
+          savedSteps.length > 0 ? savedSteps : createDefaultMultiSequenceSteps();
+        setStepMessages(
+          ensureVoiceStepDefaults(stepsForDefaults, buildResumeStepMessages(campaign))
+        );
 
         setAiPersonalize(buildResumeAiPersonalize(campaign));
         setWhatsappReplyQuestions(buildResumeWhatsappReplyQuestions(campaign));
@@ -320,12 +379,14 @@ export function MultiChannelBuilder({
   }, [campaignId]);
 
   const handleSequenceStepsChange = useCallback((nextSteps: SequenceStep[]) => {
-    setStepMessages((messages) => pruneStepMessages(nextSteps, messages));
+    setStepMessages((messages) =>
+      ensureVoiceStepDefaults(nextSteps, pruneStepMessages(nextSteps, messages))
+    );
     setSequenceSteps(nextSteps);
   }, []);
 
   useEffect(() => {
-    if (!campaignId || sequenceSteps.length === 0 || step !== 1) return;
+    if (!campaignId || sequenceSteps.length === 0 || step !== sequenceStepIndex) return;
 
     if (sequenceSaveSkipRef.current) {
       sequenceSaveSkipRef.current = false;
@@ -334,10 +395,7 @@ export function MultiChannelBuilder({
 
     clearSequenceSaveTimer();
     sequenceSaveTimerRef.current = setTimeout(() => {
-      void (async () => {
-        const savedSteps = await persistSequenceStep(1, sequenceSteps, { silent: true });
-        applySavedSequenceSteps(savedSteps, sequenceSteps);
-      })();
+      void persistSequenceStep(1, sequenceSteps, { silent: true });
     }, 600);
 
     return clearSequenceSaveTimer;
@@ -353,7 +411,7 @@ export function MultiChannelBuilder({
   useEffect(() => clearSequenceSaveTimer, [clearSequenceSaveTimer]);
 
   useEffect(() => {
-    if (step !== 3 || source !== "csv" || initialSelectedIds.length === 0) return;
+    if (step !== candidatesStepIndex || source !== "csv" || initialSelectedIds.length === 0) return;
     const restored = poolCandidates.filter((c) => initialSelectedIds.includes(c.id));
     if (restored.length > 0) {
       setCsvCandidates(restored);
@@ -476,7 +534,7 @@ export function MultiChannelBuilder({
           ...pruneStepMessages(nextSteps, current),
           ...mergedMessages,
         }));
-        await persistSequenceStep(2, nextSteps, { silent: true });
+        await persistSequenceStep(personalizeStepIndex, nextSteps, { silent: true });
       } else if (Object.keys(mergedMessages).length > 0) {
         setStepMessages((current) => ({ ...current, ...mergedMessages }));
       }
@@ -490,6 +548,11 @@ export function MultiChannelBuilder({
   );
 
   const displayCandidates = source === "csv" ? csvCandidates : poolCandidates;
+
+  const reviewFlowItems = useMemo(
+    () => buildMultiChannelReviewFlowItems(sequenceSteps, stepMessages, whatsappReplyQuestions),
+    [sequenceSteps, stepMessages, whatsappReplyQuestions]
+  );
 
   const buildSyncPayload = useCallback(
     () => ({
@@ -532,6 +595,14 @@ export function MultiChannelBuilder({
     setReviewError("");
     setReviewSubmitMode("launch");
     try {
+    if (
+      isHuntlo360 &&
+      (!calendlyAutomation.enabled || !String(calendlyAutomation.schedulingUrl || "").trim())
+    ) {
+      setReviewError("Select a Calendly meeting on the Schedule step before launching.");
+      return;
+    }
+
       const emailReady = await ensureEmailIntegrationReady(launchNeedsEmail);
       if (!emailReady) return;
 
@@ -562,14 +633,22 @@ export function MultiChannelBuilder({
     }
   };
 
+  const calendlyReady =
+    Boolean(calendlyAutomation.enabled) &&
+    Boolean(String(calendlyAutomation.schedulingUrl || "").trim());
+
   const canNext =
-    (step === 0 && form.name.trim() && form.jobTitle.trim()) ||
-    (step === 1 && sequenceSteps.length > 0) ||
-    step === 2 ||
-    (step === 3 &&
+    (step === 0 &&
+      form.name.trim() &&
+      form.jobTitle.trim() &&
+      (!isHuntlo360 || form.jobDescription.trim().length >= 20)) ||
+    (step === sequenceStepIndex && sequenceSteps.length > 0) ||
+    step === personalizeStepIndex ||
+    (isHuntlo360 && step === scheduleStepIndex && calendlyReady) ||
+    (step === candidatesStepIndex &&
       selectedIds.length > 0 &&
       (source === "talent_pool" || source === "csv")) ||
-    step === 4;
+    step === reviewStepIndex;
 
   const goNext = async () => {
     clearSequenceSaveTimer();
@@ -579,10 +658,10 @@ export function MultiChannelBuilder({
       return;
     }
 
-    if (step === 1) {
+    if (step === sequenceStepIndex) {
       setStepNavigating(true);
       try {
-        const savedSteps = await persistSequenceStep(2, sequenceSteps);
+        const savedSteps = await persistSequenceStep(personalizeStepIndex, sequenceSteps);
         const stepsForAi = savedSteps?.length ? savedSteps : sequenceSteps;
         const messagesForAi = mergeStepMessagesFromSteps(
           stepsForAi,
@@ -592,7 +671,7 @@ export function MultiChannelBuilder({
         );
 
         applySavedSequenceSteps(savedSteps, sequenceSteps);
-        setStep(2);
+        setStep(personalizeStepIndex);
 
         const missingChannels = channelsMissingAiMessages(stepsForAi, messagesForAi, {
           whatsappReplyQuestions,
@@ -624,22 +703,30 @@ export function MultiChannelBuilder({
       return;
     }
 
-    if (step === 2) {
-      await persistPersonalizeStep(3, {
+    if (step === personalizeStepIndex) {
+      await persistPersonalizeStep(isHuntlo360 ? scheduleStepIndex : candidatesStepIndex, {
         aiPersonalize,
         stepMessages: buildStepMessagesPayload(sequenceSteps, stepMessages),
         whatsappReplyQuestions,
         emailAutoReplyEnabled: true,
         calendlyAutomation,
       });
-    } else if (step === 3) {
-      await persistCandidatesStep(4, {
+    } else if (isHuntlo360 && step === scheduleStepIndex) {
+      await persistPersonalizeStep(candidatesStepIndex, {
+        aiPersonalize,
+        stepMessages: buildStepMessagesPayload(sequenceSteps, stepMessages),
+        whatsappReplyQuestions,
+        emailAutoReplyEnabled: true,
+        calendlyAutomation,
+      });
+    } else if (step === candidatesStepIndex) {
+      await persistCandidatesStep(reviewStepIndex, {
         candidateIds: selectedIds,
         candidateSource: source,
       });
     }
 
-    if (step < STEPS.length - 1) setStep((s) => s + 1);
+    if (step < flowSteps.length - 1) setStep((s) => s + 1);
   };
 
   const goBack = async () => {
@@ -680,23 +767,9 @@ export function MultiChannelBuilder({
     [sequenceSteps]
   );
   const activePersonalizeTab = personalizeTabs[activeTab] ?? personalizeTabs[0];
-  const whatsappMessage = useMemo(
-    () => readWhatsAppFromSequenceSteps(sequenceSteps, stepMessages, whatsappReplyQuestions),
-    [sequenceSteps, stepMessages, whatsappReplyQuestions]
-  );
-
-  const patchWhatsappMessage = useCallback(
-    (patch: Parameters<typeof resolveWhatsAppSingleChannelMessage>[0]) => {
-      const next = resolveWhatsAppSingleChannelMessage({
-        ...readWhatsAppFromSequenceSteps(sequenceSteps, stepMessages, whatsappReplyQuestions),
-        ...patch,
-      });
-      setWhatsappReplyQuestions(next.replyQuestions);
-      const result = applyWhatsAppMessageToSequence(sequenceSteps, stepMessages, next);
-      setSequenceSteps(result.sequenceSteps);
-      setStepMessages(result.stepMessages);
-    },
-    [sequenceSteps, stepMessages, whatsappReplyQuestions]
+  const firstWhatsAppStepId = useMemo(
+    () => sequenceSteps.find((step) => step.channel === "whatsapp")?.id ?? null,
+    [sequenceSteps]
   );
 
   useEffect(() => {
@@ -710,10 +783,10 @@ export function MultiChannelBuilder({
 
     clearSequenceSaveTimer();
     if (sequenceSteps.length > 0) {
-      const savedSteps = await persistSequenceStep(2, sequenceSteps, { silent: true });
+      const savedSteps = await persistSequenceStep(personalizeStepIndex, sequenceSteps, { silent: true });
       applySavedSequenceSteps(savedSteps, sequenceSteps);
     }
-    setStep(2);
+    setStep(personalizeStepIndex);
   };
 
   const handleActiveTabChange = (index: number) => {
@@ -724,27 +797,28 @@ export function MultiChannelBuilder({
 
   useEffect(() => {
     setChrome({
-      title: "Multi channel campaign",
-      stepLabel: `Step ${step + 1} of ${STEPS.length}`,
+      title: builderTitle,
+      stepLabel: `Step ${step + 1} of ${flowSteps.length}`,
     });
     return () => setChrome(null);
-  }, [step, setChrome]);
+  }, [step, setChrome, builderTitle, flowSteps.length]);
 
   return (
-    <div className={`dashboard-outreach-builder${launching ? " dashboard-outreach-builder--launching" : ""}`}>
+    <div className={`dashboard-outreach-builder${launching ? " dashboard-outreach-builder--launching" : ""}${isHuntlo360 ? " dashboard-outreach-builder--huntlo360" : ""}`}>
       {emailIntegrationModal}
       <CampaignLaunchAgentOverlay open={launching} channel={launchOverlayChannel} />
+      {isHuntlo360 ? <Huntlo360JourneyBar activePhase={journeyPhase} /> : null}
       <div className="dashboard-outreach-builder-toolbar">
         <div className="dashboard-outreach-builder-header-top">
           <button type="button" className="dashboard-outreach-back-btn" onClick={() => void goBack()}>
             <MaterialIcon name="arrow_back" className="text-sm" />
-            {step === 0 ? "Back to outreach" : "Previous step"}
+            {step === 0 ? backToModuleLabel : "Previous step"}
           </button>
         </div>
       </div>
       <div className="dashboard-outreach-builder-scroll">
       <OutreachStepper
-        steps={STEPS}
+        steps={flowSteps}
         currentStep={step}
         onStepClick={(index) => void handleStepClick(index)}
         disabled={stepNavigating || savingDraft}
@@ -776,35 +850,49 @@ export function MultiChannelBuilder({
               />
             </div>
             <div className="dashboard-outreach-field dashboard-outreach-field--full">
-              <label className={dashboardLabelClass} htmlFor="mc-jd">Job description</label>
+              <label className={dashboardLabelClass} htmlFor="mc-jd">
+                Job description
+                {isHuntlo360 ? (
+                  <span className="dashboard-outreach-field-hint"> (required for AI messages)</span>
+                ) : null}
+              </label>
               <textarea
                 id="mc-jd"
                 className={dashboardTextareaClass}
                 rows={6}
                 value={form.jobDescription}
                 onChange={(e) => setForm({ ...form, jobDescription: e.target.value })}
-                placeholder="Paste or write the job description. AI will use this for personalization."
+                placeholder={
+                  isHuntlo360
+                    ? "Paste the job description (at least 20 characters). AI uses this to generate your sequence."
+                    : "Paste or write the job description. AI will use this for personalization."
+                }
               />
             </div>
           </div>
         ) : null}
 
-        {step === 1 ? (
+        {step === sequenceStepIndex ? (
           <>
-            {autoSavingSequence ? (
-              <p className="dashboard-outreach-sequence-autosave" aria-live="polite">
-                Saving sequence…
-              </p>
-            ) : null}
+            <div
+              className="dashboard-outreach-sequence-autosave-slot"
+              aria-live="polite"
+              aria-atomic="true"
+            >
+              {autoSavingSequence ? (
+                <p className="dashboard-outreach-sequence-autosave">Saving sequence…</p>
+              ) : null}
+            </div>
             <SequenceBuilder
               steps={sequenceSteps}
               onStepsChange={handleSequenceStepsChange}
               onEditMessage={(stepId) => void handleEditSequenceMessage(stepId)}
+              allowedChannels={isHuntlo360 ? ["whatsapp", "email"] : undefined}
             />
           </>
         ) : null}
 
-        {step === 2 ? (
+        {step === personalizeStepIndex ? (
           aiGenerating ? (
             <OutreachAiGeneratingPanel
               channels={sequenceSteps.map((s) => s.channel)}
@@ -819,105 +907,191 @@ export function MultiChannelBuilder({
               </p>
             ) : null}
             <div className="dashboard-outreach-personalize-tabs" role="tablist">
-              {personalizeTabs.map((group, i) => (
-                <button
-                  key={group.kind === "whatsapp" ? "whatsapp" : group.step.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={activeTab === i}
-                  className={`dashboard-outreach-personalize-tab${
-                    activeTab === i ? " dashboard-outreach-personalize-tab--active" : ""
-                  }`}
-                  onClick={() => handleActiveTabChange(i)}
-                >
-                  {group.label}
-                  {(group.kind === "whatsapp"
-                    ? group.stepIndices.some((stepIndex) =>
-                        Boolean(stepMessages[sequenceSteps[stepIndex]?.id]?.trim())
-                      ) || whatsappReplyQuestions.some((question) => question.trim())
-                    : Boolean(stepMessages[group.step.id]?.trim())) ? (
-                    <span className="dashboard-outreach-personalize-tab-dot" aria-hidden />
-                  ) : null}
-                </button>
-              ))}
+              {personalizeTabs.map((group, i) => {
+                const stepId = group.step.id;
+                const hasContent =
+                  group.step.channel === "whatsapp"
+                    ? Boolean(decodeWhatsAppStepMessage(stepMessages[stepId] ?? "").body.trim()) ||
+                      (stepId === firstWhatsAppStepId &&
+                        whatsappReplyQuestions.some((question) => question.trim()))
+                    : group.step.channel === "email"
+                      ? Boolean(decodeEmailStepMessage(stepMessages[stepId] ?? "").body.trim())
+                      : group.step.channel === "voice"
+                        ? Boolean(decodeVoiceStepMessage(stepMessages[stepId] ?? "").body.trim())
+                        : Boolean(stepMessages[stepId]?.trim());
+
+                return (
+                  <button
+                    key={group.step.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={activeTab === i}
+                    className={`dashboard-outreach-personalize-tab${
+                      activeTab === i ? " dashboard-outreach-personalize-tab--active" : ""
+                    }`}
+                    onClick={() => handleActiveTabChange(i)}
+                  >
+                    {group.label}
+                    {hasContent ? (
+                      <span className="dashboard-outreach-personalize-tab-dot" aria-hidden />
+                    ) : null}
+                  </button>
+                );
+              })}
             </div>
-            {activePersonalizeTab?.kind === "whatsapp" ? (
-              <MessageEditor
-                channel="whatsapp"
-                templateId={whatsappMessage.templateId}
-                onOpeningTemplateSelect={(tpl) =>
-                  patchWhatsappMessage({ templateId: tpl.id, body: tpl.body })
-                }
-                followUpTemplateId={whatsappMessage.followUpTemplateId}
-                onFollowUpTemplateSelect={(tpl) =>
-                  patchWhatsappMessage({ followUpTemplateId: tpl.id, followUpBody: tpl.body })
-                }
-                followUpWaitHours={whatsappMessage.followUpWaitHours}
-                onFollowUpWaitHoursChange={(hours) =>
-                  patchWhatsappMessage({ followUpWaitHours: hours })
-                }
-                followUp2TemplateId={whatsappMessage.followUp2TemplateId}
-                onFollowUp2TemplateSelect={(tpl) =>
-                  patchWhatsappMessage({ followUp2TemplateId: tpl.id, followUp2Body: tpl.body })
-                }
-                followUp2WaitHours={whatsappMessage.followUp2WaitHours}
-                onFollowUp2WaitHoursChange={(hours) =>
-                  patchWhatsappMessage({ followUp2WaitHours: hours })
-                }
-                replyQuestions={whatsappMessage.replyQuestions}
-                onReplyQuestionsChange={(questions) =>
-                  patchWhatsappMessage({ replyQuestions: questions })
-                }
-                message={whatsappMessage.body}
-              />
-            ) : activePersonalizeTab?.kind === "step" ? (
-              <MessageEditor
-                channel={activePersonalizeTab.step.channel}
-                message={
-                  activePersonalizeTab.step.channel === "email"
-                    ? decodeEmailStepMessage(
-                        stepMessages[activePersonalizeTab.step.id] ?? ""
-                      ).body
-                    : stepMessages[activePersonalizeTab.step.id] ?? ""
-                }
-                subject={
-                  activePersonalizeTab.step.channel === "email"
-                    ? decodeEmailStepMessage(
-                        stepMessages[activePersonalizeTab.step.id] ?? ""
-                      ).subject
-                    : undefined
-                }
-                onSubjectChange={
-                  activePersonalizeTab.step.channel === "email"
-                    ? (subject) => {
-                        const stepId = activePersonalizeTab.step.id;
-                        const { body } = decodeEmailStepMessage(stepMessages[stepId] ?? "");
-                        setStepMessages((current) => ({
-                          ...current,
-                          [stepId]: encodeEmailStepMessage(subject, body),
-                        }));
-                      }
-                    : undefined
-                }
-                onMessageChange={(value) =>
-                  setStepMessages((current) => {
+            {activePersonalizeTab?.kind === "step" ? (
+              activePersonalizeTab.step.channel === "whatsapp" ? (
+                <MessageEditor
+                  channel="whatsapp"
+                  showAutomatedFollowUps={false}
+                  whatsappStepTitle={activePersonalizeTab.step.label}
+                  whatsappStepDescription="Template for this sequence step. Timing and follow-ups come from your sequence."
+                  templateId={
+                    decodeWhatsAppStepMessage(
+                      stepMessages[activePersonalizeTab.step.id] ?? ""
+                    ).templateId
+                  }
+                  onOpeningTemplateSelect={(tpl) => {
                     const stepId = activePersonalizeTab.step.id;
-                    if (activePersonalizeTab.step.channel === "email") {
-                      const { subject } = decodeEmailStepMessage(current[stepId] ?? "");
+                    setStepMessages((current) => ({
+                      ...current,
+                      [stepId]: encodeWhatsAppStepMessage(tpl.body, tpl.id),
+                    }));
+                  }}
+                  replyQuestions={
+                    activePersonalizeTab.step.id === firstWhatsAppStepId
+                      ? whatsappReplyQuestions
+                      : undefined
+                  }
+                  onReplyQuestionsChange={
+                    activePersonalizeTab.step.id === firstWhatsAppStepId
+                      ? setWhatsappReplyQuestions
+                      : undefined
+                  }
+                  message={
+                    decodeWhatsAppStepMessage(stepMessages[activePersonalizeTab.step.id] ?? "")
+                      .body
+                  }
+                />
+              ) : (
+                <MessageEditor
+                  channel={activePersonalizeTab.step.channel}
+                  message={
+                    activePersonalizeTab.step.channel === "email"
+                      ? decodeEmailStepMessage(
+                          stepMessages[activePersonalizeTab.step.id] ?? ""
+                        ).body
+                      : activePersonalizeTab.step.channel === "voice"
+                        ? decodeVoiceStepMessage(stepMessages[activePersonalizeTab.step.id] ?? "")
+                            .body
+                        : stepMessages[activePersonalizeTab.step.id] ?? ""
+                  }
+                  subject={
+                    activePersonalizeTab.step.channel === "email"
+                      ? decodeEmailStepMessage(
+                          stepMessages[activePersonalizeTab.step.id] ?? ""
+                        ).subject
+                      : undefined
+                  }
+                  callObjective={
+                    activePersonalizeTab.step.channel === "voice"
+                      ? decodeVoiceStepMessage(stepMessages[activePersonalizeTab.step.id] ?? "")
+                          .callObjective
+                      : undefined
+                  }
+                  voiceTone={
+                    activePersonalizeTab.step.channel === "voice"
+                      ? decodeVoiceStepMessage(stepMessages[activePersonalizeTab.step.id] ?? "")
+                          .voiceTone
+                      : undefined
+                  }
+                  callAttempts={
+                    activePersonalizeTab.step.channel === "voice"
+                      ? decodeVoiceStepMessage(stepMessages[activePersonalizeTab.step.id] ?? "")
+                          .callAttempts
+                      : undefined
+                  }
+                  attemptGap={
+                    activePersonalizeTab.step.channel === "voice"
+                      ? decodeVoiceStepMessage(stepMessages[activePersonalizeTab.step.id] ?? "")
+                          .attemptGapHours
+                      : undefined
+                  }
+                  onCallObjectiveChange={
+                    activePersonalizeTab.step.channel === "voice"
+                      ? (callObjective) => {
+                          const stepId = activePersonalizeTab.step.id;
+                          setStepMessages((current) =>
+                            mergeVoiceStepMessage(current, stepId, { callObjective })
+                          );
+                        }
+                      : undefined
+                  }
+                  onVoiceToneChange={
+                    activePersonalizeTab.step.channel === "voice"
+                      ? (voiceTone) => {
+                          const stepId = activePersonalizeTab.step.id;
+                          setStepMessages((current) =>
+                            mergeVoiceStepMessage(current, stepId, { voiceTone })
+                          );
+                        }
+                      : undefined
+                  }
+                  onCallAttemptsChange={
+                    activePersonalizeTab.step.channel === "voice"
+                      ? (callAttempts) => {
+                          const stepId = activePersonalizeTab.step.id;
+                          setStepMessages((current) =>
+                            mergeVoiceStepMessage(current, stepId, { callAttempts })
+                          );
+                        }
+                      : undefined
+                  }
+                  onAttemptGapChange={
+                    activePersonalizeTab.step.channel === "voice"
+                      ? (attemptGapHours) => {
+                          const stepId = activePersonalizeTab.step.id;
+                          setStepMessages((current) =>
+                            mergeVoiceStepMessage(current, stepId, { attemptGapHours })
+                          );
+                        }
+                      : undefined
+                  }
+                  onSubjectChange={
+                    activePersonalizeTab.step.channel === "email"
+                      ? (subject) => {
+                          const stepId = activePersonalizeTab.step.id;
+                          const { body } = decodeEmailStepMessage(stepMessages[stepId] ?? "");
+                          setStepMessages((current) => ({
+                            ...current,
+                            [stepId]: encodeEmailStepMessage(subject, body),
+                          }));
+                        }
+                      : undefined
+                  }
+                  onMessageChange={(value) =>
+                    setStepMessages((current) => {
+                      const stepId = activePersonalizeTab.step.id;
+                      if (activePersonalizeTab.step.channel === "email") {
+                        const { subject } = decodeEmailStepMessage(current[stepId] ?? "");
+                        return {
+                          ...current,
+                          [stepId]: encodeEmailStepMessage(subject, value),
+                        };
+                      }
+                      if (activePersonalizeTab.step.channel === "voice") {
+                        return mergeVoiceStepMessage(current, stepId, { body: value });
+                      }
                       return {
                         ...current,
-                        [stepId]: encodeEmailStepMessage(subject, value),
+                        [stepId]: value,
                       };
-                    }
-                    return {
-                      ...current,
-                      [stepId]: value,
-                    };
-                  })
-                }
-              />
+                    })
+                  }
+                />
+              )
             ) : null}
-            {launchNeedsEmail ? (
+            {launchNeedsCalendlySetup && !isHuntlo360 ? (
               <OutreachEmailReplySetup
                 calendlyAutomation={calendlyAutomation}
                 onCalendlyAutomationChange={setCalendlyAutomation}
@@ -927,7 +1101,20 @@ export function MultiChannelBuilder({
           )
         ) : null}
 
-        {step === 3 ? (
+        {isHuntlo360 && step === scheduleStepIndex ? (
+          <div className="dashboard-huntlo360-schedule-step">
+            <OutreachEmailReplySetup
+              calendlyAutomation={calendlyAutomation}
+              onCalendlyAutomationChange={setCalendlyAutomation}
+            />
+            <p className="dashboard-outreach-empty-hint">
+              When candidates show interest, Huntlo sends this Calendly link automatically by email or
+              WhatsApp.
+            </p>
+          </div>
+        ) : null}
+
+        {step === candidatesStepIndex ? (
           <CandidateSelectionTable
             candidates={displayCandidates}
             loading={source === "talent_pool" ? poolLoading : false}
@@ -941,7 +1128,7 @@ export function MultiChannelBuilder({
           />
         ) : null}
 
-        {step === 4 ? (
+        {step === reviewStepIndex ? (
           <CampaignReviewSummary
             campaignName={form.name}
             jobTitle={form.jobTitle}
@@ -950,12 +1137,17 @@ export function MultiChannelBuilder({
             mode="multi"
             channels={sequenceSteps.map((s) => getChannelLabel(s.channel))}
             steps={sequenceSteps}
+            whatsappReplyQuestions={whatsappReplyQuestions}
+            flowItems={reviewFlowItems}
             estimatedDuration="~4 days"
             touchpointSummary={`${sequenceSteps.length} step sequence`}
             checklist={[
               { label: "Campaign details completed", done: Boolean(form.name.trim() && form.jobTitle.trim()) },
               { label: "Sequence configured", done: sequenceSteps.length > 0 },
               { label: "Candidates selected", done: selectedIds.length > 0 },
+              ...(isHuntlo360
+                ? [{ label: "Calendly meeting selected", done: calendlyReady }]
+                : []),
               ...(needsSenderSelection
                 ? [{ label: "Sender account selected", done: senderReady }]
                 : []),
@@ -968,7 +1160,7 @@ export function MultiChannelBuilder({
             submitting={submittingReview || launching}
             submitMode={reviewSubmitMode}
             error={reviewError}
-            onBack={() => setStep(3)}
+            onBack={() => setStep(candidatesStepIndex)}
             onSaveDraft={handleReviewSaveDraft}
             onLaunch={handleReviewLaunch}
           />
@@ -978,7 +1170,7 @@ export function MultiChannelBuilder({
       </div>
       </div>
 
-        {step < 4 ? (
+        {step < reviewStepIndex ? (
           <footer className="dashboard-outreach-builder-footer dashboard-outreach-builder-footer--dock">
             <button type="button" className={dashboardBtnSecondaryClass} onClick={() => void goBack()} disabled={stepNavigating}>
               Back

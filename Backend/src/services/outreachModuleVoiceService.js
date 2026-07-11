@@ -63,35 +63,49 @@ function buildDefaultCallObjective(jobTitle) {
   return `Screen the candidate for the ${title} role — confirm interest, ask screening questions, and capture next steps.`;
 }
 
+function parseVoiceStepMessageFields(fields) {
+  return {
+    callObjective: String(fields.callObjective || "").trim(),
+    body: String(fields.body || fields.script || "").trim(),
+    voiceTone: fields.voiceTone || "professional",
+    callAttempts: Math.max(1, Number(fields.callAttempts) || 1),
+    attemptGapHours: Math.max(0, Number(fields.attemptGapHours) || 24),
+  };
+}
+
 function parseVoiceStepMessage(message) {
   if (message != null && typeof message === "object" && !Array.isArray(message)) {
-    return {
-      callObjective: String(message.callObjective || "").trim(),
-      body: String(message.body || message.script || "").trim(),
-      voiceTone: message.voiceTone || "professional",
-      callAttempts: Math.max(1, Number(message.callAttempts) || 1),
-      attemptGapHours: Math.max(0, Number(message.attemptGapHours) || 24),
-    };
+    return parseVoiceStepMessageFields(message);
   }
 
-  const body = String(message || "").trim();
-  return {
-    callObjective: "",
-    body,
-    voiceTone: "professional",
-    callAttempts: 1,
-    attemptGapHours: 24,
-  };
+  const trimmed = String(message || "").trim();
+  if (trimmed.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parseVoiceStepMessageFields(parsed);
+      }
+    } catch {
+      // fall through to plain body
+    }
+  }
+
+  return parseVoiceStepMessageFields({ body: trimmed });
 }
 
 function resolveVoiceFieldsFromCampaign(campaignDoc, stepVoiceConfig = null) {
   const channelMsg = campaignDoc?.channelMessage || {};
+  const voiceAgentConfig = campaignDoc?.voiceAgentConfig || {};
   const source = stepVoiceConfig || channelMsg;
+  const channelIsVoice = String(channelMsg.channel || "").trim().toLowerCase() === "voice";
+  const channelBody = channelIsVoice ? String(channelMsg.body || "").trim() : "";
+  const savedCallPrompt = String(voiceAgentConfig.callPrompt || "").trim();
   const callObjective =
-    String(source.callObjective || channelMsg.callObjective || "").trim() ||
-    buildDefaultCallObjective(campaignDoc?.jobTitle);
-  const callPrompt =
-    String(source.body || source.script || channelMsg.body || "").trim();
+    String(source.callObjective || voiceAgentConfig.callObjective || channelMsg.callObjective || "")
+      .trim() || buildDefaultCallObjective(campaignDoc?.jobTitle);
+  const callPrompt = String(
+    source.body || source.script || savedCallPrompt || channelBody || ""
+  ).trim();
   const voiceTone = source.voiceTone || channelMsg.voiceTone || "professional";
   const callAttempts = Math.max(
     1,

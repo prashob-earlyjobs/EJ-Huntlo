@@ -13,7 +13,10 @@ import {
 import { CandidateSelectionTable } from "@/components/dashboard/outreach/CandidateSelectionTable";
 import { ChannelCard } from "@/components/dashboard/outreach/ChannelCard";
 import { MessageEditor } from "@/components/dashboard/outreach/MessageEditor";
+import { OutreachEmailReplySetup } from "@/components/dashboard/outreach/OutreachEmailReplySetup";
+import { Huntlo360JourneyBar } from "@/components/dashboard/huntlo360/Huntlo360JourneyBar";
 import { OutreachAiGeneratingPanel } from "@/components/dashboard/outreach/OutreachAiGeneratingPanel";
+import { OutreachGenerateAiBar } from "@/components/dashboard/outreach/OutreachGenerateAiBar";
 import {
   applyAiResultToSingleChannel,
   singleChannelMissingAiMessages,
@@ -82,6 +85,15 @@ const STEPS = [
   { key: "review", label: "Review" },
 ];
 
+const HUNTLO360_STEPS = [
+  { key: "details", label: "Details" },
+  { key: "channel", label: "Outreach" },
+  { key: "message", label: "Messages" },
+  { key: "schedule", label: "Schedule" },
+  { key: "candidates", label: "Candidates" },
+  { key: "launch", label: "Launch" },
+];
+
 const STEP_META = [
   {
     title: "Campaign details",
@@ -105,6 +117,33 @@ const STEP_META = [
   },
 ];
 
+const HUNTLO360_STEP_META = [
+  {
+    title: "Campaign details",
+    description: "Name your flow and add the role information candidates will see.",
+  },
+  {
+    title: "Outreach channel",
+    description: "Choose email or WhatsApp to reach and qualify candidates.",
+  },
+  {
+    title: "Outreach messages",
+    description: "Configure opening templates, follow-ups, and AI reply questions.",
+  },
+  {
+    title: "Interview scheduling",
+    description: "Connect Calendly so interested candidates can book directly from your outreach.",
+  },
+  {
+    title: "Select candidates",
+    description: "Choose who enters this outreach-to-schedule flow.",
+  },
+  {
+    title: "Review & launch",
+    description: "Confirm outreach, scheduling, and candidates before going live.",
+  },
+];
+
 const DEFAULT_FORM: CampaignDetailsForm = {
   name: "",
   jobTitle: "",
@@ -112,7 +151,10 @@ const DEFAULT_FORM: CampaignDetailsForm = {
   goal: "interest",
 };
 
+type BuilderVariant = "outreach" | "huntlo360";
+
 type Props = {
+  variant?: BuilderVariant;
   onBack: () => void;
   onSaveDraft: (campaignId: string) => void;
   onLaunch: (campaignId: string) => void;
@@ -137,6 +179,7 @@ type Props = {
 };
 
 export function SingleChannelBuilder({
+  variant = "outreach",
   onBack,
   onSaveDraft,
   onLaunch,
@@ -155,7 +198,18 @@ export function SingleChannelBuilder({
   initialSelectedIds = [],
   initialSource = "csv",
 }: Props) {
+  const isHuntlo360 = variant === "huntlo360";
+  const flowSteps = isHuntlo360 ? HUNTLO360_STEPS : STEPS;
+  const flowMeta = isHuntlo360 ? HUNTLO360_STEP_META : STEP_META;
+  const reviewStepIndex = isHuntlo360 ? 5 : 4;
+  const candidatesStepIndex = isHuntlo360 ? 4 : 3;
+  const scheduleStepIndex = isHuntlo360 ? 3 : -1;
+  const backToModuleLabel = isHuntlo360 ? "Back to Huntlo 360" : "Back to outreach";
+  const builderTitle = isHuntlo360 ? "Huntlo 360 flow" : "Single channel campaign";
+
   const [step, setStep] = useState(initialStep);
+  const journeyPhase =
+    step <= 2 ? "outreach" : step <= 4 ? "schedule" : ("track" as const);
   const [form, setForm] = useState<CampaignDetailsForm>(initialForm);
   const [selectedIds, setSelectedIds] = useState<string[]>(initialSelectedIds);
   const [source, setSource] = useState<CandidateSource>(initialSource);
@@ -223,11 +277,22 @@ export function SingleChannelBuilder({
     )
   );
   const autoAiInFlightRef = useRef(false);
+  const lastAutoAiChannelRef = useRef<OutreachChannel | null>(null);
+
+  const aiGenerationBlockedReason = useCallback(() => {
+    if (!form.jobTitle.trim()) {
+      return "Add a job title on the details step to generate messages with AI.";
+    }
+    if (form.jobDescription.trim().length < 20) {
+      return "Add a job description (at least 20 characters) on the details step to generate messages with AI.";
+    }
+    return "";
+  }, [form.jobDescription, form.jobTitle]);
   const { ensureEmailIntegrationReady, resolveLaunchError, modal: emailIntegrationModal } =
     useEmailIntegrationLaunchGuard();
   const launchNeedsEmail = channel === "email";
   const launchOverlayChannel = channel === "whatsapp" ? "whatsapp" : "gmail";
-  const onReviewStep = step === 4;
+  const onReviewStep = step === reviewStepIndex;
   const {
     emailSenders,
     selectedEmailIntegrationId,
@@ -262,6 +327,7 @@ export function SingleChannelBuilder({
         callAttempts: voiceMessage.callAttempts,
         attemptGapHours: voiceMessage.attemptGapHours,
       },
+      sourceModule: isHuntlo360 ? "huntlo360" : "outreach",
       initialCampaignId: resumeCampaignId ?? null,
       onDraftSaved,
     });
@@ -270,10 +336,10 @@ export function SingleChannelBuilder({
     candidates: poolCandidates,
     loading: poolLoading,
     error: poolError,
-  } = useOutreachCandidatePool(step === 3 && source === "talent_pool");
+  } = useOutreachCandidatePool(step === candidatesStepIndex && source === "talent_pool");
 
   useEffect(() => {
-    if (step !== 3 || source !== "csv" || initialSelectedIds.length === 0) return;
+    if (step !== candidatesStepIndex || source !== "csv" || initialSelectedIds.length === 0) return;
     const restored = poolCandidates.filter((c) => initialSelectedIds.includes(c.id));
     if (restored.length > 0) {
       setCsvCandidates(restored);
@@ -353,7 +419,10 @@ export function SingleChannelBuilder({
       if (!targetChannel) return;
 
       const applied = applyAiResultToSingleChannel(result, targetChannel);
-      if (!applied) return;
+      if (!applied) {
+        setAiGenerateError("Could not apply generated messages. Try again.");
+        return;
+      }
 
       if (applied.whatsappMessage) {
         setWhatsappMessage(applied.whatsappMessage);
@@ -363,6 +432,7 @@ export function SingleChannelBuilder({
       }
       setAiPersonalize(true);
       setAiGenerateError("");
+      lastAutoAiChannelRef.current = targetChannel;
       if (!form.name.trim() && result.planName.trim()) {
         setForm((current) => ({ ...current, name: result.planName.trim() }));
       }
@@ -371,10 +441,20 @@ export function SingleChannelBuilder({
   );
 
   const maybeAutoGenerateMessages = useCallback(async () => {
-    if (autoAiInFlightRef.current || aiGenerating || skipAutoAiRef.current) return;
+    if (autoAiInFlightRef.current || aiGenerating) return;
     if (channel !== "email" && channel !== "whatsapp") return;
-    if (!form.jobTitle.trim() || form.jobDescription.trim().length < 20) return;
-    if (!singleChannelMissingAiMessages(channel, whatsappMessage, emailMessage)) return;
+
+    const blockedReason = aiGenerationBlockedReason();
+    if (blockedReason) {
+      setAiGenerateError(blockedReason);
+      return;
+    }
+
+    const channelChanged = lastAutoAiChannelRef.current !== null && lastAutoAiChannelRef.current !== channel;
+    if (skipAutoAiRef.current && !channelChanged) return;
+    if (!channelChanged && !singleChannelMissingAiMessages(channel, whatsappMessage, emailMessage)) {
+      return;
+    }
 
     const auth = getStoredAuth();
     if (!auth?.token) {
@@ -403,6 +483,7 @@ export function SingleChannelBuilder({
       setAiGeneratingChannel(null);
     }
   }, [
+    aiGenerationBlockedReason,
     aiGenerating,
     channel,
     emailMessage,
@@ -504,6 +585,14 @@ export function SingleChannelBuilder({
     setReviewError("");
     setReviewSubmitMode("launch");
     try {
+      if (
+        isHuntlo360 &&
+        (!calendlyAutomation.enabled || !String(calendlyAutomation.schedulingUrl || "").trim())
+      ) {
+        setReviewError("Select a Calendly meeting on the Schedule step before launching.");
+        return;
+      }
+
       const emailReady = await ensureEmailIntegrationReady(launchNeedsEmail);
       if (!emailReady) return;
 
@@ -534,14 +623,21 @@ export function SingleChannelBuilder({
     }
   };
 
+  const calendlyReady =
+    Boolean(calendlyAutomation.enabled) && Boolean(String(calendlyAutomation.schedulingUrl || "").trim());
+
   const canNext =
-    (step === 0 && form.name.trim() && form.jobTitle.trim()) ||
+    (step === 0 &&
+      form.name.trim() &&
+      form.jobTitle.trim() &&
+      (!isHuntlo360 || form.jobDescription.trim().length >= 20)) ||
     (step === 1 && channel) ||
     step === 2 ||
-    (step === 3 &&
+    (isHuntlo360 && step === scheduleStepIndex && calendlyReady) ||
+    (step === candidatesStepIndex &&
       selectedIds.length > 0 &&
       (source === "talent_pool" || source === "csv")) ||
-    step === 4;
+    step === reviewStepIndex;
 
   const goNext = async () => {
     if (step === 0) {
@@ -552,7 +648,7 @@ export function SingleChannelBuilder({
       await maybeAutoGenerateMessages();
       return;
     } else if (step === 2) {
-      await persistMessageStep(3, {
+      await persistMessageStep(isHuntlo360 ? 3 : 3, {
         channel,
         whatsappMessage,
         aiPersonalize,
@@ -567,13 +663,29 @@ export function SingleChannelBuilder({
           attemptGapHours: voiceMessage.attemptGapHours,
         },
       });
-    } else if (step === 3) {
-      await persistCandidatesStep(4, {
+    } else if (isHuntlo360 && step === scheduleStepIndex) {
+      await persistMessageStep(4, {
+        channel,
+        whatsappMessage,
+        aiPersonalize,
+        message: voiceMessage.body,
+        emailMessage,
+        emailAutoReplyEnabled: true,
+        calendlyAutomation,
+        voiceOptions: {
+          callObjective: voiceMessage.callObjective,
+          voiceTone: voiceMessage.voiceTone,
+          callAttempts: voiceMessage.callAttempts,
+          attemptGapHours: voiceMessage.attemptGapHours,
+        },
+      });
+    } else if (step === candidatesStepIndex) {
+      await persistCandidatesStep(isHuntlo360 ? 5 : 4, {
         candidateIds: selectedIds,
         candidateSource: source,
       });
     }
-    if (step < STEPS.length - 1) setStep((s) => s + 1);
+    if (step < flowSteps.length - 1) setStep((s) => s + 1);
   };
 
   const goBack = async () => {
@@ -588,36 +700,37 @@ export function SingleChannelBuilder({
   };
 
   return (
-    <div className={`dashboard-outreach-builder${launching ? " dashboard-outreach-builder--launching" : ""}`}>
+    <div className={`dashboard-outreach-builder${launching ? " dashboard-outreach-builder--launching" : ""}${isHuntlo360 ? " dashboard-outreach-builder--huntlo360" : ""}`}>
       {emailIntegrationModal}
       <CampaignLaunchAgentOverlay open={launching} channel={launchOverlayChannel} />
+      {isHuntlo360 ? <Huntlo360JourneyBar activePhase={journeyPhase} /> : null}
       <div className="dashboard-outreach-builder-toolbar">
         <div className="dashboard-outreach-builder-header-top">
           <button type="button" className="dashboard-outreach-back-btn" onClick={() => void goBack()}>
             <MaterialIcon name="arrow_back" className="text-sm" />
-            {step === 0 ? "Back to outreach" : "Previous step"}
+            {step === 0 ? backToModuleLabel : "Previous step"}
           </button>
           <span className="dashboard-outreach-builder-step-badge">
-            Step {step + 1} of {STEPS.length}
+            Step {step + 1} of {flowSteps.length}
           </span>
         </div>
       </div>
       <div className="dashboard-outreach-builder-scroll">
       <header className="dashboard-outreach-builder-header dashboard-outreach-builder-header--in-scroll">
         <div className="dashboard-outreach-builder-header-main">
-          <h1 className="dashboard-outreach-builder-title">Single channel campaign</h1>
-          <p className="dashboard-outreach-builder-subtitle">{STEP_META[step].description}</p>
+          <h1 className="dashboard-outreach-builder-title">{builderTitle}</h1>
+          <p className="dashboard-outreach-builder-subtitle">{flowMeta[step].description}</p>
         </div>
       </header>
 
       <div className="dashboard-outreach-builder-stepper-wrap">
-        <OutreachStepper steps={STEPS} currentStep={step} onStepClick={setStep} />
+        <OutreachStepper steps={flowSteps} currentStep={step} onStepClick={setStep} />
       </div>
 
       <div className="dashboard-outreach-builder-body">
         <div className="dashboard-outreach-builder-step-panel">
           <div className="dashboard-outreach-builder-step-panel-head">
-            <h2 className="dashboard-outreach-builder-step-title">{STEP_META[step].title}</h2>
+            <h2 className="dashboard-outreach-builder-step-title">{flowMeta[step].title}</h2>
           </div>
 
           <div className="dashboard-outreach-builder-step-panel-content">
@@ -644,14 +757,23 @@ export function SingleChannelBuilder({
               />
             </div>
             <div className="dashboard-outreach-field dashboard-outreach-field--full">
-              <label className={dashboardLabelClass} htmlFor="sc-jd">Job description</label>
+              <label className={dashboardLabelClass} htmlFor="sc-jd">
+                Job description
+                {isHuntlo360 ? (
+                  <span className="dashboard-outreach-field-hint"> (required for AI messages)</span>
+                ) : null}
+              </label>
               <textarea
                 id="sc-jd"
                 className={dashboardTextareaClass}
                 rows={6}
                 value={form.jobDescription}
                 onChange={(e) => setForm({ ...form, jobDescription: e.target.value })}
-                placeholder="Paste or write the job description. AI will use this for personalization."
+                placeholder={
+                  isHuntlo360
+                    ? "Paste the job description (at least 20 characters). AI uses this to generate your email or WhatsApp sequence."
+                    : "Paste or write the job description. AI will use this for personalization."
+                }
               />
             </div>
           </div>
@@ -659,13 +781,20 @@ export function SingleChannelBuilder({
 
         {step === 1 ? (
           <div className="dashboard-outreach-channel-grid">
-            {(["whatsapp", "email", "voice", "linkedin"] as OutreachChannel[]).map((ch) => (
+            {(["whatsapp", "email", "voice", "linkedin"] as OutreachChannel[])
+              .filter((ch) => !isHuntlo360 || ch === "whatsapp" || ch === "email")
+              .map((ch) => (
               <ChannelCard
                 key={ch}
                 channel={ch}
                 selected={channel === ch}
                 onSelect={() => {
                   setChannel(ch);
+                  skipAutoAiRef.current = false;
+                  setAiGenerateError("");
+                  if (ch === "email" || ch === "whatsapp") {
+                    lastAutoAiChannelRef.current = null;
+                  }
                   if (ch === "voice") {
                     setVoiceMessage((current) =>
                       voiceMessageHasContent(current)
@@ -692,6 +821,15 @@ export function SingleChannelBuilder({
                 <MaterialIcon name="error_outline" className="text-sm" />
                 {aiGenerateError}
               </p>
+            ) : null}
+            {channel === "email" || channel === "whatsapp" ? (
+              <OutreachGenerateAiBar
+                jobTitle={form.jobTitle}
+                jobDescription={form.jobDescription}
+                channels={channel === "email" ? ["gmail"] : ["whatsapp"]}
+                disabled={aiGenerating}
+                onGenerated={handleAiGenerated}
+              />
             ) : null}
             <MessageEditor
               channel={channel}
@@ -755,14 +893,35 @@ export function SingleChannelBuilder({
             }
             emailMessage={channel === "email" ? emailMessage : undefined}
             onEmailMessageChange={channel === "email" ? setEmailMessage : undefined}
-            calendlyAutomation={channel === "email" ? calendlyAutomation : undefined}
-            onCalendlyAutomationChange={channel === "email" ? setCalendlyAutomation : undefined}
+            calendlyAutomation={
+              !isHuntlo360 && (channel === "email" || channel === "whatsapp")
+                ? calendlyAutomation
+                : undefined
+            }
+            onCalendlyAutomationChange={
+              !isHuntlo360 && (channel === "email" || channel === "whatsapp")
+                ? setCalendlyAutomation
+                : undefined
+            }
           />
           </>
           )
         ) : null}
 
-        {step === 3 ? (
+        {isHuntlo360 && step === scheduleStepIndex ? (
+          <div className="dashboard-huntlo360-schedule-step">
+            <OutreachEmailReplySetup
+              calendlyAutomation={calendlyAutomation}
+              onCalendlyAutomationChange={setCalendlyAutomation}
+            />
+            <p className="dashboard-outreach-empty-hint">
+              When candidates show interest, Huntlo sends this Calendly link automatically by email or
+              WhatsApp.
+            </p>
+          </div>
+        ) : null}
+
+        {step === candidatesStepIndex ? (
           <CandidateSelectionTable
             candidates={displayCandidates}
             loading={source === "talent_pool" ? poolLoading : false}
@@ -776,7 +935,7 @@ export function SingleChannelBuilder({
           />
         ) : null}
 
-        {step === 4 ? (
+        {step === reviewStepIndex ? (
           <CampaignReviewSummary
             campaignName={form.name}
             jobTitle={form.jobTitle}
@@ -799,6 +958,9 @@ export function SingleChannelBuilder({
                       : voiceMessageHasContent(voiceMessage),
               },
               { label: "Candidates selected", done: selectedIds.length > 0 },
+              ...(isHuntlo360
+                ? [{ label: "Calendly meeting selected", done: calendlyReady }]
+                : []),
               ...(needsSenderSelection
                 ? [{ label: "Sender account selected", done: senderReady }]
                 : []),
@@ -811,7 +973,7 @@ export function SingleChannelBuilder({
             submitting={submittingReview || launching}
             submitMode={reviewSubmitMode}
             error={reviewError}
-            onBack={() => setStep(3)}
+            onBack={() => setStep(candidatesStepIndex)}
             onSaveDraft={handleReviewSaveDraft}
             onLaunch={handleReviewLaunch}
           />
@@ -821,7 +983,7 @@ export function SingleChannelBuilder({
       </div>
       </div>
 
-        {step < 4 ? (
+        {step < reviewStepIndex ? (
           <footer className="dashboard-outreach-builder-footer dashboard-outreach-builder-footer--dock">
             <button type="button" className={dashboardBtnSecondaryClass} onClick={() => void goBack()}>
               Back

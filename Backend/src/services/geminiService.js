@@ -1,5 +1,5 @@
-const { VertexAI, SchemaType } = require("@google-cloud/vertexai");
-const { GoogleGenerativeAI } = require("@google/generative-ai");
+const { GoogleGenAI } = require("@google/genai");
+const { SchemaType } = require("../constants/geminiSchemaTypes");
 const {
   getAiConfig,
   requireVertexConfig,
@@ -95,95 +95,22 @@ function loadGcpSettings() {
   };
 }
 
-function extractTextFromVertexResponse(result) {
-  const parts = result?.response?.candidates?.[0]?.content?.parts;
-  if (!Array.isArray(parts)) return "";
-  return parts
-    .map((p) => (p?.text ? String(p.text) : ""))
-    .join("")
-    .trim();
-}
-
-async function generateWithVertex({
-  prompt,
-  systemInstruction,
-  jsonResponse,
-  responseSchema,
-}) {
-  const cfg = requireVertexConfig();
-
-  const vertexAI = new VertexAI({
-    project: cfg.projectId,
-    location: cfg.location,
-    googleAuthOptions: { credentials: cfg.credentials },
-  });
-
-  const generationConfig = {
-    temperature: 0.35,
-    maxOutputTokens: 8192,
-  };
-  if (jsonResponse) {
-    generationConfig.responseMimeType = "application/json";
-    if (responseSchema) {
-      generationConfig.responseSchema = responseSchema;
-    }
+function createGenAIClient(cfg) {
+  if (cfg.useVertex) {
+    const vertexCfg = requireVertexConfig();
+    return new GoogleGenAI({
+      vertexai: true,
+      project: vertexCfg.projectId,
+      location: vertexCfg.location,
+      googleAuthOptions: { credentials: vertexCfg.credentials },
+    });
   }
 
-  const model = vertexAI.getGenerativeModel({
-    model: cfg.model,
-    generationConfig,
-    systemInstruction: systemInstruction.trim()
-      ? { role: "system", parts: [{ text: systemInstruction.trim() }] }
-      : undefined,
-  });
-
-  const result = await model.generateContent({
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-  });
-
-  const output = extractTextFromVertexResponse(result);
-  if (!output) {
-    const err = new Error("Vertex AI returned an empty response");
-    err.statusCode = 502;
-    throw err;
-  }
-  return output;
-}
-
-async function generateWithAiStudio({
-  prompt,
-  systemInstruction,
-  jsonResponse,
-  responseSchema,
-}) {
-  const cfg = getAiConfig();
-  const genAI = new GoogleGenerativeAI(requireAiStudioKey());
-  const generationConfig = {};
-  if (jsonResponse) {
-    generationConfig.responseMimeType = "application/json";
-    if (responseSchema) {
-      generationConfig.responseSchema = responseSchema;
-    }
-  }
-
-  const model = genAI.getGenerativeModel({
-    model: cfg.model,
-    systemInstruction: systemInstruction.trim() || undefined,
-    generationConfig: Object.keys(generationConfig).length ? generationConfig : undefined,
-  });
-
-  const result = await model.generateContent(prompt);
-  const output = result?.response?.text?.();
-  if (!output || !String(output).trim()) {
-    const err = new Error("Gemini returned an empty response");
-    err.statusCode = 502;
-    throw err;
-  }
-  return String(output).trim();
+  return new GoogleGenAI({ apiKey: requireAiStudioKey() });
 }
 
 /**
- * Reusable Gemini / Vertex call (config from env via config/ai.js).
+ * Reusable Gemini call (Vertex AI or AI Studio via @google/genai).
  */
 async function generateWithGemini({
   prompt,
@@ -207,11 +134,40 @@ async function generateWithGemini({
     throw err;
   }
 
-  const opts = { prompt: text, systemInstruction, jsonResponse, responseSchema };
-  if (cfg.useVertex) {
-    return generateWithVertex(opts);
+  const ai = createGenAIClient(cfg);
+  const config = {
+    temperature: 0.35,
+    maxOutputTokens: 8192,
+  };
+
+  const instruction = String(systemInstruction || "").trim();
+  if (instruction) {
+    config.systemInstruction = instruction;
   }
-  return generateWithAiStudio(opts);
+
+  if (jsonResponse) {
+    config.responseMimeType = "application/json";
+    if (responseSchema) {
+      config.responseSchema = responseSchema;
+    }
+  }
+
+  const response = await ai.models.generateContent({
+    model: cfg.model,
+    contents: text,
+    config,
+  });
+
+  const output = String(response?.text || "").trim();
+  if (!output) {
+    const err = new Error(
+      cfg.useVertex ? "Vertex AI returned an empty response" : "Gemini returned an empty response"
+    );
+    err.statusCode = 502;
+    throw err;
+  }
+
+  return output;
 }
 
 async function generateJsonWithGemini({ prompt, systemInstruction = "", responseSchema }) {
@@ -239,6 +195,7 @@ module.exports = {
   loadGcpSettings,
   usesGcpVertex,
   getAiConfig,
+  SchemaType,
   OUTREACH_SEQUENCE_RESPONSE_SCHEMA,
   OUTREACH_AUTO_REPLY_RESPONSE_SCHEMA,
   WHATSAPP_OUTREACH_SEQUENCE_RESPONSE_SCHEMA,

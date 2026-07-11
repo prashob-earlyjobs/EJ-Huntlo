@@ -1,5 +1,5 @@
 import type { OutreachTouchpointDraft } from "@/lib/outreachTemplates";
-import { isQaEnv } from "@/lib/appEnv";
+import { allowsSubHourWaits } from "@/lib/appEnv";
 
 export type GmailWaitUnit = "minutes" | "hours" | "days";
 
@@ -14,8 +14,17 @@ const QA_MINUTES_OPTION: { value: GmailWaitUnit; label: string } = {
 };
 
 export function getGmailWaitUnitOptions(): { value: GmailWaitUnit; label: string }[] {
-  if (!isQaEnv()) return BASE_GMAIL_WAIT_UNIT_OPTIONS;
+  if (!allowsSubHourWaits()) return BASE_GMAIL_WAIT_UNIT_OPTIONS;
   return [QA_MINUTES_OPTION, ...BASE_GMAIL_WAIT_UNIT_OPTIONS];
+}
+
+export function getSequenceDelayUnitOptions(): { value: GmailWaitUnit; label: string }[] {
+  const options = BASE_GMAIL_WAIT_UNIT_OPTIONS.map((row) => ({
+    value: row.value,
+    label: row.label.charAt(0).toUpperCase() + row.label.slice(1),
+  }));
+  if (!allowsSubHourWaits()) return options;
+  return [{ value: "minutes", label: "Minutes" }, ...options];
 }
 
 /** @deprecated Use getGmailWaitUnitOptions() for env-aware options. */
@@ -61,7 +70,7 @@ export function gmailWaitFromDisplay(
 ): Pick<OutreachTouchpointDraft, "waitDays" | "waitHours" | "waitMinutes" | "waitUnit"> {
   const n = clampWaitAmount(amount, unit);
   if (unit === "minutes") {
-    if (!isQaEnv()) {
+    if (!allowsSubHourWaits()) {
       return { waitHours: 0, waitDays: n, waitMinutes: 0, waitUnit: "days" };
     }
     return { waitHours: 0, waitDays: 0, waitMinutes: n, waitUnit: "minutes" };

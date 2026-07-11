@@ -263,6 +263,100 @@ function getExecutionStep(plan, order) {
   return plan.find((item) => item.order === step) || null;
 }
 
+function isAutomatableStepChannel(channel) {
+  const key = String(channel || "").trim().toLowerCase();
+  return key === "whatsapp" || key === "email" || key === "voice";
+}
+
+/** First sequence step not yet counted in sentCount (skips LinkedIn). */
+function findNextPendingAutomatableStep(plan, enrollment) {
+  const sentCount = Number(enrollment?.sentCount) || 0;
+  const fromOrder = Number(enrollment?.currentStepOrder) || 1;
+
+  return (
+    plan.find(
+      (step) =>
+        step.order >= fromOrder &&
+        step.order > sentCount &&
+        isAutomatableStepChannel(step.channel)
+    ) ||
+    plan.find((step) => step.order > sentCount && isAutomatableStepChannel(step.channel)) ||
+    null
+  );
+}
+
+/**
+ * Re-open enrollments that finished early or lost schedule when the campaign plan
+ * still has automatable steps (e.g. voice added as step 4 after WA/email completed).
+ */
+async function reconcileOneEnrollmentWithPlan(enrollment, plan) {
+  const status = String(enrollment?.status || "");
+  const replyCount = Number(enrollment?.replyCount || 0);
+
+  if (status === "paused" && replyCount > 0) return false;
+  if (status === "skipped" && /no valid phone/i.test(String(enrollment?.lastError || ""))) {
+    return false;
+  }
+
+  const pendingStep = findNextPendingAutomatableStep(plan, enrollment);
+  if (!pendingStep) return false;
+
+  const currentOrder = Number(enrollment.currentStepOrder) || 1;
+  const nextSendAt = enrollment.nextSendAt ? new Date(enrollment.nextSendAt) : null;
+  const hasValidNextSendAt = nextSendAt && !Number.isNaN(nextSendAt.getTime());
+
+  const needsReopen = ["completed", "failed", "skipped"].includes(status);
+  const needsActiveFix =
+    status === "active" &&
+    (!hasValidNextSendAt ||
+      (pendingStep.order !== currentOrder && pendingStep.order > Number(enrollment.sentCount || 0)));
+
+  if (!needsReopen && !needsActiveFix) return false;
+
+  const now = new Date();
+  await OutreachModuleEnrollment.updateOne(
+    { _id: enrollment._id },
+    {
+      $set: {
+        status: "active",
+        currentStepOrder: pendingStep.order,
+        nextSendAt: now,
+        lastError: needsReopen ? "" : String(enrollment.lastError || ""),
+      },
+    }
+  );
+  return true;
+}
+
+async function reconcileOutreachModuleEnrollmentsWithPlan(campaignId = null) {
+  const campaignFilter = campaignId
+    ? { _id: campaignOid(campaignId), status: { $in: ["active", "paused", "completed"] } }
+    : { status: { $in: ["active", "paused"] } };
+
+  const campaigns = await OutreachModuleCampaign.find(campaignFilter)
+    .select("_id mode channel channelMessage sequenceSteps")
+    .lean();
+
+  let reopened = 0;
+  for (const campaign of campaigns) {
+    const plan = buildExecutionPlan(campaign);
+    if (!plan.length) continue;
+
+    const enrollments = await OutreachModuleEnrollment.find({
+      outreachModuleCampaignId: campaign._id,
+      status: { $in: ["active", "completed", "failed", "skipped"] },
+    }).lean();
+
+    for (const enrollment of enrollments) {
+      if (await reconcileOneEnrollmentWithPlan(enrollment, plan)) {
+        reopened += 1;
+      }
+    }
+  }
+
+  return { reopened };
+}
+
 function campaignPayloadForMerge(campaignDoc) {
   const plain = campaignDoc.toObject ? campaignDoc.toObject() : campaignDoc;
   return {
@@ -324,9 +418,6 @@ async function claimModuleEnrollmentForSend(enrollment) {
     sentCount,
     nextSendAt: { $lte: now },
   };
-  if (stepOrder > 1) {
-    claimFilter.hasReply = { $ne: true };
-  }
 
   return OutreachModuleEnrollment.findOneAndUpdate(
     claimFilter,
@@ -783,10 +874,15 @@ async function processVoiceStep({ enrollment, campaignDoc, step }) {
     return;
   }
 
+  const voiceAgentConfig = campaignDoc?.voiceAgentConfig || {};
   const stepVoiceConfig = {
-    callObjective: String(step.body || "").trim(),
-    body: String(step.voiceMeta?.callPrompt || campaignDoc?.channelMessage?.body || "").trim(),
-    voiceTone: step.voiceMeta?.voiceTone || campaignDoc?.channelMessage?.voiceTone || "professional",
+    callObjective: String(step.body || voiceAgentConfig.callObjective || "").trim(),
+    body: String(step.voiceMeta?.callPrompt || voiceAgentConfig.callPrompt || "").trim(),
+    voiceTone:
+      step.voiceMeta?.voiceTone ||
+      voiceAgentConfig.voiceTone ||
+      campaignDoc?.channelMessage?.voiceTone ||
+      "professional",
     callAttempts:
       step.voiceMeta?.callAttempts ?? campaignDoc?.channelMessage?.callAttempts ?? 1,
     attemptGapHours:
@@ -882,7 +978,7 @@ async function processOutreachModuleEnrollmentDoc(enrollment) {
     return;
   }
 
-  if (step.condition === "no_response" && claimed.hasReply) {
+  if (step.condition === "no_response" && Number(claimed.replyCount || 0) > 0) {
     await skipToNextStep({
       enrollmentId: claimed._id,
       plan,
@@ -1150,7 +1246,7 @@ async function resumeOutreachModuleEnrollments(campaignId) {
 
   let resumed = 0;
   for (const row of paused) {
-    if (row.hasReply) continue;
+    if (Number(row.replyCount || 0) > 0) continue;
     await OutreachModuleEnrollment.updateOne(
       { _id: row._id },
       {
@@ -1182,6 +1278,13 @@ async function deleteOutreachModuleEnrollments(campaignId) {
 }
 
 async function processDueOutreachModuleEnrollments() {
+  const reconcile = await reconcileOutreachModuleEnrollmentsWithPlan();
+  if (reconcile.reopened > 0) {
+    console.log(
+      `[outreach-module-send] reopened ${reconcile.reopened} enrollment(s) for pending plan steps`
+    );
+  }
+
   const now = new Date();
   const activeCampaignIds = await OutreachModuleCampaign.find({
     status: { $in: ["active", "completed"] },
@@ -1284,15 +1387,13 @@ async function maybeSendOutreachModuleReplyQuestion(enrollment, campaignDoc) {
 
   const nextReplyQuestionIndex =
     nextIndex + 1 < replyQuestions.length ? nextIndex + 1 : -1;
-  const sentCount = (Number(enrollment.sentCount) || 0) + 1;
+  const sentCount = Number(enrollment.sentCount) || 0;
   const allDone = nextReplyQuestionIndex < 0;
 
   await updateEmbeddedCandidateAfterSend(campaignId, enrollment.candidateRefId, {
     channel: "WhatsApp",
     lastStep: label,
     nextAction: allDone ? "Qualification complete" : "Awaiting reply",
-    responseStatus: "replied",
-    incrementSent: true,
     interaction: {
       type: "whatsapp",
       summary: `Sent: ${label}`,
@@ -1316,6 +1417,95 @@ async function maybeSendOutreachModuleReplyQuestion(enrollment, campaignDoc) {
   );
 
   return { sent: true, index: nextIndex };
+}
+
+function candidateAlreadySentCalendlyLink(candidate) {
+  const interactions = Array.isArray(candidate?.interactions) ? candidate.interactions : [];
+  return interactions.some((row) => String(row?.content?.action || "") === "scheduling_link_sent");
+}
+
+async function maybeSendOutreachModuleCalendlyLink(enrollment, campaignDoc) {
+  const calendly = campaignDoc?.calendlyAutomation || {};
+  if (!calendly.enabled || !calendly.schedulingUrl) return { sent: false };
+
+  const campaignId = String(enrollment.outreachModuleCampaignId);
+  const liveDoc = await OutreachModuleCampaign.findById(campaignId);
+  if (!liveDoc) return { sent: false };
+
+  const candidate = (liveDoc.candidates || []).find(
+    (row) => String(row.candidateRefId) === String(enrollment.candidateRefId)
+  );
+  if (!candidate || candidateAlreadySentCalendlyLink(candidate)) return { sent: false };
+
+  const userId = String(enrollment.userId);
+  const { buildSchedulingUrl } = require("./campaignCalendlyBookingService");
+  const { deliverCalendlyLink, channelsForCampaignCandidate } = require("./scheduleLinkDeliveryService");
+
+  const schedulingUrl = buildSchedulingUrl(calendly.schedulingUrl, {
+    name: candidate.name || enrollment.contactName,
+    email: candidate.email || enrollment.contactEmail,
+    campaignId,
+  });
+
+  let delivery;
+  try {
+    delivery = await deliverCalendlyLink({
+      userId,
+      candidateName: candidate.name || enrollment.contactName,
+      email: candidate.email || enrollment.contactEmail,
+      phone: candidate.phone || enrollment.contactPhone,
+      schedulingUrl,
+      meetingName: calendly.meetingName || "",
+      role: candidate.role || enrollment.contactRole || "",
+      channels: channelsForCampaignCandidate(liveDoc, candidate),
+      emailIntegrationId: liveDoc.emailIntegrationId ? String(liveDoc.emailIntegrationId) : "",
+    });
+  } catch (err) {
+    console.warn("[outreach] Calendly link delivery failed:", err?.message || err);
+    return { sent: false };
+  }
+
+  const interactionType =
+    delivery.whatsappSent && !delivery.emailSent
+      ? "whatsapp"
+      : delivery.emailSent
+        ? "email"
+        : "action";
+  candidate.responseStatus = "follow_up_scheduled";
+  candidate.nextAction = "Awaiting Calendly booking";
+  candidate.interactions.push({
+    type: interactionType,
+    summary: "Calendly scheduling link sent",
+    content: {
+      action: "scheduling_link_sent",
+      schedulingUrl,
+      emailSent: delivery.emailSent,
+      whatsappSent: delivery.whatsappSent,
+    },
+    at: new Date(),
+  });
+  liveDoc.markModified("candidates");
+  await liveDoc.save();
+
+  const body = `Calendly scheduling link: ${schedulingUrl}`;
+  await logCampaignWhatsAppMessage({
+    userId,
+    campaignId,
+    enrollmentId: String(enrollment._id),
+    candidateKey: String(enrollment.candidateRefId || ""),
+    contactPhone: enrollment.contactPhone,
+    direction: "outbound",
+    body,
+    sequenceStepOrder: null,
+    sequenceStepLabel: "Calendly scheduling link",
+    provider: "",
+    externalMessageId: "",
+    status: "sent",
+    errorMessage: "",
+    sentAt: new Date(),
+  });
+
+  return { sent: true, schedulingUrl };
 }
 
 async function handleOutreachModuleInboundWhatsApp({
@@ -1394,6 +1584,7 @@ async function handleOutreachModuleInboundWhatsApp({
   const freshEnrollment = await OutreachModuleEnrollment.findById(enrollment._id).lean();
   if (freshEnrollment) {
     const questions = getCampaignReplyQuestions(campaignDoc);
+    const idxBefore = Number(freshEnrollment.nextReplyQuestionIndex);
     if (questions.length > 0 && Number(freshEnrollment.nextReplyQuestionIndex) < 0) {
       const inferredIndex = Math.min(
         Math.max(0, replyCount - 1),
@@ -1406,6 +1597,15 @@ async function handleOutreachModuleInboundWhatsApp({
       freshEnrollment.nextReplyQuestionIndex = inferredIndex;
     }
     await maybeSendOutreachModuleReplyQuestion(freshEnrollment, campaignDoc);
+
+    const calendly = campaignDoc.calendlyAutomation || {};
+    const shouldSendCalendly =
+      calendly.enabled &&
+      calendly.schedulingUrl &&
+      (questions.length === 0 ? replyCount >= 1 : idxBefore < 0 && replyCount > questions.length);
+    if (shouldSendCalendly) {
+      await maybeSendOutreachModuleCalendlyLink(freshEnrollment, campaignDoc);
+    }
   }
 
   return {
@@ -1418,10 +1618,12 @@ async function handleOutreachModuleInboundWhatsApp({
 
 module.exports = {
   buildExecutionPlan,
+  findNextPendingAutomatableStep,
   launchOutreachModuleSequence,
   pauseOutreachModuleEnrollments,
   resumeOutreachModuleEnrollments,
   deleteOutreachModuleEnrollments,
+  reconcileOutreachModuleEnrollmentsWithPlan,
   processDueOutreachModuleEnrollments,
   handleOutreachModuleInboundWhatsApp,
   updateEmbeddedCandidateAfterSend,

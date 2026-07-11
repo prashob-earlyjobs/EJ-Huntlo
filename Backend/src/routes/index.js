@@ -11,6 +11,7 @@ const billingRoutes = require("./billing");
 const publicCandidatesRoutes = require("./publicCandidates");
 const blogRoutes = require("./blog");
 const screeningRoutes = require("./screenings");
+const scheduleRoutes = require("./schedule");
 
 const router = express.Router();
 
@@ -34,5 +35,6 @@ router.use("/billing", billingRoutes);
 router.use("/public-candidates", publicCandidatesRoutes);
 router.use("/blog", blogRoutes);
 router.use("/screenings", screeningRoutes);
+router.use("/schedule", scheduleRoutes);
 
 module.exports = router;

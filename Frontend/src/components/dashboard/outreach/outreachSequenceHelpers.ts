@@ -4,6 +4,7 @@ import type {
   OutreachChannel,
   SequenceStep,
 } from "@/components/dashboard/outreach/types";
+import { ensureVoiceStepDefaults } from "@/lib/voiceSingleChannelOutreach";
 
 export const FOLLOW_UP_CONDITION_LABEL = "If no reply";
 
@@ -117,6 +118,23 @@ export function normalizeSequenceStepsFromApi(
   });
 }
 
+export function sequenceStepsEquivalent(a: SequenceStep[], b: SequenceStep[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((step, index) => {
+    const other = b[index];
+    if (!other) return false;
+    return (
+      step.id === other.id &&
+      step.channel === other.channel &&
+      step.label === other.label &&
+      step.delayValue === other.delayValue &&
+      step.delayUnit === other.delayUnit &&
+      step.condition === other.condition &&
+      step.timingLabel === other.timingLabel
+    );
+  });
+}
+
 export function remapStepMessagesByIndex(
   previousSteps: SequenceStep[],
   nextSteps: SequenceStep[],
@@ -139,13 +157,16 @@ export function remapStepMessagesByIndex(
   return remapped;
 }
 
+export { ensureVoiceStepDefaults } from "@/lib/voiceSingleChannelOutreach";
+
 export function buildStepMessagesPayload(
   steps: SequenceStep[],
   messages: Record<string, string>
 ) {
+  const resolved = ensureVoiceStepDefaults(steps, messages);
   return steps.map((step) => ({
     stepId: step.id,
-    message: messages[step.id]?.trim() || null,
+    message: resolved[step.id]?.trim() || null,
   }));
 }
 

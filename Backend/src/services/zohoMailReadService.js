@@ -1,4 +1,4 @@
-const { ImapFlow } = require("imapflow");
+const { createSafeImapClient, closeImapClient } = require("./imapClientUtils");
 const { getZohoDcConfig } = require("./zohoMailConfig");
 const {
   zohoMailApiFetch,
@@ -164,7 +164,7 @@ async function fetchZohoThreadMessagesOAuth(integrationDoc, enrollment, threadId
     });
     if (!parsed) continue;
 
-    if (since && parsed.receivedAt < new Date(since.getTime() - 86_400_000)) {
+    if (since && parsed.receivedAt < new Date(since.getTime() - 2 * 60 * 1000)) {
       continue;
     }
 
@@ -195,21 +195,23 @@ async function fetchZohoThreadMessagesImap(integrationDoc, enrollment, threadId)
   const contactEmail = String(enrollment.contactEmail || "").trim();
   const userEmail = email;
   const since = enrollment.lastSentAt
-    ? new Date(enrollment.lastSentAt.getTime() - 86_400_000)
-    : new Date(Date.now() - 30 * 86_400_000);
+    ? new Date(enrollment.lastSentAt)
+    : new Date(Date.now() - 7 * 86_400_000);
 
-  const client = new ImapFlow({
+  const client = createSafeImapClient({
     host: dc.imapHost,
     port: 993,
     secure: true,
     auth: { user: email, pass: appPassword },
-    logger: false,
   });
 
   const normalized = [];
+  let connected = false;
+  let lock = null;
   try {
     await client.connect();
-    const lock = await client.getMailboxLock("INBOX");
+    connected = true;
+    lock = await client.getMailboxLock("INBOX");
     try {
       const uids = await client.search({
         or: [{ from: contactEmail }, { to: contactEmail }],
@@ -255,10 +257,13 @@ async function fetchZohoThreadMessagesImap(integrationDoc, enrollment, threadId)
         });
       }
     } finally {
-      lock.release();
+      if (lock) lock.release();
     }
+  } catch (err) {
+    console.warn(`[zoho-mail-reply-sync] IMAP ${dc.imapHost} failed:`, err?.message || err);
+    return [];
   } finally {
-    await client.logout().catch(() => undefined);
+    await closeImapClient(client, connected);
   }
 
   normalized.sort((a, b) => a.receivedAt - b.receivedAt);
