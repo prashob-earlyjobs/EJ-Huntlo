@@ -145,7 +145,7 @@ async function saveCampaignVoiceAgent(actorUserId, campaignId, body) {
         voiceAgentConfig,
       },
     },
-    { new: true, runValidators: true }
+    { returnDocument: "after", runValidators: true }
   );
 
   if (!updated || String(updated.hunarVoiceAgentId || "").trim() !== agentId) {

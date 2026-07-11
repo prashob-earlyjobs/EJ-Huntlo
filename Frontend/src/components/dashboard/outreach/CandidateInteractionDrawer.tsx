@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
-import type { CampaignTrackingCandidate } from "@/components/dashboard/outreach/types";
+import type { CampaignScheduledInterview, CampaignTrackingCandidate } from "@/components/dashboard/outreach/types";
 import { getStoredAuth } from "@/lib/auth";
 import { formatResponsePreview } from "@/lib/formatResponsePreview";
 import { dashboardBtnPrimaryClass, dashboardBtnSecondaryClass } from "@/lib/dashboardStyles";
@@ -22,6 +22,7 @@ type Props = {
   candidate: CampaignTrackingCandidate | null;
   open: boolean;
   refreshKey?: number;
+  calendlyEnabled?: boolean;
   onClose: () => void;
   onAction: (action: string) => void;
 };
@@ -52,10 +53,12 @@ export function CandidateInteractionDrawer({
   candidate,
   open,
   refreshKey = 0,
+  calendlyEnabled = false,
   onClose,
   onAction,
 }: Props) {
   const [interactions, setInteractions] = useState<Interaction[]>([]);
+  const [scheduledInterview, setScheduledInterview] = useState<CampaignScheduledInterview | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -63,6 +66,7 @@ export function CandidateInteractionDrawer({
     const candidateId = String(candidate?.id || "").trim();
     if (!open || !candidateId) {
       setInteractions([]);
+      setScheduledInterview(null);
       setError("");
       return;
     }
@@ -86,6 +90,7 @@ export function CandidateInteractionDrawer({
         );
         if (!cancelled) {
           setInteractions(data.interactions);
+          setScheduledInterview(data.scheduledInterview);
         }
       } catch (err) {
         if (!cancelled) {
@@ -149,6 +154,43 @@ export function CandidateInteractionDrawer({
             </dl>
           </section>
 
+          {scheduledInterview ? (
+            <section className="dashboard-outreach-drawer-section">
+              <h4>
+                <MaterialIcon name="event" className="text-sm" />
+                Scheduled interview
+              </h4>
+              <dl className="dashboard-outreach-drawer-meta">
+                <div>
+                  <dt>Meeting</dt>
+                  <dd>{scheduledInterview.eventName || "Interview"}</dd>
+                </div>
+                <div>
+                  <dt>When</dt>
+                  <dd>
+                    {scheduledInterview.startTime
+                      ? formatInteractionTime(scheduledInterview.startTime)
+                      : "—"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Status</dt>
+                  <dd>{scheduledInterview.status === "active" ? "Scheduled" : "Canceled"}</dd>
+                </div>
+              </dl>
+              {scheduledInterview.rescheduleUrl ? (
+                <a
+                  href={scheduledInterview.rescheduleUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="dashboard-btn-secondary dashboard-btn-secondary--sm"
+                >
+                  Open in Calendly
+                </a>
+              ) : null}
+            </section>
+          ) : null}
+
           <section className="dashboard-outreach-drawer-section">
             <h4>
               <MaterialIcon name="forum" className="text-sm" />
@@ -199,9 +241,9 @@ export function CandidateInteractionDrawer({
           <button
             type="button"
             className={dashboardBtnSecondaryClass}
-            onClick={() => onAction("interview")}
+            onClick={() => onAction(calendlyEnabled ? "send_scheduling_link" : "interview")}
           >
-            Schedule interview
+            {calendlyEnabled ? "Send Calendly link" : "Schedule interview"}
           </button>
           <button
             type="button"

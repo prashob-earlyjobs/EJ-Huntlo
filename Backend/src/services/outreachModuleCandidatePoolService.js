@@ -59,7 +59,83 @@ function csvCandidateId(email, phone, name, index) {
  * Read-only candidate pool for the outreach module UI (saved talent pool).
  * Does not modify SavedCandidate or existing candidate APIs.
  */
+async function listInterestedOutreachModuleCandidates(actorUserId, options = {}) {
+  const access = await poolAccessFilter(actorUserId);
+  if (!access) {
+    const err = new Error("Authentication required");
+    err.statusCode = 401;
+    throw err;
+  }
+
+  const OutreachModuleCampaign = require("../models/OutreachModuleCampaign");
+  const campaigns = await OutreachModuleCampaign.find({
+    ...access,
+    sourceModule: { $ne: "screening" },
+    status: { $in: ["active", "paused", "completed"] },
+  })
+    .select("candidates")
+    .lean();
+
+  const interestedRefIds = new Set();
+  for (const campaign of campaigns) {
+    for (const candidate of campaign.candidates || []) {
+      const refId = String(candidate.candidateRefId || "").trim();
+      if (!refId || !mongoose.Types.ObjectId.isValid(refId)) continue;
+      const status = String(candidate.responseStatus || "");
+      if (status === "interested" || status === "replied" || status === "follow_up_scheduled") {
+        interestedRefIds.add(refId);
+      }
+    }
+  }
+
+  if (interestedRefIds.size === 0) {
+    return { candidates: [] };
+  }
+
+  const objectIds = [...interestedRefIds].map((id) => new mongoose.Types.ObjectId(id));
+  const docs = await SavedCandidate.find({ ...access, _id: { $in: objectIds } })
+    .sort({ updatedAt: -1, _id: -1 })
+    .limit(500)
+    .lean();
+
+  const linkedinUrls = docs
+    .map((doc) => String(doc.linkedinProfileUrl || doc.rawDoc?.linkedinProfileUrl || "").trim())
+    .filter(Boolean);
+  const revealedByUrl =
+    linkedinUrls.length > 0 ? await lookupUserRevealedContacts(actorUserId, linkedinUrls) : {};
+
+  let candidates = docs.map((doc) => ({
+    ...formatPoolCandidate(doc, revealedByUrl),
+    status: "Interested",
+  }));
+
+  const search = String(options.search || "").trim().toLowerCase();
+  const location = String(options.location || "").trim();
+  const experience = String(options.experience || "").trim();
+
+  if (search) {
+    candidates = candidates.filter(
+      (c) =>
+        c.name.toLowerCase().includes(search) ||
+        c.role.toLowerCase().includes(search)
+    );
+  }
+  if (location) {
+    candidates = candidates.filter((c) => c.location === location);
+  }
+  if (experience) {
+    candidates = candidates.filter((c) => c.experience.startsWith(experience));
+  }
+
+  return { candidates };
+}
+
 async function listOutreachModuleCandidatePool(actorUserId, options = {}) {
+  const source = String(options.source || "talent_pool").trim().toLowerCase();
+  if (source === "interested" || source === "outreach_interested") {
+    return listInterestedOutreachModuleCandidates(actorUserId, options);
+  }
+
   const access = await poolAccessFilter(actorUserId);
   if (!access) {
     const err = new Error("Authentication required");

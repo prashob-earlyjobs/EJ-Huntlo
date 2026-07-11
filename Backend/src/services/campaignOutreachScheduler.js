@@ -1,6 +1,10 @@
 const { processDueEnrollments } = require("./campaignOutreachSendService");
 const { processDueOutreachModuleEnrollments } = require("./outreachModuleSendService");
-const { syncDueEnrollmentReplies, syncDueOutreachModuleEnrollmentReplies } = require("./campaignReplySyncService");
+const {
+  syncDueEnrollmentReplies,
+  syncDueOutreachModuleEnrollmentReplies,
+  repairStuckOutreachModuleEnrollmentsBeforeSend,
+} = require("./campaignReplySyncService");
 
 const DEFAULT_INTERVAL_MS = 60_000;
 const intervalMs = Math.max(
@@ -31,6 +35,12 @@ async function runTick() {
     if (moduleReplySync.newReplies > 0) {
       console.log(
         `[outreach-module-reply-sync] stored ${moduleReplySync.newReplies} new reply message(s) from ${moduleReplySync.checked} enrollment(s)`
+      );
+    }
+    const repair = await repairStuckOutreachModuleEnrollmentsBeforeSend();
+    if (repair.resumed > 0) {
+      console.log(
+        `[outreach-module-reply-sync] resumed ${repair.resumed} enrollment(s) after false-reply repair`
       );
     }
     const processed = await processDueEnrollments();

@@ -1,5 +1,5 @@
 const crypto = require("crypto");
-const { SchemaType } = require("@google-cloud/vertexai");
+const { SchemaType } = require("../constants/geminiSchemaTypes");
 const { generateJsonWithGemini } = require("./geminiService");
 const Campaign = require("../models/Campaign");
 const {

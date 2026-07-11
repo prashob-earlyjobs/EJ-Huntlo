@@ -59,3 +59,44 @@ export function voiceMessageToChannelPayload(message: VoiceSingleChannelMessage)
     attemptGapHours: message.attemptGapHours,
   };
 }
+
+export function encodeVoiceStepMessage(message: VoiceSingleChannelMessage): string {
+  const resolved = resolveVoiceSingleChannelMessage(message);
+  return JSON.stringify({
+    body: resolved.body,
+    callObjective: resolved.callObjective,
+    voiceTone: resolved.voiceTone,
+    callAttempts: resolved.callAttempts,
+    attemptGapHours: resolved.attemptGapHours,
+  });
+}
+
+export function decodeVoiceStepMessage(raw: string): VoiceSingleChannelMessage {
+  const trimmed = String(raw || "").trim();
+  if (!trimmed) return resolveVoiceSingleChannelMessage();
+  if (trimmed.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(trimmed) as Partial<VoiceSingleChannelMessage>;
+      if (parsed && typeof parsed === "object") {
+        return resolveVoiceSingleChannelMessage(parsed);
+      }
+    } catch {
+      // fall through to plain body
+    }
+  }
+  return resolveVoiceSingleChannelMessage({ body: trimmed });
+}
+
+export function ensureVoiceStepDefaults(
+  steps: Array<{ id: string; channel: string }>,
+  messages: Record<string, string>
+): Record<string, string> {
+  const next = { ...messages };
+  const defaultVoice = createDefaultVoiceSingleChannelMessage();
+  for (const step of steps) {
+    if (step.channel !== "voice") continue;
+    if (String(next[step.id] || "").trim()) continue;
+    next[step.id] = encodeVoiceStepMessage(defaultVoice);
+  }
+  return next;
+}

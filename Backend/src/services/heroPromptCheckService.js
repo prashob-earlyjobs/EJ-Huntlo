@@ -1,4 +1,4 @@
-const { SchemaType } = require("@google-cloud/vertexai");
+const { SchemaType } = require("../constants/geminiSchemaTypes");
 const { generateJsonWithGemini } = require("./geminiService");
 const {
   HERO_MIN_DIMENSIONS,

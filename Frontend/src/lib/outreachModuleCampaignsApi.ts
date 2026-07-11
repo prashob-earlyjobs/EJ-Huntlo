@@ -1,7 +1,9 @@
 import { authHeaders } from "@/lib/auth";
 import type {
+  CampaignCalendlyConfig,
   CampaignDetailStats,
   CampaignGoal,
+  CampaignScheduledInterview,
   CampaignTrackingCandidate,
   CandidateSource,
   OutreachCampaignMode,
@@ -99,11 +101,18 @@ async function parseJson<T>(res: Response): Promise<T> {
   return data;
 }
 
-export async function createOutreachModuleDraft(token: string, mode: OutreachCampaignMode) {
+export async function createOutreachModuleDraft(
+  token: string,
+  mode: OutreachCampaignMode,
+  options?: { sourceModule?: "outreach" | "screening" | "huntlo360" }
+) {
   const res = await fetch(`${apiBase()}/api/outreach-campaigns/drafts`, {
     method: "POST",
     headers: { ...authHeaders(token), "Content-Type": "application/json" },
-    body: JSON.stringify({ mode }),
+    body: JSON.stringify({
+      mode,
+      ...(options?.sourceModule ? { sourceModule: options.sourceModule } : {}),
+    }),
   });
   return parseJson<{
     success: boolean;
@@ -171,12 +180,23 @@ export async function fetchOutreachModuleStats(token: string) {
 
 export async function fetchOutreachModuleCandidatePool(
   token: string,
-  options?: { search?: string; location?: string; experience?: string }
+  options?: {
+    search?: string;
+    location?: string;
+    experience?: string;
+    source?: "talent_pool" | "interested" | "outreach_interested";
+  }
 ) {
   const qs = new URLSearchParams();
   if (options?.search) qs.set("search", options.search);
   if (options?.location) qs.set("location", options.location);
   if (options?.experience) qs.set("experience", options.experience);
+  if (options?.source && options.source !== "talent_pool") {
+    qs.set(
+      "source",
+      options.source === "outreach_interested" ? "interested" : options.source
+    );
+  }
   const query = qs.toString();
   const res = await fetch(
     `${apiBase()}/api/outreach-campaigns/candidates/pool${query ? `?${query}` : ""}`,
@@ -214,12 +234,18 @@ export async function importOutreachModuleCandidatesCsv(
 
 export async function fetchOutreachModuleCampaigns(
   token: string,
-  options?: { page?: number; limit?: number; status?: OutreachCampaignStatus }
+  options?: {
+    page?: number;
+    limit?: number;
+    status?: OutreachCampaignStatus;
+    sourceModule?: "outreach" | "screening" | "huntlo360";
+  }
 ) {
   const qs = new URLSearchParams();
   if (options?.page) qs.set("page", String(options.page));
   if (options?.limit) qs.set("limit", String(options.limit));
   if (options?.status) qs.set("status", options.status);
+  if (options?.sourceModule) qs.set("sourceModule", options.sourceModule);
   const query = qs.toString();
   const res = await fetch(`${apiBase()}/api/outreach-campaigns${query ? `?${query}` : ""}`, {
     headers: authHeaders(token),
@@ -315,16 +341,28 @@ export async function resumeOutreachModuleCampaign(token: string, campaignId: st
   return data.campaign;
 }
 
-export async function fetchOutreachModuleCampaignTracking(token: string, campaignId: string) {
-  const res = await fetch(`${apiBase()}/api/outreach-campaigns/${campaignId}/tracking`, {
-    headers: authHeaders(token),
-  });
+export async function fetchOutreachModuleCampaignTracking(
+  token: string,
+  campaignId: string,
+  options?: { syncReplies?: boolean }
+) {
+  const params = new URLSearchParams();
+  if (options?.syncReplies) params.set("syncReplies", "1");
+  const query = params.toString();
+  const res = await fetch(
+    `${apiBase()}/api/outreach-campaigns/${campaignId}/tracking${query ? `?${query}` : ""}`,
+    {
+      headers: authHeaders(token),
+    }
+  );
   const data = await parseJson<{
     success: boolean;
     campaign: OutreachCampaignRow;
     stats: CampaignDetailStats;
     funnel: { label: string; count: number }[];
     candidates: CampaignTrackingCandidate[];
+    sequenceSteps?: SequenceStep[];
+    whatsappReplyQuestions?: string[];
   }>(res);
   return data;
 }
@@ -333,7 +371,7 @@ export async function recordOutreachModuleCandidateAction(
   token: string,
   campaignId: string,
   candidateId: string,
-  payload: { action: "screening" | "interview" | "not_interested" | "note"; note?: string }
+  payload: { action: "screening" | "interview" | "not_interested" | "note" | "send_scheduling_link"; note?: string }
 ) {
   const res = await fetch(
     `${apiBase()}/api/outreach-campaigns/${campaignId}/candidates/${candidateId}/actions`,
@@ -348,6 +386,58 @@ export async function recordOutreachModuleCandidateAction(
     candidate: CampaignTrackingCandidate;
     stats: CampaignDetailStats;
     funnel: { label: string; count: number }[];
+    schedulingUrl?: string;
+    emailSent?: boolean;
+    whatsappSent?: boolean;
+  }>(res);
+}
+
+export async function fetchCampaignScheduledInterviews(
+  token: string,
+  campaignId: string,
+  options?: { sync?: boolean }
+) {
+  const qs = new URLSearchParams();
+  if (options?.sync === false) qs.set("sync", "0");
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  const res = await fetch(
+    `${apiBase()}/api/outreach-campaigns/${campaignId}/scheduled-interviews${suffix}`,
+    { headers: authHeaders(token) }
+  );
+  return parseJson<{
+    success: boolean;
+    interviews: CampaignScheduledInterview[];
+    calendly: CampaignCalendlyConfig;
+  }>(res);
+}
+
+export async function syncCampaignScheduledInterviews(token: string, campaignId: string) {
+  const res = await fetch(
+    `${apiBase()}/api/outreach-campaigns/${campaignId}/scheduled-interviews/sync`,
+    { method: "POST", headers: authHeaders(token) }
+  );
+  return parseJson<{
+    success: boolean;
+    synced: number;
+    message: string;
+    interviews: CampaignScheduledInterview[];
+    calendly: CampaignCalendlyConfig;
+  }>(res);
+}
+
+export async function sendCampaignSchedulingLink(
+  token: string,
+  campaignId: string,
+  candidateId: string
+) {
+  const res = await fetch(
+    `${apiBase()}/api/outreach-campaigns/${campaignId}/candidates/${candidateId}/send-scheduling-link`,
+    { method: "POST", headers: authHeaders(token) }
+  );
+  return parseJson<{
+    success: boolean;
+    schedulingUrl: string;
+    candidateId: string;
   }>(res);
 }
 
@@ -370,5 +460,6 @@ export async function fetchOutreachModuleCandidateInteractions(
       content: unknown;
       at: string | null;
     }>;
+    scheduledInterview: CampaignScheduledInterview | null;
   }>(res);
 }

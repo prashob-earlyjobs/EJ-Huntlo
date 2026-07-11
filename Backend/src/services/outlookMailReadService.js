@@ -93,8 +93,8 @@ async function fetchOutlookThreadMessages(integrationDoc, enrollment, threadId) 
   const userEmail = String(integrationDoc.email || "").trim();
   const contactEmail = String(enrollment.contactEmail || "").trim();
   const since = enrollment.lastSentAt
-    ? new Date(enrollment.lastSentAt.getTime() - 86_400_000)
-    : new Date(Date.now() - 30 * 86_400_000);
+    ? new Date(enrollment.lastSentAt)
+    : new Date(Date.now() - 7 * 86_400_000);
 
   let raw = [];
   const convId = stripOutlookIdPrefix(threadId);

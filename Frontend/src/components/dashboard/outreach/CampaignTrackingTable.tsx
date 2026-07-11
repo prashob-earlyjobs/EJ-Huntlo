@@ -14,6 +14,7 @@ const STATUS_LABELS: Record<string, string> = {
   no_response: "No Response",
   replied: "Replied",
   follow_up_scheduled: "Follow-up Scheduled",
+  interview_scheduled: "Interview Scheduled",
   call_completed: "Call Completed",
   failed_delivery: "Failed Delivery",
 };

@@ -57,6 +57,7 @@ import {
 import { AddToCampaignModal } from "@/components/dashboard/AddToCampaignModal";
 import { CampaignsPanel } from "@/components/dashboard/CampaignsPanel";
 import { IntegrationsPanel } from "@/components/dashboard/IntegrationsPanel";
+import { Huntlo360Panel } from "@/components/dashboard/huntlo360/Huntlo360Panel";
 import { OutreachPanel } from "@/components/dashboard/outreach/OutreachPanel";
 import { SchedulePanel } from "@/components/dashboard/schedule/SchedulePanel";
 import { ScreeningPanel } from "@/components/dashboard/screening/ScreeningPanel";
@@ -201,7 +202,7 @@ const screenSidebarItem: UserSidebarNavItem = {
 
 const scheduleSidebarItem: UserSidebarNavItem = {
   label: "Schedule",
-  subtitle: "Interviews & follow-ups",
+  subtitle: "Direct & campaign interviews",
   icon: <MaterialIcon name="calendar_month" />,
   tabKey: "Schedule",
 };
@@ -228,11 +229,19 @@ const integrationsSidebarItem: UserSidebarNavItem = {
   ),
 };
 
+const huntlo360SidebarItem: UserSidebarNavItem = {
+  label: "Huntlo 360",
+  subtitle: "Outreach to interview flow",
+  icon: <MaterialIcon name="hub" />,
+  tabKey: "Huntlo 360",
+};
+
 const engagementsSidebarGroup: UserSidebarNavGroup = {
   label: "Engagements",
   subtitle: "Outreach & connections",
   icon: <MaterialIcon name="campaign" />,
   children: [
+    huntlo360SidebarItem,
     outreachSidebarItem,
     screenSidebarItem,
     scheduleSidebarItem,
@@ -1240,9 +1249,7 @@ export function UserDashboardPage() {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
-    readSidebarCollapsedPreference()
-  );
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [engagementsNavExpanded, setEngagementsNavExpanded] = useState(true);
   const [collapsedNavGroupHover, setCollapsedNavGroupHover] = useState<string | null>(null);
   const [collapsedFlyoutLayout, setCollapsedFlyoutLayout] = useState<{
@@ -2050,6 +2057,10 @@ export function UserDashboardPage() {
       setEngagementsNavExpanded(true);
     }
   }, [activeTab]);
+
+  useEffect(() => {
+    setSidebarCollapsed(readSidebarCollapsedPreference());
+  }, []);
 
   useEffect(() => {
     if (!sidebarCollapsed) {
@@ -5288,10 +5299,15 @@ export function UserDashboardPage() {
               />
             ) : activeTab === "Outreach" ? (
               <OutreachPanel segments={segments} />
+            ) : activeTab === "Huntlo 360" ? (
+              <Huntlo360Panel segments={segments} />
             ) : activeTab === "Screen" ? (
               <ScreeningPanel segments={segments} />
             ) : activeTab === "Schedule" ? (
-              <SchedulePanel segments={segments} />
+              <SchedulePanel
+                segments={segments}
+                onGoToIntegrations={() => navigateToTab("Integrations")}
+              />
             ) : activeTab === "Outreaches" ? (
               <OutreachesPanel
                 currentPlanId={userPlanId}

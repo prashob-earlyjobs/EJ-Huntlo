@@ -317,7 +317,7 @@ async function upsertVoiceCallStatus(campaignId, body) {
   const doc = await CampaignVoiceCall.findOneAndUpdate(
     { campaignId: campaign._id, callId },
     { $set: update },
-    { upsert: true, new: true, setDefaultsOnInsert: true }
+    { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
   );
 
   const row = formatVoiceCallRow(doc);
@@ -364,7 +364,7 @@ async function upsertVoiceCallResult(campaignId, body) {
   const doc = await CampaignVoiceCall.findOneAndUpdate(
     { campaignId: campaign._id, callId },
     { $set: update },
-    { upsert: true, new: true, setDefaultsOnInsert: true }
+    { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
   );
 
   const row = formatVoiceCallRow(doc);
@@ -390,7 +390,7 @@ async function upsertVoiceCallRecording(campaignId, body) {
   const doc = await CampaignVoiceCall.findOneAndUpdate(
     { campaignId: campaign._id, callId },
     { $set: update },
-    { upsert: true, new: true, setDefaultsOnInsert: true }
+    { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
   );
 
   return formatVoiceCallRow(doc);
@@ -414,7 +414,7 @@ async function upsertVoiceCallSummary(campaignId, body) {
   const doc = await CampaignVoiceCall.findOneAndUpdate(
     { campaignId: campaign._id, callId },
     { $set: update },
-    { upsert: true, new: true, setDefaultsOnInsert: true }
+    { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
   );
 
   return formatVoiceCallRow(doc);

@@ -137,7 +137,7 @@ async function seedPendingVoiceCalls({ campaign, contacts, requestId }) {
           lastEventAt: new Date(),
         },
       },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
+      { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
     );
     seeded += 1;
   }

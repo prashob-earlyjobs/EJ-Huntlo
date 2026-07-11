@@ -62,6 +62,8 @@ export type ScreeningCandidate = {
   experience: string;
   matchScore: number;
   status: string;
+  phone?: string;
+  email?: string;
 };
 
 export type ScreeningQuestion = {

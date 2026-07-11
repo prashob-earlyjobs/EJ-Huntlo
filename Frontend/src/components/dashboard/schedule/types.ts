@@ -96,6 +96,8 @@ export type CalendarEvent = {
   interviewType: string;
   status: InterviewStatus;
   interviewer: string;
+  source?: "direct" | "campaign" | "calendly";
+  campaignName?: string;
 };
 
 export type InterviewDetailsForm = {

@@ -10,7 +10,7 @@ const {
   resumeOutreachModuleEnrollments,
   deleteOutreachModuleEnrollments,
 } = require("./outreachModuleSendService");
-const { syncOutreachModuleCampaignEmailReplies } = require("./campaignReplySyncService");
+const { syncOutreachModuleCampaignEmailReplies, repairOutreachModuleFalsePositiveReplyFlags } = require("./campaignReplySyncService");
 const { toReplyPreview } = require("./emailMimeBodyUtils");
 const { syncReplyDispositionsForCampaign } = require("./replyDispositionUtils");
 
@@ -108,7 +108,7 @@ function formatBuilder(builder, mode, doc) {
   };
 }
 
-function validateAndNormalizeStep(mode, stepKey, data = {}) {
+function validateAndNormalizeStep(mode, stepKey, data = {}, existingSteps = []) {
   if (!stepKeysForMode(mode).includes(stepKey)) {
     throw badRequest(`Invalid step "${stepKey}" for ${mode} mode`);
   }
@@ -143,7 +143,10 @@ function validateAndNormalizeStep(mode, stepKey, data = {}) {
     }
     case "sequence": {
       if (mode !== "multi") throw badRequest("Sequence step applies to multi-channel campaigns only");
-      const steps = normalizeSequenceSteps(data.steps || data.sequenceSteps || []);
+      const steps = normalizeSequenceSteps(
+        data.steps || data.sequenceSteps || [],
+        existingSteps
+      );
       if (steps.length === 0) throw badRequest("At least one sequence step is required");
       return { steps };
     }
@@ -241,6 +244,24 @@ function compileMultiWhatsappChannelMessage(sequenceSteps, replyQuestions = []) 
   });
 }
 
+function mergeStepMessagesIntoSequenceSteps(sequenceSteps, stepMessagesList) {
+  const messages = Array.isArray(stepMessagesList) ? stepMessagesList : [];
+  const messageByStepId = new Map(
+    messages.map((item) => [String(item.stepId), item.message ?? null])
+  );
+
+  return (sequenceSteps || []).map((step, index) => {
+    const plain = step.toObject ? step.toObject() : { ...step };
+    const stepId = String(plain._id || "");
+    const messageById = messageByStepId.has(stepId) ? messageByStepId.get(stepId) : undefined;
+    const messageByIndex = messages[index]?.message ?? null;
+    return {
+      ...plain,
+      message: messageById !== undefined ? messageById : messageByIndex ?? plain.message ?? null,
+    };
+  });
+}
+
 function compileBuilderToCampaign(doc) {
   const builder = doc.builder;
   if (!builder) return;
@@ -270,21 +291,10 @@ function compileBuilderToCampaign(doc) {
 
   if (doc.mode === "multi") {
     const sequenceSteps = builder.sequence?.steps || [];
-    const messageByStepId = new Map(
-      (builder.personalize?.stepMessages || []).map((item) => [
-        String(item.stepId),
-        item.message ?? null,
-      ])
+    doc.sequenceSteps = mergeStepMessagesIntoSequenceSteps(
+      sequenceSteps,
+      builder.personalize?.stepMessages
     );
-
-    doc.sequenceSteps = sequenceSteps.map((step) => {
-      const plain = step.toObject ? step.toObject() : { ...step };
-      const stepId = String(plain._id || "");
-      return {
-        ...plain,
-        message: messageByStepId.get(stepId) ?? plain.message ?? null,
-      };
-    });
     doc.aiPersonalize = builder.personalize?.aiPersonalize !== false;
     doc.channelLabels = [
       ...new Set(doc.sequenceSteps.map((s) => channelLabel(s.channel)).filter(Boolean)),
@@ -433,12 +443,7 @@ function buildStatsFromCandidates(candidates = []) {
       const interactions = Array.isArray(c.interactions) ? c.interactions : [];
       const hasReplyInteraction = interactions.some((row) => {
         const summary = String(row?.summary || "").toLowerCase();
-        const type = String(row?.type || "").toLowerCase();
-        return (
-          summary.includes("candidate replied") ||
-          summary.startsWith("ai reply:") ||
-          type === "whatsapp" && summary.includes("replied")
-        );
+        return summary.includes("candidate replied");
       });
       if (hasReplyInteraction) status = "replied";
     }
@@ -550,8 +555,7 @@ async function syncCandidateReplyStatusFromEnrollments(campaignDoc) {
     }
     if (!candidate) continue;
 
-    const hasInboundReply =
-      Boolean(enrollment.hasReply) || Number(enrollment.replyCount || 0) > 0;
+    const hasInboundReply = enrollmentHasCandidateReply(enrollment);
     const current = String(candidate.responseStatus || "no_response");
     if (enrollment.replyDisposition === "interested" && current !== "interested") {
       candidate.responseStatus = "interested";
@@ -567,6 +571,33 @@ async function syncCandidateReplyStatusFromEnrollments(campaignDoc) {
     if (hasInboundReply && current === "no_response") {
       candidate.responseStatus = "replied";
       changed = true;
+      continue;
+    }
+    if (
+      !hasInboundReply &&
+      !enrollment.replyDisposition &&
+      current === "replied"
+    ) {
+      candidate.responseStatus = "no_response";
+      if (/reply received/i.test(String(candidate.lastResponse || ""))) {
+        candidate.lastResponse = "";
+      }
+      if (String(candidate.nextAction || "").toLowerCase().includes("auto-reply")) {
+        candidate.nextAction = "Awaiting reply";
+      }
+      const interactions = Array.isArray(candidate.interactions) ? candidate.interactions : [];
+      const filtered = interactions.filter((row) => {
+        const summary = String(row?.summary || "").toLowerCase();
+        return (
+          !summary.includes("candidate replied") &&
+          !summary.startsWith("ai reply:") &&
+          !(summary.startsWith("sent:") && summary.includes("qualification question"))
+        );
+      });
+      if (filtered.length !== interactions.length) {
+        candidate.interactions = filtered;
+      }
+      changed = true;
     }
   }
 
@@ -575,12 +606,28 @@ async function syncCandidateReplyStatusFromEnrollments(campaignDoc) {
   }
 }
 
+/** Atomic write — avoids Mongoose VersionError when scheduler/reply-sync also saves. */
+async function persistOutreachModuleCampaignSnapshot(campaignDoc) {
+  const plain = campaignDoc.toObject ? campaignDoc.toObject() : campaignDoc;
+  await OutreachModuleCampaign.updateOne(
+    { _id: campaignDoc._id },
+    {
+      $set: {
+        candidates: Array.isArray(plain.candidates) ? plain.candidates : [],
+        stats: plain.stats || {},
+        funnel: Array.isArray(plain.funnel) ? plain.funnel : [],
+        responseRate: plain.responseRate ?? 0,
+      },
+    }
+  );
+}
+
 async function recomputeCampaignDocStatsById(campaignId) {
   const campaign = await OutreachModuleCampaign.findById(campaignId);
   if (!campaign) return null;
   await syncCandidateReplyStatusFromEnrollments(campaign);
   const stats = recomputeCampaignDocStats(campaign);
-  await campaign.save();
+  await persistOutreachModuleCampaignSnapshot(campaign);
   return stats;
 }
 
@@ -609,13 +656,24 @@ function formatCampaignRow(doc) {
   };
 }
 
+function enrollmentHasCandidateReply(enrollment) {
+  return Number(enrollment?.replyCount || 0) > 0;
+}
+
 function resolveCandidateDisplayStatus(candidate, enrollment) {
   const current = String(candidate?.responseStatus || "no_response");
   if (current === "interested" || current === "not_interested") return current;
-  if (!enrollment) return current;
+  if (
+    ["follow_up_scheduled", "interview_scheduled", "call_completed"].includes(current)
+  ) {
+    return current;
+  }
+  if (!enrollment) return current === "replied" ? "no_response" : current;
   if (enrollment.replyDisposition === "interested") return "interested";
   if (enrollment.replyDisposition === "not_interested") return "not_interested";
-  if (enrollment.hasReply || Number(enrollment.replyCount || 0) > 0) return "replied";
+  if (enrollmentHasCandidateReply(enrollment)) return "replied";
+  // Embedded "replied" from a prior false-positive sync — enrollment has no inbound reply.
+  if (current === "replied") return "no_response";
   return current;
 }
 
@@ -623,6 +681,16 @@ function formatTrackingCandidate(c, contact = {}, enrollment = null) {
   const email = String(contact.email || c.email || "").trim();
   const phone = String(contact.phone || c.phone || "").trim();
   const status = resolveCandidateDisplayStatus(c, enrollment);
+  const sentCount = Number(enrollment?.sentCount) || 0;
+  const replyCount = Number(enrollment?.replyCount) || 0;
+  const hasReply =
+    status === "interested" ||
+    status === "not_interested" ||
+    status === "follow_up_scheduled" ||
+    status === "interview_scheduled" ||
+    status === "call_completed" ||
+    (status === "replied" && replyCount > 0);
+
   return {
     id: String(c._id),
     name: c.name || "",
@@ -635,6 +703,13 @@ function formatTrackingCandidate(c, contact = {}, enrollment = null) {
     interest: c.interest || "-",
     lastResponse: toReplyPreview(c.lastResponse) || "-",
     nextAction: c.nextAction || "",
+    sentCount,
+    hasReply,
+    replyCount: Number(enrollment?.replyCount) || 0,
+    currentStepOrder:
+      enrollment?.currentStepOrder === undefined || enrollment?.currentStepOrder === null
+        ? null
+        : Number(enrollment.currentStepOrder),
   };
 }
 
@@ -665,8 +740,10 @@ async function loadCandidateContactMaps(campaignDoc, actorUserId) {
     ? await OutreachModuleEnrollment.find({
         outreachModuleCampaignId: campaignId,
       })
-        .select("candidateRefId contactEmail contactPhone")
-        .lean()
+      .select(
+        "candidateRefId contactEmail contactPhone currentStepOrder sentCount hasReply replyCount status"
+      )
+      .lean()
     : [];
 
   const enrollmentByRef = new Map(
@@ -883,18 +960,25 @@ function normalizeChannelMessage(payload = {}) {
   };
 }
 
-function normalizeSequenceSteps(steps = []) {
+function normalizeSequenceSteps(steps = [], existingSteps = []) {
   if (!Array.isArray(steps)) return [];
-  return steps.map((step) => ({
-    channel: step.channel,
-    label: String(step.label || channelLabel(step.channel)),
-    delayValue: Math.max(0, Number(step.delayValue) || 0),
-    delayUnit:
-      step.delayUnit === "minutes" || step.delayUnit === "hours" ? step.delayUnit : "days",
-    condition: step.condition || "all",
-    timingLabel: String(step.timingLabel || ""),
-    message: step.message ?? null,
-  }));
+  return steps.map((step, index) => {
+    const existing = Array.isArray(existingSteps) ? existingSteps[index] : null;
+    const normalized = {
+      channel: step.channel,
+      label: String(step.label || channelLabel(step.channel)),
+      delayValue: Math.max(0, Number(step.delayValue) || 0),
+      delayUnit:
+        step.delayUnit === "minutes" || step.delayUnit === "hours" ? step.delayUnit : "days",
+      condition: step.condition || (index === 0 ? "all" : "no_response"),
+      timingLabel: String(step.timingLabel || ""),
+      message: step.message ?? null,
+    };
+    if (existing?._id) {
+      return { ...normalized, _id: existing._id };
+    }
+    return normalized;
+  });
 }
 
 function validateCreatePayload(payload = {}) {
@@ -935,7 +1019,12 @@ function validateCreatePayload(payload = {}) {
     candidateIds,
     emailAutoReplyEnabled: payload.emailAutoReplyEnabled !== false,
     calendlyAutomation: normalizeCalendlyAutomation(payload.calendlyAutomation),
-    sourceModule: payload.sourceModule === "screening" ? "screening" : "outreach",
+    sourceModule:
+      payload.sourceModule === "screening"
+        ? "screening"
+        : payload.sourceModule === "huntlo360"
+          ? "huntlo360"
+          : "outreach",
     screeningType: String(payload.screeningType || "").trim(),
     screeningConfig: payload.screeningConfig ?? null,
   };
@@ -1088,7 +1177,15 @@ async function listOutreachModuleCampaigns(actorUserId, options = {}) {
   const { page, limit, skip } = parsePagination(options);
   const statusFilter = String(options.status || "").trim();
 
-  const filter = { ...access, sourceModule: { $ne: "screening" } };
+  const sourceModuleFilter = String(options.sourceModule || "").trim();
+  const filter = { ...access };
+  if (sourceModuleFilter === "huntlo360") {
+    filter.sourceModule = "huntlo360";
+  } else if (sourceModuleFilter === "outreach") {
+    filter.sourceModule = "outreach";
+  } else {
+    filter.sourceModule = { $nin: ["screening", "huntlo360"] };
+  }
   if (statusFilter) filter.status = statusFilter;
 
   const [docs, total] = await Promise.all([
@@ -1124,11 +1221,20 @@ async function createOutreachModuleDraft(actorUserId, payload = {}) {
     throw badRequest("Campaign mode must be single or multi");
   }
 
+  const sourceModule =
+    payload.sourceModule === "screening"
+      ? "screening"
+      : payload.sourceModule === "huntlo360"
+        ? "huntlo360"
+        : "outreach";
+
   const doc = await OutreachModuleCampaign.create({
     userId: userOid(actorUserId),
-    name: "Untitled campaign",
+    name: sourceModule === "huntlo360" ? "Untitled Huntlo 360 flow" : "Untitled campaign",
     mode,
     status: "draft",
+    sourceModule,
+    goal: sourceModule === "huntlo360" ? "job_opportunity" : "interest",
     builder: defaultBuilderForMode(),
   });
 
@@ -1150,7 +1256,8 @@ async function saveOutreachModuleCampaignStep(actorUserId, campaignId, stepKey, 
   const normalized = validateAndNormalizeStep(
     doc.mode,
     stepKey,
-    payload.data != null ? payload.data : payload
+    payload.data != null ? payload.data : payload,
+    doc.sequenceSteps
   );
 
   if (!doc.builder) {
@@ -1210,6 +1317,13 @@ async function saveOutreachModuleCampaignStep(actorUserId, campaignId, stepKey, 
       doc.calendlyAutomation = normalized.calendlyAutomation;
     }
     doc.builder.personalize = normalized;
+    if (doc.mode === "multi" && Array.isArray(doc.sequenceSteps) && doc.sequenceSteps.length > 0) {
+      doc.sequenceSteps = mergeStepMessagesIntoSequenceSteps(
+        doc.sequenceSteps,
+        normalized.stepMessages
+      );
+      doc.markModified("sequenceSteps");
+    }
   }
 
   if (stepKey === "candidates") {
@@ -1328,7 +1442,7 @@ async function updateOutreachModuleCampaign(actorUserId, campaignId, payload = {
   }
 
   if (doc.mode === "multi" && Array.isArray(payload.sequenceSteps)) {
-    doc.sequenceSteps = normalizeSequenceSteps(payload.sequenceSteps);
+    doc.sequenceSteps = normalizeSequenceSteps(payload.sequenceSteps, doc.sequenceSteps);
     doc.channelLabels = [
       ...new Set(doc.sequenceSteps.map((s) => channelLabel(s.channel)).filter(Boolean)),
     ];
@@ -1410,46 +1524,126 @@ async function resumeOutreachModuleCampaign(actorUserId, campaignId) {
   return { campaign: formatCampaignDetail(doc.toObject()) };
 }
 
-async function getOutreachModuleCampaignTracking(actorUserId, campaignId) {
+function scheduleBackgroundTrackingReplySync(campaignId) {
+  setImmediate(() => {
+    void (async () => {
+      try {
+        const stub = await OutreachModuleCampaign.findById(campaignId);
+        if (!stub) return;
+        await syncOutreachModuleCampaignEmailReplies(stub);
+        await syncReplyDispositionsForCampaign(stub._id);
+        await recomputeCampaignDocStatsById(campaignId);
+      } catch (err) {
+        console.warn(
+          `[outreach-tracking] background reply sync ${campaignId}:`,
+          err?.message || err
+        );
+      }
+    })();
+  });
+}
+
+async function getOutreachModuleCampaignTracking(actorUserId, campaignId, options = {}) {
+  await findCampaignDocumentInScope(actorUserId, campaignId);
+
+  const { reconcileOutreachModuleEnrollmentsWithPlan, processDueOutreachModuleEnrollments } =
+    require("./outreachModuleSendService");
+  const reconcileResult = await reconcileOutreachModuleEnrollmentsWithPlan(campaignId);
+  if (reconcileResult.reopened > 0) {
+    setImmediate(() => {
+      processDueOutreachModuleEnrollments().catch((err) => {
+        console.warn(
+          `[outreach-tracking] post-reconcile send tick ${campaignId}:`,
+          err?.message || err
+        );
+      });
+    });
+  }
+
+  await repairOutreachModuleFalsePositiveReplyFlags(campaignId);
+
+  const syncReplies = options.syncReplies === true;
+  if (syncReplies) {
+    const stub = await OutreachModuleCampaign.findById(campaignId);
+    if (!stub) throw notFound("Campaign not found");
+    await syncOutreachModuleCampaignEmailReplies(stub);
+    await syncReplyDispositionsForCampaign(stub._id);
+  } else {
+    // Inbox polling can take 10–20s; scheduler already syncs ~every 60s.
+    scheduleBackgroundTrackingReplySync(campaignId);
+  }
+
   const doc = await findCampaignDocumentInScope(actorUserId, campaignId);
-  await syncOutreachModuleCampaignEmailReplies(doc);
   await syncEmbeddedCandidateContacts(doc, actorUserId);
   await syncCandidateReplyStatusFromEnrollments(doc);
-  await syncReplyDispositionsForCampaign(doc._id);
   recomputeCampaignDocStats(doc);
-  await doc.save();
-  const candidates = Array.isArray(doc.candidates) ? doc.candidates : [];
-  const stats = doc.stats || buildStatsFromCandidates(candidates);
+  await persistOutreachModuleCampaignSnapshot(doc);
+
+  const fresh = await findCampaignDocumentInScope(actorUserId, campaignId);
+  const candidates = Array.isArray(fresh.candidates) ? fresh.candidates : [];
+  const stats = fresh.stats || buildStatsFromCandidates(candidates);
   const funnel =
-    Array.isArray(doc.funnel) && doc.funnel.length > 0
-      ? doc.funnel
+    Array.isArray(fresh.funnel) && fresh.funnel.length > 0
+      ? fresh.funnel
       : buildDefaultFunnel(candidates, stats);
 
   return {
-    campaign: formatCampaignRow(doc),
+    campaign: formatCampaignRow(fresh),
     stats,
     funnel,
-    candidates: await formatTrackingCandidates(doc, actorUserId),
+    candidates: await formatTrackingCandidates(fresh, actorUserId),
+    sequenceSteps:
+      fresh.mode === "multi"
+        ? (fresh.sequenceSteps || []).map(formatSequenceStep)
+        : [],
+    whatsappReplyQuestions: (
+      fresh.builder?.personalize?.whatsappReplyQuestions ||
+      fresh.channelMessage?.replyQuestions ||
+      []
+    )
+      .map((q) => String(q || ""))
+      .filter(Boolean),
   };
 }
 
 const ACTION_STATUS_MAP = {
   screening: { responseStatus: "follow_up_scheduled", nextAction: "Move to screening" },
-  interview: { responseStatus: "follow_up_scheduled", nextAction: "Schedule interview" },
+  interview: { responseStatus: "follow_up_scheduled", nextAction: "Awaiting Calendly booking" },
   not_interested: { responseStatus: "not_interested", nextAction: "Archive" },
   note: {},
+  send_scheduling_link: { responseStatus: "follow_up_scheduled", nextAction: "Awaiting Calendly booking" },
 };
 
 async function recordOutreachModuleCandidateAction(actorUserId, campaignId, candidateId, payload = {}) {
   const doc = await findCampaignDocumentInScope(actorUserId, campaignId);
   const action = String(payload.action || "").trim();
 
-  if (!["screening", "interview", "not_interested", "note"].includes(action)) {
+  if (!["screening", "interview", "not_interested", "note", "send_scheduling_link"].includes(action)) {
     throw badRequest("Invalid action");
   }
 
   const candidate = doc.candidates.id(candidateId);
   if (!candidate) throw notFound("Candidate not found in campaign");
+
+  if (action === "interview" || action === "send_scheduling_link") {
+    const calendly = doc.calendlyAutomation || {};
+    if (calendly.enabled && calendly.schedulingUrl) {
+      const { sendCandidateSchedulingLink } = require("./campaignCalendlyBookingService");
+      const linkResult = await sendCandidateSchedulingLink(actorUserId, campaignId, candidateId);
+      const refreshed = await findCampaignDocumentInScope(actorUserId, campaignId);
+      const refreshedCandidate = refreshed.candidates.id(candidateId);
+      recomputeCampaignDocStats(refreshed);
+      await refreshed.save();
+      return {
+        candidate: await formatSingleTrackingCandidate(refreshed, refreshedCandidate, actorUserId),
+        stats: refreshed.stats,
+        funnel: refreshed.funnel,
+        schedulingUrl: linkResult.schedulingUrl,
+        emailSent: linkResult.emailSent,
+        whatsappSent: linkResult.whatsappSent,
+      };
+    }
+  }
 
   const note = String(payload.note || "").trim();
   const mapping = ACTION_STATUS_MAP[action] || {};
@@ -1488,22 +1682,45 @@ async function recordOutreachModuleCandidateAction(actorUserId, campaignId, cand
   };
 }
 
+function dedupeInterviewBookedInteractions(interactions) {
+  const seen = new Set();
+  return interactions.filter((item) => {
+    const content = item.content && typeof item.content === "object" ? item.content : null;
+    if (!content || content.action !== "interview_booked") return true;
+    const key = String(content.bookingId || content.calendlyInviteeUri || "").trim();
+    if (!key) return true;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 async function getOutreachModuleCandidateInteractions(actorUserId, campaignId, candidateId) {
   const doc = await findCampaignInScope(actorUserId, campaignId);
   const candidate = (doc.candidates || []).find((c) => String(c._id) === String(candidateId));
   if (!candidate) throw notFound("Candidate not found in campaign");
 
-  const interactions = (candidate.interactions || []).map((item) => ({
-    id: String(item._id),
-    type: item.type,
-    summary: item.summary || "",
-    content: item.content ?? null,
-    at: item.at ? new Date(item.at).toISOString() : null,
-  }));
+  const interactions = dedupeInterviewBookedInteractions(
+    (candidate.interactions || []).map((item) => ({
+      id: String(item._id),
+      type: item.type,
+      summary: item.summary || "",
+      content: item.content ?? null,
+      at: item.at ? new Date(item.at).toISOString() : null,
+    }))
+  );
+
+  const { getCandidateScheduledInterview } = require("./campaignCalendlyBookingService");
+  const scheduledInterview = await getCandidateScheduledInterview(
+    actorUserId,
+    campaignId,
+    candidateId
+  );
 
   return {
     candidate: await formatSingleTrackingCandidate(doc, candidate, actorUserId),
     interactions,
+    scheduledInterview,
   };
 }
 

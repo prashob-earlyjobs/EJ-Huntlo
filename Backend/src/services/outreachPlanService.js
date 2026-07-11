@@ -7,7 +7,7 @@ const {
   normalizeStartSchedule,
   normalizeWaitUnit,
 } = require("../utils/outreachScheduleUtils");
-const { isQaEnv } = require("../config/appEnv");
+const { allowsSubHourWaits } = require("../config/appEnv");
 
 function normalizeTouchpoints(raw) {
   if (!Array.isArray(raw)) return [];
@@ -20,7 +20,7 @@ function normalizeTouchpoints(raw) {
       const waitDays = Math.max(0, Number(tp?.waitDays) || 0);
       const waitHours = Math.max(0, Number(tp?.waitHours) || 0);
       const waitMinutesRaw = Math.max(0, Number(tp?.waitMinutes) || 0);
-      const waitMinutes = isQaEnv() ? waitMinutesRaw : 0;
+      const waitMinutes = allowsSubHourWaits() ? waitMinutesRaw : 0;
       const usesMinuteWait = waitMinutes > 0 && waitDays === 0 && waitHours === 0;
       const usesHourWait = waitHours > 0 && waitDays === 0 && !usesMinuteWait;
       const usesSubDayWait = usesMinuteWait || usesHourWait;

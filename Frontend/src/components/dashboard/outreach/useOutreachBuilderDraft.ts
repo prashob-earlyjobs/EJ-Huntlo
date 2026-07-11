@@ -9,7 +9,11 @@ import type {
   OutreachChannel,
   SequenceStep,
 } from "@/components/dashboard/outreach/types";
-import { normalizeSequenceStepsFromApi } from "@/components/dashboard/outreach/outreachSequenceHelpers";
+import {
+  buildStepMessagesPayload,
+  normalizeSequenceStepsFromApi,
+  remapStepMessagesByIndex,
+} from "@/components/dashboard/outreach/outreachSequenceHelpers";
 import { getStoredAuth } from "@/lib/auth";
 import {
   createOutreachModuleDraft,
@@ -70,6 +74,7 @@ type Options = {
   message?: string;
   emailMessage?: EmailSingleChannelMessage;
   voiceOptions?: VoiceChannelOptions;
+  sourceModule?: "outreach" | "screening" | "huntlo360";
   initialCampaignId?: string | null;
   onDraftSaved?: () => void;
 };
@@ -132,6 +137,7 @@ export function useOutreachBuilderDraft({
   message = "",
   emailMessage,
   voiceOptions,
+  sourceModule = "outreach",
   initialCampaignId = null,
   onDraftSaved,
 }: Options) {
@@ -176,13 +182,13 @@ export function useOutreachBuilderDraft({
 
     let id = campaignIdRef.current;
     if (!id) {
-      const created = await createOutreachModuleDraft(auth.token, mode);
+      const created = await createOutreachModuleDraft(auth.token, mode, { sourceModule });
       id = created.campaign.id;
       campaignIdRef.current = id;
       setCampaignId(id);
     }
     return { auth, id };
-  }, [mode]);
+  }, [mode, sourceModule]);
 
   const persistDetailsStep = useCallback(
     async (currentStep: number, details: CampaignDetailsForm = formRef.current) => {
@@ -428,19 +434,44 @@ export function useOutreachBuilderDraft({
       }
 
       await saveReviewStep(session.auth.token, session.id, "details", { ...payload.form });
-      await saveReviewStep(session.auth.token, session.id, "sequence", {
-        steps: payload.sequenceSteps.map((step, index) => ({
-          channel: step.channel,
-          label: step.label,
-          delayValue: step.delayValue,
-          delayUnit: step.delayUnit,
-          condition: index === 0 ? "all" : "no_response",
-          timingLabel: step.timingLabel,
-        })),
-      });
+
+      const sequenceSave = await saveOutreachModuleCampaignStep(
+        session.auth.token,
+        session.id,
+        "sequence",
+        {
+          data: {
+            steps: payload.sequenceSteps.map((step, index) => ({
+              channel: step.channel,
+              label: step.label,
+              delayValue: step.delayValue,
+              delayUnit: step.delayUnit,
+              condition: index === 0 ? "all" : "no_response",
+              timingLabel: step.timingLabel,
+            })),
+          },
+          currentStep: 4,
+        }
+      );
+      const savedSteps = normalizeSequenceStepsFromApi(sequenceSave.campaign.sequenceSteps);
+      const messagesByStepId = Object.fromEntries(
+        (payload.stepMessages ?? [])
+          .map((item) => [String(item.stepId || ""), String(item.message || "").trim()] as const)
+          .filter(([, message]) => message.length > 0)
+      );
+      const remappedMessages = remapStepMessagesByIndex(
+        payload.sequenceSteps,
+        savedSteps.length > 0 ? savedSteps : payload.sequenceSteps,
+        messagesByStepId
+      );
+      const stepMessagesForSave = buildStepMessagesPayload(
+        savedSteps.length > 0 ? savedSteps : payload.sequenceSteps,
+        remappedMessages
+      );
+
       await saveReviewStep(session.auth.token, session.id, "personalize", {
         aiPersonalize: payload.aiPersonalize !== false,
-        stepMessages: payload.stepMessages ?? [],
+        stepMessages: stepMessagesForSave,
         whatsappReplyQuestions: payload.whatsappReplyQuestions ?? [],
         emailAutoReplyEnabled: payload.emailAutoReplyEnabled !== false,
         calendlyAutomation: payload.calendlyAutomation,
@@ -550,7 +581,7 @@ export function useOutreachBuilderDraft({
         try {
           let id = campaignIdRef.current;
           if (!id) {
-            const created = await createOutreachModuleDraft(auth.token, mode);
+            const created = await createOutreachModuleDraft(auth.token, mode, { sourceModule });
             id = created.campaign.id;
           }
           await saveOutreachModuleCampaignStep(auth.token, id, "details", {

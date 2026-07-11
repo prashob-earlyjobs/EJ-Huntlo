@@ -391,6 +391,10 @@ type Props = {
   onAttemptGapChange?: (n: number) => void;
   callObjective?: string;
   onCallObjectiveChange?: (value: string) => void;
+  /** Single-channel WhatsApp only — multi-channel uses sequence steps instead. */
+  showAutomatedFollowUps?: boolean;
+  whatsappStepTitle?: string;
+  whatsappStepDescription?: string;
 };
 
 export function MessageEditor({
@@ -423,6 +427,9 @@ export function MessageEditor({
   onAttemptGapChange,
   callObjective = VOICE_CALL_OBJECTIVE_DEFAULT,
   onCallObjectiveChange,
+  showAutomatedFollowUps = true,
+  whatsappStepTitle,
+  whatsappStepDescription,
 }: Props) {
   return (
     <div className="dashboard-outreach-message-editor">
@@ -435,10 +442,17 @@ export function MessageEditor({
                   <MaterialIcon name="chat" className="text-base" />
                 </span>
                 <div className="dashboard-outreach-message-block-copy">
-                  <span className="dashboard-outreach-message-block-eyebrow">Step 1</span>
-                  <h3 className="dashboard-outreach-message-block-title">Opening message</h3>
+                  <span className="dashboard-outreach-message-block-eyebrow">
+                    {showAutomatedFollowUps ? "Step 1" : "WhatsApp"}
+                  </span>
+                  <h3 className="dashboard-outreach-message-block-title">
+                    {whatsappStepTitle ?? (showAutomatedFollowUps ? "Opening message" : "Message")}
+                  </h3>
                   <p className="dashboard-outreach-message-block-desc">
-                    The first approved WhatsApp template sent to each candidate.
+                    {whatsappStepDescription ??
+                      (showAutomatedFollowUps
+                        ? "The first approved WhatsApp template sent to each candidate."
+                        : "Approved template for this sequence step.")}
                   </p>
                 </div>
               </div>
@@ -456,42 +470,46 @@ export function MessageEditor({
               </div>
             </div>
 
-            <div className="dashboard-outreach-message-followups">
-              <div className="dashboard-outreach-message-followups-head">
-                <MaterialIcon name="autorenew" className="dashboard-outreach-message-followups-icon" />
-                <div>
-                  <h3 className="dashboard-outreach-message-followups-title">Automated follow-ups</h3>
-                  <p className="dashboard-outreach-message-followups-desc">
-                    Two no-reply messages are sent on schedule if the candidate does not respond.
-                  </p>
+            {showAutomatedFollowUps ? (
+              <div className="dashboard-outreach-message-followups">
+                <div className="dashboard-outreach-message-followups-head">
+                  <MaterialIcon name="autorenew" className="dashboard-outreach-message-followups-icon" />
+                  <div>
+                    <h3 className="dashboard-outreach-message-followups-title">Automated follow-ups</h3>
+                    <p className="dashboard-outreach-message-followups-desc">
+                      Two no-reply messages are sent on schedule if the candidate does not respond.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="dashboard-outreach-message-timeline">
+                  <WhatsAppNoReplyFollowUp
+                    slot={1}
+                    selectId="wa-followup-1-template"
+                    selectedId={followUpTemplateId}
+                    waitHours={followUpWaitHours}
+                    onSelectTemplate={(tpl) => onFollowUpTemplateSelect?.(tpl)}
+                    onWaitHoursChange={(hours) => onFollowUpWaitHoursChange?.(hours)}
+                  />
+                  <WhatsAppNoReplyFollowUp
+                    slot={2}
+                    selectId="wa-followup-2-template"
+                    selectedId={followUp2TemplateId}
+                    waitHours={followUp2WaitHours}
+                    onSelectTemplate={(tpl) => onFollowUp2TemplateSelect?.(tpl)}
+                    onWaitHoursChange={(hours) => onFollowUp2WaitHoursChange?.(hours)}
+                    isLast
+                  />
                 </div>
               </div>
+            ) : null}
 
-              <div className="dashboard-outreach-message-timeline">
-                <WhatsAppNoReplyFollowUp
-                  slot={1}
-                  selectId="wa-followup-1-template"
-                  selectedId={followUpTemplateId}
-                  waitHours={followUpWaitHours}
-                  onSelectTemplate={(tpl) => onFollowUpTemplateSelect?.(tpl)}
-                  onWaitHoursChange={(hours) => onFollowUpWaitHoursChange?.(hours)}
-                />
-                <WhatsAppNoReplyFollowUp
-                  slot={2}
-                  selectId="wa-followup-2-template"
-                  selectedId={followUp2TemplateId}
-                  waitHours={followUp2WaitHours}
-                  onSelectTemplate={(tpl) => onFollowUp2TemplateSelect?.(tpl)}
-                  onWaitHoursChange={(hours) => onFollowUp2WaitHoursChange?.(hours)}
-                  isLast
-                />
-              </div>
-            </div>
-
-            <WhatsAppReplyQuestionsPanel
-              questions={replyQuestions}
-              onChange={(questions) => onReplyQuestionsChange?.(questions)}
-            />
+            {onReplyQuestionsChange ? (
+              <WhatsAppReplyQuestionsPanel
+                questions={replyQuestions}
+                onChange={(questions) => onReplyQuestionsChange?.(questions)}
+              />
+            ) : null}
           </div>
         ) : null}
 

@@ -33,6 +33,7 @@ const outreachModuleCandidateSchema = new mongoose.Schema(
         "no_response",
         "replied",
         "follow_up_scheduled",
+        "interview_scheduled",
         "call_completed",
         "failed_delivery",
       ],
@@ -264,10 +265,10 @@ const outreachModuleCampaignSchema = new mongoose.Schema(
       enum: ["interest", "screening", "job_opportunity", "follow_up"],
       default: "interest",
     },
-    /** `outreach` (default) or `screening` — screenings use voice calls via Hunar. */
+    /** `outreach` (default), `screening`, or `huntlo360` (outreach + schedule unified flow). */
     sourceModule: {
       type: String,
-      enum: ["outreach", "screening"],
+      enum: ["outreach", "screening", "huntlo360"],
       default: "outreach",
       index: true,
     },

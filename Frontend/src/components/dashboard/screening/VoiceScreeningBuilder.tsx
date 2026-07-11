@@ -25,7 +25,13 @@ import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { getStoredAuth } from "@/lib/auth";
 import type { VoiceScreeningPayload } from "@/lib/screeningApi";
 import { generateScreeningQuestions } from "@/lib/screeningApi";
-import { fetchOutreachModuleCandidatePool } from "@/lib/outreachModuleCampaignsApi";
+import {
+  fetchOutreachModuleCandidatePool,
+  importOutreachModuleCandidatesCsv,
+  type OutreachCsvImportContact,
+} from "@/lib/outreachModuleCampaignsApi";
+import type { OutreachCandidate } from "@/components/dashboard/outreach/types";
+import { mergeCsvContactsIntoCandidates } from "@/components/dashboard/outreach/mergeCsvContactsIntoCandidates";
 import {
   dashboardBtnPrimaryClass,
   dashboardBtnSecondaryClass,
@@ -68,8 +74,6 @@ function buildPayload(state: {
   attempts: number;
   attemptGap: string;
   durationLimit: string;
-  autoFollowUp: boolean;
-  consentMessage: boolean;
   script: VoiceScriptSections;
   questions: ScreeningQuestion[];
   launch: boolean;
@@ -83,11 +87,23 @@ function buildPayload(state: {
     attempts: state.attempts,
     attemptGap: state.attemptGap,
     durationLimit: state.durationLimit,
-    autoFollowUp: state.autoFollowUp,
-    consentMessage: state.consentMessage,
     script: state.script,
     questions: state.questions,
     launch: state.launch,
+  };
+}
+
+function toScreeningCandidate(candidate: OutreachCandidate): ScreeningCandidate {
+  return {
+    id: candidate.id,
+    name: candidate.name,
+    role: candidate.role,
+    location: candidate.location,
+    experience: candidate.experience,
+    matchScore: candidate.matchScore,
+    status: candidate.status,
+    phone: candidate.phone,
+    email: candidate.email,
   };
 }
 
@@ -107,45 +123,78 @@ export function VoiceScreeningBuilder({
   const [attempts, setAttempts] = useState(2);
   const [attemptGap, setAttemptGap] = useState("4 hours");
   const [durationLimit, setDurationLimit] = useState("5 minutes");
-  const [autoFollowUp, setAutoFollowUp] = useState(true);
-  const [consentMessage, setConsentMessage] = useState(true);
   const [script, setScript] = useState<VoiceScriptSections>({ ...mockVoiceScript });
   const [questions, setQuestions] = useState<ScreeningQuestion[]>(
     () => mockVoiceQuestions.map((q) => ({ ...q }))
   );
-  const [candidates, setCandidates] = useState<ScreeningCandidate[]>([]);
-  const [candidatesLoading, setCandidatesLoading] = useState(true);
+  const [poolCandidates, setPoolCandidates] = useState<ScreeningCandidate[]>([]);
+  const [csvCandidates, setCsvCandidates] = useState<ScreeningCandidate[]>([]);
+  const [candidatesLoading, setCandidatesLoading] = useState(false);
+  const [candidatesError, setCandidatesError] = useState("");
 
-  const loadCandidates = useCallback(async () => {
+  const loadPoolCandidates = useCallback(async () => {
     const auth = getStoredAuth();
     if (!auth?.token) {
-      setCandidatesLoading(false);
+      setCandidatesError("Sign in to load candidates.");
+      setPoolCandidates([]);
       return;
     }
     setCandidatesLoading(true);
+    setCandidatesError("");
     try {
-      const pool = await fetchOutreachModuleCandidatePool(auth.token);
-      setCandidates(
-        pool.map((c) => ({
-          id: c.id,
-          name: c.name,
-          role: c.role,
-          location: c.location,
-          experience: c.experience,
-          matchScore: c.matchScore,
-          status: c.status,
-        }))
-      );
+      const poolSource =
+        source === "outreach_interested" ? "outreach_interested" : "talent_pool";
+      const pool = await fetchOutreachModuleCandidatePool(auth.token, { source: poolSource });
+      setPoolCandidates(pool.map(toScreeningCandidate));
     } catch (err) {
-      onToast(err instanceof Error ? err.message : "Could not load candidates");
+      setCandidatesError(err instanceof Error ? err.message : "Could not load candidates");
+      setPoolCandidates([]);
     } finally {
       setCandidatesLoading(false);
     }
-  }, [onToast]);
+  }, [source]);
 
   useEffect(() => {
-    void loadCandidates();
-  }, [loadCandidates]);
+    if (source === "csv") return;
+    void loadPoolCandidates();
+  }, [source, loadPoolCandidates]);
+
+  const handleSourceChange = useCallback((next: CandidateSource) => {
+    setSource(next);
+    setSelectedIds([]);
+    if (next !== "csv") {
+      setCsvCandidates([]);
+    }
+  }, []);
+
+  const handleCsvImport = useCallback(async (contacts: OutreachCsvImportContact[]) => {
+    const auth = getStoredAuth();
+    if (!auth?.token) {
+      throw new Error("Sign in to import candidates.");
+    }
+    const result = await importOutreachModuleCandidatesCsv(auth.token, contacts);
+    const imported = mergeCsvContactsIntoCandidates(result.candidates, contacts).map(
+      toScreeningCandidate
+    );
+    setCsvCandidates((current) => {
+      const byId = new Map(current.map((c) => [c.id, c]));
+      for (const candidate of imported) {
+        byId.set(candidate.id, candidate);
+      }
+      return [...byId.values()];
+    });
+    return imported;
+  }, []);
+
+  const handleDeleteSelected = useCallback((ids: string[]) => {
+    const remove = new Set(ids);
+    if (source === "csv") {
+      setCsvCandidates((current) => current.filter((c) => !remove.has(c.id)));
+    }
+    setSelectedIds((current) => current.filter((id) => !remove.has(id)));
+  }, [source]);
+
+  const displayCandidates = source === "csv" ? csvCandidates : poolCandidates;
 
   const payloadState = {
     form,
@@ -156,8 +205,6 @@ export function VoiceScreeningBuilder({
     attempts,
     attemptGap,
     durationLimit,
-    autoFollowUp,
-    consentMessage,
     script,
     questions,
   };
@@ -242,17 +289,17 @@ export function VoiceScreeningBuilder({
         ) : null}
 
         {step === 1 ? (
-          candidatesLoading ? (
-            <p className="dashboard-text-body">Loading candidates…</p>
-          ) : (
-            <ScreeningCandidateTable
-              candidates={candidates}
-              selectedIds={selectedIds}
-              onSelectionChange={setSelectedIds}
-              source={source}
-              onSourceChange={setSource}
-            />
-          )
+          <ScreeningCandidateTable
+            candidates={displayCandidates}
+            selectedIds={selectedIds}
+            onSelectionChange={setSelectedIds}
+            source={source}
+            onSourceChange={handleSourceChange}
+            loading={candidatesLoading}
+            error={candidatesError}
+            onCsvImport={handleCsvImport}
+            onDeleteSelected={handleDeleteSelected}
+          />
         ) : null}
 
         {step === 2 ? (
@@ -267,10 +314,6 @@ export function VoiceScreeningBuilder({
             onAttemptGapChange={setAttemptGap}
             durationLimit={durationLimit}
             onDurationLimitChange={setDurationLimit}
-            autoFollowUp={autoFollowUp}
-            onAutoFollowUpChange={setAutoFollowUp}
-            consentMessage={consentMessage}
-            onConsentMessageChange={setConsentMessage}
           />
         ) : null}
 
@@ -294,7 +337,6 @@ export function VoiceScreeningBuilder({
               { label: "Language", value: language },
               { label: "Attempts", value: String(attempts) },
               { label: "Est. duration", value: durationLimit },
-              { label: "Consent", value: consentMessage ? "Enabled" : "Disabled" },
             ]}
             onSaveDraft={() => onSaveDraft(buildPayload({ ...payloadState, launch: false }))}
             onLaunch={() => onLaunch(buildPayload({ ...payloadState, launch: true }))}

@@ -1,4 +1,4 @@
-const { SchemaType } = require("@google-cloud/vertexai");
+const { SchemaType } = require("../constants/geminiSchemaTypes");
 const Campaign = require("../models/Campaign");
 const WhatsAppOutreachPlan = require("../models/WhatsAppOutreachPlan");
 const UserIntegration = require("../models/UserIntegration");
