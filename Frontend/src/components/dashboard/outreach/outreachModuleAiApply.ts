@@ -21,6 +21,7 @@ import {
 import {
   resolveVoiceSingleChannelMessage,
   decodeVoiceStepMessage,
+  encodeVoiceStepMessage,
   type VoiceSingleChannelMessage,
 } from "@/lib/voiceSingleChannelOutreach";
 
