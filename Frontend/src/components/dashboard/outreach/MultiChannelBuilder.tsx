@@ -253,7 +253,9 @@ export function MultiChannelBuilder({
       if (sequenceStepsEquivalent(previousSteps, savedSteps)) return;
       sequenceSaveSkipRef.current = true;
       setSequenceSteps(savedSteps);
-      setStepMessages((messages) => remapStepMessagesByIndex(previousSteps, savedSteps, messages));
+      setStepMessages((messages) =>
+        ensureVoiceStepDefaults(savedSteps, remapStepMessagesByIndex(previousSteps, savedSteps, messages))
+      );
     },
     []
   );
@@ -530,10 +532,12 @@ export function MultiChannelBuilder({
       if (stepsExpanded) {
         sequenceSaveSkipRef.current = true;
         setSequenceSteps(nextSteps);
-        setStepMessages((current) => ({
-          ...pruneStepMessages(nextSteps, current),
-          ...mergedMessages,
-        }));
+        setStepMessages((current) =>
+          ensureVoiceStepDefaults(nextSteps, {
+            ...pruneStepMessages(nextSteps, current),
+            ...mergedMessages,
+          })
+        );
         await persistSequenceStep(personalizeStepIndex, nextSteps, { silent: true });
       } else if (Object.keys(mergedMessages).length > 0) {
         setStepMessages((current) => ({ ...current, ...mergedMessages }));
