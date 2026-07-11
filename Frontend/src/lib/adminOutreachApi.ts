@@ -95,7 +95,7 @@ export async function fetchAdminUpcomingOutreachTriggers(
 
   return {
     triggers: Array.isArray(data.triggers)
-      ? data.triggers.map((row) => ({
+      ? data.triggers.map((row: Record<string, unknown>) => ({
           triggerKey: String(row.triggerKey || `${row.enrollmentId}:${row.currentStepOrder}`),
           enrollmentId: String(row.enrollmentId || ""),
           campaignId: String(row.campaignId || ""),
