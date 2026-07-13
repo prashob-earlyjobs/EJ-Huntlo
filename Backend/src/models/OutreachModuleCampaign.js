@@ -159,6 +159,33 @@ const outreachModuleCalendlyAutomationSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const outreachModulePostQualificationVoiceSchema = new mongoose.Schema(
+  {
+    callObjective: { type: String, default: "", trim: true },
+    body: { type: String, default: "" },
+    voiceTone: {
+      type: String,
+      enum: ["professional", "friendly", "direct"],
+      default: "professional",
+    },
+    callAttempts: { type: Number, default: 1, min: 1 },
+    attemptGapHours: { type: Number, default: 24, min: 0 },
+  },
+  { _id: false }
+);
+
+const outreachModulePostQualificationSchema = new mongoose.Schema(
+  {
+    screeningEnabled: { type: Boolean, default: false },
+    schedulingEnabled: { type: Boolean, default: false },
+    voice: {
+      type: outreachModulePostQualificationVoiceSchema,
+      default: () => ({}),
+    },
+  },
+  { _id: false }
+);
+
 const outreachModuleBuilderDetailsSchema = new mongoose.Schema(
   {
     name: { type: String, default: "", trim: true },
@@ -335,6 +362,10 @@ const outreachModuleCampaignSchema = new mongoose.Schema(
     calendlyAutomation: {
       type: outreachModuleCalendlyAutomationSchema,
       default: () => ({ enabled: false }),
+    },
+    postQualification: {
+      type: outreachModulePostQualificationSchema,
+      default: () => ({ screeningEnabled: false, schedulingEnabled: false }),
     },
     hunarVoiceAgentId: { type: String, default: "", trim: true },
     hunarVoiceAgent: { type: mongoose.Schema.Types.Mixed, default: null },

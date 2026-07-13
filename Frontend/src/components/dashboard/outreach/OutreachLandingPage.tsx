@@ -1,13 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { OutreachModeCard } from "@/components/dashboard/outreach/OutreachModeCard";
+import { OutreachRecentCampaignsSkeleton } from "@/components/dashboard/outreach/OutreachRecentCampaignsSkeleton";
 import type { OutreachCampaignRow, OutreachCampaignStatus } from "@/components/dashboard/outreach/types";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { getStoredAuth } from "@/lib/auth";
 import { dashboardBtnPrimaryClass, dashboardBtnSecondaryClass } from "@/lib/dashboardStyles";
 import { fetchOutreachModuleCampaigns } from "@/lib/outreachModuleCampaignsApi";
+
+const PAGE_SIZE = 20;
 
 type Props = {
   reloadToken?: number;
@@ -45,12 +48,18 @@ export function OutreachLandingPage({
   const [campaigns, setCampaigns] = useState<OutreachCampaignRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
+  const reloadTokenRef = useRef(reloadToken);
 
-  const loadCampaigns = useCallback(async () => {
+  const loadCampaigns = useCallback(async (targetPage: number) => {
     const auth = getStoredAuth();
     if (!auth?.token) {
       setCampaigns([]);
       setError("Sign in to view your outreach campaigns.");
+      setTotal(0);
+      setTotalPages(1);
       setLoading(false);
       return;
     }
@@ -58,10 +67,18 @@ export function OutreachLandingPage({
     setLoading(true);
     setError("");
     try {
-      const result = await fetchOutreachModuleCampaigns(auth.token, { limit: 20 });
+      const result = await fetchOutreachModuleCampaigns(auth.token, {
+        page: targetPage,
+        limit: PAGE_SIZE,
+      });
       setCampaigns(result.campaigns);
+      setPage(result.pagination.page);
+      setTotalPages(result.pagination.totalPages);
+      setTotal(result.pagination.total);
     } catch (err) {
       setCampaigns([]);
+      setTotal(0);
+      setTotalPages(1);
       setError(err instanceof Error ? err.message : "Failed to load campaigns");
     } finally {
       setLoading(false);
@@ -69,10 +86,22 @@ export function OutreachLandingPage({
   }, []);
 
   useEffect(() => {
-    void loadCampaigns();
-  }, [loadCampaigns, reloadToken]);
+    if (reloadTokenRef.current !== reloadToken) {
+      reloadTokenRef.current = reloadToken;
+      setPage(1);
+      void loadCampaigns(1);
+      return;
+    }
+    void loadCampaigns(page);
+  }, [loadCampaigns, page, reloadToken]);
 
   const hasCampaigns = campaigns.length > 0;
+  const showPagination = !loading && !error && totalPages > 1;
+
+  const handlePageChange = (nextPage: number) => {
+    if (loading || nextPage < 1 || nextPage > totalPages || nextPage === page) return;
+    setPage(nextPage);
+  };
 
   return (
     <div className="dashboard-outreach-landing">
@@ -126,7 +155,7 @@ export function OutreachLandingPage({
               <button
                 type="button"
                 className={`${dashboardBtnSecondaryClass} dashboard-btn-secondary--sm`}
-                onClick={() => void loadCampaigns()}
+                onClick={() => void loadCampaigns(page)}
               >
                 <MaterialIcon name="refresh" className="text-sm" />
                 Refresh
@@ -137,15 +166,12 @@ export function OutreachLandingPage({
 
         <div className="dashboard-outreach-recent-panel">
           {loading ? (
-            <div className="dashboard-outreach-landing-loading" role="status" aria-live="polite">
-              <span className="dashboard-outreach-landing-loading-spinner" aria-hidden />
-              Loading campaigns…
-            </div>
+            <OutreachRecentCampaignsSkeleton />
           ) : error ? (
             <div className="dashboard-outreach-empty-state">
               <MaterialIcon name="error_outline" />
               <p>{error}</p>
-              <button type="button" className={dashboardBtnPrimaryClass} onClick={() => void loadCampaigns()}>
+              <button type="button" className={dashboardBtnPrimaryClass} onClick={() => void loadCampaigns(page)}>
                 Try again
               </button>
             </div>
@@ -159,53 +185,87 @@ export function OutreachLandingPage({
               </button>
             </div>
           ) : (
-            <div className="dashboard-outreach-table-wrap">
-              <table className="dashboard-outreach-table">
-                <thead>
-                  <tr>
-                    <th>Campaign</th>
-                    <th>Mode</th>
-                    <th>Channels</th>
-                    <th>Candidates</th>
-                    <th>Status</th>
-                    <th>Response</th>
-                    <th>Created</th>
-                    <th aria-label="Actions" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {campaigns.map((row) => (
-                    <tr key={row.id}>
-                      <td>
-                        <div className="dashboard-outreach-table-campaign">
-                          <strong>{row.name}</strong>
-                        </div>
-                      </td>
-                      <td>
-                        <span className="dashboard-outreach-table-mode">{formatModeLabel(row.mode)}</span>
-                      </td>
-                      <td>{formatChannels(row.channels)}</td>
-                      <td>{row.candidates}</td>
-                      <td>
-                        <span className={statusClass(row.status)}>{formatStatusLabel(row.status)}</span>
-                      </td>
-                      <td>{row.responseRate}</td>
-                      <td className="dashboard-outreach-table-date">{row.createdDate}</td>
-                      <td className="dashboard-outreach-table-actions">
-                        <button
-                          type="button"
-                          className={`${dashboardBtnSecondaryClass} dashboard-btn-secondary--sm`}
-                          onClick={() => onViewCampaign(row.id, row.status)}
-                        >
-                          {row.status === "draft" ? "Continue" : "View"}
-                          <MaterialIcon name="arrow_forward" className="text-sm" />
-                        </button>
-                      </td>
+            <>
+              <div className="dashboard-outreach-table-wrap">
+                <table className="dashboard-outreach-table">
+                  <thead>
+                    <tr>
+                      <th>Campaign</th>
+                      <th>Mode</th>
+                      <th>Channels</th>
+                      <th>Candidates</th>
+                      <th>Status</th>
+                      <th>Response</th>
+                      <th>Created</th>
+                      <th aria-label="Actions" />
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {campaigns.map((row) => (
+                      <tr key={row.id}>
+                        <td>
+                          <div className="dashboard-outreach-table-campaign">
+                            <strong>{row.name}</strong>
+                          </div>
+                        </td>
+                        <td>
+                          <span className="dashboard-outreach-table-mode">{formatModeLabel(row.mode)}</span>
+                        </td>
+                        <td>{formatChannels(row.channels)}</td>
+                        <td>{row.candidates}</td>
+                        <td>
+                          <span className={statusClass(row.status)}>{formatStatusLabel(row.status)}</span>
+                        </td>
+                        <td>{row.responseRate}</td>
+                        <td className="dashboard-outreach-table-date">{row.createdDate}</td>
+                        <td className="dashboard-outreach-table-actions">
+                          <button
+                            type="button"
+                            className={`${dashboardBtnSecondaryClass} dashboard-btn-secondary--sm`}
+                            onClick={() => onViewCampaign(row.id, row.status)}
+                          >
+                            {row.status === "draft" ? "Continue" : "View"}
+                            <MaterialIcon name="arrow_forward" className="text-sm" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {showPagination ? (
+                <div className="dashboard-outreach-recent-pagination dashboard-pagination dashboard-pagination--compact">
+                  <p className="dashboard-pagination-label tabular-nums">
+                    Page {page} of {totalPages}
+                    <span className="dashboard-outreach-recent-pagination-total">
+                      {" "}
+                      · {total.toLocaleString()} total
+                    </span>
+                  </p>
+                  <div className="dashboard-outreach-recent-pagination-actions">
+                    <button
+                      type="button"
+                      disabled={loading || page <= 1}
+                      onClick={() => handlePageChange(page - 1)}
+                      className={`${dashboardBtnSecondaryClass} dashboard-btn-secondary--sm shrink-0 disabled:cursor-not-allowed disabled:opacity-50`}
+                    >
+                      <MaterialIcon name="chevron_left" className="text-sm" />
+                      Previous
+                    </button>
+                    <button
+                      type="button"
+                      disabled={loading || page >= totalPages}
+                      onClick={() => handlePageChange(page + 1)}
+                      className={`${dashboardBtnSecondaryClass} dashboard-btn-secondary--sm shrink-0 disabled:cursor-not-allowed disabled:opacity-50`}
+                    >
+                      Next
+                      <MaterialIcon name="chevron_right" className="text-sm" />
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </>
           )}
         </div>
       </section>

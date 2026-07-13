@@ -7,6 +7,7 @@ import { MultiChannelBuilder } from "@/components/dashboard/outreach/MultiChanne
 import {
   buildResumeAiPersonalize,
   buildResumeCalendlyAutomation,
+  buildResumePostQualification,
   buildResumeCandidateIds,
   buildResumeCandidateSource,
   buildResumeChannel,
@@ -70,6 +71,7 @@ export function Huntlo360DraftResume({
     selectedIds: string[];
     source: ReturnType<typeof buildResumeCandidateSource>;
     calendlyAutomation: ReturnType<typeof buildResumeCalendlyAutomation>;
+    postQualification: ReturnType<typeof buildResumePostQualification>;
     sequenceSteps: ReturnType<typeof buildResumeSequenceSteps>;
     stepMessages: ReturnType<typeof buildResumeStepMessages>;
     whatsappReplyQuestions: ReturnType<typeof buildResumeWhatsappReplyQuestions>;
@@ -98,6 +100,7 @@ export function Huntlo360DraftResume({
         }
 
         const calendlyAutomation = buildResumeCalendlyAutomation(campaign);
+        const postQualification = buildResumePostQualification(campaign);
         const calendlyReady =
           Boolean(calendlyAutomation.enabled) &&
           Boolean(String(calendlyAutomation.schedulingUrl || "").trim());
@@ -117,6 +120,7 @@ export function Huntlo360DraftResume({
           selectedIds: buildResumeCandidateIds(campaign),
           source: buildResumeCandidateSource(campaign),
           calendlyAutomation,
+          postQualification,
           sequenceSteps: buildResumeSequenceSteps(campaign),
           stepMessages: buildResumeStepMessages(campaign),
           whatsappReplyQuestions: buildResumeWhatsappReplyQuestions(campaign),
@@ -167,6 +171,7 @@ export function Huntlo360DraftResume({
         initialAiPersonalize={resume.aiPersonalize}
         initialWhatsappReplyQuestions={resume.whatsappReplyQuestions}
         initialCalendlyAutomation={resume.calendlyAutomation}
+        initialPostQualification={resume.postQualification}
         onBack={onBack}
         onSaveDraft={onSaveDraft}
         onLaunch={onLaunch}
@@ -184,6 +189,7 @@ export function Huntlo360DraftResume({
       initialWhatsappMessage={resume.whatsappMessage}
       initialEmailMessage={resume.emailMessage}
       initialCalendlyAutomation={resume.calendlyAutomation}
+      initialPostQualification={resume.postQualification}
       initialSelectedIds={resume.selectedIds}
       initialSource={resume.source}
       onBack={onBack}

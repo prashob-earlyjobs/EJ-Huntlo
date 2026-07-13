@@ -1,11 +1,13 @@
 const mongoose = require("mongoose");
 const OutreachModuleCampaign = require("../models/OutreachModuleCampaign");
 const { userIdFilterForActor } = require("../utils/orgScope");
-const { extractVoiceJdDetailsFromGemini } = require("./voiceJdExtractService");
+const { extractVoiceJdDetailsFromGemini, fallbackJdExtract } = require("./voiceJdExtractService");
 const {
   syncScreeningQuestionsIntoCallPrompt,
   applyScreeningQuestionCountToCallObjective,
+  normalizeScreeningTemplateText,
 } = require("./voiceAgentPromptService");
+const { screeningGoalObjective } = require("../constants/screeningGoals");
 const { VOICE_CALL_OBJECTIVE_DEFAULT } = require("../constants/outreachVoiceDefaults");
 const {
   createOutreachModuleCampaign,
@@ -83,19 +85,13 @@ function buildScreeningJobDescription(details = {}) {
 }
 
 function resolveQuestionText(text, details = {}) {
-  return String(text || "")
-    .replace(/\{\{job_title\}\}/gi, details.jobTitle || "the role")
-    .replace(/\{\{job_location\}\}/gi, details.location || "the job location")
-    .replace(/\{\{experience_required\}\}/gi, details.experienceRequired || "the required experience");
+  return normalizeScreeningTemplateText(text, details);
 }
 
 function buildCallObjective(details = {}) {
   const title = String(details.jobTitle || "").trim();
-  const company = String(details.companyName || "").trim();
   if (!title) return VOICE_CALL_OBJECTIVE_DEFAULT;
-  const atClause = company ? ` at ${company}` : "";
-  const objective = `Screen the candidate for the ${title} role${atClause} — confirm interest, ask screening questions, and capture next steps.`;
-  return objective;
+  return screeningGoalObjective(details);
 }
 
 function buildCallPrompt(script = {}, questions = [], details = {}) {
@@ -104,9 +100,9 @@ function buildCallPrompt(script = {}, questions = [], details = {}) {
     .filter(Boolean);
 
   const base = [
-    String(script.opening || "").trim(),
+    normalizeScreeningTemplateText(script.opening, details),
     "",
-    String(script.jobIntro || "").trim(),
+    normalizeScreeningTemplateText(script.jobIntro, details),
     "",
     "## Screening questions",
     "{jd_screening_questions_list}",
@@ -114,7 +110,7 @@ function buildCallPrompt(script = {}, questions = [], details = {}) {
     "## Call flow",
     "{jd_screening_call_flow_steps}",
     "",
-    String(script.closing || "").trim(),
+    normalizeScreeningTemplateText(script.closing, details),
   ]
     .filter((line, index, arr) => !(line === "" && arr[index - 1] === ""))
     .join("\n");
@@ -369,27 +365,26 @@ async function listScreenings(actorUserId, options = {}) {
 
   const page = Math.max(1, Number(options.page) || 1);
   const limit = Math.min(50, Math.max(1, Number(options.limit) || 20));
-  const skip = (page - 1) * limit;
 
   const filter = { ...access, sourceModule: "screening" };
   const status = String(options.status || "").trim();
   if (status) filter.status = status;
 
-  const [docs, total] = await Promise.all([
-    OutreachModuleCampaign.find(filter)
-      .sort({ updatedAt: -1, _id: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean(),
-    OutreachModuleCampaign.countDocuments(filter),
-  ]);
-
+  const total = await OutreachModuleCampaign.countDocuments(filter);
   const totalPages = Math.max(1, Math.ceil(total / limit) || 1);
+  const effectivePage = Math.min(page, totalPages);
+  const skip = (effectivePage - 1) * limit;
+
+  const docs = await OutreachModuleCampaign.find(filter)
+    .sort({ updatedAt: -1, _id: -1 })
+    .skip(skip)
+    .limit(limit)
+    .lean();
 
   return {
     screenings: docs.map(formatScreeningRow),
     pagination: {
-      page: Math.min(page, totalPages),
+      page: effectivePage,
       limit,
       total,
       totalPages,
@@ -444,11 +439,39 @@ async function getScreeningCandidateDetail(actorUserId, screeningId, candidateId
 
 function normalizeCreatePayload(payload = {}) {
   const details = payload.details || payload.form || {};
-  const name = String(details.name || payload.name || "").trim();
-  const jobTitle = String(details.jobTitle || payload.jobTitle || "").trim();
+  const jobDescription =
+    String(payload.jobDescription || details.jobDescription || "").trim() ||
+    buildScreeningJobDescription(details);
 
-  if (!name) throw badRequest("Screening name is required");
-  if (!jobTitle) throw badRequest("Job title is required");
+  if (!jobDescription) {
+    throw badRequest("Job description is required");
+  }
+
+  const jdExtract = fallbackJdExtract(
+    jobDescription,
+    String(details.jobTitle || payload.jobTitle || "").trim()
+  );
+
+  const jobTitle =
+    String(details.jobTitle || payload.jobTitle || "").trim() ||
+    String(jdExtract.role || "").trim() ||
+    "Open role";
+  const name =
+    String(details.name || payload.name || "").trim() || `${jobTitle} screening`;
+
+  const enrichedDetails = {
+    ...details,
+    name,
+    jobTitle,
+    companyName:
+      String(details.companyName || "").trim() || String(jdExtract.company || "").trim(),
+    location: String(details.location || "").trim(),
+    experienceRequired:
+      String(details.experienceRequired || "").trim() ||
+      String(jdExtract.experience || "").trim(),
+    goal: String(details.goal || "interest").trim(),
+    jobDescription,
+  };
 
   const candidateIds = Array.isArray(payload.candidateIds)
     ? payload.candidateIds
@@ -464,13 +487,13 @@ function normalizeCreatePayload(payload = {}) {
 
   const script = payload.script || {};
   const questions = Array.isArray(payload.questions) ? payload.questions : [];
-  const callPrompt = buildCallPrompt(script, questions, details);
+  const callPrompt = buildCallPrompt(script, questions, enrichedDetails);
   if (!callPrompt.trim()) {
     throw badRequest("Add a voice call script or screening questions before launching");
   }
 
   const questionCount = questions.filter((q) => String(q?.text || q || "").trim()).length;
-  let callObjective = buildCallObjective(details);
+  let callObjective = buildCallObjective(enrichedDetails);
   if (questionCount > 0) {
     callObjective = applyScreeningQuestionCountToCallObjective(callObjective, questionCount);
   }
@@ -483,7 +506,7 @@ function normalizeCreatePayload(payload = {}) {
   return {
     name,
     jobTitle,
-    jobDescription: buildScreeningJobDescription(details),
+    jobDescription,
     goal: "screening",
     mode: "single",
     channel: "voice",
@@ -495,10 +518,10 @@ function normalizeCreatePayload(payload = {}) {
     sourceModule: "screening",
     screeningType: payload.screeningType === "video" ? "video" : "voice",
     screeningConfig: {
-      companyName: String(details.companyName || "").trim(),
-      location: String(details.location || "").trim(),
-      experienceRequired: String(details.experienceRequired || "").trim(),
-      goal: String(details.goal || "interest").trim(),
+      companyName: enrichedDetails.companyName,
+      location: enrichedDetails.location,
+      experienceRequired: enrichedDetails.experienceRequired,
+      goal: enrichedDetails.goal,
       language: String(payload.language || "english").trim(),
       voiceTone: payload.voiceTone || "professional",
       attempts,
@@ -584,39 +607,52 @@ async function recordScreeningCandidateAction(actorUserId, screeningId, candidat
 
 async function generateScreeningQuestions(actorUserId, payload = {}) {
   const details = payload.details || payload.form || payload;
-  const jobTitle = String(details.jobTitle || payload.jobTitle || "").trim();
   const jobDescription =
-    String(payload.jobDescription || "").trim() || buildScreeningJobDescription(details);
+    String(payload.jobDescription || details.jobDescription || "").trim() ||
+    buildScreeningJobDescription(details);
 
-  if (!jobTitle && !jobDescription) {
-    throw badRequest("Job title or description is required to generate questions");
+  if (!jobDescription) {
+    throw badRequest("Job description is required to generate questions");
   }
 
-  const extracted = await extractVoiceJdDetailsFromGemini(jobDescription, jobTitle);
-  const screeningQuestions = Array.isArray(extracted.screeningQuestions)
-    ? extracted.screeningQuestions
+  const jobTitle = String(details.jobTitle || payload.jobTitle || "").trim();
+  const jdExtract = await extractVoiceJdDetailsFromGemini(jobDescription, jobTitle);
+  const resolvedJobTitle = jobTitle || String(jdExtract.role || "").trim();
+  const enrichedDetails = {
+    ...details,
+    jobTitle: resolvedJobTitle,
+    companyName:
+      String(details.companyName || "").trim() || String(jdExtract.company || "").trim(),
+    location: String(details.location || "").trim(),
+    experienceRequired:
+      String(details.experienceRequired || "").trim() ||
+      String(jdExtract.experience || "").trim(),
+    jobDescription,
+  };
+  const screeningQuestions = Array.isArray(jdExtract.screeningQuestions)
+    ? jdExtract.screeningQuestions
     : [];
 
   const questions = screeningQuestions.map((text, index) => ({
     id: `gq${index + 1}`,
-    text: resolveQuestionText(text, details),
+    text: resolveQuestionText(text, enrichedDetails),
     weight: 10,
     required: true,
   }));
 
-  const roleBrief = String(extracted.roleBrief || "").trim();
+  const roleBrief = String(jdExtract.roleBrief || "").trim();
   const script = {
     opening: "Hello, am I speaking with {callee_name}?",
     jobIntro:
       roleBrief ||
-      `I'm calling regarding the ${jobTitle || "open"} role${
-        details.companyName ? ` at ${details.companyName}` : ""
+      `I'm calling regarding the ${resolvedJobTitle || "open"} role${
+        enrichedDetails.companyName ? ` at ${enrichedDetails.companyName}` : ""
       }.`,
     closing:
       "Thank you for your time today. Our team will review your responses and get back to you with next steps.",
   };
 
-  return { questions, script, jdExtract: extracted };
+  return { questions, script, jdExtract };
 }
 
 module.exports = {

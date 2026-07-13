@@ -49,6 +49,7 @@ export type AdminOutreachTriggersResponse = {
     total: number;
     due: number;
     upcoming: number;
+    projected?: number;
     completed: number;
   };
   pagination: AdminOutreachTriggersPagination;

@@ -3,6 +3,7 @@
 import { SingleChannelBuilder } from "@/components/dashboard/outreach/SingleChannelBuilder";
 import type { CampaignDetailsForm, CandidateSource, OutreachChannel } from "@/components/dashboard/outreach/types";
 import type { CampaignCalendlyAutomation } from "@/lib/campaigns";
+import type { PostQualificationConfig } from "@/lib/postQualification";
 import type { EmailSingleChannelMessage } from "@/lib/emailSingleChannelOutreach";
 import type { WhatsAppSingleChannelMessage } from "@/lib/whatsappOutreach";
 
@@ -18,6 +19,7 @@ type Props = {
   initialWhatsappMessage?: Partial<WhatsAppSingleChannelMessage>;
   initialEmailMessage?: Partial<EmailSingleChannelMessage> & { subject?: string };
   initialCalendlyAutomation?: CampaignCalendlyAutomation;
+  initialPostQualification?: PostQualificationConfig;
   initialSelectedIds?: string[];
   initialSource?: CandidateSource;
 };

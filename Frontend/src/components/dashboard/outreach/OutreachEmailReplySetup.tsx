@@ -82,6 +82,9 @@ export function OutreachEmailReplySetup({
 
   const openPicker = async () => {
     setPickerOpen(true);
+    setCalendlyLoading(true);
+    setCalendlyError("");
+    setMeetings([]);
     await loadMeetings();
   };
 
@@ -157,21 +160,21 @@ export function OutreachEmailReplySetup({
                       : "Connect Calendly in Integrations to add a scheduling link."}
                 </p>
               </div>
+              {calendlyConnected ? (
+                <button
+                  type="button"
+                  className={`${dashboardBtnSecondaryClass} dashboard-outreach-calendly-rail-card-action`}
+                  disabled={disabled || calendlyLoading}
+                  onClick={() => void openPicker()}
+                >
+                  {calendlyLoading
+                    ? "Loading…"
+                    : calendlyOn
+                      ? "Change meeting type"
+                      : "Select meeting type"}
+                </button>
+              ) : null}
             </div>
-            {calendlyConnected ? (
-              <button
-                type="button"
-                className={`${dashboardBtnSecondaryClass} mt-3`}
-                disabled={disabled || calendlyLoading}
-                onClick={() => void openPicker()}
-              >
-                {calendlyLoading
-                  ? "Loading meetings…"
-                  : calendlyOn
-                    ? "Change meeting type"
-                    : "Select meeting type"}
-              </button>
-            ) : null}
             {calendlyError ? (
               <p className="dashboard-outreach-empty-hint dashboard-outreach-empty-hint--error mt-2">
                 {calendlyError}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { CampaignEmailSenderSelect } from "@/components/dashboard/CampaignEmailSenderSelect";
 import { CampaignSequenceFlowPanel } from "@/components/dashboard/outreach/CampaignSequenceFlowPanel";
 import { getChannelLabel } from "@/components/dashboard/outreach/ChannelCard";
@@ -11,6 +11,9 @@ import {
   dashboardBtnPrimaryClass,
   dashboardBtnSecondaryClass,
 } from "@/lib/dashboardStyles";
+import { AfterQualificationSetup } from "@/components/dashboard/outreach/AfterQualificationSetup";
+import type { CampaignCalendlyAutomation } from "@/lib/campaigns";
+import type { PostQualificationConfig } from "@/lib/postQualification";
 
 export type ReviewFlowItem = {
   icon: string;
@@ -49,6 +52,10 @@ type Props = {
   onBack?: () => void;
   onSaveDraft: () => void | Promise<void>;
   onLaunch: () => void | Promise<void>;
+  postQualification?: PostQualificationConfig;
+  onPostQualificationChange?: (value: PostQualificationConfig) => void;
+  calendlyAutomation?: CampaignCalendlyAutomation;
+  onCalendlyAutomationChange?: (value: CampaignCalendlyAutomation) => void;
 };
 
 const CHANNEL_ICONS: Record<OutreachChannel, string> = {
@@ -57,6 +64,25 @@ const CHANNEL_ICONS: Record<OutreachChannel, string> = {
   voice: "record_voice_over",
   linkedin: "work",
 };
+
+function shortSourceLabel(label?: string): string | null {
+  if (!label?.trim()) return null;
+  return label.replace(/^Huntlo\s+/i, "").trim() || label.trim();
+}
+
+function compactTouchpointSummary(summary?: string): string | null {
+  if (!summary?.trim()) return null;
+  const text = summary.trim();
+  const whatsapp = text.match(
+    /(\d+)\s+automated steps\s+\+\s+(\d+)\s+qualification question/i
+  );
+  if (whatsapp) {
+    return `${whatsapp[1]} steps · ${whatsapp[2]} questions`;
+  }
+  if (/automated emails/i.test(text)) return "4 emails";
+  if (/voice call/i.test(text)) return "Voice outreach";
+  return text.length > 24 ? `${text.slice(0, 24)}…` : text;
+}
 
 export function CampaignReviewSummary({
   campaignName,
@@ -83,6 +109,10 @@ export function CampaignReviewSummary({
   onBack,
   onSaveDraft,
   onLaunch,
+  postQualification,
+  onPostQualificationChange,
+  calendlyAutomation,
+  onCalendlyAutomationChange,
 }: Props) {
   const allChecksDone = checklist.length === 0 || checklist.every((item) => item.done);
   const senderReady =
@@ -93,6 +123,10 @@ export function CampaignReviewSummary({
   const canLaunch = candidateCount > 0 && allChecksDone && senderReady && !submitting;
   const checklistDoneCount = checklist.filter((item) => item.done).length;
   const uniqueChannels = useMemo(() => [...new Set(channels.filter(Boolean))], [channels]);
+  const sourceShort = shortSourceLabel(candidateSourceLabel);
+  const touchpointShort = compactTouchpointSummary(touchpointSummary);
+  const candidateLabel = `${candidateCount} ${candidateCount === 1 ? "candidate" : "candidates"}`;
+  const [showOutreachSequence, setShowOutreachSequence] = useState(false);
 
   return (
     <div className="dashboard-outreach-review">
@@ -120,85 +154,109 @@ export function CampaignReviewSummary({
           </span>
         </header>
 
-        <div className="dashboard-outreach-review-metrics">
-          <div className="dashboard-outreach-review-metric">
-            <span className="dashboard-outreach-review-metric-icon" aria-hidden>
-              <MaterialIcon name="groups" />
-            </span>
-            <div>
-              <span className="dashboard-outreach-review-metric-label">Candidates</span>
-              <span className="dashboard-outreach-review-metric-value">{candidateCount}</span>
-              {candidateSourceLabel ? (
-                <span className="dashboard-outreach-review-metric-meta">{candidateSourceLabel}</span>
+        <div className="dashboard-outreach-review-stats-bar">
+          <div className="dashboard-outreach-review-stats" aria-label="Campaign summary">
+            <span className="dashboard-outreach-review-stat">
+              <MaterialIcon name="groups" className="dashboard-outreach-review-stat-icon" />
+              {candidateLabel}
+              {sourceShort ? (
+                <>
+                  <span className="dashboard-outreach-review-stat-sep" aria-hidden>
+                    ·
+                  </span>
+                  <span className="dashboard-outreach-review-stat-muted">{sourceShort}</span>
+                </>
               ) : null}
-            </div>
-          </div>
-
-          <div className="dashboard-outreach-review-metric">
-            <span className="dashboard-outreach-review-metric-icon" aria-hidden>
-              <MaterialIcon name={mode === "single" ? "send" : "account_tree"} />
             </span>
-            <div>
-              <span className="dashboard-outreach-review-metric-label">Mode</span>
-              <span className="dashboard-outreach-review-metric-value">
-                {mode === "single" ? "Single channel" : "Multi channel"}
-              </span>
-            </div>
-          </div>
 
-          {mode === "single" && channel ? (
-            <div className="dashboard-outreach-review-metric">
-              <span className="dashboard-outreach-review-metric-icon" aria-hidden>
-                <MaterialIcon name={CHANNEL_ICONS[channel]} />
-              </span>
-              <div>
-                <span className="dashboard-outreach-review-metric-label">Channel</span>
-                <span className="dashboard-outreach-review-metric-value">
-                  {getChannelLabel(channel)}
-                </span>
-                {touchpointSummary ? (
-                  <span className="dashboard-outreach-review-metric-meta">{touchpointSummary}</span>
+            {mode === "single" && channel ? (
+              <span className="dashboard-outreach-review-stat">
+                <MaterialIcon
+                  name={CHANNEL_ICONS[channel]}
+                  className="dashboard-outreach-review-stat-icon"
+                />
+                {getChannelLabel(channel)}
+                {touchpointShort ? (
+                  <>
+                    <span className="dashboard-outreach-review-stat-sep" aria-hidden>
+                      ·
+                    </span>
+                    <span className="dashboard-outreach-review-stat-muted">{touchpointShort}</span>
+                  </>
                 ) : null}
-              </div>
-            </div>
-          ) : null}
+              </span>
+            ) : null}
 
-          {mode === "multi" ? (
-            <>
-              <div className="dashboard-outreach-review-metric">
-                <span className="dashboard-outreach-review-metric-icon" aria-hidden>
-                  <MaterialIcon name="route" />
-                </span>
-                <div>
-                  <span className="dashboard-outreach-review-metric-label">Sequence</span>
-                  <span className="dashboard-outreach-review-metric-value">
-                    {steps.length} step{steps.length === 1 ? "" : "s"}
-                  </span>
+            {mode === "multi" ? (
+              <>
+                <span className="dashboard-outreach-review-stat">
+                  <MaterialIcon name="route" className="dashboard-outreach-review-stat-icon" />
+                  {steps.length} step{steps.length === 1 ? "" : "s"}
                   {estimatedDuration ? (
-                    <span className="dashboard-outreach-review-metric-meta">{estimatedDuration}</span>
+                    <>
+                      <span className="dashboard-outreach-review-stat-sep" aria-hidden>
+                        ·
+                      </span>
+                      <span className="dashboard-outreach-review-stat-muted">{estimatedDuration}</span>
+                    </>
                   ) : null}
-                </div>
-              </div>
-              {uniqueChannels.length > 0 ? (
-                <div className="dashboard-outreach-review-metric dashboard-outreach-review-metric--channels">
-                  <span className="dashboard-outreach-review-metric-icon" aria-hidden>
-                    <MaterialIcon name="hub" />
+                </span>
+                {uniqueChannels.length > 0 ? (
+                  <span className="dashboard-outreach-review-stat">
+                    <MaterialIcon name="hub" className="dashboard-outreach-review-stat-icon" />
+                    {uniqueChannels.join(", ")}
                   </span>
-                  <div>
-                    <span className="dashboard-outreach-review-metric-label">Channels used</span>
-                    <div className="dashboard-outreach-review-channel-pills">
-                      {uniqueChannels.map((label) => (
-                        <span key={label} className="dashboard-outreach-review-channel-pill">
-                          {label}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              ) : null}
-            </>
+                ) : null}
+              </>
+            ) : null}
+          </div>
+
+          {flowItems.length > 0 ? (
+            <button
+              type="button"
+              className="dashboard-outreach-review-sequence-toggle"
+              onClick={() => setShowOutreachSequence((open) => !open)}
+              aria-expanded={showOutreachSequence}
+            >
+              <MaterialIcon
+                name={showOutreachSequence ? "expand_less" : "expand_more"}
+                className="dashboard-outreach-review-sequence-toggle-icon"
+              />
+              <span>
+                {showOutreachSequence ? "Hide sequence" : "View sequence"}
+              </span>
+              <span className="dashboard-outreach-review-sequence-toggle-count">
+                {flowItems.length}
+              </span>
+            </button>
           ) : null}
         </div>
+
+        {showOutreachSequence && flowItems.length > 0 ? (
+          <section className="dashboard-outreach-review-panel dashboard-outreach-review-panel--flow">
+            <ol className="dashboard-outreach-review-flow-list">
+              {flowItems.map((item, index) => (
+                <li key={`${item.title}-${index}`} className="dashboard-outreach-review-flow-item">
+                  <span className="dashboard-outreach-review-flow-step" aria-hidden>
+                    {index + 1}
+                  </span>
+                  <span className="dashboard-outreach-review-flow-marker" aria-hidden>
+                    <MaterialIcon name={item.icon} className="text-sm" />
+                  </span>
+                  <div className="dashboard-outreach-review-flow-body">
+                    <p className="dashboard-outreach-review-flow-title">{item.title}</p>
+                    {item.subtitle ? (
+                      <p className="dashboard-outreach-review-flow-subtitle">{item.subtitle}</p>
+                    ) : null}
+                    {item.detail ? (
+                      <pre className="dashboard-outreach-review-flow-detail">{item.detail}</pre>
+                    ) : null}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </section>
+        ) : null}
 
         {mode === "multi" && steps.length > 0 ? (
           <CampaignSequenceFlowPanel
@@ -210,58 +268,18 @@ export function CampaignReviewSummary({
           />
         ) : null}
 
-        <div className="dashboard-outreach-review-layout">
-          <div className="dashboard-outreach-review-primary">
-            {flowItems.length > 0 ? (
-              <section className="dashboard-outreach-review-panel">
-                <div className="dashboard-outreach-review-panel-head">
-                  <h4 className="dashboard-outreach-review-section-title">Message flow</h4>
-                </div>
-                <ol className="dashboard-outreach-review-flow-list">
-                  {flowItems.map((item, index) => (
-                    <li key={`${item.title}-${index}`} className="dashboard-outreach-review-flow-item">
-                      <span className="dashboard-outreach-review-flow-marker" aria-hidden>
-                        <MaterialIcon name={item.icon} className="text-sm" />
-                      </span>
-                      <div className="dashboard-outreach-review-flow-body">
-                        <p className="dashboard-outreach-review-flow-title">{item.title}</p>
-                        {item.subtitle ? (
-                          <p className="dashboard-outreach-review-flow-subtitle">{item.subtitle}</p>
-                        ) : null}
-                        {item.detail ? (
-                          <pre className="dashboard-outreach-review-flow-detail">{item.detail}</pre>
-                        ) : null}
-                      </div>
-                    </li>
-                  ))}
-                </ol>
-              </section>
-            ) : null}
-          </div>
+        {postQualification && onPostQualificationChange && calendlyAutomation && onCalendlyAutomationChange ? (
+          <AfterQualificationSetup
+            value={postQualification}
+            onChange={onPostQualificationChange}
+            calendlyAutomation={calendlyAutomation}
+            onCalendlyAutomationChange={onCalendlyAutomationChange}
+            disabled={submitting}
+          />
+        ) : null}
 
+        <div className="dashboard-outreach-review-layout dashboard-outreach-review-layout--single">
           <aside className="dashboard-outreach-review-aside">
-            {showSenderPicker ? (
-              <section className="dashboard-outreach-review-panel dashboard-outreach-review-sender">
-                <div className="dashboard-outreach-review-panel-head">
-                  <h4 className="dashboard-outreach-review-section-title">Sender account</h4>
-                  <p className="dashboard-outreach-review-section-lead">
-                    Choose which connected inbox sends this campaign&apos;s emails.
-                  </p>
-                </div>
-                {emailSendersLoading ? (
-                  <p className="dashboard-outreach-review-section-lead">Loading connected accounts…</p>
-                ) : onEmailIntegrationChange ? (
-                  <CampaignEmailSenderSelect
-                    value={selectedEmailIntegrationId}
-                    options={emailSenders}
-                    onChange={onEmailIntegrationChange}
-                    disabled={submitting}
-                    className="dashboard-campaign-sender-field--rail"
-                  />
-                ) : null}
-              </section>
-            ) : null}
-
             {checklist.length > 0 ? (
               <section className="dashboard-outreach-review-panel dashboard-outreach-review-checklist">
                 <div className="dashboard-outreach-review-panel-head dashboard-outreach-review-panel-head--row">
@@ -291,6 +309,28 @@ export function CampaignReviewSummary({
                     </li>
                   ))}
                 </ul>
+              </section>
+            ) : null}
+
+            {showSenderPicker ? (
+              <section className="dashboard-outreach-review-panel dashboard-outreach-review-sender">
+                <div className="dashboard-outreach-review-panel-head">
+                  <h4 className="dashboard-outreach-review-section-title">Sender account</h4>
+                  <p className="dashboard-outreach-review-section-lead">
+                    Choose which connected inbox sends this campaign&apos;s emails.
+                  </p>
+                </div>
+                {emailSendersLoading ? (
+                  <p className="dashboard-outreach-review-section-lead">Loading connected accounts…</p>
+                ) : onEmailIntegrationChange ? (
+                  <CampaignEmailSenderSelect
+                    value={selectedEmailIntegrationId}
+                    options={emailSenders}
+                    onChange={onEmailIntegrationChange}
+                    disabled={submitting}
+                    className="dashboard-campaign-sender-field--rail"
+                  />
+                ) : null}
               </section>
             ) : null}
 

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { CandidateScreeningResultDrawer } from "@/components/dashboard/screening/CandidateScreeningResultDrawer";
+import { ScreeningResultsSkeleton } from "@/components/dashboard/screening/ScreeningResultsSkeleton";
 import { ScreeningResultsTable } from "@/components/dashboard/screening/ScreeningResultsTable";
 import { ScreeningStatsCard } from "@/components/dashboard/screening/ScreeningStatsCard";
 import type { ScreeningResultDetail, ScreeningResultRow, ScreeningRow } from "@/components/dashboard/screening/types";
@@ -142,7 +143,7 @@ export function ScreeningResultsPage({ screeningId, onBack, onToast }: Props) {
   };
 
   if (loading) {
-    return <p className="dashboard-text-body">Loading screening results…</p>;
+    return <ScreeningResultsSkeleton />;
   }
 
   if (!screening) {
@@ -209,10 +210,14 @@ export function ScreeningResultsPage({ screeningId, onBack, onToast }: Props) {
 
       <section className="dashboard-screening-funnel">
         <h2 className="dashboard-screening-subsection-title">Screening funnel</h2>
-        <div className="dashboard-screening-funnel-row">
+        <div className="dashboard-screening-funnel-track">
           {funnel.map((stage, i) => (
-            <div key={stage.label} className="dashboard-screening-funnel-stage">
-              {i > 0 ? <MaterialIcon name="arrow_forward" className="dashboard-screening-funnel-arrow" /> : null}
+            <div key={stage.label} className="dashboard-screening-funnel-step">
+              {i > 0 ? (
+                <div className="dashboard-screening-funnel-connector" aria-hidden>
+                  <MaterialIcon name="arrow_forward" className="dashboard-screening-funnel-arrow" />
+                </div>
+              ) : null}
               <div className="dashboard-screening-funnel-card">
                 <span className="dashboard-screening-funnel-count">{stage.count}</span>
                 <span className="dashboard-screening-funnel-label">{stage.label}</span>

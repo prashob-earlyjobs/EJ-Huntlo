@@ -44,9 +44,37 @@ function buildEnrollmentBaseRow(enrollment, campaign, owner) {
   };
 }
 
-function buildEnrollmentFilter({ campaignId = "", phase = "upcoming" } = {}) {
+function campaignScopeFilter(campaignIds, campaignId = "") {
   const campaignKey = String(campaignId || "").trim();
-  const scoped = campaignKey ? { outreachModuleCampaignId: campaignKey } : {};
+  if (campaignKey) return { outreachModuleCampaignId: campaignKey };
+  if (!Array.isArray(campaignIds) || campaignIds.length === 0) {
+    return { outreachModuleCampaignId: { $in: [] } };
+  }
+  return { outreachModuleCampaignId: { $in: campaignIds } };
+}
+
+async function resolveCampaignIdsForPhase({ campaignId = "", phase = "upcoming" } = {}) {
+  const campaignKey = String(campaignId || "").trim();
+  const baseFilter = {
+    sourceModule: { $ne: "screening" },
+  };
+  if (campaignKey) {
+    baseFilter._id = campaignKey;
+  }
+
+  const statusFilter =
+    phase === "upcoming"
+      ? { status: "active" }
+      : { status: { $in: ["active", "paused", "completed"] } };
+
+  const docs = await OutreachModuleCampaign.find({ ...baseFilter, ...statusFilter })
+    .select("_id")
+    .lean();
+  return docs.map((row) => row._id);
+}
+
+function buildEnrollmentFilter({ campaignId = "", phase = "upcoming", campaignIds = [] } = {}) {
+  const scoped = campaignScopeFilter(campaignIds, campaignId);
 
   if (phase === "completed") {
     return {
@@ -172,6 +200,8 @@ function buildUpcomingEnrollmentTriggers(enrollment, campaign, owner, now) {
     }
 
     const isManual = step.channel === "linkedin";
+    const isProjected = step.order > currentStepOrder;
+    const isCurrentStep = !isProjected;
     const sendAt = i === 0 ? baseNextAt : projectedAt;
     rows.push({
       ...base,
@@ -183,8 +213,9 @@ function buildUpcomingEnrollmentTriggers(enrollment, campaign, owner, now) {
       nextSendAt: isManual ? null : sendAt.toISOString(),
       completedAt: null,
       triggerPhase: "upcoming",
-      isDue: !isManual && sendAt.getTime() <= now.getTime(),
-      isProjected: step.order > currentStepOrder,
+      // Only the enrollment's current step can be "due" — future steps are projections.
+      isDue: isCurrentStep && !isManual && sendAt.getTime() <= now.getTime(),
+      isProjected,
       isManual,
       isFailed: false,
       queueIndex: step.order,
@@ -221,6 +252,7 @@ async function listAdminUpcomingOutreachTriggers({
   campaignId = "",
   dueOnly = false,
   phase = "upcoming",
+  includeProjected = false,
 } = {}) {
   const safePage = Math.max(1, Number(page) || 1);
   const safeLimit = Math.min(100, Math.max(1, Number(limit) || 25));
@@ -228,7 +260,15 @@ async function listAdminUpcomingOutreachTriggers({
   const safePhase = normalizePhase(phase);
   const now = new Date();
 
-  const enrollmentFilter = buildEnrollmentFilter({ campaignId, phase: safePhase });
+  const scopedCampaignIds = await resolveCampaignIdsForPhase({
+    campaignId,
+    phase: safePhase,
+  });
+  const enrollmentFilter = buildEnrollmentFilter({
+    campaignId,
+    phase: safePhase,
+    campaignIds: scopedCampaignIds,
+  });
   const sortField =
     safePhase === "completed" ? { lastSentAt: -1, updatedAt: -1 } : { nextSendAt: 1 };
 
@@ -236,15 +276,13 @@ async function listAdminUpcomingOutreachTriggers({
     .sort(sortField)
     .lean();
 
-  const campaignIds = [
-    ...new Set(enrollments.map((row) => String(row.outreachModuleCampaignId))),
-  ];
+  const campaignIds = scopedCampaignIds;
   const userIds = [...new Set(enrollments.map((row) => String(row.userId)))];
 
   const [campaigns, users] = await Promise.all([
     campaignIds.length
       ? OutreachModuleCampaign.find({ _id: { $in: campaignIds } })
-          .select("name status mode userId sequenceSteps channel channelMessage")
+          .select("name status mode userId sequenceSteps channel channelMessage sourceModule")
           .lean()
       : [],
     userIds.length
@@ -260,6 +298,7 @@ async function listAdminUpcomingOutreachTriggers({
   let triggers = [];
   for (const enrollment of enrollments) {
     const campaign = campaignById.get(String(enrollment.outreachModuleCampaignId));
+    if (!campaign) continue;
     const owner = userById.get(String(enrollment.userId));
 
     if (safePhase === "upcoming" || safePhase === "all") {
@@ -273,15 +312,23 @@ async function listAdminUpcomingOutreachTriggers({
   triggers = sortTriggers(triggers, safePhase);
 
   const upcomingRows = triggers.filter((row) => row.triggerPhase === "upcoming");
+  const actionableUpcoming = upcomingRows.filter((row) => !row.isProjected);
+  const projectedRows = upcomingRows.filter((row) => row.isProjected);
   const completedRows = triggers.filter((row) => row.triggerPhase === "completed");
-  const dueCount = upcomingRows.filter((row) => row.isDue).length;
-  const upcomingCount = upcomingRows.length - dueCount;
+  const dueCount = actionableUpcoming.filter((row) => row.isDue).length;
+  const upcomingCount = actionableUpcoming.filter((row) => !row.isDue).length;
+  const projectedCount = projectedRows.length;
   const completedCount = completedRows.length;
-  const allTotal = triggers.length;
+
+  if (!includeProjected && safePhase !== "completed") {
+    triggers = triggers.filter((row) => row.triggerPhase !== "upcoming" || !row.isProjected);
+  }
 
   if (dueOnly && safePhase !== "completed") {
     triggers = triggers.filter((row) => row.triggerPhase === "upcoming" && row.isDue);
   }
+
+  triggers = sortTriggers(triggers, safePhase);
 
   const total = triggers.length;
   const totalPages = Math.max(1, Math.ceil(total / safeLimit) || 1);
@@ -291,9 +338,10 @@ async function listAdminUpcomingOutreachTriggers({
   return {
     triggers: pageRows,
     summary: {
-      total: allTotal,
+      total: actionableUpcoming.length,
       due: dueCount,
       upcoming: upcomingCount,
+      projected: projectedCount,
       completed: completedCount,
     },
     pagination: {

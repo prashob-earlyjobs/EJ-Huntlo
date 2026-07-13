@@ -107,8 +107,8 @@ export const mockVoiceQuestions: ScreeningQuestion[] = [
   },
   {
     id: "vq2",
-    text: "How many years of experience do you have in {{job_title}} or similar roles?",
-    hint: "Numeric answer, compare with {{experience_required}}",
+    text: "How many years of experience do you have in {jd_role} or similar roles?",
+    hint: "Numeric answer, compare with {jd_experience}",
     criteriaTag: "Experience",
     weight: 15,
     required: true,
@@ -122,7 +122,7 @@ export const mockVoiceQuestions: ScreeningQuestion[] = [
   },
   {
     id: "vq4",
-    text: "Are you comfortable working from {{job_location}}?",
+    text: "Are you comfortable with the work location for this role?",
     criteriaTag: "Availability",
     weight: 10,
     required: true,
@@ -204,11 +204,11 @@ export const mockVideoQuestions: ScreeningQuestion[] = [
 
 export const mockVoiceScript: VoiceScriptSections = {
   opening:
-    "Hi {{candidate_first_name}}, this is Huntlo AI calling on behalf of {{company_name}} regarding a {{job_title}} opportunity. I would like to ask you a few quick questions to understand your interest and eligibility.",
+    "Hi {callee_name}, this is Huntlo AI calling on behalf of {jd_company} regarding a {jd_role} opportunity. I would like to ask you a few quick questions to understand your interest and eligibility.",
   jobIntro:
-    "We are hiring for a {{job_title}} role at {{company_name}} based in {{job_location}}. The role requires {{experience_required}} of relevant experience.",
+    "We are hiring for a {jd_role} role at {jd_company}. The role requires {jd_experience} of relevant experience.",
   closing:
-    "Thank you for your time, {{candidate_first_name}}. Our recruiting team will review your responses and get back to you shortly. Have a great day!",
+    "Thank you for your time, {callee_name}. Our recruiting team will review your responses and get back to you shortly. Have a great day!",
 };
 
 export const mockEvaluationCriteria: EvaluationCriterion[] = [
@@ -399,9 +399,8 @@ export const mockVideoTranscript = [
 ];
 
 export const SCRIPT_VARIABLES = [
-  "{{candidate_first_name}}",
-  "{{job_title}}",
-  "{{company_name}}",
-  "{{job_location}}",
-  "{{experience_required}}",
+  "{callee_name}",
+  "{jd_role}",
+  "{jd_company}",
+  "{jd_experience}",
 ];

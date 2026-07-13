@@ -389,6 +389,14 @@ async function syncOutreachModuleCandidateFromVoiceCall(campaignId, callRow) {
   campaign.markModified("candidates");
   campaign.markModified("stats");
   await campaign.save();
+
+  try {
+    const { runPostQualificationAfterScreeningCall } = require("./postQualificationService");
+    await runPostQualificationAfterScreeningCall(campaignId, candidateKey, callResult);
+  } catch (err) {
+    console.warn("[post-qual] after screening scheduling failed:", err?.message || err);
+  }
+
   return true;
 }
 
@@ -460,4 +468,5 @@ module.exports = {
   markOutreachModuleCandidatesVoiceQueued,
   syncOutreachModuleCandidateFromVoiceCall,
   maybeCompleteOutreachModuleVoiceCampaign,
+  classifyVoiceInterest,
 };

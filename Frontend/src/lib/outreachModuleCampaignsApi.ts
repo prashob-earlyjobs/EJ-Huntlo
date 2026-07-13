@@ -85,6 +85,17 @@ export type OutreachModuleCampaignDetail = OutreachCampaignRow & {
     durationMinutes?: number;
     kind?: string;
   };
+  postQualification?: {
+    screeningEnabled?: boolean;
+    schedulingEnabled?: boolean;
+    voice?: {
+      callObjective?: string;
+      body?: string;
+      voiceTone?: "professional" | "friendly" | "direct";
+      callAttempts?: number;
+      attemptGapHours?: number;
+    };
+  };
   stats: CampaignDetailStats;
   funnel: { label: string; count: number }[];
   trackingCandidates: CampaignTrackingCandidate[];

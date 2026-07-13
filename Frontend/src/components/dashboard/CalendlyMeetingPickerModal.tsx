@@ -97,18 +97,19 @@ export function CalendlyMeetingPickerModal({
           </div>
         </div>
 
-        <div className="dashboard-outreach-scroll min-h-0 flex-1 overflow-y-auto px-6 py-5">
+        <div
+          className="dashboard-outreach-scroll min-h-0 flex-1 overflow-y-auto px-6 py-5"
+          aria-busy={loading}
+        >
           {loading ? (
-            <div className="space-y-2" aria-hidden>
-              {Array.from({ length: 4 }).map((_, index) => (
-                <div
-                  key={`calendly-skeleton-${index}`}
-                  className="rounded-lg border border-slate-200 bg-white px-3 py-2"
-                >
-                  <div className="dashboard-shimmer h-4 w-44 rounded" />
-                  <div className="dashboard-shimmer mt-2 h-3 w-28 rounded" />
-                </div>
-              ))}
+            <div className="calendly-meeting-picker-skeleton" aria-label="Loading meeting types">
+              <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2">
+                <span className="min-w-0 flex-1 pr-3">
+                  <span className="dashboard-shimmer block h-4 w-44 max-w-[85%] rounded" />
+                  <span className="dashboard-shimmer mt-2 block h-3 w-28 max-w-[65%] rounded" />
+                </span>
+                <span className="dashboard-shimmer h-5 w-5 shrink-0 rounded-full" aria-hidden />
+              </div>
             </div>
           ) : error ? (
             <div className="space-y-2">
