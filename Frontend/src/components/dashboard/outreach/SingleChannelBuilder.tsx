@@ -69,6 +69,14 @@ import {
   type VoiceSingleChannelMessage,
 } from "@/lib/voiceSingleChannelOutreach";
 import type { CampaignCalendlyAutomation } from "@/lib/campaigns";
+import {
+  createDefaultPostQualification,
+  postQualificationSchedulingReady,
+  postQualificationScreeningReady,
+  resolvePostQualification,
+  syncCalendlyForPostQualification,
+  type PostQualificationConfig,
+} from "@/lib/postQualification";
 
 const SOURCE_LABELS: Record<CandidateSource, string> = {
   talent_pool: "Huntlo Talent Pool",
@@ -174,6 +182,7 @@ type Props = {
   };
   initialAiPersonalize?: boolean;
   initialCalendlyAutomation?: CampaignCalendlyAutomation;
+  initialPostQualification?: PostQualificationConfig;
   initialSelectedIds?: string[];
   initialSource?: CandidateSource;
 };
@@ -195,6 +204,7 @@ export function SingleChannelBuilder({
   initialEmailMessage,
   initialAiPersonalize = true,
   initialCalendlyAutomation,
+  initialPostQualification,
   initialSelectedIds = [],
   initialSource = "csv",
 }: Props) {
@@ -246,6 +256,12 @@ export function SingleChannelBuilder({
         durationMinutes: 0,
         kind: "",
       }
+  );
+  const [postQualification, setPostQualification] = useState<PostQualificationConfig>(() =>
+    resolvePostQualification(
+      initialPostQualification ??
+        createDefaultPostQualification({ schedulingEnabled: isHuntlo360 })
+    )
   );
   const [csvCandidates, setCsvCandidates] = useState<OutreachCandidate[]>([]);
   const [reviewError, setReviewError] = useState("");
@@ -391,6 +407,7 @@ export function SingleChannelBuilder({
       emailMessage,
       emailAutoReplyEnabled: true,
       calendlyAutomation,
+      postQualification,
       voiceOptions: {
         callObjective: voiceMessage.callObjective,
         voiceTone: voiceMessage.voiceTone,
@@ -410,7 +427,28 @@ export function SingleChannelBuilder({
       selectedIds,
       source,
       calendlyAutomation,
+      postQualification,
     ]
+  );
+
+  const handlePostQualificationChange = useCallback(
+    (next: PostQualificationConfig) => {
+      setPostQualification(next);
+      setCalendlyAutomation((current) => syncCalendlyForPostQualification(current, next));
+    },
+    []
+  );
+
+  const handleCalendlyAutomationChange = useCallback(
+    (next: CampaignCalendlyAutomation) => {
+      setCalendlyAutomation(next);
+      if (next.enabled && next.schedulingUrl?.trim()) {
+        setPostQualification((current) =>
+          current.schedulingEnabled ? current : { ...current, schedulingEnabled: true }
+        );
+      }
+    },
+    []
   );
 
   const handleAiGenerated = useCallback(
@@ -586,10 +624,17 @@ export function SingleChannelBuilder({
     setReviewSubmitMode("launch");
     try {
       if (
-        isHuntlo360 &&
-        (!calendlyAutomation.enabled || !String(calendlyAutomation.schedulingUrl || "").trim())
+        postQualification.schedulingEnabled &&
+        !postQualificationSchedulingReady(postQualification, calendlyAutomation)
       ) {
-        setReviewError("Select a Calendly meeting on the Schedule step before launching.");
+        setReviewError("Select a Calendly meeting before launching.");
+        return;
+      }
+      if (
+        postQualification.screeningEnabled &&
+        !postQualificationScreeningReady(postQualification)
+      ) {
+        setReviewError("Add a voice screening script before launching.");
         return;
       }
 
@@ -623,8 +668,8 @@ export function SingleChannelBuilder({
     }
   };
 
-  const calendlyReady =
-    Boolean(calendlyAutomation.enabled) && Boolean(String(calendlyAutomation.schedulingUrl || "").trim());
+  const calendlyReady = postQualificationSchedulingReady(postQualification, calendlyAutomation);
+  const screeningReady = postQualificationScreeningReady(postQualification);
 
   const canNext =
     (step === 0 &&
@@ -700,7 +745,7 @@ export function SingleChannelBuilder({
   };
 
   return (
-    <div className={`dashboard-outreach-builder${launching ? " dashboard-outreach-builder--launching" : ""}${isHuntlo360 ? " dashboard-outreach-builder--huntlo360" : ""}`}>
+    <div className={`dashboard-outreach-builder${launching ? " dashboard-outreach-builder--launching" : ""}${isHuntlo360 ? " dashboard-outreach-builder--huntlo360" : ""}${onReviewStep ? " dashboard-outreach-builder--on-review" : ""}`}>
       {emailIntegrationModal}
       <CampaignLaunchAgentOverlay open={launching} channel={launchOverlayChannel} />
       {isHuntlo360 ? <Huntlo360JourneyBar activePhase={journeyPhase} /> : null}
@@ -719,7 +764,9 @@ export function SingleChannelBuilder({
       <header className="dashboard-outreach-builder-header dashboard-outreach-builder-header--in-scroll">
         <div className="dashboard-outreach-builder-header-main">
           <h1 className="dashboard-outreach-builder-title">{builderTitle}</h1>
-          <p className="dashboard-outreach-builder-subtitle">{flowMeta[step].description}</p>
+          {!onReviewStep ? (
+            <p className="dashboard-outreach-builder-subtitle">{flowMeta[step].description}</p>
+          ) : null}
         </div>
       </header>
 
@@ -729,9 +776,11 @@ export function SingleChannelBuilder({
 
       <div className="dashboard-outreach-builder-body">
         <div className="dashboard-outreach-builder-step-panel">
-          <div className="dashboard-outreach-builder-step-panel-head">
-            <h2 className="dashboard-outreach-builder-step-title">{flowMeta[step].title}</h2>
-          </div>
+          {!onReviewStep ? (
+            <div className="dashboard-outreach-builder-step-panel-head">
+              <h2 className="dashboard-outreach-builder-step-title">{flowMeta[step].title}</h2>
+            </div>
+          ) : null}
 
           <div className="dashboard-outreach-builder-step-panel-content">
         {step === 0 ? (
@@ -958,7 +1007,13 @@ export function SingleChannelBuilder({
                       : voiceMessageHasContent(voiceMessage),
               },
               { label: "Candidates selected", done: selectedIds.length > 0 },
-              ...(isHuntlo360
+              ...(postQualification.screeningEnabled
+                ? [{ label: "Screening script configured", done: screeningReady }]
+                : []),
+              ...(postQualification.schedulingEnabled
+                ? [{ label: "Calendly meeting selected", done: calendlyReady }]
+                : []),
+              ...(isHuntlo360 && !postQualification.schedulingEnabled
                 ? [{ label: "Calendly meeting selected", done: calendlyReady }]
                 : []),
               ...(needsSenderSelection
@@ -976,6 +1031,10 @@ export function SingleChannelBuilder({
             onBack={() => setStep(candidatesStepIndex)}
             onSaveDraft={handleReviewSaveDraft}
             onLaunch={handleReviewLaunch}
+            postQualification={postQualification}
+            onPostQualificationChange={handlePostQualificationChange}
+            calendlyAutomation={calendlyAutomation}
+            onCalendlyAutomationChange={handleCalendlyAutomationChange}
           />
         ) : null}
           </div>

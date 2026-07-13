@@ -286,10 +286,11 @@ function findNextPendingAutomatableStep(plan, enrollment) {
 }
 
 /**
- * Re-open enrollments that finished early or lost schedule when the campaign plan
- * still has automatable steps (e.g. voice added as step 4 after WA/email completed).
+ * Re-open enrollments that lost schedule when the campaign plan still has automatable steps.
+ * Terminal enrollments (completed/failed/skipped) are only reopened when reopenTerminal=true
+ * (e.g. after a campaign plan change), never from the background scheduler.
  */
-async function reconcileOneEnrollmentWithPlan(enrollment, plan) {
+async function reconcileOneEnrollmentWithPlan(enrollment, plan, { reopenTerminal = false } = {}) {
   const status = String(enrollment?.status || "");
   const replyCount = Number(enrollment?.replyCount || 0);
 
@@ -305,7 +306,8 @@ async function reconcileOneEnrollmentWithPlan(enrollment, plan) {
   const nextSendAt = enrollment.nextSendAt ? new Date(enrollment.nextSendAt) : null;
   const hasValidNextSendAt = nextSendAt && !Number.isNaN(nextSendAt.getTime());
 
-  const needsReopen = ["completed", "failed", "skipped"].includes(status);
+  const needsReopen =
+    reopenTerminal && ["completed", "failed", "skipped"].includes(status);
   const needsActiveFix =
     status === "active" &&
     (!hasValidNextSendAt ||
@@ -328,7 +330,10 @@ async function reconcileOneEnrollmentWithPlan(enrollment, plan) {
   return true;
 }
 
-async function reconcileOutreachModuleEnrollmentsWithPlan(campaignId = null) {
+async function reconcileOutreachModuleEnrollmentsWithPlan(
+  campaignId = null,
+  { reopenTerminal = false } = {}
+) {
   const campaignFilter = campaignId
     ? { _id: campaignOid(campaignId), status: { $in: ["active", "paused", "completed"] } }
     : { status: { $in: ["active", "paused"] } };
@@ -348,7 +353,7 @@ async function reconcileOutreachModuleEnrollmentsWithPlan(campaignId = null) {
     }).lean();
 
     for (const enrollment of enrollments) {
-      if (await reconcileOneEnrollmentWithPlan(enrollment, plan)) {
+      if (await reconcileOneEnrollmentWithPlan(enrollment, plan, { reopenTerminal })) {
         reopened += 1;
       }
     }
@@ -1277,13 +1282,41 @@ async function deleteOutreachModuleEnrollments(campaignId) {
   });
 }
 
-async function processDueOutreachModuleEnrollments() {
-  const reconcile = await reconcileOutreachModuleEnrollmentsWithPlan();
-  if (reconcile.reopened > 0) {
-    console.log(
-      `[outreach-module-send] reopened ${reconcile.reopened} enrollment(s) for pending plan steps`
+/** Mark outreach campaigns completed when every enrollment has finished. */
+async function maybeCompleteIdleOutreachModuleCampaigns() {
+  const activeCampaigns = await OutreachModuleCampaign.find({
+    status: "active",
+    sourceModule: { $ne: "screening" },
+  })
+    .select("_id")
+    .lean();
+
+  let completed = 0;
+  for (const campaign of activeCampaigns) {
+    const campaignId = campaign._id;
+    const hasActiveEnrollment = await OutreachModuleEnrollment.exists({
+      outreachModuleCampaignId: campaignId,
+      status: "active",
+    });
+    if (hasActiveEnrollment) continue;
+
+    const hasAnyEnrollment = await OutreachModuleEnrollment.exists({
+      outreachModuleCampaignId: campaignId,
+    });
+    if (!hasAnyEnrollment) continue;
+
+    await OutreachModuleCampaign.updateOne(
+      { _id: campaignId, status: "active" },
+      { $set: { status: "completed", completedAt: new Date() } }
     );
+    completed += 1;
   }
+
+  return { completed };
+}
+
+async function processDueOutreachModuleEnrollments() {
+  await maybeCompleteIdleOutreachModuleCampaigns();
 
   const now = new Date();
   const activeCampaignIds = await OutreachModuleCampaign.find({
@@ -1426,7 +1459,10 @@ function candidateAlreadySentCalendlyLink(candidate) {
 
 async function maybeSendOutreachModuleCalendlyLink(enrollment, campaignDoc) {
   const calendly = campaignDoc?.calendlyAutomation || {};
-  if (!calendly.enabled || !calendly.schedulingUrl) return { sent: false };
+  const { normalizePostQualification } = require("./postQualificationService");
+  const postQual = normalizePostQualification(campaignDoc?.postQualification, campaignDoc);
+  const schedulingOn = Boolean(calendly.enabled) || postQual.schedulingEnabled;
+  if (!schedulingOn || !calendly.schedulingUrl) return { sent: false };
 
   const campaignId = String(enrollment.outreachModuleCampaignId);
   const liveDoc = await OutreachModuleCampaign.findById(campaignId);
@@ -1598,14 +1634,8 @@ async function handleOutreachModuleInboundWhatsApp({
     }
     await maybeSendOutreachModuleReplyQuestion(freshEnrollment, campaignDoc);
 
-    const calendly = campaignDoc.calendlyAutomation || {};
-    const shouldSendCalendly =
-      calendly.enabled &&
-      calendly.schedulingUrl &&
-      (questions.length === 0 ? replyCount >= 1 : idxBefore < 0 && replyCount > questions.length);
-    if (shouldSendCalendly) {
-      await maybeSendOutreachModuleCalendlyLink(freshEnrollment, campaignDoc);
-    }
+    const { runPostQualificationAfterInboundReply } = require("./postQualificationService");
+    await runPostQualificationAfterInboundReply(freshEnrollment, campaignDoc);
   }
 
   return {

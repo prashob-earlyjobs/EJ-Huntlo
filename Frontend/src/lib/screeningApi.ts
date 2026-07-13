@@ -154,10 +154,11 @@ export async function generateScreeningQuestions(
   token: string,
   details: ScreeningDetailsForm
 ) {
+  const jobDescription = String(details.jobDescription || "").trim();
   const res = await fetch(`${apiBase()}/api/screenings/generate-questions`, {
     method: "POST",
     headers: authHeaders(token),
-    body: JSON.stringify({ details }),
+    body: JSON.stringify({ details, jobDescription }),
   });
   const data = await parseJson<{
     success: boolean;

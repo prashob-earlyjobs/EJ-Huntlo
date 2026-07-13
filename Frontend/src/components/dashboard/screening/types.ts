@@ -91,6 +91,7 @@ export type ScreeningDetailsForm = {
   location: string;
   experienceRequired: string;
   goal: ScreeningGoal;
+  jobDescription: string;
 };
 
 export type VoiceScriptSections = {

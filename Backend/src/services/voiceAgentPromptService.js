@@ -427,14 +427,49 @@ function buildVoiceAgentLaunchContext({
   jdExtract = null,
   userScreeningQuestions = [],
   useCustomScreeningQuestions = false,
+  companyName = "",
+  location = "",
+  experienceRequired = "",
 } = {}) {
   const context = { jobTitle, jdExtract, userScreeningQuestions, useCustomScreeningQuestions };
   return {
     jobDescription,
     jobTitle,
     jdExtract,
+    companyName,
+    location,
+    experienceRequired,
     jdVariables: buildJdVariableMap(context),
   };
+}
+
+/**
+ * Map legacy screening placeholders ({{job_title}}, {candidate_first_name}, etc.)
+ * to Hunar-safe single-brace tokens or plain values before agent sync.
+ */
+function normalizeScreeningTemplateText(text, details = {}) {
+  const jobTitle = String(details.jobTitle || "").trim();
+  const companyName = String(details.companyName || "").trim();
+  const location = String(details.location || "").trim();
+  const experience = String(details.experienceRequired || "").trim();
+
+  const replacements = [
+    [/\{\{\s*candidate_first_name\s*\}\}/gi, "{callee_name}"],
+    [/\{\{\s*job_title\s*\}\}/gi, jobTitle || "{jd_role}"],
+    [/\{\{\s*company_name\s*\}\}/gi, companyName || "{jd_company}"],
+    [/\{\{\s*job_location\s*\}\}/gi, location || "the job location"],
+    [/\{\{\s*experience_required\s*\}\}/gi, experience || "{jd_experience}"],
+    [/\{\s*candidate_first_name\s*\}/gi, "{callee_name}"],
+    [/\{\s*company_name\s*\}/gi, companyName || "{jd_company}"],
+    [/\{\s*job_location\s*\}/gi, location || "the job location"],
+    [/\{\s*experience_required\s*\}/gi, experience || "{jd_experience}"],
+  ];
+
+  let result = String(text || "");
+  for (const [pattern, replacement] of replacements) {
+    result = result.replace(pattern, replacement);
+  }
+  return result;
 }
 
 /**
@@ -443,13 +478,23 @@ function buildVoiceAgentLaunchContext({
 function resolveVoiceAgentPromptTemplate(template, context = {}) {
   const jobDescription = normalizeMultilineText(context.jobDescription || "");
   const jobTitle = String(context.jobTitle || "").trim();
+  const jdExtract =
+    context.jdExtract && typeof context.jdExtract === "object" && !Array.isArray(context.jdExtract)
+      ? context.jdExtract
+      : {};
+  const normalizedTemplate = normalizeScreeningTemplateText(template, {
+    jobTitle,
+    companyName: String(context.companyName || jdExtract.company || "").trim(),
+    location: String(context.location || "").trim(),
+    experienceRequired: String(context.experienceRequired || jdExtract.experience || "").trim(),
+  });
   const jdVariables =
     context.jdVariables && typeof context.jdVariables === "object"
       ? context.jdVariables
       : buildJdVariableMap(context);
   let jobDescriptionInjected = false;
 
-  return String(template || "").replace(/\{([a-z_][a-z0-9_]*)\}/gi, (match, rawKey) => {
+  return normalizedTemplate.replace(/\{([a-z_][a-z0-9_]*)\}/gi, (match, rawKey) => {
     const key = String(rawKey || "").toLowerCase();
     if (key === "job_description") {
       if (!jobDescription) return "";
@@ -611,6 +656,7 @@ module.exports = {
   buildJdVariableMap,
   buildVoiceAgentLaunchContext,
   upgradeLegacyVoiceCallPrompt,
+  normalizeScreeningTemplateText,
   resolveVoiceAgentPromptTemplate,
   substituteJobDescription,
   parseAdditionalQuestionsFromCallPrompt,

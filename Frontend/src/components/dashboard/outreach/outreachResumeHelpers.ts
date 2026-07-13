@@ -20,6 +20,7 @@ import {
   type VoiceSingleChannelMessage,
 } from "@/lib/voiceSingleChannelOutreach";
 import { normalizeSequenceStepsFromApi } from "@/components/dashboard/outreach/outreachSequenceHelpers";
+import { resolvePostQualification, type PostQualificationConfig } from "@/lib/postQualification";
 
 type DetailsStep = Partial<CampaignDetailsForm>;
 type ChannelStep = { channel?: OutreachChannel };
@@ -233,6 +234,26 @@ export function buildResumeCalendlyAutomation(
     durationMinutes: Number(raw?.durationMinutes) || 0,
     kind: String(raw?.kind || ""),
   };
+}
+
+export function buildResumePostQualification(
+  campaign: OutreachModuleCampaignDetail
+): PostQualificationConfig {
+  const messageStep = campaign.builder?.steps?.message as
+    | { postQualification?: PostQualificationConfig }
+    | undefined;
+  const personalizeStep = campaign.builder?.steps?.personalize as
+    | { postQualification?: PostQualificationConfig }
+    | undefined;
+  const raw =
+    messageStep?.postQualification ||
+    personalizeStep?.postQualification ||
+    campaign.postQualification;
+  const resolved = resolvePostQualification(raw as Partial<PostQualificationConfig> | null | undefined);
+  if (!resolved.screeningEnabled && !resolved.schedulingEnabled && campaign.calendlyAutomation?.enabled) {
+    return resolvePostQualification({ ...resolved, schedulingEnabled: true });
+  }
+  return resolved;
 }
 
 type PersonalizeStepMessage = { stepId?: string; message?: string | null };

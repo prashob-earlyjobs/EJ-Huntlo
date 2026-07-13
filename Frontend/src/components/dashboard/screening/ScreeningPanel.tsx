@@ -89,11 +89,13 @@ export function ScreeningPanel({ segments }: Props) {
     }
   }, [route.view, loadLanding]);
 
-  const persistScreening = async (payload: VoiceScreeningPayload) => {
+  const persistScreening = async (
+    payload: VoiceScreeningPayload,
+    options?: { navigateOnSuccess?: boolean }
+  ) => {
     const auth = getStoredAuth();
     if (!auth?.token) {
-      showToast("Please sign in again", "error");
-      return;
+      throw new Error("Please sign in again");
     }
     setSubmitting(true);
     try {
@@ -105,19 +107,40 @@ export function ScreeningPanel({ segments }: Props) {
             ? "Voice screening launched — AI calls are being placed"
             : "Screening created"
       );
-      navigate(pathForScreeningDetail(result.screening.id));
+      if (options?.navigateOnSuccess !== false) {
+        navigate(pathForScreeningDetail(result.screening.id));
+      }
+      return result;
     } catch (err) {
-      showToast(err instanceof Error ? err.message : "Could not save screening", "error");
+      const message = err instanceof Error ? err.message : "Could not save screening";
+      showToast(message, "error");
+      throw err;
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleSaveDraft = (payload: VoiceScreeningPayload) => persistScreening(payload);
-  const handleLaunch = (payload: VoiceScreeningPayload) => persistScreening({ ...payload, launch: true });
+  const handleSaveDraft = async (payload: VoiceScreeningPayload) => {
+    await persistScreening(payload);
+  };
+
+  const handleLaunch = async (payload: VoiceScreeningPayload) => {
+    const result = await persistScreening(payload, { navigateOnSuccess: false });
+    return result.screening.id;
+  };
+
+  const handleLaunchSuccess = (screeningId: string) => {
+    navigate(pathForScreeningDetail(screeningId));
+  };
+
+  const isBuilderView = route.view === "voice-builder" || route.view === "video-builder";
 
   return (
-    <div className="dashboard-card dashboard-screening-panel">
+    <div
+      className={`dashboard-card dashboard-screening-panel${
+        isBuilderView ? " dashboard-card--fill dashboard-screening-panel--builder" : ""
+      }`}
+    >
       <div className="dashboard-screening-panel-body">
         {(route.view === "landing" || route.view === "mode-select") && (
           <ScreeningLandingPage
@@ -139,6 +162,7 @@ export function ScreeningPanel({ segments }: Props) {
             onBack={() => navigate(pathForScreeningLanding())}
             onSaveDraft={handleSaveDraft}
             onLaunch={handleLaunch}
+            onLaunchSuccess={handleLaunchSuccess}
             onToast={showToast}
             submitting={submitting}
           />

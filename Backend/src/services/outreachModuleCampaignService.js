@@ -3,6 +3,10 @@ const OutreachModuleCampaign = require("../models/OutreachModuleCampaign");
 const OutreachModuleEnrollment = require("../models/OutreachModuleEnrollment");
 const SavedCandidate = require("../models/SavedCandidate");
 const { userIdFilterForActor } = require("../utils/orgScope");
+const {
+  normalizePostQualification,
+  normalizePostQualificationVoice,
+} = require("./postQualificationService");
 const { resolveContactsForOutreachModuleCampaign, readContactFromRawDoc, normalizeEmail, normalizePhone } = require("./outreachModuleContactResolver");
 const {
   launchOutreachModuleSequence,
@@ -51,6 +55,29 @@ function normalizeCalendlyAutomation(raw) {
     durationMinutes: Math.max(0, Number(o.durationMinutes) || 0),
     kind: String(o.kind || "").trim(),
   };
+}
+
+function syncCalendlyWithPostQualification(calendlyAutomation, postQualification) {
+  const calendly = normalizeCalendlyAutomation(calendlyAutomation);
+  const postQual = normalizePostQualification(postQualification, {
+    calendlyAutomation: calendly,
+  });
+  if (postQual.schedulingEnabled && calendly.schedulingUrl) {
+    calendly.enabled = true;
+  }
+  return { calendlyAutomation: calendly, postQualification: postQual };
+}
+
+function applyPostQualificationPayload(doc, payload = {}) {
+  if (payload.postQualification === undefined && payload.calendlyAutomation === undefined) {
+    return;
+  }
+  const synced = syncCalendlyWithPostQualification(
+    payload.calendlyAutomation !== undefined ? payload.calendlyAutomation : doc.calendlyAutomation,
+    payload.postQualification !== undefined ? payload.postQualification : doc.postQualification
+  );
+  doc.calendlyAutomation = synced.calendlyAutomation;
+  doc.postQualification = synced.postQualification;
 }
 
 function formatBuilderStepData(stepKey, data, mode) {
@@ -134,11 +161,16 @@ function validateAndNormalizeStep(mode, stepKey, data = {}, existingSteps = []) 
     }
     case "message": {
       if (mode !== "single") throw badRequest("Message step applies to single-channel campaigns only");
+      const synced = syncCalendlyWithPostQualification(
+        data.calendlyAutomation,
+        data.postQualification
+      );
       return {
         aiPersonalize: data.aiPersonalize !== false,
         channelMessage: normalizeChannelMessage(data.channelMessage || data),
         emailAutoReplyEnabled: data.emailAutoReplyEnabled !== false,
-        calendlyAutomation: normalizeCalendlyAutomation(data.calendlyAutomation),
+        calendlyAutomation: synced.calendlyAutomation,
+        postQualification: synced.postQualification,
       };
     }
     case "sequence": {
@@ -156,6 +188,10 @@ function validateAndNormalizeStep(mode, stepKey, data = {}, existingSteps = []) 
       const whatsappReplyQuestions = Array.isArray(data.whatsappReplyQuestions)
         ? data.whatsappReplyQuestions.map((q) => String(q || ""))
         : [];
+      const synced = syncCalendlyWithPostQualification(
+        data.calendlyAutomation,
+        data.postQualification
+      );
       return {
         aiPersonalize: data.aiPersonalize !== false,
         stepMessages: stepMessages.map((item) => ({
@@ -164,7 +200,8 @@ function validateAndNormalizeStep(mode, stepKey, data = {}, existingSteps = []) 
         })),
         whatsappReplyQuestions,
         emailAutoReplyEnabled: data.emailAutoReplyEnabled !== false,
-        calendlyAutomation: normalizeCalendlyAutomation(data.calendlyAutomation),
+        calendlyAutomation: synced.calendlyAutomation,
+        postQualification: synced.postQualification,
       };
     }
     case "candidates": {
@@ -387,6 +424,8 @@ function formatCreatedDate(value) {
     month: "short",
     day: "numeric",
     year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
   }).format(new Date(value));
 }
 
@@ -856,6 +895,7 @@ function formatCampaignDetail(doc) {
     completedAt: doc.completedAt ? new Date(doc.completedAt).toISOString() : null,
     emailAutoReplyEnabled: doc.emailAutoReplyEnabled !== false,
     calendlyAutomation: doc.calendlyAutomation || { enabled: false },
+    postQualification: normalizePostQualification(doc.postQualification, doc),
     stats,
     funnel,
     trackingCandidates: candidates.map(formatTrackingCandidate),
@@ -1003,6 +1043,11 @@ function validateCreatePayload(payload = {}) {
     throw badRequest("At least one candidate must be selected");
   }
 
+  const syncedPostQual = syncCalendlyWithPostQualification(
+    payload.calendlyAutomation,
+    payload.postQualification
+  );
+
   return {
     name,
     jobTitle,
@@ -1018,7 +1063,8 @@ function validateCreatePayload(payload = {}) {
     sequenceSteps: mode === "multi" ? normalizeSequenceSteps(payload.sequenceSteps) : [],
     candidateIds,
     emailAutoReplyEnabled: payload.emailAutoReplyEnabled !== false,
-    calendlyAutomation: normalizeCalendlyAutomation(payload.calendlyAutomation),
+    calendlyAutomation: syncedPostQual.calendlyAutomation,
+    postQualification: syncedPostQual.postQualification,
     sourceModule:
       payload.sourceModule === "screening"
         ? "screening"
@@ -1174,7 +1220,7 @@ async function listOutreachModuleCampaigns(actorUserId, options = {}) {
     throw err;
   }
 
-  const { page, limit, skip } = parsePagination(options);
+  const { page, limit } = parsePagination(options);
   const statusFilter = String(options.status || "").trim();
 
   const sourceModuleFilter = String(options.sourceModule || "").trim();
@@ -1188,21 +1234,21 @@ async function listOutreachModuleCampaigns(actorUserId, options = {}) {
   }
   if (statusFilter) filter.status = statusFilter;
 
-  const [docs, total] = await Promise.all([
-    OutreachModuleCampaign.find(filter)
-      .sort({ updatedAt: -1, _id: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean(),
-    OutreachModuleCampaign.countDocuments(filter),
-  ]);
-
+  const total = await OutreachModuleCampaign.countDocuments(filter);
   const totalPages = Math.max(1, Math.ceil(total / limit) || 1);
+  const effectivePage = Math.min(page, totalPages);
+  const skip = (effectivePage - 1) * limit;
+
+  const docs = await OutreachModuleCampaign.find(filter)
+    .sort({ updatedAt: -1, _id: -1 })
+    .skip(skip)
+    .limit(limit)
+    .lean();
 
   return {
     campaigns: docs.map(formatCampaignRow),
     pagination: {
-      page: Math.min(page, totalPages),
+      page: effectivePage,
       limit,
       total,
       totalPages,
@@ -1297,6 +1343,7 @@ async function saveOutreachModuleCampaignStep(actorUserId, campaignId, stepKey, 
     doc.channelMessage = normalized.channelMessage;
     doc.emailAutoReplyEnabled = normalized.emailAutoReplyEnabled !== false;
     doc.calendlyAutomation = normalized.calendlyAutomation;
+    doc.postQualification = normalized.postQualification;
     doc.builder.message = normalized;
   }
 
@@ -1315,6 +1362,9 @@ async function saveOutreachModuleCampaignStep(actorUserId, campaignId, stepKey, 
     }
     if (normalized.calendlyAutomation) {
       doc.calendlyAutomation = normalized.calendlyAutomation;
+    }
+    if (normalized.postQualification) {
+      doc.postQualification = normalized.postQualification;
     }
     doc.builder.personalize = normalized;
     if (doc.mode === "multi" && Array.isArray(doc.sequenceSteps) && doc.sequenceSteps.length > 0) {
@@ -1399,6 +1449,7 @@ async function createOutreachModuleCampaign(actorUserId, payload = {}) {
     launchedAt,
     emailAutoReplyEnabled: normalized.emailAutoReplyEnabled,
     calendlyAutomation: normalized.calendlyAutomation,
+    postQualification: normalized.postQualification,
     sourceModule: normalized.sourceModule,
     screeningType: normalized.screeningType || "",
     screeningConfig: normalized.screeningConfig,
@@ -1548,7 +1599,9 @@ async function getOutreachModuleCampaignTracking(actorUserId, campaignId, option
 
   const { reconcileOutreachModuleEnrollmentsWithPlan, processDueOutreachModuleEnrollments } =
     require("./outreachModuleSendService");
-  const reconcileResult = await reconcileOutreachModuleEnrollmentsWithPlan(campaignId);
+  const reconcileResult = await reconcileOutreachModuleEnrollmentsWithPlan(campaignId, {
+    reopenTerminal: false,
+  });
   if (reconcileResult.reopened > 0) {
     setImmediate(() => {
       processDueOutreachModuleEnrollments().catch((err) => {

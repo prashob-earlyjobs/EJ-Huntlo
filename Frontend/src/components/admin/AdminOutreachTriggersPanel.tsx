@@ -50,7 +50,13 @@ function rowWhenLabel(row: AdminOutreachTrigger): string {
 
 export function AdminOutreachTriggersPanel({ token }: Props) {
   const [triggers, setTriggers] = useState<AdminOutreachTrigger[]>([]);
-  const [summary, setSummary] = useState({ total: 0, due: 0, upcoming: 0, completed: 0 });
+  const [summary, setSummary] = useState({
+    total: 0,
+    due: 0,
+    upcoming: 0,
+    projected: 0,
+    completed: 0,
+  });
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalDocs, setTotalDocs] = useState(0);
@@ -117,7 +123,9 @@ export function AdminOutreachTriggersPanel({ token }: Props) {
         <div>
           <h3 className="dashboard-section-title">Outreach triggers</h3>
           <p className="mt-1 dashboard-text-body">
-            Upcoming sequence queue and completed sends per candidate step.
+            Live send queue for active outreach campaigns — one row per candidate&apos;s next step.
+            Counts exclude future projected steps. Old test launches may still appear until their
+            queue finishes.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -163,8 +171,13 @@ export function AdminOutreachTriggersPanel({ token }: Props) {
               <strong className="text-amber-700">{summary.due}</strong> due now
             </span>
             <span>
-              <strong className="text-slate-800">{summary.upcoming}</strong> upcoming
+              <strong className="text-slate-800">{summary.upcoming}</strong> scheduled
             </span>
+            {summary.projected > 0 ? (
+              <span>
+                <strong className="text-slate-500">{summary.projected}</strong> projected
+              </span>
+            ) : null}
           </>
         ) : null}
         {phase !== "upcoming" ? (

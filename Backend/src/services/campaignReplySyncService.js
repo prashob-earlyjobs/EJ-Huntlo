@@ -1189,10 +1189,6 @@ async function repairStuckOutreachModuleEnrollmentsBeforeSend() {
     resumed += Number(result.resumed) || 0;
   }
 
-  const { reconcileOutreachModuleEnrollmentsWithPlan } = require("./outreachModuleSendService");
-  const reconcile = await reconcileOutreachModuleEnrollmentsWithPlan();
-  resumed += Number(reconcile.reopened) || 0;
-
   return { campaigns: campaignIds.length, resumed };
 }
 

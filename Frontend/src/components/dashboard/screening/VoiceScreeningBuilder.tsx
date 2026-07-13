@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { ScreeningCandidateTable } from "@/components/dashboard/screening/ScreeningCandidateTable";
+import {
+  CampaignLaunchAgentOverlay,
+  LAUNCH_AGENT_MIN_DURATION_MS,
+} from "@/components/dashboard/CampaignLaunchAgentOverlay";
 import { VoiceQuestionBuilder } from "@/components/dashboard/screening/QuestionBuilder";
 import { ScreeningReviewSummary } from "@/components/dashboard/screening/ScreeningReviewSummary";
 import { ScreeningStepper } from "@/components/dashboard/screening/ScreeningStepper";
@@ -16,7 +20,6 @@ import type {
   CandidateSource,
   ScreeningCandidate,
   ScreeningDetailsForm,
-  ScreeningGoal,
   ScreeningQuestion,
   VoiceScriptSections,
   VoiceTone,
@@ -37,14 +40,16 @@ import {
   dashboardBtnSecondaryClass,
   dashboardInputClass,
   dashboardLabelClass,
-  dashboardSelectClass,
+  dashboardTextareaClass,
 } from "@/lib/dashboardStyles";
 
+const MIN_JD_LENGTH = 20;
+
 const STEPS = [
-  { key: "details", label: "Details" },
-  { key: "candidates", label: "Candidates" },
+  { key: "details", label: "Job description" },
   { key: "config", label: "Configure" },
   { key: "questions", label: "Questions" },
+  { key: "candidates", label: "Candidates" },
   { key: "review", label: "Review" },
 ];
 
@@ -55,12 +60,19 @@ const DEFAULT_FORM: ScreeningDetailsForm = {
   location: "",
   experienceRequired: "",
   goal: "interest",
+  jobDescription: "",
 };
+
+function screeningDisplayName(jobTitle: string): string {
+  const title = jobTitle.trim();
+  return title ? `${title} screening` : "Voice screening";
+}
 
 type Props = {
   onBack: () => void;
   onSaveDraft: (payload: VoiceScreeningPayload) => void | Promise<void>;
-  onLaunch: (payload: VoiceScreeningPayload) => void | Promise<void>;
+  onLaunch: (payload: VoiceScreeningPayload) => Promise<string>;
+  onLaunchSuccess: (screeningId: string) => void;
   onToast: (msg: string) => void;
   submitting?: boolean;
 };
@@ -111,10 +123,12 @@ export function VoiceScreeningBuilder({
   onBack,
   onSaveDraft,
   onLaunch,
+  onLaunchSuccess,
   onToast,
   submitting = false,
 }: Props) {
   const [step, setStep] = useState(0);
+  const [launching, setLaunching] = useState(false);
   const [form, setForm] = useState<ScreeningDetailsForm>(DEFAULT_FORM);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [source, setSource] = useState<CandidateSource>("talent_pool");
@@ -210,9 +224,12 @@ export function VoiceScreeningBuilder({
   };
 
   const canNext =
-    (step === 0 && form.name.trim() && form.jobTitle.trim()) ||
-    (step === 1 && selectedIds.length > 0) ||
-    step >= 2;
+    (step === 0 &&
+      form.jobTitle.trim() &&
+      form.jobDescription.trim().length >= MIN_JD_LENGTH) ||
+    step === 1 ||
+    step === 2 ||
+    (step === 3 && selectedIds.length > 0);
 
   const goNext = () => step < STEPS.length - 1 && setStep((s) => s + 1);
   const goBack = () => (step === 0 ? onBack() : setStep((s) => s - 1));
@@ -227,6 +244,10 @@ export function VoiceScreeningBuilder({
       onToast("Add a job title before generating questions");
       return;
     }
+    if (form.jobDescription.trim().length < MIN_JD_LENGTH) {
+      onToast(`Add a job description (at least ${MIN_JD_LENGTH} characters) before generating questions`);
+      return;
+    }
     try {
       const result = await generateScreeningQuestions(auth.token, form);
       if (result.questions.length > 0) setQuestions(result.questions);
@@ -237,72 +258,86 @@ export function VoiceScreeningBuilder({
     }
   };
 
+  const handleLaunch = async () => {
+    if (launching || submitting) return;
+    setLaunching(true);
+    const overlayStartedAt = Date.now();
+    try {
+      const screeningId = await onLaunch(buildPayload({ ...payloadState, launch: true }));
+      const elapsed = Date.now() - overlayStartedAt;
+      if (elapsed < LAUNCH_AGENT_MIN_DURATION_MS) {
+        await new Promise((resolve) =>
+          window.setTimeout(resolve, LAUNCH_AGENT_MIN_DURATION_MS - elapsed)
+        );
+      }
+      onLaunchSuccess(screeningId);
+    } catch {
+      // Error toast is shown by ScreeningPanel.persistScreening.
+    } finally {
+      setLaunching(false);
+    }
+  };
+
+  const launchBusy = launching || submitting;
+
   return (
-    <div className="dashboard-screening-builder">
+    <div
+      className={`dashboard-screening-builder${
+        step === 4 ? " dashboard-screening-builder--on-review" : ""
+      }${launchBusy ? " dashboard-screening-builder--launching" : ""}`}
+    >
+      <CampaignLaunchAgentOverlay open={launching} channel="voice" />
       <header className="dashboard-screening-builder-header">
         <button type="button" className="dashboard-screening-back-btn" onClick={goBack}>
           <MaterialIcon name="arrow_back" className="text-sm" />
           {step === 0 ? "Back to screening" : "Previous step"}
         </button>
-        <div>
+        <div className="dashboard-screening-builder-header-copy">
           <h1 className="dashboard-section-title">AI Voice Screening</h1>
-          <p className="dashboard-text-body">Step {step + 1} of {STEPS.length}</p>
+          {step < 4 ? (
+            <p className="dashboard-text-body">
+              Step {step + 1} of {STEPS.length}
+            </p>
+          ) : null}
         </div>
       </header>
 
-      <ScreeningStepper steps={STEPS} currentStep={step} onStepClick={setStep} />
+      {step < 4 ? (
+        <ScreeningStepper steps={STEPS} currentStep={step} onStepClick={setStep} />
+      ) : null}
 
       <div className="dashboard-screening-builder-body">
         {step === 0 ? (
           <div className="dashboard-screening-form-grid">
-            <div className="dashboard-screening-field">
-              <label className={dashboardLabelClass} htmlFor="v-name">Screening name</label>
-              <input id="v-name" className={dashboardInputClass} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-            </div>
-            <div className="dashboard-screening-field">
-              <label className={dashboardLabelClass} htmlFor="v-job">Job title</label>
-              <input id="v-job" className={dashboardInputClass} value={form.jobTitle} onChange={(e) => setForm({ ...form, jobTitle: e.target.value })} />
-            </div>
-            <div className="dashboard-screening-field">
-              <label className={dashboardLabelClass} htmlFor="v-co">Company name</label>
-              <input id="v-co" className={dashboardInputClass} value={form.companyName} onChange={(e) => setForm({ ...form, companyName: e.target.value })} />
-            </div>
-            <div className="dashboard-screening-field">
-              <label className={dashboardLabelClass} htmlFor="v-loc">Job location</label>
-              <input id="v-loc" className={dashboardInputClass} value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} />
-            </div>
-            <div className="dashboard-screening-field">
-              <label className={dashboardLabelClass} htmlFor="v-exp">Experience required</label>
-              <input id="v-exp" className={dashboardInputClass} value={form.experienceRequired} onChange={(e) => setForm({ ...form, experienceRequired: e.target.value })} placeholder="e.g. 3+ years" />
+            <div className="dashboard-screening-field dashboard-screening-field--full">
+              <label className={dashboardLabelClass} htmlFor="v-job">
+                Job title
+              </label>
+              <input
+                id="v-job"
+                className={dashboardInputClass}
+                value={form.jobTitle}
+                onChange={(e) => setForm({ ...form, jobTitle: e.target.value })}
+                placeholder="e.g. MERN Developer"
+              />
             </div>
             <div className="dashboard-screening-field dashboard-screening-field--full">
-              <label className={dashboardLabelClass} htmlFor="v-goal">Screening goal</label>
-              <select id="v-goal" className={dashboardSelectClass} value={form.goal} onChange={(e) => setForm({ ...form, goal: e.target.value as ScreeningGoal })}>
-                <option value="interest">Check candidate interest</option>
-                <option value="eligibility">Verify basic eligibility</option>
-                <option value="communication">Evaluate communication</option>
-                <option value="shortlist">Shortlist for interview</option>
-                <option value="custom">Custom</option>
-              </select>
+              <label className={dashboardLabelClass} htmlFor="v-jd">
+                Job description
+              </label>
+              <textarea
+                id="v-jd"
+                className={dashboardTextareaClass}
+                rows={12}
+                value={form.jobDescription}
+                onChange={(e) => setForm({ ...form, jobDescription: e.target.value })}
+                placeholder="Paste the full job description. AI will use this to generate screening questions and personalize the voice call."
+              />
             </div>
           </div>
         ) : null}
 
         {step === 1 ? (
-          <ScreeningCandidateTable
-            candidates={displayCandidates}
-            selectedIds={selectedIds}
-            onSelectionChange={setSelectedIds}
-            source={source}
-            onSourceChange={handleSourceChange}
-            loading={candidatesLoading}
-            error={candidatesError}
-            onCsvImport={handleCsvImport}
-            onDeleteSelected={handleDeleteSelected}
-          />
-        ) : null}
-
-        {step === 2 ? (
           <VoiceScreeningConfig
             language={language}
             onLanguageChange={setLanguage}
@@ -317,7 +352,7 @@ export function VoiceScreeningBuilder({
           />
         ) : null}
 
-        {step === 3 ? (
+        {step === 2 ? (
           <VoiceQuestionBuilder
             script={script}
             onScriptChange={setScript}
@@ -327,21 +362,37 @@ export function VoiceScreeningBuilder({
           />
         ) : null}
 
+        {step === 3 ? (
+          <ScreeningCandidateTable
+            candidates={displayCandidates}
+            selectedIds={selectedIds}
+            onSelectionChange={setSelectedIds}
+            source={source}
+            onSourceChange={handleSourceChange}
+            loading={candidatesLoading}
+            error={candidatesError}
+            onCsvImport={handleCsvImport}
+            onDeleteSelected={handleDeleteSelected}
+          />
+        ) : null}
+
         {step === 4 ? (
           <ScreeningReviewSummary
-            name={form.name}
+            name={screeningDisplayName(form.jobTitle)}
+            jobTitle={form.jobTitle}
             type="voice"
             candidateCount={selectedIds.length}
             questionsCount={questions.length}
-            extras={[
-              { label: "Language", value: language },
-              { label: "Attempts", value: String(attempts) },
-              { label: "Est. duration", value: durationLimit },
+            stats={[
+              { icon: "language", value: language },
+              { icon: "mic", value: voiceTone },
+              { icon: "replay", value: `${attempts} attempts`, muted: attemptGap },
+              { icon: "timer", value: durationLimit },
             ]}
             onSaveDraft={() => onSaveDraft(buildPayload({ ...payloadState, launch: false }))}
-            onLaunch={() => onLaunch(buildPayload({ ...payloadState, launch: true }))}
-            launchLabel={submitting ? "Launching…" : "Launch voice screening"}
-            launchDisabled={submitting}
+            onLaunch={() => void handleLaunch()}
+            launchLabel={launchBusy ? "Launching…" : "Launch voice screening"}
+            launchDisabled={launchBusy}
           />
         ) : null}
       </div>

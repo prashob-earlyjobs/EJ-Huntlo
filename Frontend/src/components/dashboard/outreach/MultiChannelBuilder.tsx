@@ -10,6 +10,14 @@ import {
 import { CandidateSelectionTable } from "@/components/dashboard/outreach/CandidateSelectionTable";
 import { MessageEditor } from "@/components/dashboard/outreach/MessageEditor";
 import { OutreachEmailReplySetup } from "@/components/dashboard/outreach/OutreachEmailReplySetup";
+import {
+  createDefaultPostQualification,
+  postQualificationSchedulingReady,
+  postQualificationScreeningReady,
+  resolvePostQualification,
+  syncCalendlyForPostQualification,
+  type PostQualificationConfig,
+} from "@/lib/postQualification";
 import { Huntlo360JourneyBar } from "@/components/dashboard/huntlo360/Huntlo360JourneyBar";
 import { OutreachAiGeneratingPanel } from "@/components/dashboard/outreach/OutreachAiGeneratingPanel";
 import { useOutreachBuilderChrome } from "@/components/dashboard/outreach/OutreachBuilderChrome";
@@ -123,6 +131,7 @@ type Props = {
   initialAiPersonalize?: boolean;
   initialWhatsappReplyQuestions?: string[];
   initialCalendlyAutomation?: import("@/lib/campaigns").CampaignCalendlyAutomation;
+  initialPostQualification?: PostQualificationConfig;
 };
 
 export function MultiChannelBuilder({
@@ -141,6 +150,7 @@ export function MultiChannelBuilder({
   initialAiPersonalize = true,
   initialWhatsappReplyQuestions = [],
   initialCalendlyAutomation,
+  initialPostQualification,
 }: Props) {
   const isHuntlo360 = variant === "huntlo360";
   const flowSteps = isHuntlo360 ? HUNTLO360_STEPS : STEPS;
@@ -181,6 +191,12 @@ export function MultiChannelBuilder({
         durationMinutes: 0,
         kind: "",
       }
+  );
+  const [postQualification, setPostQualification] = useState<PostQualificationConfig>(() =>
+    resolvePostQualification(
+      initialPostQualification ??
+        createDefaultPostQualification({ schedulingEnabled: isHuntlo360 })
+    )
   );
   const [activeTab, setActiveTab] = useState(0);
   const [csvCandidates, setCsvCandidates] = useState<OutreachCandidate[]>([]);
@@ -285,6 +301,7 @@ export function MultiChannelBuilder({
             whatsappReplyQuestions,
             emailAutoReplyEnabled: true,
             calendlyAutomation,
+            postQualification,
           }
         );
         return;
@@ -297,6 +314,7 @@ export function MultiChannelBuilder({
           whatsappReplyQuestions,
           emailAutoReplyEnabled: true,
           calendlyAutomation,
+          postQualification,
         });
         return;
       }
@@ -323,6 +341,7 @@ export function MultiChannelBuilder({
       candidatesStepIndex,
       reviewStepIndex,
       calendlyAutomation,
+      postQualification,
       persistDetailsStep,
       persistSequenceStep,
       persistPersonalizeStep,
@@ -567,6 +586,7 @@ export function MultiChannelBuilder({
       whatsappReplyQuestions,
       emailAutoReplyEnabled: true,
       calendlyAutomation,
+      postQualification,
       candidateIds: selectedIds,
       candidateSource: source,
     }),
@@ -577,9 +597,30 @@ export function MultiChannelBuilder({
       stepMessages,
       whatsappReplyQuestions,
       calendlyAutomation,
+      postQualification,
       selectedIds,
       source,
     ]
+  );
+
+  const handlePostQualificationChange = useCallback(
+    (next: PostQualificationConfig) => {
+      setPostQualification(next);
+      setCalendlyAutomation((current) => syncCalendlyForPostQualification(current, next));
+    },
+    []
+  );
+
+  const handleCalendlyAutomationChange = useCallback(
+    (next: import("@/lib/campaigns").CampaignCalendlyAutomation) => {
+      setCalendlyAutomation(next);
+      if (next.enabled && next.schedulingUrl?.trim()) {
+        setPostQualification((current) =>
+          current.schedulingEnabled ? current : { ...current, schedulingEnabled: true }
+        );
+      }
+    },
+    []
   );
 
   const handleReviewSaveDraft = async () => {
@@ -600,10 +641,17 @@ export function MultiChannelBuilder({
     setReviewSubmitMode("launch");
     try {
     if (
-      isHuntlo360 &&
-      (!calendlyAutomation.enabled || !String(calendlyAutomation.schedulingUrl || "").trim())
+      postQualification.schedulingEnabled &&
+      !postQualificationSchedulingReady(postQualification, calendlyAutomation)
     ) {
-      setReviewError("Select a Calendly meeting on the Schedule step before launching.");
+      setReviewError("Select a Calendly meeting before launching.");
+      return;
+    }
+    if (
+      postQualification.screeningEnabled &&
+      !postQualificationScreeningReady(postQualification)
+    ) {
+      setReviewError("Add a voice screening script before launching.");
       return;
     }
 
@@ -637,9 +685,8 @@ export function MultiChannelBuilder({
     }
   };
 
-  const calendlyReady =
-    Boolean(calendlyAutomation.enabled) &&
-    Boolean(String(calendlyAutomation.schedulingUrl || "").trim());
+  const calendlyReady = postQualificationSchedulingReady(postQualification, calendlyAutomation);
+  const screeningReady = postQualificationScreeningReady(postQualification);
 
   const canNext =
     (step === 0 &&
@@ -714,6 +761,7 @@ export function MultiChannelBuilder({
         whatsappReplyQuestions,
         emailAutoReplyEnabled: true,
         calendlyAutomation,
+        postQualification,
       });
     } else if (isHuntlo360 && step === scheduleStepIndex) {
       await persistPersonalizeStep(candidatesStepIndex, {
@@ -722,6 +770,7 @@ export function MultiChannelBuilder({
         whatsappReplyQuestions,
         emailAutoReplyEnabled: true,
         calendlyAutomation,
+        postQualification,
       });
     } else if (step === candidatesStepIndex) {
       await persistCandidatesStep(reviewStepIndex, {
@@ -808,7 +857,7 @@ export function MultiChannelBuilder({
   }, [step, setChrome, builderTitle, flowSteps.length]);
 
   return (
-    <div className={`dashboard-outreach-builder${launching ? " dashboard-outreach-builder--launching" : ""}${isHuntlo360 ? " dashboard-outreach-builder--huntlo360" : ""}`}>
+    <div className={`dashboard-outreach-builder${launching ? " dashboard-outreach-builder--launching" : ""}${isHuntlo360 ? " dashboard-outreach-builder--huntlo360" : ""}${onReviewStep ? " dashboard-outreach-builder--on-review" : ""}`}>
       {emailIntegrationModal}
       <CampaignLaunchAgentOverlay open={launching} channel={launchOverlayChannel} />
       {isHuntlo360 ? <Huntlo360JourneyBar activePhase={journeyPhase} /> : null}
@@ -1149,7 +1198,13 @@ export function MultiChannelBuilder({
               { label: "Campaign details completed", done: Boolean(form.name.trim() && form.jobTitle.trim()) },
               { label: "Sequence configured", done: sequenceSteps.length > 0 },
               { label: "Candidates selected", done: selectedIds.length > 0 },
-              ...(isHuntlo360
+              ...(postQualification.screeningEnabled
+                ? [{ label: "Screening script configured", done: screeningReady }]
+                : []),
+              ...(postQualification.schedulingEnabled
+                ? [{ label: "Calendly meeting selected", done: calendlyReady }]
+                : []),
+              ...(isHuntlo360 && !postQualification.schedulingEnabled
                 ? [{ label: "Calendly meeting selected", done: calendlyReady }]
                 : []),
               ...(needsSenderSelection
@@ -1167,6 +1222,10 @@ export function MultiChannelBuilder({
             onBack={() => setStep(candidatesStepIndex)}
             onSaveDraft={handleReviewSaveDraft}
             onLaunch={handleReviewLaunch}
+            postQualification={postQualification}
+            onPostQualificationChange={handlePostQualificationChange}
+            calendlyAutomation={calendlyAutomation}
+            onCalendlyAutomationChange={handleCalendlyAutomationChange}
           />
         ) : null}
           </div>
