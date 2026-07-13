@@ -49,7 +49,7 @@ export type AdminOutreachTriggersResponse = {
     total: number;
     due: number;
     upcoming: number;
-    projected?: number;
+    projected: number;
     completed: number;
   };
   pagination: AdminOutreachTriggersPagination;
@@ -131,6 +131,7 @@ export async function fetchAdminUpcomingOutreachTriggers(
       total: Number(summary.total) || 0,
       due: Number(summary.due) || 0,
       upcoming: Number(summary.upcoming) || 0,
+      projected: Number(summary.projected) || 0,
       completed: Number(summary.completed) || 0,
     },
     pagination: {
