@@ -1,0 +1,42 @@
+name: Deploy to QA Server
+
+on:
+  push:
+    branches:
+      - QA
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Deploy to Server
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          script: |
+            set -e
+
+            cd /home/prashob/EJ-Huntlo
+
+            echo "Pulling latest code..."
+            git fetch origin
+            git reset --hard origin/QA
+
+            echo "Installing dependencies..."
+            npm install
+
+            echo "Building project..."
+            npm run build
+
+            echo "Restarting application..."
+            pm2 restart all
+            pm2 save
+
+            echo "Deployment completed successfully!"
