@@ -3,14 +3,18 @@ const { verifyToken } = require("../utils/jwt");
 const config = require("./config");
 const hub = require("./hub");
 
-function parseTokenFromRequest(req) {
+function parseQueryFromRequest(req) {
   try {
     const host = req.headers.host || "localhost";
     const url = new URL(req.url || "/", `http://${host}`);
     const token = url.searchParams.get("token");
-    return token && String(token).trim() ? String(token).trim() : "";
+    const userId = url.searchParams.get("userId");
+    return {
+      token: token && String(token).trim() ? String(token).trim() : "",
+      userId: userId && String(userId).trim() ? String(userId).trim() : "",
+    };
   } catch {
-    return "";
+    return { token: "", userId: "" };
   }
 }
 
@@ -26,7 +30,7 @@ function attachRealtimeServer(httpServer) {
   });
 
   wss.on("connection", (ws, req) => {
-    const token = parseTokenFromRequest(req);
+    const { token, userId: queryUserId } = parseQueryFromRequest(req);
     if (!token) {
       ws.close(4401, "token required");
       return;
@@ -46,6 +50,11 @@ function attachRealtimeServer(httpServer) {
       return;
     }
 
+    if (queryUserId && String(queryUserId) !== String(userId)) {
+      ws.close(4401, "userId mismatch");
+      return;
+    }
+
     ws.isAlive = true;
     ws.on("pong", () => {
       ws.isAlive = true;
@@ -53,6 +62,7 @@ function attachRealtimeServer(httpServer) {
 
     hub.addConnection(userId, ws);
     hub.welcomeConnection(userId, ws);
+    console.log(`[realtime] connected userId=${userId}`);
 
     ws.on("close", () => {
       hub.removeConnection(userId, ws);

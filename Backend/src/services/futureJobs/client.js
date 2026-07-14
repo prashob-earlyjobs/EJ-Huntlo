@@ -1,3 +1,5 @@
+const fs = require("fs");
+const path = require("path");
 const { getFutureJobsConfig } = require("./config");
 const {
   createFutureJobsUpstreamError,
@@ -9,6 +11,45 @@ const {
   payloadForSupportLog,
   logFutureJobsExchange,
 } = require("../../utils/logger");
+
+/** Testing progress log — set CANDIDATE_SEARCH_PROGRESS_LOG=0 to disable. */
+const SEARCH_PROGRESS_LOG_PATH = path.join(
+  __dirname,
+  "../../../../docs/candidate-search-api-flow.txt",
+);
+
+function appendSearchProgressLog({ label, method, url, body, res }) {
+  if (process.env.CANDIDATE_SEARCH_PROGRESS_LOG === "0") return;
+  try {
+    const stamp = new Date().toISOString();
+    const bodyJson =
+      body === undefined || body === null
+        ? "(none)"
+        : JSON.stringify(body, null, 2);
+    const resJson =
+      res === undefined || res === null
+        ? "(none)"
+        : JSON.stringify(res, null, 2);
+    const block = [
+      "",
+      "================================================================================",
+      `[${stamp}] ${label}`,
+      `method: ${method || "GET"}`,
+      `url: ${url}`,
+      "body:",
+      bodyJson,
+      "res:",
+      resJson,
+      "================================================================================",
+      "",
+    ].join("\n");
+    fs.appendFileSync(SEARCH_PROGRESS_LOG_PATH, block, "utf8");
+  } catch (err) {
+    logOutbound("futurejobs", "search progress log write failed", {
+      message: err?.message,
+    });
+  }
+}
 
 /**
  * Perform one Future Jobs HTTP call and emit a single support log with request + response.
@@ -51,6 +92,13 @@ async function futureJobsHttpRequest({
       requestBody: payloadForSupportLog(hasBody ? body : undefined),
       responseBody: null,
     });
+    appendSearchProgressLog({
+      label: `${fjOperation || method} NETWORK ERROR`,
+      method,
+      url,
+      body: hasBody ? body : null,
+      res: { networkError: networkErr?.message || String(networkErr) },
+    });
     throw createFutureJobsUpstreamError({
       details: { networkError: networkErr?.message || String(networkErr) },
       fjHttpStatus: 0,
@@ -82,6 +130,14 @@ async function futureJobsHttpRequest({
     responseBody: payloadForSupportLog(
       parseError ? { parseError: true, raw: text } : data,
     ),
+  });
+
+  appendSearchProgressLog({
+    label: fjOperation || `${method} ${url}`,
+    method,
+    url,
+    body: hasBody ? body : null,
+    res: data,
   });
 
   throwIfFjHttpNotOk(res, data, {
@@ -314,12 +370,12 @@ const getSourcingSessionCandidateDetails = async (candidateId) => {
 /**
  * GET /wl/sourcing-session/:sessionId/profiles — paginated profiles for a session.
  * @param {string} sessionId
- * @param {{ page?: number, limit?: number }} [opts]
+ * @param {{ page?: number, limit?: number, pollAttempt?: number }} [opts]
  * @returns {Promise<object>} Parsed JSON response body
  */
 const getSourcingSessionProfiles = async (
   sessionId,
-  { page = 1, limit = 20 } = {},
+  { page = 1, limit = 20, pollAttempt } = {},
 ) => {
   const { baseUrl, apiKey } = getFutureJobsConfig();
 
@@ -342,7 +398,7 @@ const getSourcingSessionProfiles = async (
 
   const params = new URLSearchParams({
     page: String(Math.max(1, Math.floor(Number(page)) || 1)),
-    limit: String(Math.min(100, Math.max(1, Math.floor(Number(limit)) || 20))),
+    limit: String(Math.min(200, Math.max(1, Math.floor(Number(limit)) || 20))),
   });
 
   const url = `${baseUrl}/wl/sourcing-session/${encodeURIComponent(sessionId)}/profiles?${params}`;
@@ -382,6 +438,18 @@ const getSourcingSessionProfiles = async (
     extra: { elapsedMs },
   });
 
+  const pollLabel =
+    typeof pollAttempt === "number" && pollAttempt > 0
+      ? `POLL #${pollAttempt} GET …/profiles`
+      : "GET …/profiles";
+  appendSearchProgressLog({
+    label: pollLabel,
+    method: "GET",
+    url,
+    body: null,
+    res: data,
+  });
+
   logOutbound("futurejobs", "profiles response ok", {
     httpStatus: res.status,
     elapsedMs,
@@ -415,7 +483,7 @@ function profilesResponseTotalDocs(profilesRes) {
  * docs immediately after session create while profileMatchingStatus is "processing".
  *
  * @param {string} sessionId
- * @param {{ page?: number, limit?: number, maxWaitMs?: number, intervalMs?: number, expectedProfileCount?: number|null, profileMatchingStatus?: string|null }} [opts]
+ * @param {{ page?: number, limit?: number, maxWaitMs?: number, intervalMs?: number, expectedProfileCount?: number|null, profileMatchingStatus?: string|null, onPoll?: Function }} [opts]
  */
 async function getSourcingSessionProfilesWhenReady(
   sessionId,
@@ -426,6 +494,7 @@ async function getSourcingSessionProfilesWhenReady(
     intervalMs = 3000,
     expectedProfileCount = null,
     profileMatchingStatus = null,
+    onPoll = null,
   } = {},
 ) {
   const expected =
@@ -442,8 +511,30 @@ async function getSourcingSessionProfilesWhenReady(
     status === "pending" ||
     status === "in_progress";
 
+  const notifyPoll = (payload) => {
+    if (typeof onPoll !== "function") return;
+    try {
+      onPoll(payload);
+    } catch {
+      /* ignore listener errors */
+    }
+  };
+
   if (!shouldPoll) {
-    return getSourcingSessionProfiles(sessionId, { page, limit });
+    const res = await getSourcingSessionProfiles(sessionId, {
+      page,
+      limit,
+      pollAttempt: 1,
+    });
+    notifyPoll({
+      sessionId,
+      attempt: 1,
+      docs: Array.isArray(res?.data?.docs) ? res.data.docs : [],
+      totalDocs: profilesResponseTotalDocs(res),
+      done: false,
+      polling: true,
+    });
+    return res;
   }
 
   const started = Date.now();
@@ -452,9 +543,23 @@ async function getSourcingSessionProfilesWhenReady(
 
   while (Date.now() - started <= maxWaitMs) {
     attempt += 1;
-    lastRes = await getSourcingSessionProfiles(sessionId, { page, limit });
+    lastRes = await getSourcingSessionProfiles(sessionId, {
+      page,
+      limit,
+      pollAttempt: attempt,
+    });
     const docCount = profilesResponseDocCount(lastRes);
     const totalDocs = profilesResponseTotalDocs(lastRes);
+    const docs = Array.isArray(lastRes?.data?.docs) ? lastRes.data.docs : [];
+
+    notifyPoll({
+      sessionId,
+      attempt,
+      docs,
+      totalDocs: totalDocs || docCount,
+      done: false,
+      polling: true,
+    });
 
     if (docCount > 0 || totalDocs > 0) {
       logOutbound("futurejobs", "profiles ready after poll", {
@@ -490,7 +595,11 @@ async function getSourcingSessionProfilesWhenReady(
   });
   return (
     lastRes ||
-    (await getSourcingSessionProfiles(sessionId, { page, limit }))
+    (await getSourcingSessionProfiles(sessionId, {
+      page,
+      limit,
+      pollAttempt: attempt + 1,
+    }))
   );
 }
 
@@ -884,6 +993,14 @@ const getSourcingSessionAnnotation = async (body) => {
     extra: { elapsedMs },
   });
 
+  appendSearchProgressLog({
+    label: "POST /wl/sourcing-session/get-annotation",
+    method: "POST",
+    url,
+    body: payload,
+    res: data,
+  });
+
   logOutbound("futurejobs", "get-annotation response ok", {
     httpStatus: res.status,
     elapsedMs,
@@ -896,6 +1013,48 @@ const getSourcingSessionAnnotation = async (body) => {
   });
 
   return data;
+};
+
+/**
+ * GET /wl/sourcing-session/filters/autocomplete — suggest filter values (e.g. region).
+ * @param {{ filterType?: string, query: string, limit?: number }} params
+ */
+const getFilterAutocomplete = async (
+  { filterType = "region", query, limit = 10 } = {},
+  opts = {},
+) => {
+  const { baseUrl, apiKey } = getFutureJobsConfig();
+
+  try {
+    assertFutureJobsApiKey(apiKey);
+  } catch (e) {
+    logOutbound("futurejobs", "getFilterAutocomplete aborted — missing API key", {});
+    throw e;
+  }
+
+  const q = String(query || "").trim();
+  if (!q) {
+    const err = new Error("query is required");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const cappedLimit = Math.min(Math.max(Number(limit) || 10, 1), 25);
+  const params = new URLSearchParams({
+    filter_type: String(filterType || "region").trim() || "region",
+    query: q,
+    limit: String(cappedLimit),
+  });
+  const url = `${baseUrl}/wl/sourcing-session/filters/autocomplete?${params}`;
+
+  return futureJobsHttpRequest({
+    method: "GET",
+    url,
+    apiKey,
+    traceId: opts.traceId,
+    fjOperation: "GET /wl/sourcing-session/filters/autocomplete",
+    defaultErrorPrefix: "Future Jobs autocomplete",
+  });
 };
 
 module.exports = {
@@ -911,4 +1070,5 @@ module.exports = {
   scoutPeopleLookup,
   scoutPeopleRevealContact,
   getSourcingSessionAnnotation,
+  getFilterAutocomplete,
 };

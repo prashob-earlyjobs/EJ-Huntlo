@@ -8,13 +8,15 @@ const realtimeEnabled =
   String(process.env.NEXT_PUBLIC_REALTIME_ENABLED ?? "true").toLowerCase() !== "false";
 
 /** Build ws:// or wss:// URL for the API host + path */
-export function buildRealtimeWsUrl(token: string): string {
+export function buildRealtimeWsUrl(token: string, userId?: string): string {
   const base = apiBase().replace(/\/$/, "");
   const url = new URL(base);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   url.pathname = wsPath.startsWith("/") ? wsPath : `/${wsPath}`;
   url.search = "";
   url.searchParams.set("token", token);
+  const id = typeof userId === "string" ? userId.trim() : "";
+  if (id) url.searchParams.set("userId", id);
   return url.toString();
 }
 

@@ -11,6 +11,7 @@ const {
   scoutPeopleLookup,
   scoutPeopleRevealContact,
   getSourcingSessionAnnotation,
+  getFilterAutocomplete,
 } = require("./client");
 const { buildSourcingSessionPayloadFromPrompt } = require("./payload");
 const {
@@ -39,6 +40,7 @@ module.exports = {
   scoutPeopleLookup,
   scoutPeopleRevealContact,
   getSourcingSessionAnnotation,
+  getFilterAutocomplete,
   buildSourcingSessionPayloadFromPrompt,
   DEFAULT_FILTER_FORM,
   filterFormFromCreateResponse,

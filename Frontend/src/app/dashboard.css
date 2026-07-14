@@ -83,6 +83,10 @@
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   padding: 1.5rem;
+}
+
+/* Only animate after collapsed preference is applied — avoids expand→shrink flash on nav remount. */
+.dashboard-sidebar--animated {
   transition:
     width 0.22s ease,
     padding 0.22s ease;
@@ -3009,6 +3013,25 @@
   color: var(--dash-primary);
 }
 
+.dashboard-filter-location-field .dashboard-chip--selected {
+  max-width: min(100%, 28rem);
+}
+
+.dashboard-filter-location-field .dashboard-chip-label {
+  max-width: min(100%, 24rem);
+}
+
+.dashboard-filter-location-status {
+  cursor: default;
+  color: var(--dash-on-surface-variant);
+  font-size: 0.8125rem;
+}
+
+.dashboard-filter-location-status:hover {
+  background: transparent;
+  color: var(--dash-on-surface-variant);
+}
+
 .dashboard-status {
   display: inline-flex;
   align-items: center;
@@ -3193,6 +3216,28 @@
   background: color-mix(in srgb, var(--dash-primary) 10%, white);
   color: var(--dash-primary);
   font-weight: 600;
+}
+
+.dashboard-results-toolbar-badge--polling {
+  gap: 0.45rem;
+  border-color: color-mix(in srgb, var(--dash-primary) 32%, transparent);
+  color: var(--dash-primary);
+}
+
+.dashboard-results-toolbar-badge-spinner {
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 999px;
+  border: 2px solid color-mix(in srgb, var(--dash-primary) 25%, transparent);
+  border-top-color: var(--dash-primary);
+  animation: dashboard-results-badge-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes dashboard-results-badge-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .dashboard-results-toolbar-actions .dashboard-btn-primary,

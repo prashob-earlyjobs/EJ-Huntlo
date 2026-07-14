@@ -121,9 +121,12 @@ import {
   type DashboardTabKey,
 } from "@/lib/dashboardRoutes";
 import {
+  appendSessionResultDocs,
   candidateScoreBadgeClass,
   dedupeSessionResultDocs,
   formatCandidateScore,
+  mergePollSessionResultDocs,
+  sessionResultDocIdentityKey,
 } from "@/lib/sessionResultUi";
 import {
   DEFAULT_CANDIDATE_FILTER_FORM,
@@ -605,8 +608,9 @@ function sessionResultDocSelectionKey(
   idx: number,
   candidateKey: string
 ): string {
-  const id = typeof doc._id === "string" ? doc._id.trim() : "";
-  return id || `session-doc-${idx}-${candidateKey}`;
+  const stable = sessionResultDocIdentityKey(doc);
+  if (stable) return stable;
+  return candidateKey || `session-doc-${idx}`;
 }
 
 /** Keep selections valid when profile docs gain _id or list order changes. */
@@ -1207,6 +1211,7 @@ export function UserDashboardPage() {
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarAnimated, setSidebarAnimated] = useState(false);
   const [engagementsNavExpanded, setEngagementsNavExpanded] = useState(true);
   const [collapsedNavGroupHover, setCollapsedNavGroupHover] = useState<string | null>(null);
   const [collapsedFlyoutLayout, setCollapsedFlyoutLayout] = useState<{
@@ -1335,6 +1340,12 @@ export function UserDashboardPage() {
     unknown
   > | null>(null);
   const [applyFiltersLoading, setApplyFiltersLoading] = useState(false);
+  const [sessionSearchPolling, setSessionSearchPolling] = useState(false);
+  const searchPollSessionRef = useRef<string | null>(null);
+  const routeSessionIdRef = useRef<string>("");
+  const searchSummarySessionIdRef = useRef<string | null>(null);
+  /** Toolbar badge count — frozen while socket polling so the actions bar does not re-render. */
+  const [sessionToolbarCount, setSessionToolbarCount] = useState(0);
   const [applySessionChoiceOpen, setApplySessionChoiceOpen] = useState(false);
   const [annotateLoading, setAnnotateLoading] = useState(false);
   const [filterFormRestoreLoading, setFilterFormRestoreLoading] = useState(false);
@@ -2739,7 +2750,7 @@ export function UserDashboardPage() {
     if (!append || prev.length === 0) {
       return dedupeSessionResultDocs(incoming);
     }
-    return dedupeSessionResultDocs([...prev, ...incoming]);
+    return appendSessionResultDocs(prev, incoming, 200);
   };
 
   const syncSessionResultsSummary = (
@@ -2855,7 +2866,7 @@ export function UserDashboardPage() {
   const applySessionProfilesFromSearchResponse = (
     data: Record<string, unknown>,
     backTab: string,
-    options?: { appendDocs?: boolean }
+    options?: { appendDocs?: boolean; skipWorkspaceRefresh?: boolean }
   ) => {
     const fjProfiles = data.futureJobsProfiles as
       | { data?: { docs?: SessionResultDoc[] } }
@@ -2914,7 +2925,9 @@ export function UserDashboardPage() {
     });
     setSessionResultError("");
     setWorkspaceCandidatesPage(1);
-    setWorkspaceCandidatesRefresh((n) => n + 1);
+    if (!options?.skipWorkspaceRefresh && !appendDocs) {
+      setWorkspaceCandidatesRefresh((n) => n + 1);
+    }
   };
 
   const loadSessionProfilesFirstPage = async (
@@ -2951,6 +2964,8 @@ export function UserDashboardPage() {
       sessionProfilesAutoLoadRef.current = null;
       return;
     }
+    // Live socket poll owns the list — do not HTTP-reload (that remounts the grid).
+    if (sessionSearchPolling) return;
     // History navigation hydrates via stored-candidates; avoid a parallel profiles fetch.
     if (sessionResultsFromDb) return;
     if (searchSummary?.sessionId === routeSessionId && sessionResultDocs.length > 0) {
@@ -2976,7 +2991,14 @@ export function UserDashboardPage() {
       .finally(() => {
         setSearchLoading(false);
       });
-  }, [tabFromRoute, routeSessionId, searchSummary?.sessionId, sessionResultsFromDb]);
+  }, [
+    tabFromRoute,
+    routeSessionId,
+    searchSummary?.sessionId,
+    sessionResultsFromDb,
+    sessionSearchPolling,
+    sessionResultDocs.length,
+  ]);
 
   const handleSearch = async () => {
     if (annotateLoading || searchLoading || applyFiltersLoading) return;
@@ -3131,7 +3153,10 @@ export function UserDashboardPage() {
         : "";
 
     setApplySessionChoiceOpen(false);
+    setIsFilterDrawerOpen(false);
     setApplyFiltersLoading(true);
+    setSessionSearchPolling(false);
+    searchPollSessionRef.current = existingSessionId || null;
     setApplyStatusStepIndex(0);
     setFilterSkillsError("");
     setSessionResultError("");
@@ -3170,6 +3195,20 @@ export function UserDashboardPage() {
         return;
       }
 
+      searchPollSessionRef.current = sessionId;
+      const docsFromApply = Array.isArray(
+        (data as { futureJobsProfiles?: { data?: { docs?: unknown[] } } })
+          .futureJobsProfiles?.data?.docs
+      )
+        ? ((data as { futureJobsProfiles: { data: { docs: SessionResultDoc[] } } })
+            .futureJobsProfiles.data.docs)
+        : [];
+
+      // Live-update whenever first page is incomplete — do not rely only on backend `polling`.
+      const httpPollingContinues =
+        data.polling === true || docsFromApply.length < 200;
+      setSessionSearchPolling(httpPollingContinues);
+
       if (typeof data.profilesFetchError === "string" && data.profilesFetchError) {
         if (data.profilesFetchError === FUTURE_JOBS_UPSTREAM_ERROR_MESSAGE) {
           userActionAlert.showFutureJobsUpstream();
@@ -3190,15 +3229,11 @@ export function UserDashboardPage() {
         );
       }
 
-      const docsFromApply = Array.isArray(
-        (data as { futureJobsProfiles?: { data?: { docs?: unknown[] } } })
-          .futureJobsProfiles?.data?.docs
-      )
-        ? ((data as { futureJobsProfiles: { data: { docs: SessionResultDoc[] } } })
-            .futureJobsProfiles.data.docs)
-        : [];
-
-      const profileOptions = appendToExisting ? { appendDocs: true as const } : undefined;
+      const profileOptions = appendToExisting
+        ? { appendDocs: true as const, skipWorkspaceRefresh: true as const }
+        : httpPollingContinues
+          ? { skipWorkspaceRefresh: true as const }
+          : undefined;
 
       if (docsFromApply.length > 0) {
         applySessionProfilesFromSearchResponse(
@@ -3215,19 +3250,38 @@ export function UserDashboardPage() {
         setSessionResultsBackTab(backTab);
         navigateToTab("Session Results", { sessionId });
         setSessionResultError("");
-        await loadSessionProfilesFirstPage(
+        setSearchSummary({
+          candidateCount: 0,
+          totalDocs: 0,
+          page: 1,
+          limit: typeof data.limit === "number" ? data.limit : 20,
+          totalPages: 1,
+          hasNextPage: false,
+          canFetchMore: data.canFetchMore !== false,
           sessionId,
-          typeof data.limit === "number" ? data.limit : 20,
-          auth.token,
-          backTab,
-          profileOptions
-        );
+          sourcingStatus: null,
+          profilesFetchError:
+            typeof data.profilesFetchError === "string" ? data.profilesFetchError : null,
+        });
+        // Socket owns continued loading — skip HTTP profiles reload (it remounted the grid).
+        if (!httpPollingContinues) {
+          await loadSessionProfilesFirstPage(
+            sessionId,
+            typeof data.limit === "number" ? data.limit : 20,
+            auth.token,
+            backTab,
+            profileOptions
+          );
+        }
       }
 
       setIsFilterDrawerOpen(false);
       setHasSearched(true);
-      setWorkspaceCandidatesRefresh((n) => n + 1);
-      setRecentSearchesRefresh((n) => n + 1);
+      // Defer sidebar refreshes until polling finishes so Session Results stays stable.
+      if (!httpPollingContinues) {
+        setWorkspaceCandidatesRefresh((n) => n + 1);
+        setRecentSearchesRefresh((n) => n + 1);
+      }
       if (isBrandNewSession) {
         setSourcingSessionsHydrated(false);
         setSourcingSessionsRefresh((n) => n + 1);
@@ -3241,6 +3295,7 @@ export function UserDashboardPage() {
         err instanceof Error ? err.message : "Could not apply filters";
       setSessionResultError(message);
       userActionAlert.showError(message);
+      setSessionSearchPolling(false);
     } finally {
       setApplyFiltersLoading(false);
     }
@@ -3923,9 +3978,20 @@ export function UserDashboardPage() {
     Boolean(routeSessionId) &&
     searchSummary?.sessionId !== routeSessionId;
   const showSessionResultsSkeleton =
-    sessionResultDocs.length === 0 && (searchLoading || sessionResultsOutOfSync);
+    sessionResultDocs.length === 0 &&
+    (searchLoading || sessionResultsOutOfSync) &&
+    !sessionSearchPolling &&
+    !applyFiltersLoading;
+  // Keep the grid mounted once docs exist — never hide it behind searchLoading
+  // (auto-load / HTTP races were unmounting every card + the toolbar actions).
   const showSessionResultsGrid =
-    sessionResultDocs.length > 0 && !searchLoading && !sessionResultsOutOfSync;
+    sessionResultDocs.length > 0 && !sessionResultsOutOfSync;
+
+  // Freeze toolbar count while socket polling — only sync when idle.
+  useEffect(() => {
+    if (sessionSearchPolling || applyFiltersLoading) return;
+    setSessionToolbarCount(sessionResultDocs.length);
+  }, [sessionSearchPolling, applyFiltersLoading, sessionResultDocs.length]);
 
   const resolveSelectedSessionContacts = useCallback((): CampaignContact[] => {
     const sessionId = searchSummary?.sessionId ?? null;
@@ -4020,6 +4086,180 @@ export function UserDashboardPage() {
 
     return unsubscribe;
   }, [campaignsPage, handleCampaignUpdated, loadCampaignsList]);
+
+  useEffect(() => {
+    routeSessionIdRef.current = String(routeSessionId || "").trim();
+  }, [routeSessionId]);
+
+  useEffect(() => {
+    searchSummarySessionIdRef.current = searchSummary?.sessionId?.trim() || null;
+  }, [searchSummary?.sessionId]);
+
+  useEffect(() => {
+    const unsubscribe = realtimeClient.subscribeCandidateSearchPoll((payload) => {
+      const sid = String(payload.sessionId || "").trim();
+      if (!sid) return;
+
+      const tracked = searchPollSessionRef.current?.trim() || "";
+      const viewing =
+        routeSessionIdRef.current ||
+        searchSummarySessionIdRef.current ||
+        "";
+      const accepted = sid === tracked || sid === viewing;
+      if (!accepted) {
+        console.info(
+          `[realtime] poll skipped mismatch sid=${sid} tracked=${tracked || "-"} viewing=${viewing || "-"}`
+        );
+        return;
+      }
+
+      // Keep accepting later frames even if HTTP backup cleared the poll ref.
+      searchPollSessionRef.current = sid;
+
+      const docs = Array.isArray(payload.docs)
+        ? (payload.docs as SessionResultDoc[])
+        : [];
+      const hitCount =
+        typeof payload.candidateCount === "number"
+          ? payload.candidateCount
+          : docs.length;
+      const isFinal = Boolean(payload.done || payload.status === true);
+
+      if (!isFinal && payload.polling !== false) {
+        setSessionSearchPolling(true);
+      }
+
+      if (docs.length > 0) {
+        setSessionResultDocs((prev) => {
+          const next = mergePollSessionResultDocs(prev, docs, 200);
+          if (next !== prev) {
+            console.info(
+              `[realtime] grid merge prev=${prev.length} next=${next.length} hits:${hitCount}`
+            );
+          } else {
+            console.info(
+              `[realtime] grid unchanged prev=${prev.length} incoming=${docs.length} hits:${hitCount}`
+            );
+          }
+          // Full page already shown — stop loader; no more FE fetches needed.
+          if (next.length >= 200) {
+            queueMicrotask(() => setSessionSearchPolling(false));
+          }
+          return next;
+        });
+
+        if (Array.isArray(payload.candidates) && payload.candidates.length > 0) {
+          setSearchedCandidates((prev) => {
+            const incoming = payload.candidates as CandidateRow[];
+            const seen = new Set(
+              prev.map((c) => candidateIdentityKey(c)).filter(Boolean)
+            );
+            const additions: CandidateRow[] = [];
+            for (const row of incoming) {
+              const key = candidateIdentityKey(row);
+              if (!key || seen.has(key)) continue;
+              seen.add(key);
+              additions.push(row);
+            }
+            if (additions.length === 0) return prev;
+            return [...prev, ...additions].slice(0, 200);
+          });
+        }
+      }
+
+      if (isFinal) {
+        setSessionSearchPolling(false);
+      }
+    });
+
+    return unsubscribe;
+  }, []);
+
+  const sessionResultDocsCountRef = useRef(0);
+  useEffect(() => {
+    sessionResultDocsCountRef.current = sessionResultDocs.length;
+    // Full page already on screen — stop loader / backup fetches.
+    if (sessionSearchPolling && sessionResultDocs.length >= 200) {
+      setSessionSearchPolling(false);
+    }
+  }, [sessionResultDocs.length, sessionSearchPolling]);
+
+  // HTTP backup while polling: if WS frames are dropped, grid still grows without refresh.
+  useEffect(() => {
+    if (!sessionSearchPolling) return;
+    if (sessionResultDocsCountRef.current >= 200) return;
+
+    const sid =
+      searchPollSessionRef.current?.trim() ||
+      routeSessionIdRef.current ||
+      searchSummarySessionIdRef.current ||
+      "";
+    if (!sid) return;
+
+    let cancelled = false;
+    let inFlight = false;
+    let attempts = 0;
+    const MAX_ATTEMPTS = 30;
+
+    const stopPolling = () => {
+      if (cancelled) return;
+      setSessionSearchPolling(false);
+    };
+
+    const mergeFromApi = async () => {
+      if (cancelled || inFlight) return;
+      if (sessionResultDocsCountRef.current >= 200) {
+        stopPolling();
+        return;
+      }
+      const auth = getStoredAuth();
+      if (!auth?.token) return;
+      inFlight = true;
+      attempts += 1;
+      try {
+        const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+        const res = await fetch(
+          `${apiBase}/api/candidates/session/${encodeURIComponent(sid)}/profiles?page=1&limit=200`,
+          { headers: authHeaders(auth.token) }
+        );
+        const data = await res.json().catch(() => ({}));
+        if (cancelled || !res.ok || !data.success) return;
+        const incoming = Array.isArray(
+          (data as { futureJobsProfiles?: { data?: { docs?: SessionResultDoc[] } } })
+            .futureJobsProfiles?.data?.docs
+        )
+          ? ((data as { futureJobsProfiles: { data: { docs: SessionResultDoc[] } } })
+              .futureJobsProfiles.data.docs)
+          : [];
+        if (incoming.length > 0) {
+          setSessionResultDocs((prev) => {
+            const next = mergePollSessionResultDocs(prev, incoming, 200);
+            if (next.length >= 200) {
+              queueMicrotask(stopPolling);
+            }
+            return next;
+          });
+        }
+        if (attempts >= MAX_ATTEMPTS) {
+          stopPolling();
+        }
+      } catch {
+        if (attempts >= MAX_ATTEMPTS) stopPolling();
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    void mergeFromApi();
+    const timer = window.setInterval(() => {
+      void mergeFromApi();
+    }, 3000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [sessionSearchPolling]);
 
   const handleAddToCampaignConfirm = useCallback(
     async (
@@ -4151,6 +4391,9 @@ export function UserDashboardPage() {
 
   useLayoutEffect(() => {
     setSidebarCollapsed(readSidebarCollapsedPreference());
+    // Enable width transition only after the preferred collapsed state is applied.
+    const frame = window.requestAnimationFrame(() => setSidebarAnimated(true));
+    return () => window.cancelAnimationFrame(frame);
   }, []);
 
   const toggleSidebarCollapsed = () => {
@@ -4279,7 +4522,7 @@ export function UserDashboardPage() {
         <aside
           className={`dashboard-sidebar dashboard-sidebar--compact hidden flex-col lg:flex${
             sidebarCollapsed ? " dashboard-sidebar--collapsed" : ""
-          }`}
+          }${sidebarAnimated ? " dashboard-sidebar--animated" : ""}`}
         >
           <div className="dashboard-sidebar-brand">
             <div className="dashboard-sidebar-brand-head">
@@ -4603,6 +4846,12 @@ export function UserDashboardPage() {
                       onClick={() => navigateToTab(sessionResultsBackTab)}
                       className="dashboard-btn-secondary dashboard-btn-icon"
                       aria-label={`Back to ${sessionResultsBackTab}`}
+                      disabled={sessionSearchPolling || applyFiltersLoading}
+                      title={
+                        sessionSearchPolling || applyFiltersLoading
+                          ? "Please wait — results are still loading"
+                          : undefined
+                      }
                     >
                       <MaterialIcon name="arrow_back" className="text-xl" />
                     </button>
@@ -4617,11 +4866,33 @@ export function UserDashboardPage() {
                     </div>
                   </div>
                   <div className="dashboard-results-toolbar-actions">
-                    {showSessionResultsGrid ? (
+                    {showSessionResultsGrid ||
+                    sessionSearchPolling ||
+                    applyFiltersLoading ? (
                       <div className="dashboard-results-toolbar-meta">
-                        <span className="dashboard-results-toolbar-badge tabular-nums">
-                          {sessionResultDocs.length.toLocaleString()} candidate
-                          {sessionResultDocs.length === 1 ? "" : "s"}
+                        <span
+                          className={`dashboard-results-toolbar-badge tabular-nums${
+                            sessionSearchPolling || applyFiltersLoading
+                              ? " dashboard-results-toolbar-badge--polling"
+                              : ""
+                          }`}
+                        >
+                          {sessionSearchPolling || applyFiltersLoading ? (
+                            <>
+                              <span
+                                className="dashboard-results-toolbar-badge-spinner"
+                                aria-hidden
+                              />
+                              {sessionResultDocs.length > 0
+                                ? `${sessionResultDocs.length.toLocaleString()} · Loading…`
+                                : "Loading…"}
+                            </>
+                          ) : (
+                            <>
+                              {sessionToolbarCount.toLocaleString()} candidate
+                              {sessionToolbarCount === 1 ? "" : "s"}
+                            </>
+                          )}
                         </span>
                         {sessionResultSelectedKeys.length > 0 ? (
                           <span className="dashboard-results-toolbar-badge dashboard-results-toolbar-badge--selected tabular-nums">
@@ -4673,6 +4944,7 @@ export function UserDashboardPage() {
                         type="button"
                         onClick={() => openEditFiltersDrawer()}
                         className="dashboard-btn-secondary"
+                        disabled={sessionSearchPolling || applyFiltersLoading}
                       >
                         <MaterialIcon name="tune" aria-hidden />
                         Edit filter
@@ -4712,6 +4984,7 @@ export function UserDashboardPage() {
 
                 {!showSessionResultsSkeleton &&
                 !applyFiltersLoading &&
+                !sessionSearchPolling &&
                 sessionResultDocs.length === 0 &&
                 !sessionResultError &&
                 !sessionResultsOutOfSync ? (
@@ -4788,7 +5061,7 @@ export function UserDashboardPage() {
                         const phoneRevealBusy = isRevealContactBusy(revealCandidate, "PHONE");
                         return (
                           <article
-                            key={doc._id || `session-doc-${idx}`}
+                            key={sessionResultDocIdentityKey(doc) || `session-doc-${idx}`}
                             role="button"
                             tabIndex={0}
                             onClick={() => openSessionCandidateDetail(doc, revealCandidate)}

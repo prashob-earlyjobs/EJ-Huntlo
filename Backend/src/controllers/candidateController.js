@@ -16,6 +16,7 @@ const {
   buildSessionPayloadFromPromptAndFilter,
   getSourcingSessionAnnotation,
   getSourcingSessionCandidateDetails,
+  getFilterAutocomplete,
   filterFormFromAnnotation,
   normalizeFilterFormForUi,
   enrichFilterFormSkillsFromPrompt,
@@ -28,6 +29,7 @@ const SavedCandidateList = require("../models/SavedCandidateList");
 const { logApi, safeJsonPreview } = require("../utils/logger");
 const { incrementUserUsage } = require("../utils/incrementUserUsage");
 const { assertQuotaAvailableByUserId } = require("../services/planQuotas");
+const { emitCandidateSearchPoll } = require("../realtime/notify");
 const { respondIfQuotaExceeded } = require("../utils/quotaHttp");
 const {
   resolveContactReveal,
@@ -42,6 +44,38 @@ const {
 
 /** Wait after POST /wl/sourcing-session before GET …/profiles (Search Candidates apply). */
 const POST_SESSION_CREATE_PROFILES_WAIT_MS = 20_000;
+/** Widen location stepwise when FJ returns no matches / empty polls. */
+const REGION_EXPAND_GEO_STEPS = ["60_km", "120_km"];
+
+function normalizeGeoDistanceToken(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_");
+}
+
+/** Next geo step to try, or null when 60→120 chain is exhausted. */
+function nextRegionExpandGeoDistance(form) {
+  const geo = normalizeGeoDistanceToken(form?.geoDistance);
+  const hasOther = Boolean(form?.searchOtherRegions);
+  const last = REGION_EXPAND_GEO_STEPS[REGION_EXPAND_GEO_STEPS.length - 1];
+  if (hasOther && geo === last) return null;
+  const idx = REGION_EXPAND_GEO_STEPS.indexOf(geo);
+  if (hasOther && idx >= 0 && idx + 1 < REGION_EXPAND_GEO_STEPS.length) {
+    return REGION_EXPAND_GEO_STEPS[idx + 1];
+  }
+  return REGION_EXPAND_GEO_STEPS[0];
+}
+
+function expandFilterFormForRegionGeo(form, geoDistance) {
+  const base =
+    form && typeof form === "object" && !Array.isArray(form) ? { ...form } : {};
+  return {
+    ...base,
+    searchOtherRegions: true,
+    geoDistance,
+  };
+}
 
 const costlyFutureJobsActions = new Map();
 
@@ -84,9 +118,10 @@ function sessionIdFromFjCreateResponse(futureJobs, fallbackId = "") {
   return id != null && String(id).trim() !== "" ? String(id).trim() : "";
 }
 
-/** Page size when loading all profiles from Future Jobs (initial + after fetch-more). */
-const PROFILE_FETCH_PAGE_LIMIT = 100;
-const PROFILE_FETCH_MAX_PAGES = 50;
+/** Page size / hard cap when loading profiles from Future Jobs (initial search). */
+const PROFILE_FETCH_PAGE_LIMIT = 200;
+/** Initial search loads a single page only (max 200 candidates), same as earlier behavior. */
+const PROFILE_FETCH_MAX_PAGES = 1;
 const STORED_CANDIDATES_ALL_LIMIT = 500;
 
 function sleep(ms) {
@@ -160,7 +195,20 @@ function mergePersistedFilterForm(userForm, responseForm) {
   if (Array.isArray(userNorm.selectRegion) && userNorm.selectRegion.length > 0) {
     merged.selectRegion = userNorm.selectRegion;
   }
+  if (Array.isArray(userNorm.currentCompany) && userNorm.currentCompany.length > 0) {
+    merged.currentCompany = userNorm.currentCompany;
+  }
+  if (Array.isArray(userNorm.pastCompany) && userNorm.pastCompany.length > 0) {
+    merged.pastCompany = userNorm.pastCompany;
+  }
+  if (Array.isArray(userNorm.pastTitle) && userNorm.pastTitle.length > 0) {
+    merged.pastTitle = userNorm.pastTitle;
+  }
   merged.openToWork = userNorm.openToWork;
+  merged.searchOtherRegions = userNorm.searchOtherRegions;
+  if (String(userNorm.geoDistance || "").trim()) {
+    merged.geoDistance = userNorm.geoDistance;
+  }
 
   return normalizeFilterFormForUi(merged);
 }
@@ -248,13 +296,60 @@ function buildProfilesResWithDocs(baseRes, allDocs) {
 }
 
 /**
- * Load every page Future Jobs exposes for this session (no fetch-more).
+ * Load session profiles from Future Jobs (first page only — max 200).
+ * @param {string} sessionId
+ * @param {object} [pollOptions]
+ * @param {{ userId?: string, onPoll?: Function }} [emitOpts]
  */
-async function fetchAllSessionProfilesFromFj(sessionId, pollOptions = {}) {
+async function fetchAllSessionProfilesFromFj(
+  sessionId,
+  pollOptions = {},
+  emitOpts = {}
+) {
   const allDocs = [];
   const seen = new Set();
   let lastRes = null;
   let page = 1;
+  const userId = emitOpts.userId ? String(emitOpts.userId) : "";
+  const externalOnPoll =
+    typeof emitOpts.onPoll === "function" ? emitOpts.onPoll : null;
+  let lastEmittedCount = -1;
+
+  const pushPoll = (partial) => {
+    const docs = Array.isArray(partial.docs) ? partial.docs : allDocs;
+    const cappedDocs = docs.slice(0, PROFILE_FETCH_PAGE_LIMIT);
+    const isDone = Boolean(partial.done);
+    // Skip duplicate socket frames (same count) so the FE does not remount the grid.
+    if (!isDone && cappedDocs.length <= lastEmittedCount) {
+      return;
+    }
+    lastEmittedCount = cappedDocs.length;
+
+    const candidates = [];
+    for (const doc of cappedDocs) {
+      const row = mapFjDocToCandidate(doc);
+      if (row) candidates.push(row);
+    }
+    const payload = {
+      sessionId: String(sessionId),
+      attempt: typeof partial.attempt === "number" ? partial.attempt : page,
+      docs: cappedDocs,
+      candidates,
+      totalDocs: cappedDocs.length,
+      candidateCount: candidates.length,
+      polling: isDone ? false : true,
+      done: isDone,
+      status: isDone ? true : false,
+    };
+    if (userId) emitCandidateSearchPoll(userId, payload);
+    if (externalOnPoll) {
+      try {
+        externalOnPoll(payload);
+      } catch {
+        /* ignore */
+      }
+    }
+  };
 
   while (page <= PROFILE_FETCH_MAX_PAGES) {
     const profilesRes =
@@ -263,6 +358,23 @@ async function fetchAllSessionProfilesFromFj(sessionId, pollOptions = {}) {
             page: 1,
             limit: PROFILE_FETCH_PAGE_LIMIT,
             ...pollOptions,
+            onPoll: (p) => {
+              const pollDocs =
+                allDocs.length > 0
+                  ? allDocs
+                  : Array.isArray(p.docs)
+                    ? p.docs
+                    : [];
+              pushPoll({
+                attempt: p.attempt,
+                docs: pollDocs.slice(0, PROFILE_FETCH_PAGE_LIMIT),
+                totalDocs: Math.min(
+                  PROFILE_FETCH_PAGE_LIMIT,
+                  typeof p.totalDocs === "number" ? p.totalDocs : pollDocs.length
+                ),
+                done: false,
+              });
+            },
           })
         : await getSourcingSessionProfiles(String(sessionId), {
             page,
@@ -273,6 +385,7 @@ async function fetchAllSessionProfilesFromFj(sessionId, pollOptions = {}) {
     const docs = profilesRes?.data?.docs;
     if (Array.isArray(docs)) {
       for (const doc of docs) {
+        if (allDocs.length >= PROFILE_FETCH_PAGE_LIMIT) break;
         const id = doc?._id != null ? String(doc._id) : "";
         const linkedin = String(doc?.profile?.linkedin_profile_url || "")
           .trim()
@@ -286,18 +399,26 @@ async function fetchAllSessionProfilesFromFj(sessionId, pollOptions = {}) {
       }
     }
 
-    const hasNext = profilesRes?.data?.hasNextPage === true;
-    const totalPages =
-      typeof profilesRes?.data?.totalPages === "number"
-        ? profilesRes.data.totalPages
-        : null;
-    if (!hasNext) break;
-    if (totalPages != null && page >= totalPages) break;
-    page += 1;
+    pushPoll({
+      attempt: page,
+      docs: allDocs,
+      totalDocs: allDocs.length,
+      done: false,
+    });
+
+    // Initial search: single page only (max 200).
+    break;
   }
 
   const mergedRes = buildProfilesResWithDocs(lastRes || {}, allDocs);
-  return mapProfilesResToLists(mergedRes);
+  const mapped = mapProfilesResToLists(mergedRes);
+  pushPoll({
+    attempt: page,
+    docs: allDocs,
+    totalDocs: allDocs.length,
+    done: true,
+  });
+  return mapped;
 }
 
 async function persistCandidateDetails({
@@ -473,6 +594,7 @@ async function fetchProfilesForSession({
   loggerHandler,
   waitBeforeFetchMs = 0,
 }) {
+  // First fetch only (HTTP apply response). No socket emits here.
   if (waitBeforeFetchMs > 0) {
     logApi(loggerHandler, "waiting after session create before profiles fetch", {
       sessionId: String(sessionId),
@@ -481,33 +603,211 @@ async function fetchProfilesForSession({
     await sleep(waitBeforeFetchMs);
   }
 
-  const pollOptions = {
-    expectedProfileCount:
-      typeof sourcingMeta?.total_display_count === "number"
-        ? sourcingMeta.total_display_count
-        : typeof sourcingMeta?.newProfilesCount === "number"
-          ? sourcingMeta.newProfilesCount
-          : null,
-    profileMatchingStatus:
-      typeof sourcingMeta?.profileMatchingStatus === "string"
-        ? sourcingMeta.profileMatchingStatus
-        : typeof sessionMeta?.profileMatchingStatus === "string"
-          ? sessionMeta.profileMatchingStatus
-          : null,
+  const profilesRes = await getSourcingSessionProfiles(String(sessionId), {
+    page: 1,
+    limit: PROFILE_FETCH_PAGE_LIMIT,
+  });
+
+  const rawDocs = Array.isArray(profilesRes?.data?.docs)
+    ? profilesRes.data.docs
+    : [];
+  const cappedDocs = rawDocs.slice(0, PROFILE_FETCH_PAGE_LIMIT);
+  const mapped = mapProfilesResToLists(
+    buildProfilesResWithDocs(profilesRes || {}, cappedDocs)
+  );
+
+  await persistCandidateDetails({
+    userId,
+    sourcingSessionId: String(sessionId),
+    profilesRes: mapped.futureJobsProfiles,
+    loggerHandler,
+  });
+
+  await syncSourcingSessionStoredCount(String(sessionId));
+
+  return mapped;
+}
+
+function shouldContinueProfilePolling({ candidates, docs }) {
+  const byCandidates = Array.isArray(candidates) ? candidates.length : 0;
+  const byDocs = Array.isArray(docs) ? docs.length : 0;
+  const count = Math.max(byCandidates, byDocs);
+  // Keep socket + FE live-poll until we have a full first page (max 200).
+  return count < PROFILE_FETCH_PAGE_LIMIT;
+}
+
+/**
+ * Card-sized doc for socket — full FJ docs are too large and often never arrive on the FE.
+ */
+function slimDocsForSocketPoll(docs) {
+  if (!Array.isArray(docs)) return [];
+  return docs.slice(0, PROFILE_FETCH_PAGE_LIMIT).map((doc) => {
+    const profile = doc?.profile && typeof doc.profile === "object" ? doc.profile : {};
+    const analysis =
+      doc?.profileAnalysis && typeof doc.profileAnalysis === "object"
+        ? doc.profileAnalysis
+        : {};
+    const highlights = Array.isArray(analysis.highlights)
+      ? analysis.highlights.slice(0, 6)
+      : [];
+    const employers = Array.isArray(profile.current_employers_object)
+      ? profile.current_employers_object.slice(0, 1)
+      : [];
+    return {
+      _id: doc?._id,
+      finalScore: doc?.finalScore,
+      skillTieBreaker: doc?.skillTieBreaker,
+      profileAnalysis: {
+        highlights,
+        recommendation:
+          typeof analysis.recommendation === "string"
+            ? analysis.recommendation.slice(0, 400)
+            : undefined,
+      },
+      profile: {
+        name: profile.name,
+        linkedin_profile_url: profile.linkedin_profile_url,
+        profile_picture_permalink: profile.profile_picture_permalink,
+        region: profile.region,
+        years_of_experience_raw: profile.years_of_experience_raw,
+        open_to_cards: profile.open_to_cards,
+        skills: Array.isArray(profile.skills) ? profile.skills.slice(0, 12) : [],
+        current_employers_object: employers,
+      },
+    };
+  });
+}
+
+/**
+ * After HTTP apply returns the first fetch, continue waiting via socket polls only.
+ *
+ * - Up to 30 polls (every 3s)
+ * - Every poll result is emitted (slim docs) over the socket
+ * - FE merges/appends; stop early only when count reaches 200
+ */
+async function continueProfilePollingViaSocket({
+  userId,
+  sessionId,
+  loggerHandler,
+  initialDocs = [],
+}) {
+  const sid = String(sessionId);
+  const uid = String(userId || "");
+  if (!uid || !sid) return;
+
+  const INTERVAL_MS = 3000;
+  const MAX_POLLS = 30;
+
+  const seed = Array.isArray(initialDocs) ? initialDocs : [];
+  let latestDocs = seed.slice(0, PROFILE_FETCH_PAGE_LIMIT);
+
+  const emitSnapshot = (docs, { done, attempt }) => {
+    const capped = Array.isArray(docs) ? docs.slice(0, PROFILE_FETCH_PAGE_LIMIT) : [];
+    const slimDocs = slimDocsForSocketPoll(capped);
+    const candidates = [];
+    for (const doc of capped) {
+      const row = mapFjDocToCandidate(doc);
+      if (row) candidates.push(row);
+    }
+    const sent = emitCandidateSearchPoll(uid, {
+      sessionId: sid,
+      attempt,
+      docs: slimDocs,
+      candidates,
+      totalDocs: capped.length,
+      candidateCount: candidates.length,
+      polling: !done,
+      done: Boolean(done),
+      status: Boolean(done),
+    });
+    // Always visible in the Backend terminal so we can confirm emits.
+    console.log(
+      `[realtime] candidates.search.poll session=${sid} attempt=${attempt} count=${candidates.length} done=${Boolean(done)} socketsReached=${sent}`
+    );
+    logApi(loggerHandler, "socket poll emit", {
+      userId: uid,
+      sessionId: sid,
+      attempt,
+      candidateCount: candidates.length,
+      done: Boolean(done),
+      socketsReached: sent,
+    });
+    return sent;
   };
 
-  const mapped = await fetchAllSessionProfilesFromFj(String(sessionId), pollOptions);
+  logApi(loggerHandler, "socket polling started", {
+    userId: uid,
+    sessionId: sid,
+    alreadyHave: latestDocs.length,
+    maxPolls: MAX_POLLS,
+  });
+  console.log(
+    `[realtime] socket polling started session=${sid} alreadyHave=${latestDocs.length}`
+  );
+
+  try {
+    for (let attempt = 1; attempt <= MAX_POLLS; attempt += 1) {
+      if (latestDocs.length >= PROFILE_FETCH_PAGE_LIMIT) break;
+
+      // First attempt immediately; then wait between polls.
+      if (attempt > 1) await sleep(INTERVAL_MS);
+
+      const profilesRes = await getSourcingSessionProfiles(sid, {
+        page: 1,
+        limit: PROFILE_FETCH_PAGE_LIMIT,
+        pollAttempt: attempt,
+      });
+      const rawDocs = Array.isArray(profilesRes?.data?.docs)
+        ? profilesRes.data.docs.slice(0, PROFILE_FETCH_PAGE_LIMIT)
+        : [];
+
+      latestDocs = rawDocs;
+      emitSnapshot(rawDocs, { done: false, attempt });
+
+      if (latestDocs.length >= PROFILE_FETCH_PAGE_LIMIT) break;
+    }
+
+    const mapped = mapProfilesResToLists(
+      buildProfilesResWithDocs({}, latestDocs.slice(0, PROFILE_FETCH_PAGE_LIMIT))
+    );
 
     await persistCandidateDetails({
-      userId,
-      sourcingSessionId: String(sessionId),
+      userId: uid,
+      sourcingSessionId: sid,
       profilesRes: mapped.futureJobsProfiles,
       loggerHandler,
     });
+    await syncSourcingSessionStoredCount(sid);
 
-    await syncSourcingSessionStoredCount(String(sessionId));
+    // Final frame includes slim docs so FE can merge even if prior frames were dropped.
+    emitSnapshot(latestDocs, { done: true, attempt: MAX_POLLS });
 
-    return mapped;
+    console.log(
+      `[realtime] socket polling done session=${sid} candidateCount=${latestDocs.length}`
+    );
+
+    logApi(loggerHandler, "socket polling done", {
+      userId: uid,
+      sessionId: sid,
+      candidateCount: latestDocs.length,
+    });
+  } catch (err) {
+    logApi(loggerHandler, "socket polling failed", {
+      userId: uid,
+      sessionId: sid,
+      message: err?.message,
+    });
+    emitCandidateSearchPoll(uid, {
+      sessionId: sid,
+      docs: slimDocsForSocketPoll(latestDocs),
+      candidates: [],
+      totalDocs: latestDocs.length,
+      candidateCount: latestDocs.length,
+      polling: false,
+      done: true,
+      status: true,
+    });
+  }
 }
 
 /**
@@ -759,7 +1059,7 @@ const applySearchFilters = async (req, res) => {
     }
 
     const page = clampInt(req.body?.page, 1, 100, 1);
-    const limit = clampInt(req.body?.limit, 1, 100, 20);
+    const limit = clampInt(req.body?.limit, 1, PROFILE_FETCH_PAGE_LIMIT, 20);
     const existingSessionId =
       typeof req.body?.sessionId === "string" ? req.body.sessionId.trim() : "";
 
@@ -804,7 +1104,7 @@ const applySearchFilters = async (req, res) => {
       );
     }
 
-    const futureJobs = await runCostlyFutureJobsAction(
+    let futureJobs = await runCostlyFutureJobsAction(
       `apply:${userId}:${existingSessionId || "new"}:${requestHash({
         prompt,
         payload,
@@ -820,7 +1120,70 @@ const applySearchFilters = async (req, res) => {
     );
 
     console.log("futureJobs-apply-", futureJobs);
-    const sessionId = sessionIdFromFjCreateResponse(futureJobs, existingSessionId);
+    let sessionId = sessionIdFromFjCreateResponse(futureJobs, existingSessionId);
+    let activeFilterForm = filterForm;
+    let activePayload = payload;
+    let regionExpandFallbackUsed = false;
+    const regionExpandGeosTried = [];
+
+    // FJ 207 = no matches / search failed — widen geo: 60_km then 120_km.
+    while (isFjSessionPending(futureJobs)) {
+      const nextGeo = nextRegionExpandGeoDistance(activeFilterForm);
+      if (!nextGeo) break;
+
+      const pendingMessage = fjSessionPendingMessage(futureJobs);
+      activeFilterForm = expandFilterFormForRegionGeo(activeFilterForm, nextGeo);
+      activePayload = buildSessionPayloadFromPromptAndFilter(prompt, activeFilterForm);
+      regionExpandFallbackUsed = true;
+      regionExpandGeosTried.push(nextGeo);
+
+      logApi("candidates/search/apply", "207 no-match — region expand fallback", {
+        userId,
+        previousSessionId: sessionId || undefined,
+        message: pendingMessage,
+        searchOtherRegions: true,
+        geoDistance: nextGeo,
+        geosTried: regionExpandGeosTried,
+        traceId: fjTraceId,
+      });
+
+      try {
+        console.log(
+          `[${new Date().toISOString()}] [api:candidates/search/apply] 207 fallback (${nextGeo}) FJ payload (traceId=${fjTraceId}):\n${JSON.stringify(activePayload, null, 2)}`
+        );
+      } catch {
+        /* ignore */
+      }
+
+      try {
+        const fallbackFj = await runCostlyFutureJobsAction(
+          `apply-fallback-207:${nextGeo}:${userId}:${requestHash({
+            prompt,
+            payload: activePayload,
+          })}`,
+          () =>
+            createSourcingSession(activePayload, {
+              traceId: `${fjTraceId}-fallback-207-${nextGeo}`,
+            })
+        );
+        futureJobs = fallbackFj;
+        sessionId = sessionIdFromFjCreateResponse(fallbackFj);
+        logApi("candidates/search/apply", "207 fallback create done", {
+          userId,
+          sessionId: sessionId || undefined,
+          geoDistance: nextGeo,
+          fjStatusCode: fallbackFj?.statusCode,
+          stillPending: isFjSessionPending(fallbackFj),
+        });
+      } catch (fallbackErr) {
+        logApi("candidates/search/apply", "207 fallback create failed", {
+          userId,
+          geoDistance: nextGeo,
+          message: fallbackErr?.message,
+        });
+        break;
+      }
+    }
 
     if (isFjSessionPending(futureJobs)) {
       const message = fjSessionPendingMessage(futureJobs);
@@ -828,12 +1191,17 @@ const applySearchFilters = async (req, res) => {
         userId,
         sessionId: sessionId || undefined,
         sessionUpdated: isSessionUpdate,
+        regionExpandFallbackUsed,
+        geosTried: regionExpandGeosTried,
         message,
       });
 
-      const responseFilterForm = filterFormFromCreateResponse(futureJobs, payload);
+      const responseFilterForm = filterFormFromCreateResponse(
+        futureJobs,
+        activePayload
+      );
       const savedFilterFormPending = mergePersistedFilterForm(
-        filterForm,
+        activeFilterForm,
         responseFilterForm
       );
       if (sessionId) {
@@ -842,7 +1210,7 @@ const applySearchFilters = async (req, res) => {
             userId,
             sessionId: String(sessionId),
             prompt,
-            payload,
+            payload: activePayload,
             usingSessionOverride: false,
             futureJobs,
             profilesPagination: null,
@@ -865,6 +1233,9 @@ const applySearchFilters = async (req, res) => {
         sessionId: sessionId || undefined,
         sessionUpdated: isSessionUpdate,
         filterForm: savedFilterFormPending,
+        regionExpandFallbackUsed: regionExpandFallbackUsed || undefined,
+        regionExpandGeosTried:
+          regionExpandGeosTried.length > 0 ? regionExpandGeosTried : undefined,
         futureJobs,
       });
     }
@@ -877,10 +1248,10 @@ const applySearchFilters = async (req, res) => {
       });
     }
 
-    const sourcingMeta = futureJobs?.data?.sourcing;
-    const sessionMeta = futureJobs?.data?.session;
-    const responseFilterForm = filterFormFromCreateResponse(futureJobs, payload);
-    const savedFilterForm = mergePersistedFilterForm(filterForm, responseFilterForm);
+    let sourcingMeta = futureJobs?.data?.sourcing;
+    let sessionMeta = futureJobs?.data?.session;
+    let responseFilterForm = filterFormFromCreateResponse(futureJobs, activePayload);
+    let savedFilterForm = mergePersistedFilterForm(activeFilterForm, responseFilterForm);
 
     let profilesFetchError = null;
     let candidates = [];
@@ -911,13 +1282,158 @@ const applySearchFilters = async (req, res) => {
       });
     }
 
+    // Empty after last poll → widen geo: 60_km then 120_km.
+    while (
+      !profilesFetchError &&
+      candidates.length === 0 &&
+      nextRegionExpandGeoDistance(activeFilterForm)
+    ) {
+      const nextGeo = nextRegionExpandGeoDistance(activeFilterForm);
+      activeFilterForm = expandFilterFormForRegionGeo(activeFilterForm, nextGeo);
+      activePayload = buildSessionPayloadFromPromptAndFilter(prompt, activeFilterForm);
+      regionExpandFallbackUsed = true;
+      regionExpandGeosTried.push(nextGeo);
+
+      logApi("candidates/search/apply", "empty poll — region expand fallback", {
+        userId,
+        previousSessionId: String(sessionId),
+        searchOtherRegions: true,
+        geoDistance: nextGeo,
+        geosTried: regionExpandGeosTried,
+        traceId: fjTraceId,
+      });
+
+      try {
+        console.log(
+          `[${new Date().toISOString()}] [api:candidates/search/apply] empty-poll fallback (${nextGeo}) FJ payload (traceId=${fjTraceId}):\n${JSON.stringify(activePayload, null, 2)}`
+        );
+      } catch {
+        /* ignore */
+      }
+
+      try {
+        const fallbackFj = await runCostlyFutureJobsAction(
+          `apply-fallback:${nextGeo}:${userId}:${requestHash({
+            prompt,
+            payload: activePayload,
+          })}`,
+          () =>
+            createSourcingSession(activePayload, {
+              traceId: `${fjTraceId}-fallback-${nextGeo}`,
+            })
+        );
+
+        if (isFjSessionPending(fallbackFj)) {
+          logApi("candidates/search/apply", "empty-poll fallback pending (207)", {
+            userId,
+            geoDistance: nextGeo,
+            message: fjSessionPendingMessage(fallbackFj),
+          });
+          futureJobs = fallbackFj;
+          sessionId = sessionIdFromFjCreateResponse(fallbackFj) || sessionId;
+          // Continue loop to try next geo (e.g. 120_km) if available.
+          continue;
+        }
+
+        const fallbackSessionId = sessionIdFromFjCreateResponse(fallbackFj);
+        if (!fallbackSessionId) break;
+
+        futureJobs = fallbackFj;
+        sessionId = fallbackSessionId;
+        sourcingMeta = futureJobs?.data?.sourcing;
+        sessionMeta = futureJobs?.data?.session;
+        responseFilterForm = filterFormFromCreateResponse(futureJobs, activePayload);
+        savedFilterForm = mergePersistedFilterForm(
+          activeFilterForm,
+          responseFilterForm
+        );
+
+        const mapped = await fetchProfilesForSession({
+          userId,
+          sessionId: String(sessionId),
+          sourcingMeta:
+            sourcingMeta && typeof sourcingMeta === "object" ? sourcingMeta : {},
+          sessionMeta:
+            sessionMeta && typeof sessionMeta === "object" ? sessionMeta : {},
+          loggerHandler: "candidates/search/apply",
+          waitBeforeFetchMs: POST_SESSION_CREATE_PROFILES_WAIT_MS,
+        });
+        profilesPagination = mapped.profilesPagination;
+        candidates = mapped.candidates;
+        futureJobsProfiles = mapped.futureJobsProfiles;
+        profilesFetchError = null;
+
+        logApi("candidates/search/apply", "empty-poll fallback profiles", {
+          userId,
+          sessionId: String(sessionId),
+          geoDistance: nextGeo,
+          candidateCount: candidates.length,
+        });
+      } catch (fallbackErr) {
+        logApi("candidates/search/apply", "empty-poll fallback failed", {
+          userId,
+          geoDistance: nextGeo,
+          message: fallbackErr?.message,
+        });
+        break;
+      }
+    }
+
+    // If empty-poll fallbacks ended on a 207, surface that to the client.
+    if (
+      regionExpandFallbackUsed &&
+      candidates.length === 0 &&
+      isFjSessionPending(futureJobs)
+    ) {
+      const message = fjSessionPendingMessage(futureJobs);
+      const savedFilterFormPending = mergePersistedFilterForm(
+        activeFilterForm,
+        filterFormFromCreateResponse(futureJobs, activePayload)
+      );
+      if (sessionId) {
+        try {
+          await persistSourcingSessionRow({
+            userId,
+            sessionId: String(sessionId),
+            prompt,
+            payload: activePayload,
+            usingSessionOverride: false,
+            futureJobs,
+            profilesPagination: null,
+            candidates: [],
+            profilesFetchError: message,
+            filterForm: savedFilterFormPending,
+          });
+        } catch (persistErr) {
+          logApi("candidates/search/apply", "persist failed (207 after empty-poll fallback)", {
+            message: persistErr?.message,
+          });
+        }
+      }
+      return res.status(200).json({
+        success: false,
+        message,
+        sessionPending: true,
+        fjStatusCode: 207,
+        sessionId: sessionId || undefined,
+        sessionUpdated: isSessionUpdate,
+        filterForm: savedFilterFormPending,
+        regionExpandFallbackUsed: true,
+        regionExpandGeosTried:
+          regionExpandGeosTried.length > 0 ? regionExpandGeosTried : undefined,
+        futureJobs,
+      });
+    }
+
+    savedFilterForm = mergePersistedFilterForm(activeFilterForm, responseFilterForm);
+
     let savedSessionId = null;
     try {
       savedSessionId = await persistSourcingSessionRow({
         userId,
         sessionId: String(sessionId),
         prompt,
-        payload,
+        payload: activePayload,
         usingSessionOverride: false,
         futureJobs,
         profilesPagination,
@@ -935,11 +1451,23 @@ const applySearchFilters = async (req, res) => {
       await incrementUserUsage(String(userId), "candidateSearches");
     }
 
+    const pollingContinues =
+      !profilesFetchError &&
+      shouldContinueProfilePolling({
+        candidates,
+        docs: Array.isArray(futureJobsProfiles?.data?.docs)
+          ? futureJobsProfiles.data.docs
+          : [],
+      });
+
     logApi("candidates/search/apply", "success", {
       userId,
       sessionId: String(sessionId),
       candidateCount: candidates.length,
       sessionUpdated: isSessionUpdate,
+      regionExpandFallbackUsed,
+      geosTried: regionExpandGeosTried,
+      pollingContinues,
     });
 
     const displayedCount = candidates.length;
@@ -963,6 +1491,18 @@ const applySearchFilters = async (req, res) => {
           prevPage: null,
         };
 
+    if (pollingContinues) {
+      const initialDocs = Array.isArray(futureJobsProfiles?.data?.docs)
+        ? futureJobsProfiles.data.docs
+        : [];
+      void continueProfilePollingViaSocket({
+        userId,
+        sessionId: String(sessionId),
+        loggerHandler: "candidates/search/apply",
+        initialDocs,
+      });
+    }
+
     return res.status(200).json({
       success: true,
       prompt,
@@ -977,6 +1517,11 @@ const applySearchFilters = async (req, res) => {
       profilesPagination: profilesPaginationAligned,
       futureJobsProfiles: futureJobsProfiles ?? undefined,
       profilesFetchError: profilesFetchError ?? undefined,
+      /** FE: show badge loader; socket polls until done/status true */
+      polling: pollingContinues,
+      regionExpandFallbackUsed: regionExpandFallbackUsed || undefined,
+      regionExpandGeosTried:
+        regionExpandGeosTried.length > 0 ? regionExpandGeosTried : undefined,
       futureJobs,
       savedSessionId: savedSessionId ?? undefined,
     });
@@ -1037,7 +1582,7 @@ const searchCandidates = async (req, res) => {
     });
 
     const page = clampInt(req.body?.page, 1, 100, 1);
-    const limit = clampInt(req.body?.limit, 1, 100, 20);
+    const limit = clampInt(req.body?.limit, 1, PROFILE_FETCH_PAGE_LIMIT, 20);
 
     if (userId && mongoose.Types.ObjectId.isValid(String(userId))) {
       try {
@@ -3101,6 +3646,121 @@ const unsaveCandidate = async (req, res) => {
   }
 };
 
+/**
+ * Normalize Future Jobs autocomplete payloads into a flat string list.
+ * Accepts string arrays or objects with value/label/name/text/region.
+ */
+function normalizeFilterAutocompleteSuggestions(payload) {
+  const root =
+    payload?.data !== undefined
+      ? payload.data
+      : payload?.suggestions !== undefined
+        ? payload.suggestions
+        : payload;
+
+  const list = Array.isArray(root)
+    ? root
+    : Array.isArray(root?.list)
+      ? root.list
+      : Array.isArray(root?.suggestions)
+        ? root.suggestions
+        : Array.isArray(root?.results)
+          ? root.results
+          : Array.isArray(root?.items)
+            ? root.items
+            : Array.isArray(root?.docs)
+              ? root.docs
+              : [];
+
+  const out = [];
+  const seen = new Set();
+  for (const item of list) {
+    let value = "";
+    if (typeof item === "string") {
+      value = item.trim();
+    } else if (item && typeof item === "object") {
+      value = String(
+        item.value ??
+          item.label ??
+          item.name ??
+          item.text ??
+          item.region ??
+          item.query ??
+          ""
+      ).trim();
+    }
+    if (!value) continue;
+    const key = value.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(value);
+  }
+  return out;
+}
+
+/**
+ * GET /api/candidates/filters/autocomplete
+ * Proxy Future Jobs filter autocomplete (region, etc.). API key stays on the server.
+ */
+const filterAutocomplete = async (req, res) => {
+  const userId = req.auth?.userId;
+  try {
+    const filterType = String(
+      req.query?.filter_type || req.query?.filterType || "region"
+    ).trim() || "region";
+    const query = String(req.query?.query || req.query?.q || "").trim();
+    const limit = Number(req.query?.limit) || 10;
+
+    if (query.length < 3) {
+      return res.status(400).json({
+        success: false,
+        message: "query must be at least 3 characters",
+      });
+    }
+
+    logApi("candidates/filters/autocomplete", "incoming", {
+      userId,
+      filterType,
+      queryLength: query.length,
+      limit,
+    });
+
+    const futureJobs = await getFilterAutocomplete({
+      filterType,
+      query,
+      limit,
+    });
+
+    const suggestions = normalizeFilterAutocompleteSuggestions(futureJobs);
+
+    logApi("candidates/filters/autocomplete", "success", {
+      userId,
+      filterType,
+      suggestionCount: suggestions.length,
+    });
+
+    return res.status(200).json({
+      success: true,
+      filterType,
+      query,
+      suggestions,
+    });
+  } catch (error) {
+    const status = error.statusCode || 500;
+    logApi("candidates/filters/autocomplete", "error", {
+      userId,
+      status,
+      message: error.message,
+    });
+    return res.status(status).json({
+      success: false,
+      code: error.code,
+      message: error.message || "Failed to autocomplete filter",
+      details: error.details,
+    });
+  }
+};
+
 module.exports = {
   searchCandidates,
   annotateSearchPrompt,
@@ -3125,4 +3785,5 @@ module.exports = {
   listSavedCandidates,
   saveCandidate,
   unsaveCandidate,
+  filterAutocomplete,
 };

@@ -1,4 +1,5 @@
 import { authHeaders, getStoredAuth } from "@/lib/auth";
+import { realtimeClient } from "@/lib/realtime/client";
 
 export const BLOCKED_ACCOUNT_MESSAGE =
   "Your account has been blocked. Contact your team owner or support.";
@@ -26,6 +27,7 @@ export async function performLogout(navigate?: (path: string) => void) {
   } catch {
     /* ignore */
   }
+  realtimeClient.disconnectSession();
   localStorage.removeItem("authUser");
   if (navigate) {
     navigate("/login");

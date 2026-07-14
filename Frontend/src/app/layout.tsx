@@ -5,6 +5,7 @@ import "./globals.css";
 import "./landing.css";
 import "./dashboard.css";
 import { GoogleOAuthProvider } from "@react-oauth/google";
+import { RealtimeConnect } from "@/components/RealtimeConnect";
 import { buildPageMetadata, OG_IMAGES, SITE_URL } from "@/lib/siteMetadata";
 
 const geistSans = Geist({
@@ -77,6 +78,7 @@ export default function RootLayout({
       </head>
       <body className="flex min-h-full flex-col" suppressHydrationWarning>
         <GoogleOAuthProvider clientId={process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ""}>
+          <RealtimeConnect />
           {children}
         </GoogleOAuthProvider>
       </body>

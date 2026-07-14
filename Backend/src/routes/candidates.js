@@ -24,6 +24,7 @@ const {
   listSavedCandidates,
   saveCandidate,
   unsaveCandidate,
+  filterAutocomplete,
 } = require("../controllers/candidateController");
 const {
   lookupPeopleScout,
@@ -37,6 +38,7 @@ router.post("/search", authenticate, searchCandidates);
 router.post("/search/annotate", authenticate, annotateSearchPrompt);
 router.post("/search/create", authenticate, createSearchSession);
 router.post("/search/apply", authenticate, applySearchFilters);
+router.get("/filters/autocomplete", authenticate, filterAutocomplete);
 router.post("/claim-public-search", authenticate, claimPublicSearch);
 router.get("/all", authenticate, listAllSourcedCandidates);
 router.get("/admin/all", authenticate, requireAdmin, listAllSourcedCandidatesAdmin);

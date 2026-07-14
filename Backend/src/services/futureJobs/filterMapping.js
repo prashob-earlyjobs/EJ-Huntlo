@@ -44,7 +44,7 @@ const DEFAULT_FILTER_FORM = {
   yearsExpMax: "",
   keywordSkills: "",
   seniorityLevel: "",
-  location: "",
+  location: [],
   searchOtherRegions: false,
   openToWork: false,
   functionCategory: "",
@@ -55,10 +55,10 @@ const DEFAULT_FILTER_FORM = {
   degree: "",
   certifications: "",
   honorsAwards: "",
-  currentCompany: "",
+  currentCompany: [],
   yearsAtCompany: "",
-  pastCompany: "",
-  pastTitle: "",
+  pastCompany: [],
+  pastTitle: [],
   companyType: "",
   companyHeadquarters: "",
   companyFocus: "",
@@ -158,6 +158,16 @@ function normalizeFilterFormForUi(form) {
           .map((s) => s.trim())
           .filter(Boolean);
       }
+      continue;
+    }
+
+    if (key === "location") {
+      out.location = normalizeLocationsValue(val);
+      continue;
+    }
+
+    if (key === "pastCompany" || key === "pastTitle" || key === "currentCompany") {
+      out[key] = normalizeChipListValue(val);
       continue;
     }
 
@@ -427,6 +437,56 @@ function trimRangeInput(v) {
 }
 
 /**
+ * Normalize free-text chip lists (past company / past title).
+ * Legacy string values are kept as a single entry.
+ * @param {unknown} val
+ * @returns {string[]}
+ */
+function normalizeChipListValue(val) {
+  const out = [];
+  const push = (raw) => {
+    const s = String(raw ?? "").trim();
+    if (!s) return;
+    if (out.some((x) => x.toLowerCase() === s.toLowerCase())) return;
+    out.push(s);
+  };
+
+  if (Array.isArray(val)) {
+    for (const item of val) push(item);
+    return out;
+  }
+  if (typeof val === "string" && val.trim()) {
+    push(val);
+  }
+  return out;
+}
+
+/**
+ * Normalize location filter values (city/region chips).
+ * Legacy string values are kept as a single entry (do not split on commas).
+ * @param {unknown} val
+ * @returns {string[]}
+ */
+function normalizeLocationsValue(val) {
+  const out = [];
+  const push = (raw) => {
+    const s = String(raw ?? "").trim();
+    if (!s) return;
+    if (out.some((x) => x.toLowerCase() === s.toLowerCase())) return;
+    out.push(s);
+  };
+
+  if (Array.isArray(val)) {
+    for (const item of val) push(item);
+    return out;
+  }
+  if (typeof val === "string" && val.trim()) {
+    push(val);
+  }
+  return out;
+}
+
+/**
  * Future Jobs rejects overly specific region strings (e.g. leading PIN/postal codes).
  * "244001, Moradabad, Uttar Pradesh, India" → "Moradabad, Uttar Pradesh, India"
  */
@@ -599,7 +659,9 @@ function filterFormFromCreateResponse(futureJobsCreateResponse, requestPayload) 
     seniorityLevel: queryValueFirst(queries, "current_employers.seniority_level", [
       "seniority_level",
     ]),
-    location: normalizeRegionForFutureJobs(queryValues(queries, "region")[0] || ""),
+    location: queryValues(queries, "region")
+      .map((r) => normalizeRegionForFutureJobs(r))
+      .filter(Boolean),
     searchOtherRegions: queryValues(queries, "search_other_regions").includes("true"),
     openToWork: openToCards.some(
       (c) => String(c).toUpperCase() === OPEN_TO_WORK_CARD
@@ -618,10 +680,10 @@ function filterFormFromCreateResponse(futureJobsCreateResponse, requestPayload) 
     ]),
     certifications: queryValueFirst(queries, "certifications.name", ["certifications"]),
     honorsAwards: queryValueFirst(queries, "honors.title", ["honors_awards"]),
-    currentCompany: queryValues(queries, "current_employers.name")[0] || "",
+    currentCompany: queryValues(queries, "current_employers.name"),
     yearsAtCompany: queryValues(queries, "current_employers.years_at_company")[0] || "",
-    pastCompany: queryValues(queries, "past_employers.name")[0] || "",
-    pastTitle: queryValues(queries, "past_employers.title")[0] || "",
+    pastCompany: queryValues(queries, "past_employers.name"),
+    pastTitle: queryValues(queries, "past_employers.title"),
     companyType: queryValues(queries, "current_employers.company_type")[0] || "",
     companyHeadquarters: queryValueFirst(queries, "current_employers.company_hq_location", [
       "current_employers.company_headquarters",
@@ -679,10 +741,14 @@ function mergeFilterFormIntoSession(baseSession, form) {
 
   const countries = selectRegionsFromForm(form);
   setQueryIn(queries, "country_region", countries, "(.)");
-  const regionForFj = normalizeRegionForFutureJobs(
-    form.location || countries[0] || ""
-  );
-  setQueryIn(queries, "region", [regionForFj].filter(Boolean));
+  const locations = normalizeLocationsValue(form.location)
+    .map((r) => normalizeRegionForFutureJobs(r))
+    .filter(Boolean);
+  const regionsForFj =
+    locations.length > 0
+      ? locations
+      : [normalizeRegionForFutureJobs(countries[0] || "")].filter(Boolean);
+  setQueryIn(queries, "region", regionsForFj);
 
   if (form.openToWork) {
     setQueryEquals(queries, "open_to_cards", [OPEN_TO_WORK_CARD]);
@@ -759,14 +825,14 @@ function mergeFilterFormIntoSession(baseSession, form) {
   setQueryIn(queries, "honors.title", [form.honorsAwards].filter(Boolean));
   delete queries.honors_awards;
 
-  setQueryIn(queries, "current_employers.name", [form.currentCompany].filter(Boolean));
+  setQueryIn(queries, "current_employers.name", normalizeChipListValue(form.currentCompany));
   setQueryIn(
     queries,
     "current_employers.years_at_company",
     [form.yearsAtCompany].filter(Boolean)
   );
-  setQueryIn(queries, "past_employers.name", [form.pastCompany].filter(Boolean));
-  setQueryIn(queries, "past_employers.title", [form.pastTitle].filter(Boolean));
+  setQueryIn(queries, "past_employers.name", normalizeChipListValue(form.pastCompany));
+  setQueryIn(queries, "past_employers.title", normalizeChipListValue(form.pastTitle));
   setQueryIn(queries, "current_employers.company_type", [form.companyType].filter(Boolean));
   setQueryIn(
     queries,
@@ -971,7 +1037,9 @@ function filterFormFromAnnotation(annotationData) {
     allowWithoutPresence: true,
   });
   if (regions.length > 0) {
-    form.location = normalizeRegionForFutureJobs(regions[0]);
+    form.location = regions
+      .map((r) => normalizeRegionForFutureJobs(r))
+      .filter(Boolean);
   }
 
   const countries = annotationFieldValues(annotationData.country_region, {

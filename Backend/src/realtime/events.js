@@ -2,6 +2,7 @@
 const EVENTS = {
   CONNECTED: "realtime.connected",
   CAMPAIGN_THREAD_UPDATED: "campaign.thread.updated",
+  CANDIDATE_SEARCH_POLL: "candidates.search.poll",
 };
 
 module.exports = { EVENTS };

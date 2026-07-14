@@ -1,6 +1,8 @@
 "use client";
 
 import { CountryRegionField } from "@/components/dashboard/CountryRegionField";
+import { FilterChipField } from "@/components/dashboard/FilterChipField";
+import { LocationRegionField } from "@/components/dashboard/LocationRegionField";
 import type { CandidateFilterForm } from "@/lib/sourcingFilters";
 import {
   dashboardBtnPrimaryClass,
@@ -209,11 +211,10 @@ export function CandidateFilterDrawer({
             <div className="space-y-4 px-4 py-4">
               <label className="block text-sm text-slate-700">
                 Location
-                <input
-                  type="text"
-                  className={inputClass}
+                <LocationRegionField
                   value={form.location}
-                  onChange={(e) => set({ location: e.target.value })}
+                  onChange={(location) => set({ location })}
+                  disabled={annotateLoading}
                 />
               </label>
               <label className="flex items-center gap-2 text-sm text-slate-700">
@@ -304,13 +305,16 @@ export function CandidateFilterDrawer({
               Company
             </h4>
             <div className="space-y-4 px-4 py-4">
-              <input
-                type="text"
-                placeholder="Current Company"
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
-                value={form.currentCompany}
-                onChange={(e) => set({ currentCompany: e.target.value })}
-              />
+              <label className="block text-sm text-slate-700">
+                Current Company
+                <FilterChipField
+                  value={form.currentCompany}
+                  onChange={(currentCompany) => set({ currentCompany })}
+                  placeholder="Type company and press Enter"
+                  aria-label="Current Company"
+                  disabled={annotateLoading}
+                />
+              </label>
               <input
                 type="text"
                 placeholder="Years at Company"
@@ -318,20 +322,26 @@ export function CandidateFilterDrawer({
                 value={form.yearsAtCompany}
                 onChange={(e) => set({ yearsAtCompany: e.target.value })}
               />
-              <input
-                type="text"
-                placeholder="Past Company"
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
-                value={form.pastCompany}
-                onChange={(e) => set({ pastCompany: e.target.value })}
-              />
-              <input
-                type="text"
-                placeholder="Past Title"
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-black"
-                value={form.pastTitle}
-                onChange={(e) => set({ pastTitle: e.target.value })}
-              />
+              <label className="block text-sm text-slate-700">
+                Past Company
+                <FilterChipField
+                  value={form.pastCompany}
+                  onChange={(pastCompany) => set({ pastCompany })}
+                  placeholder="Type company and press Enter"
+                  aria-label="Past Company"
+                  disabled={annotateLoading}
+                />
+              </label>
+              <label className="block text-sm text-slate-700">
+                Past Title
+                <FilterChipField
+                  value={form.pastTitle}
+                  onChange={(pastTitle) => set({ pastTitle })}
+                  placeholder="Type title and press Enter"
+                  aria-label="Past Title"
+                  disabled={annotateLoading}
+                />
+              </label>
               <input
                 type="text"
                 placeholder="Company Type"

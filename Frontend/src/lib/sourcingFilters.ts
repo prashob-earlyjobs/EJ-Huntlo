@@ -6,7 +6,7 @@ export type CandidateFilterForm = {
   yearsExpMax: string;
   keywordSkills: string;
   seniorityLevel: string;
-  location: string;
+  location: string[];
   searchOtherRegions: boolean;
   openToWork: boolean;
   functionCategory: string;
@@ -17,10 +17,10 @@ export type CandidateFilterForm = {
   degree: string;
   certifications: string;
   honorsAwards: string;
-  currentCompany: string;
+  currentCompany: string[];
   yearsAtCompany: string;
-  pastCompany: string;
-  pastTitle: string;
+  pastCompany: string[];
+  pastTitle: string[];
   companyType: string;
   companyHeadquarters: string;
   companyFocus: string;
@@ -53,7 +53,7 @@ export const DEFAULT_CANDIDATE_FILTER_FORM: CandidateFilterForm = {
   yearsExpMax: "",
   keywordSkills: "",
   seniorityLevel: "",
-  location: "",
+  location: [],
   searchOtherRegions: false,
   openToWork: false,
   functionCategory: "",
@@ -64,10 +64,10 @@ export const DEFAULT_CANDIDATE_FILTER_FORM: CandidateFilterForm = {
   degree: "",
   certifications: "",
   honorsAwards: "",
-  currentCompany: "",
+  currentCompany: [],
   yearsAtCompany: "",
-  pastCompany: "",
-  pastTitle: "",
+  pastCompany: [],
+  pastTitle: [],
   companyType: "",
   companyHeadquarters: "",
   companyFocus: "",
@@ -115,6 +115,50 @@ export function normalizeSelectRegions(value: unknown): string[] {
   return [];
 }
 
+/** Locations may contain commas — never split a legacy string by comma. */
+export function normalizeLocations(value: unknown): string[] {
+  const out: string[] = [];
+  const push = (raw: string) => {
+    const s = raw.trim();
+    if (!s) return;
+    if (out.some((x) => x.toLowerCase() === s.toLowerCase())) return;
+    out.push(s);
+  };
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      if (typeof item === "string") push(item);
+    }
+    return out;
+  }
+  if (typeof value === "string" && value.trim()) {
+    push(value);
+  }
+  return out;
+}
+
+/** Free-text chip lists (past company / past title). Legacy string → one chip. */
+export function normalizeChipList(value: unknown): string[] {
+  const out: string[] = [];
+  const push = (raw: string) => {
+    const s = raw.trim();
+    if (!s) return;
+    if (out.some((x) => x.toLowerCase() === s.toLowerCase())) return;
+    out.push(s);
+  };
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      if (typeof item === "string") push(item);
+    }
+    return out;
+  }
+  if (typeof value === "string" && value.trim()) {
+    push(value);
+  }
+  return out;
+}
+
 /** Number inputs in CandidateFilterDrawer — must be strings for controlled inputs. */
 export const FILTER_FORM_RANGE_KEYS = [
   "yearsExpMin",
@@ -154,6 +198,18 @@ export function mergeFilterForm(
   if ("selectRegion" in patch) {
     merged.selectRegion = normalizeSelectRegions(patch.selectRegion);
   }
+  if ("location" in patch) {
+    merged.location = normalizeLocations(patch.location);
+  }
+  if ("currentCompany" in patch) {
+    merged.currentCompany = normalizeChipList(patch.currentCompany);
+  }
+  if ("pastCompany" in patch) {
+    merged.pastCompany = normalizeChipList(patch.pastCompany);
+  }
+  if ("pastTitle" in patch) {
+    merged.pastTitle = normalizeChipList(patch.pastTitle);
+  }
   if ("openToWork" in patch) {
     merged.openToWork = Boolean(patch.openToWork);
   }
@@ -180,7 +236,6 @@ export function mergeFilterFormPreserveFilled(
     "keywordSkills",
     "currentTitle",
     "seniorityLevel",
-    "location",
     "functionCategory",
     "industry",
   ] as const;
@@ -192,6 +247,30 @@ export function mergeFilterFormPreserveFilled(
     if (patchEmpty && baseFilled) {
       merged[key] = baseVal;
     }
+  }
+  if (
+    normalizeLocations(patch.location).length === 0 &&
+    normalizeLocations(base.location).length > 0
+  ) {
+    merged.location = normalizeLocations(base.location);
+  }
+  if (
+    normalizeChipList(patch.currentCompany).length === 0 &&
+    normalizeChipList(base.currentCompany).length > 0
+  ) {
+    merged.currentCompany = normalizeChipList(base.currentCompany);
+  }
+  if (
+    normalizeChipList(patch.pastCompany).length === 0 &&
+    normalizeChipList(base.pastCompany).length > 0
+  ) {
+    merged.pastCompany = normalizeChipList(base.pastCompany);
+  }
+  if (
+    normalizeChipList(patch.pastTitle).length === 0 &&
+    normalizeChipList(base.pastTitle).length > 0
+  ) {
+    merged.pastTitle = normalizeChipList(base.pastTitle);
   }
   return merged;
 }
