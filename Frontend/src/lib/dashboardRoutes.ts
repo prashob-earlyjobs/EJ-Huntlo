@@ -21,6 +21,10 @@ export type DashboardTabKey =
   | "Saved"
   | "People Scout"
   | "Session Results"
+  | "Outreach"
+  | "Screen"
+  | "Schedule"
+  | "Huntlo 360"
   | "Outreaches"
   | "Campaigns"
   | "Integrations"
@@ -54,6 +58,10 @@ const TAB_TO_SEGMENT: Record<DashboardTabKey, string[] | null> = {
   Saved: ["saved"],
   "People Scout": ["people-scout"],
   "Session Results": ["sessions"], // + [sessionId]
+  Outreach: ["outreach"],
+  Screen: ["screening"],
+  Schedule: ["schedule"],
+  "Huntlo 360": ["huntlo-360"],
   Outreaches: ["outreaches"],
   Campaigns: ["campaigns"],
   Integrations: ["integrations"],
@@ -68,6 +76,10 @@ const SEGMENT_TAB_PAIRS: { segments: string[]; tab: DashboardTabKey }[] = [
   { segments: ["candidates"], tab: "Candidates" },
   { segments: ["saved"], tab: "Saved" },
   { segments: ["people-scout"], tab: "People Scout" },
+  { segments: ["outreach"], tab: "Outreach" },
+  { segments: ["screening"], tab: "Screen" },
+  { segments: ["schedule"], tab: "Schedule" },
+  { segments: ["huntlo-360"], tab: "Huntlo 360" },
   { segments: ["outreaches"], tab: "Outreaches" },
   { segments: ["campaigns"], tab: "Campaigns" },
   { segments: ["integrations"], tab: "Integrations" },
@@ -92,6 +104,22 @@ export function tabFromPathSegments(segments: string[] | undefined): DashboardRo
       tab: "Session Results",
       ...(sessionId ? { sessionId } : {}),
     };
+  }
+
+  if (parts[0] === "outreach") {
+    return { tab: "Outreach" };
+  }
+
+  if (parts[0] === "screening") {
+    return { tab: "Screen" };
+  }
+
+  if (parts[0] === "schedule") {
+    return { tab: "Schedule" };
+  }
+
+  if (parts[0] === "huntlo-360") {
+    return { tab: "Huntlo 360" };
   }
 
   if (parts[0] === "campaigns") {

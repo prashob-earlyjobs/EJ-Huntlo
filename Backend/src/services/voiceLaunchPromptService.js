@@ -37,11 +37,18 @@ async function prepareVoiceLaunchPromptContext(campaign) {
   const jobDescription = String(campaign?.jobDescription || "").trim();
   const jobTitle = String(campaign?.jobTitle || "").trim();
   const jdExtract = await getOrExtractVoiceJdDetails(campaign, jobDescription, jobTitle);
+  const screeningConfig =
+    campaign?.screeningConfig && typeof campaign.screeningConfig === "object"
+      ? campaign.screeningConfig
+      : {};
 
   return buildVoiceAgentLaunchContext({
     jobDescription,
     jobTitle,
     jdExtract,
+    companyName: String(screeningConfig.companyName || "").trim(),
+    location: String(screeningConfig.location || "").trim(),
+    experienceRequired: String(screeningConfig.experienceRequired || "").trim(),
   });
 }
 
@@ -117,6 +124,9 @@ async function prepareResolvedVoiceAgentConfig(campaign, config) {
     jobDescription: baseLaunchContext.jobDescription,
     jobTitle: baseLaunchContext.jobTitle,
     jdExtract: baseLaunchContext.jdExtract,
+    companyName: baseLaunchContext.companyName,
+    location: baseLaunchContext.location,
+    experienceRequired: baseLaunchContext.experienceRequired,
     userScreeningQuestions: userQuestions,
     useCustomScreeningQuestions,
   });

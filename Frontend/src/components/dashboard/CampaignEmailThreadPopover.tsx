@@ -11,6 +11,7 @@ import {
 import { createPortal } from "react-dom";
 
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
 import { getStoredAuth } from "@/lib/auth";
 import {
   fetchContactEmailThread,
@@ -293,7 +294,9 @@ export function CampaignEmailThreadPopover({
             disabled={loading}
             onClick={() => void load(true)}
           >
-            {loading ? "…" : "Refresh"}
+            <ButtonLoadingContent loading={loading} loadingLabel="Refreshing">
+              Refresh
+            </ButtonLoadingContent>
           </button>
         </div>
 

@@ -7,6 +7,11 @@ import type {
 import type { SessionResultDoc } from "@/lib/sessionCandidateDetail";
 import { isOpenToWork } from "@/lib/openToWork";
 
+/** Future Jobs first-page size — live search poll stops here. */
+export const SESSION_RESULTS_FIRST_PAGE_LIMIT = 200;
+/** Max candidates in the session grid (stored DB + fetch-more). */
+export const SESSION_RESULTS_MAX = 500;
+
 export type SessionResultDocLike = {
   _id?: string | { toString?: () => string };
   profile?: {
@@ -60,7 +65,7 @@ export function dedupeSessionResultDocs<T extends SessionResultDocLike>(docs: T[
 export function appendSessionResultDocs<T extends SessionResultDocLike>(
   prev: T[],
   incoming: T[],
-  max = 200
+  max = SESSION_RESULTS_MAX
 ): T[] {
   if (!Array.isArray(incoming) || incoming.length === 0) return prev;
   if (prev.length >= max) return prev;
@@ -97,7 +102,7 @@ export function appendSessionResultDocs<T extends SessionResultDocLike>(
 export function mergePollSessionResultDocs<T extends SessionResultDocLike>(
   prev: T[],
   incoming: T[],
-  max = 200
+  max = SESSION_RESULTS_MAX
 ): T[] {
   if (!Array.isArray(incoming) || incoming.length === 0) return prev;
 

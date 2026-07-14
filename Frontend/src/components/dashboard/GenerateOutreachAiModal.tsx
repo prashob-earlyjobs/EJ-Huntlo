@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
 import { getStoredAuth } from "@/lib/auth";
 import {
   generateOutreachSequenceFromJd,
@@ -155,11 +156,6 @@ export function GenerateOutreachAiModal({
                 Generate with AI
               </h3>
             </div>
-            <p className="dashboard-text-body mt-2 text-sm text-slate-600">
-              {isWhatsApp
-                ? "Paste the job description. We'll pick approved opening and follow-up templates (same options as Start from scratch) and generate 4 reply-based screening questions tailored to the role."
-                : "Paste the job description. We'll create a 4-step email sequence tailored to the role—interest, experience, salary, and a final follow-up."}
-            </p>
           </div>
         </div>
 
@@ -228,17 +224,12 @@ export function GenerateOutreachAiModal({
               disabled={generating || !jobTitle.trim() || jobDescription.trim().length < 20}
               className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border border-[#0050cb] bg-[#0050cb] px-5 text-sm font-medium text-white transition hover:bg-[#003d99] disabled:opacity-55"
             >
-              {generating ? (
-                <>
-                  <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-                  Generating…
-                </>
-              ) : (
+              <ButtonLoadingContent loading={generating} loadingLabel="Generating">
                 <>
                   <MaterialIcon name="auto_awesome" className="text-base" />
                   Generate sequence
                 </>
-              )}
+              </ButtonLoadingContent>
             </button>
           </div>
         </form>

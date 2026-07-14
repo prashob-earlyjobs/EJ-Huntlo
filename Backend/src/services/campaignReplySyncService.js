@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const Campaign = require("../models/Campaign");
 const CampaignSequenceEnrollment = require("../models/CampaignSequenceEnrollment");
+const OutreachModuleEnrollment = require("../models/OutreachModuleEnrollment");
 const CampaignOutreachReply = require("../models/CampaignOutreachReply");
 const OutreachPlan = require("../models/OutreachPlan");
 const { applyMergeFields } = require("./outreachMergeService");
@@ -20,8 +21,15 @@ const {
   fetchOutlookThreadMessages,
   resolveOutlookThreadIdFromMessage,
 } = require("./outlookMailReadService");
+const { fetchCustomMailThreadMessages } = require("./customMailReadService");
 const { notifyCampaignThreadUpdated } = require("../realtime/notify");
-const { maybeAutoReplyAfterCandidateMessage } = require("./campaignAutoReplyService");
+const { toReplyPreview } = require("./emailMimeBodyUtils");
+const {
+  inferReplyDispositionFromText,
+  isFinalDisposition,
+  applyReplyDispositionToModuleEnrollment,
+  getLatestCandidateReplyBody,
+} = require("./replyDispositionUtils");
 const {
   findCampaignInScope,
   campaignOwnerUserId,
@@ -32,8 +40,191 @@ const SYNC_BATCH_SIZE = Math.max(
   Math.min(30, Number(process.env.OUTREACH_REPLY_SYNC_BATCH_SIZE) || 15)
 );
 
+/** Allow small clock skew between mail server and app when comparing reply time to send time. */
+const OUTREACH_REPLY_SKEW_MS = 2 * 60 * 1000;
+
+function outreachSendCutoff(enrollment) {
+  const raw = enrollment?.lastSentAt;
+  if (!raw) return null;
+  const d = raw instanceof Date ? raw : new Date(raw);
+  return Number.isFinite(d.getTime()) ? d : null;
+}
+
+/** Only treat inbound mail as a campaign reply if it arrived at or after our outreach send. */
+function messageQualifiesForEnrollmentReply(enrollment, message) {
+  const cutoff = outreachSendCutoff(enrollment);
+  if (!cutoff) return true;
+  const receivedAt =
+    message?.receivedAt instanceof Date ? message.receivedAt : new Date(message?.receivedAt || 0);
+  if (!Number.isFinite(receivedAt.getTime())) return false;
+  return receivedAt.getTime() >= cutoff.getTime() - OUTREACH_REPLY_SKEW_MS;
+}
+
+function verifiedCandidateReplyQuery(enrollment) {
+  const contactEmail = String(enrollment.contactEmail || "").trim().toLowerCase();
+  const query = {
+    enrollmentId: enrollment._id,
+    isFromCandidate: true,
+  };
+  const cutoff = outreachSendCutoff(enrollment);
+  if (cutoff) {
+    query.receivedAt = { $gte: new Date(cutoff.getTime() - OUTREACH_REPLY_SKEW_MS) };
+  }
+  if (contactEmail.includes("@")) {
+    query.fromEmail = new RegExp(`^${contactEmail.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i");
+  }
+  return query;
+}
+
+async function purgePreOutreachCandidateReplies(enrollment) {
+  const cutoff = outreachSendCutoff(enrollment);
+  if (!cutoff) return 0;
+
+  const contactEmail = String(enrollment.contactEmail || "").trim().toLowerCase();
+  const stale = await CampaignOutreachReply.find({
+    enrollmentId: enrollment._id,
+    isFromCandidate: true,
+    receivedAt: { $lt: new Date(cutoff.getTime() - OUTREACH_REPLY_SKEW_MS) },
+  })
+    .select("_id fromEmail")
+    .lean();
+
+  const ids = stale
+    .filter((row) => {
+      if (!contactEmail.includes("@")) return true;
+      return String(row.fromEmail || "").trim().toLowerCase() === contactEmail;
+    })
+    .map((row) => row._id);
+
+  if (ids.length === 0) return 0;
+  await CampaignOutreachReply.deleteMany({ _id: { $in: ids } });
+  return ids.length;
+}
+
 function userOid(userId) {
   return new mongoose.Types.ObjectId(userId);
+}
+
+function enrollmentModelFor(enrollment) {
+  if (enrollment?.outreachModuleCampaignId && !enrollment?.campaignId) {
+    return OutreachModuleEnrollment;
+  }
+  return CampaignSequenceEnrollment;
+}
+
+function replyCampaignId(enrollment) {
+  return enrollment.campaignId || enrollment.outreachModuleCampaignId;
+}
+
+function replyCandidateKey(enrollment) {
+  return enrollment.candidateKey || enrollment.candidateRefId || "";
+}
+
+function isModuleEnrollment(enrollment) {
+  return Boolean(enrollment?.outreachModuleCampaignId && !enrollment?.campaignId);
+}
+
+/**
+ * Outbound campaign emails synced from the inbox were incorrectly flagged as replies
+ * (hasReply + paused), blocking no-response follow-up steps such as voice calls.
+ */
+async function countVerifiedCandidateReplies(enrollment) {
+  return CampaignOutreachReply.countDocuments(verifiedCandidateReplyQuery(enrollment));
+}
+
+async function repairFalsePositiveEnrollmentReplyFlags(enrollment) {
+  await purgePreOutreachCandidateReplies(enrollment);
+
+  const verifiedReplyCount = await countVerifiedCandidateReplies(enrollment);
+  const storedCount = Number(enrollment.replyCount || 0);
+  const flagged = Boolean(enrollment?.hasReply) || storedCount > 0;
+
+  if (verifiedReplyCount > 0) {
+    if (!enrollment.hasReply || storedCount !== verifiedReplyCount) {
+      await enrollmentModelFor(enrollment).updateOne(
+        { _id: enrollment._id },
+        { $set: { hasReply: true, replyCount: verifiedReplyCount } }
+      );
+    }
+    return { repaired: false, resumed: false };
+  }
+
+  if (!flagged) return { repaired: false, resumed: false };
+
+  const moduleEnrollment = isModuleEnrollment(enrollment);
+  const $set = {
+    hasReply: false,
+    replyCount: 0,
+    lastError: "",
+  };
+  const $unset = { lastReplyAt: "" };
+  let resumed = false;
+
+  if (moduleEnrollment && ["paused", "active"].includes(enrollment.status)) {
+    const OutreachModuleCampaign = require("../models/OutreachModuleCampaign");
+    const { buildExecutionPlan, findNextPendingAutomatableStep } = require("./outreachModuleSendService");
+    const campaign = await OutreachModuleCampaign.findById(
+      enrollment.outreachModuleCampaignId
+    ).lean();
+    if (campaign && ["active", "completed"].includes(campaign.status)) {
+      const plan = buildExecutionPlan(campaign);
+      const pendingStep = findNextPendingAutomatableStep(plan, enrollment);
+      if (pendingStep) {
+        $set.status = "active";
+        $set.currentStepOrder = pendingStep.order;
+        const nextSendAt = enrollment.nextSendAt ? new Date(enrollment.nextSendAt) : null;
+        $set.nextSendAt =
+          nextSendAt && nextSendAt.getTime() > Date.now() ? nextSendAt : new Date();
+        resumed = true;
+      }
+    }
+  }
+
+  await enrollmentModelFor(enrollment).updateOne({ _id: enrollment._id }, { $set, $unset });
+  return { repaired: true, resumed };
+}
+
+async function repairOutreachModuleFalsePositiveReplyFlags(campaignId) {
+  const enrollments = await OutreachModuleEnrollment.find({
+    outreachModuleCampaignId: campaignId,
+    sentCount: { $gt: 0 },
+  }).lean();
+
+  let resumed = 0;
+  for (const enrollment of enrollments) {
+    await purgePreOutreachCandidateReplies(enrollment);
+    const verified = await countVerifiedCandidateReplies(enrollment);
+    const stored = Number(enrollment.replyCount || 0);
+
+    if (verified > 0) {
+      if (!enrollment.hasReply || stored !== verified) {
+        await OutreachModuleEnrollment.updateOne(
+          { _id: enrollment._id },
+          { $set: { hasReply: true, replyCount: verified } }
+        );
+      }
+      continue;
+    }
+
+    if (!enrollment.hasReply && stored <= 0) continue;
+
+    const result = await repairFalsePositiveEnrollmentReplyFlags(enrollment);
+    if (result.resumed) resumed += 1;
+  }
+
+  if (resumed > 0) {
+    setImmediate(() => {
+      const { processDueOutreachModuleEnrollments } = require("./outreachModuleSendService");
+      processDueOutreachModuleEnrollments().catch((err) => {
+        console.error(
+          "[outreach-module-reply-sync] post-repair send tick:",
+          err?.message || err
+        );
+      });
+    });
+  }
+
+  return { checked: enrollments.length, resumed };
 }
 
 /** Gmail API message/thread ids — not Meta WhatsApp wamid.* values stored on WA enrollments. */
@@ -77,7 +268,13 @@ function formatReply(doc) {
 
 async function ensureThreadId(enrollment, userId, provider, integrationDoc) {
   if (!isEmailEnrollmentForSync(enrollment)) return "";
-  if (provider === "custom_mail") return "";
+
+  if (provider === "custom_mail") {
+    const stored = String(enrollment.lastThreadId || enrollment.lastMessageId || "").trim();
+    if (stored) return stored;
+    const contact = String(enrollment.contactEmail || "").trim().toLowerCase();
+    return contact.includes("@") ? `smtp-thread:${contact}` : "";
+  }
 
   const integrationId = integrationDoc?._id ? String(integrationDoc._id) : undefined;
 
@@ -101,7 +298,7 @@ async function ensureThreadId(enrollment, userId, provider, integrationDoc) {
       return messageId;
     }
     if (threadId) {
-      await CampaignSequenceEnrollment.updateOne(
+      await enrollmentModelFor(enrollment).updateOne(
         { _id: enrollment._id },
         { $set: { lastThreadId: threadId } }
       );
@@ -119,7 +316,7 @@ async function ensureThreadId(enrollment, userId, provider, integrationDoc) {
 
 async function fetchProviderThreadMessages(provider, userId, integrationDoc, enrollment, threadId) {
   if (provider === "custom_mail") {
-    return [];
+    return fetchCustomMailThreadMessages(integrationDoc, enrollment, threadId);
   }
   if (provider === "zoho_mail") {
     return fetchZohoThreadMessages(integrationDoc, enrollment, threadId);
@@ -170,9 +367,9 @@ async function recordOutboundSentMessage({
     },
     {
       $set: {
-        campaignId: enrollment.campaignId,
+        campaignId: replyCampaignId(enrollment),
         enrollmentId: enrollment._id,
-        candidateKey: enrollment.candidateKey,
+        candidateKey: replyCandidateKey(enrollment),
         gmailThreadId: threadId,
         fromEmail,
         toEmail: recipient,
@@ -247,7 +444,122 @@ async function backfillEmptyOutboundBodies(enrollment, senderFirstName = "") {
   return updated;
 }
 
+function candidateMessageFromReplyDoc(doc) {
+  if (!doc) return null;
+  const gmailMessageId = String(doc.gmailMessageId || "").trim();
+  if (!gmailMessageId) return null;
+  return {
+    gmailMessageId,
+    bodyText: doc.bodyText || "",
+    snippet: doc.snippet || "",
+    rfcMessageId: doc.rfcMessageId || "",
+    receivedAt: doc.receivedAt,
+    isFromCandidate: true,
+  };
+}
+
+async function resolveCandidateMessageForAutoReply(enrollment, preferMessage = null) {
+  if (preferMessage?.gmailMessageId) {
+    return preferMessage;
+  }
+
+  const latest = await CampaignOutreachReply.findOne({
+    enrollmentId: enrollment._id,
+    isFromCandidate: true,
+  })
+    .sort({ receivedAt: -1 })
+    .lean();
+
+  const fresh = await enrollmentModelFor(enrollment).findById(enrollment._id).lean();
+  if (!latest || !fresh) return null;
+
+  const msgId = String(latest.gmailMessageId || "").trim();
+  if (!msgId || String(fresh.lastAutoRepliedToMessageId || "") === msgId) {
+    return null;
+  }
+
+  return candidateMessageFromReplyDoc(latest);
+}
+
+async function attemptAutoReplyForEnrollment(enrollment, threadId, { preferMessage = null } = {}) {
+  const candidateMessage = await resolveCandidateMessageForAutoReply(
+    enrollment,
+    preferMessage
+  );
+  if (!candidateMessage) return;
+
+  const EnrollmentModel = enrollmentModelFor(enrollment);
+  const fresh = await EnrollmentModel.findById(enrollment._id).lean();
+  if (!fresh) return;
+
+  try {
+    if (isModuleEnrollment(fresh)) {
+      const OutreachModuleCampaign = require("../models/OutreachModuleCampaign");
+      const campaignDoc = await OutreachModuleCampaign.findById(
+        fresh.outreachModuleCampaignId
+      ).lean();
+      const {
+        maybeAutoReplyOutreachModuleAfterCandidateMessage,
+      } = require("./outreachModuleAutoReplyService");
+      const result = await maybeAutoReplyOutreachModuleAfterCandidateMessage({
+        enrollment: fresh,
+        candidateMessage,
+        threadId,
+        campaignDoc,
+      });
+      if (result?.sent) {
+        console.log(
+          `[outreach-module-auto-reply] enrollment ${fresh._id} sent turn ${fresh.autoReplyCount || 0}`
+        );
+      } else if (result?.reason && result.reason !== "already_replied") {
+        console.log(
+          `[outreach-module-auto-reply] enrollment ${fresh._id} skipped: ${result.reason}`
+        );
+      }
+    } else {
+      const { maybeAutoReplyAfterCandidateMessage } = require("./campaignAutoReplyService");
+      await maybeAutoReplyAfterCandidateMessage({
+        enrollment: fresh,
+        candidateMessage,
+        threadId,
+      });
+    }
+  } catch (err) {
+    console.error(
+      `[outreach-auto-reply] enrollment ${enrollment._id}:`,
+      err?.message || err
+    );
+  }
+}
+
+async function applyKeywordDispositionAfterAutoReply(enrollmentId) {
+  const fresh = await OutreachModuleEnrollment.findById(enrollmentId).lean();
+  if (!fresh || isFinalDisposition(fresh.replyDisposition)) return;
+
+  const latestBody = await getLatestCandidateReplyBody(enrollmentId);
+  const inferred = inferReplyDispositionFromText(latestBody);
+  if (!isFinalDisposition(inferred)) return;
+
+  await applyReplyDispositionToModuleEnrollment({
+    enrollment: fresh,
+    disposition: inferred,
+    latestBody,
+    source: "inference",
+  });
+}
+
 async function syncEnrollmentReplies(enrollment, integrationEmail, provider, integrationDoc) {
+  const repairResult = await repairFalsePositiveEnrollmentReplyFlags(enrollment);
+  let resumedEnrollment = Boolean(repairResult.resumed);
+  if (repairResult.repaired) {
+    enrollment = await enrollmentModelFor(enrollment).findById(enrollment._id).lean();
+    if (!enrollment) {
+      return { newReplies: 0, candidateReplies: 0, threadId: "", resumed: resumedEnrollment };
+    }
+  }
+
+  await purgePreOutreachCandidateReplies(enrollment);
+
   const userId = String(enrollment.userId);
   const threadId = await ensureThreadId(enrollment, userId, provider, integrationDoc);
   if (!threadId) {
@@ -286,11 +598,16 @@ async function syncEnrollmentReplies(enrollment, integrationEmail, provider, int
 
   let newReplies = 0;
   let candidateReplies = 0;
+  let newRecruiterMessages = 0;
   let latestCandidateReplyAt = null;
   let latestNewCandidateMessage = null;
 
   for (const parsed of messages) {
     if (!parsed.gmailMessageId) continue;
+
+    if (!messageQualifiesForEnrollmentReply(enrollment, parsed)) {
+      continue;
+    }
 
     // Outbound bodies are stored at send time; provider sync may omit our sent body.
     if (!parsed.isFromCandidate && !String(parsed.bodyText || "").trim()) {
@@ -314,12 +631,15 @@ async function syncEnrollmentReplies(enrollment, integrationEmail, provider, int
     }
 
     const isCandidate = parsed.isFromCandidate;
+    if (!isCandidate) {
+      newRecruiterMessages += 1;
+    }
     try {
       await CampaignOutreachReply.create({
         userId: enrollment.userId,
-        campaignId: enrollment.campaignId,
+        campaignId: replyCampaignId(enrollment),
         enrollmentId: enrollment._id,
-        candidateKey: enrollment.candidateKey,
+        candidateKey: replyCandidateKey(enrollment),
         gmailThreadId: threadId,
         gmailMessageId: parsed.gmailMessageId,
         rfcMessageId: parsed.rfcMessageId || "",
@@ -349,28 +669,69 @@ async function syncEnrollmentReplies(enrollment, integrationEmail, provider, int
     }
   }
 
-  if (candidateReplies > 0) {
-    const replyCount = await CampaignOutreachReply.countDocuments({
-      enrollmentId: enrollment._id,
-      isFromCandidate: true,
-    });
+  const moduleEnrollment = isModuleEnrollment(enrollment);
+  // Module sequences: only pause on real candidate replies — synced outbound mail is not a reply.
+  const shouldPauseSequence =
+    candidateReplies > 0 || (newRecruiterMessages > 0 && !moduleEnrollment);
+  if (shouldPauseSequence) {
+    const latestBody = String(
+      latestNewCandidateMessage?.bodyText || latestNewCandidateMessage?.snippet || ""
+    ).trim();
+
     const enrollmentUpdate = {
-      hasReply: true,
-      replyCount,
-      lastReplyAt: latestCandidateReplyAt,
       lastReplySyncedAt: new Date(),
       lastThreadId: threadId,
     };
+    if (candidateReplies > 0) {
+      enrollmentUpdate.hasReply = true;
+      enrollmentUpdate.replyCount = await countVerifiedCandidateReplies({
+        ...enrollment,
+        _id: enrollment._id,
+      });
+      enrollmentUpdate.lastReplyAt = latestCandidateReplyAt;
+    }
     if (enrollment.status === "active") {
       enrollmentUpdate.status = "paused";
-      enrollmentUpdate.lastError = "Reply received — sequence paused";
+      enrollmentUpdate.nextSendAt = null;
+      enrollmentUpdate.lastError = moduleEnrollment
+        ? "Reply received — auto-responding"
+        : candidateReplies > 0
+          ? "Reply received — sequence paused"
+          : "Manual reply sent — sequence paused";
     }
-    await CampaignSequenceEnrollment.updateOne(
+    await enrollmentModelFor(enrollment).updateOne(
       { _id: enrollment._id },
       { $set: enrollmentUpdate }
     );
+
+    if (moduleEnrollment && candidateReplies > 0) {
+      const campaignId = String(enrollment.outreachModuleCampaignId || "");
+      const candidateRefId = String(enrollment.candidateRefId || "");
+      if (campaignId) {
+        const { updateEmbeddedCandidateAfterSend } = require("./outreachModuleSendService");
+        await updateEmbeddedCandidateAfterSend(campaignId, candidateRefId, {
+          responseStatus: "replied",
+          matchEmail: enrollment.contactEmail,
+          lastResponse: toReplyPreview(latestBody) || "Reply received",
+          nextAction: "AI auto-reply pending",
+          interaction: {
+            type: "email",
+            summary: "Candidate replied",
+            content: { bodyPreview: latestBody.slice(0, 280) },
+          },
+        }).catch((err) => {
+          console.warn(
+            `[outreach-module-reply-sync] candidate update ${candidateRefId}:`,
+            err?.message || err
+          );
+        });
+      }
+    } else if (enrollmentUpdate.status === "paused" && enrollment.campaignId) {
+      const { maybeCompleteCampaign } = require("./campaignOutreachSendService");
+      await maybeCompleteCampaign(String(enrollment.campaignId));
+    }
   } else {
-    await CampaignSequenceEnrollment.updateOne(
+    await enrollmentModelFor(enrollment).updateOne(
       { _id: enrollment._id },
       {
         $set: {
@@ -391,7 +752,7 @@ async function syncEnrollmentReplies(enrollment, integrationEmail, provider, int
     );
   }
 
-  if (newReplies > 0 || backfilled > 0) {
+  if (!isModuleEnrollment(enrollment) && (newReplies > 0 || backfilled > 0)) {
     notifyCampaignThreadUpdated(userId, {
       campaignId: String(enrollment.campaignId),
       candidateKey: enrollment.candidateKey,
@@ -406,23 +767,15 @@ async function syncEnrollmentReplies(enrollment, integrationEmail, provider, int
     });
   }
 
-  if (latestNewCandidateMessage) {
-    const fresh = await CampaignSequenceEnrollment.findById(enrollment._id).lean();
-    try {
-      await maybeAutoReplyAfterCandidateMessage({
-        enrollment: fresh || enrollment,
-        candidateMessage: latestNewCandidateMessage,
-        threadId,
-      });
-    } catch (err) {
-      console.error(
-        `[outreach-auto-reply] enrollment ${enrollment._id}:`,
-        err?.message || err
-      );
-    }
+  await attemptAutoReplyForEnrollment(enrollment, threadId, {
+    preferMessage: latestNewCandidateMessage,
+  });
+
+  if (isModuleEnrollment(enrollment)) {
+    await applyKeywordDispositionAfterAutoReply(enrollment._id);
   }
 
-  return { newReplies, candidateReplies, threadId };
+  return { newReplies, candidateReplies, threadId, resumed: resumedEnrollment };
 }
 
 /**
@@ -664,14 +1017,187 @@ async function syncCampaignReplies(actorUserId, campaignId) {
   return { synced: enrollments.length, newReplies, replies };
 }
 
+/**
+ * Poll email threads for outreach-module enrollments (single or multi-channel email steps).
+ */
+async function syncDueOutreachModuleEnrollmentReplies() {
+  const OutreachModuleCampaign = require("../models/OutreachModuleCampaign");
+
+  const liveCampaignIds = await OutreachModuleCampaign.find({
+    status: { $in: ["active", "paused", "completed"] },
+    $or: [{ channel: "email" }, { "sequenceSteps.channel": "email" }],
+  })
+    .distinct("_id")
+    .lean();
+
+  if (liveCampaignIds.length === 0) return { checked: 0, newReplies: 0 };
+
+  const enrollments = await OutreachModuleEnrollment.find({
+    outreachModuleCampaignId: { $in: liveCampaignIds },
+    sentCount: { $gt: 0 },
+    contactEmail: { $regex: /@/ },
+    $or: [
+      { lastThreadId: { $exists: true, $ne: "" } },
+      { lastMessageId: { $exists: true, $ne: "" } },
+    ],
+  })
+    .sort({ lastReplySyncedAt: 1, updatedAt: 1 })
+    .limit(SYNC_BATCH_SIZE)
+    .lean();
+
+  if (enrollments.length === 0) return { checked: 0, newReplies: 0 };
+
+  const byIntegration = new Map();
+  for (const row of enrollments) {
+    const campaign = await OutreachModuleCampaign.findById(row.outreachModuleCampaignId)
+      .select("userId emailIntegrationId")
+      .lean();
+    if (!campaign) continue;
+    const key = `${campaign.userId}:${campaign.emailIntegrationId || "default"}`;
+    if (!byIntegration.has(key)) {
+      byIntegration.set(key, { campaign, rows: [] });
+    }
+    byIntegration.get(key).rows.push(row);
+  }
+
+  let checked = 0;
+  let newReplies = 0;
+
+  for (const { campaign, rows } of byIntegration.values()) {
+    let integrationEmail = "";
+    let provider = "";
+    let integrationDoc = null;
+    try {
+      integrationDoc = await getEmailIntegrationForCampaign(campaign);
+      provider = integrationDoc.provider;
+      integrationEmail = integrationDoc.email || "";
+    } catch {
+      continue;
+    }
+
+    for (const enrollment of rows) {
+      if (!isEmailEnrollmentForSync(enrollment)) continue;
+      try {
+        const result = await syncEnrollmentReplies(
+          enrollment,
+          integrationEmail,
+          provider,
+          integrationDoc
+        );
+        checked += 1;
+        newReplies += result.newReplies;
+      } catch (err) {
+        console.error(
+          `[outreach-module-reply-sync] enrollment ${enrollment._id}:`,
+          err?.message || err
+        );
+      }
+    }
+  }
+
+  return { checked, newReplies };
+}
+
+/**
+ * Poll connected inbox for one outreach-module campaign (used by tracking view).
+ */
+async function syncOutreachModuleCampaignEmailReplies(campaignDoc) {
+  const hasEmail =
+    campaignDoc?.channel === "email" ||
+    (Array.isArray(campaignDoc?.sequenceSteps) &&
+      campaignDoc.sequenceSteps.some((step) => step.channel === "email"));
+  if (!hasEmail) return 0;
+
+  let integration;
+  try {
+    integration = await getEmailIntegrationForCampaign(campaignDoc);
+  } catch {
+    return 0;
+  }
+  if (!integration) return 0;
+
+  const campaignId = campaignDoc._id;
+  const enrollments = await OutreachModuleEnrollment.find({
+    outreachModuleCampaignId: campaignId,
+    sentCount: { $gt: 0 },
+    contactEmail: { $regex: /@/ },
+  }).lean();
+
+  let newReplies = 0;
+  let resumedEnrollments = 0;
+  const provider = integration.provider;
+  const integrationEmail = integration.email || "";
+
+  for (const enrollment of enrollments) {
+    if (!isEmailEnrollmentForSync(enrollment)) continue;
+    try {
+      const result = await syncEnrollmentReplies(
+        enrollment,
+        integrationEmail,
+        provider,
+        integration
+      );
+      newReplies += result.newReplies;
+      if (result.resumed) resumedEnrollments += 1;
+    } catch (err) {
+      console.error(
+        `[outreach-module-reply-sync] campaign ${campaignId} enrollment ${enrollment._id}:`,
+        err?.message || err
+      );
+    }
+  }
+
+  if (resumedEnrollments > 0) {
+    setImmediate(() => {
+      const { processDueOutreachModuleEnrollments } = require("./outreachModuleSendService");
+      processDueOutreachModuleEnrollments().catch((err) => {
+        console.error(
+          "[outreach-module-reply-sync] post-repair send tick:",
+          err?.message || err
+        );
+      });
+    });
+  }
+
+  return newReplies;
+}
+
 async function deleteRepliesForCampaign(campaignId) {
   await CampaignOutreachReply.deleteMany({
     campaignId: new mongoose.Types.ObjectId(campaignId),
   });
 }
 
+/** Clear false reply flags and resume sequences before the send tick (voice/email follow-ups). */
+async function repairStuckOutreachModuleEnrollmentsBeforeSend() {
+  const now = new Date();
+  const campaignIds = await OutreachModuleEnrollment.distinct("outreachModuleCampaignId", {
+    status: { $in: ["active", "paused", "completed", "failed", "skipped"] },
+    $or: [
+      { status: "active", nextSendAt: { $lte: now } },
+      { status: "paused", hasReply: true },
+      { status: "paused", replyCount: { $gt: 0 } },
+      { status: "completed" },
+      { status: "failed" },
+      { status: "skipped" },
+    ],
+  });
+
+  let resumed = 0;
+  for (const campaignId of campaignIds) {
+    const result = await repairOutreachModuleFalsePositiveReplyFlags(campaignId);
+    resumed += Number(result.resumed) || 0;
+  }
+
+  return { campaigns: campaignIds.length, resumed };
+}
+
 module.exports = {
   syncDueEnrollmentReplies,
+  syncDueOutreachModuleEnrollmentReplies,
+  syncOutreachModuleCampaignEmailReplies,
+  repairOutreachModuleFalsePositiveReplyFlags,
+  repairStuckOutreachModuleEnrollmentsBeforeSend,
   syncCampaignReplies,
   syncEnrollmentReplies,
   recordOutboundSentMessage,

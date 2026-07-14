@@ -803,12 +803,19 @@ export function isDefaultOutcomeResultColumn(columnName: string): boolean {
   );
 }
 
-/** Default or auto-synced screening rows cannot be removed in the editor. */
+export function getAutoScreeningLinkedQuestion(field: ResultAgentFieldLike): string | null {
+  if (!isAutoScreeningResultField(field)) return null;
+  const linked = field.expectedValue
+    .slice(SCREENING_ANSWER_EXPECTED_PREFIX.length)
+    .trim();
+  return linked || null;
+}
+
+/** Default outcome and standard screening rows cannot be removed in the editor. */
 export function isFixedDefaultResultField(field: ResultAgentFieldLike): boolean {
   const columnName = field.columnName.trim();
   if (isDefaultOutcomeResultColumn(columnName)) return true;
   if (isDefaultScreeningResultColumn(columnName)) return true;
-  if (isAutoScreeningResultField(field)) return true;
   return false;
 }
 
@@ -973,23 +980,28 @@ export function syncResultFieldsWithScreeningQuestions(
   resultFields: ResultAgentFieldLike[]
 ): Array<{ columnName: string; expectedValue: string }> {
   const storageQuestions = questions.map((question) => question.trim()).filter(Boolean);
-  const userAddedFields = resultFields.filter(isUserAddedResultField);
+  const existingCustomScreeningFields = collectExistingCustomScreeningFields(
+    storageQuestions,
+    resultFields
+  );
+  const userAddedFields = resultFields.filter(
+    (field) => isUserAddedResultField(field) && !isAutoScreeningResultField(field)
+  );
   const outcomeFields = resultFields.filter(isOutcomeResultField);
   const merged = mergeScreeningQuestionsIntoResultFields(storageQuestions, [
     ...outcomeFields,
     ...DEFAULT_SCREENING_RESULT_FIELDS,
+    ...existingCustomScreeningFields,
   ]);
 
   const filtered = merged.filter((field) => {
     if (!isAutoScreeningResultField(field)) return true;
-    const linkedQuestion = field.expectedValue
-      .slice(SCREENING_ANSWER_EXPECTED_PREFIX.length)
-      .trim()
-      .toLowerCase();
+    const linkedQuestion = getAutoScreeningLinkedQuestion(field);
+    if (!linkedQuestion) return false;
     return storageQuestions.some(
       (question, index) =>
         index >= DEFAULT_SCREENING_QUESTION_COUNT &&
-        question.toLowerCase() === linkedQuestion
+        question.toLowerCase() === linkedQuestion.toLowerCase()
     );
   });
 
@@ -1004,7 +1016,90 @@ export function syncResultFieldsWithScreeningQuestions(
     if (columnName) existingColumns.add(columnName.toLowerCase());
   }
 
-  return filtered.filter((field) => field.columnName || field.expectedValue);
+  return orderResultFieldsForEditor(
+    filtered.filter((field) => field.columnName || field.expectedValue),
+    storageQuestions
+  );
+}
+
+function collectExistingCustomScreeningFields(
+  questions: string[],
+  resultFields: ResultAgentFieldLike[]
+): ResultAgentFieldLike[] {
+  const storageQuestions = questions.map((question) => question.trim()).filter(Boolean);
+
+  return resultFields.filter((field) => {
+    if (isDefaultOutcomeResultColumn(field.columnName)) return false;
+    if (isDefaultScreeningResultColumn(field.columnName)) return false;
+    if (isOutcomeResultField(field) && !isAutoScreeningResultField(field)) return false;
+
+    if (isAutoScreeningResultField(field)) {
+      const linkedQuestion = getAutoScreeningLinkedQuestion(field);
+      if (!linkedQuestion) return false;
+      return storageQuestions.some(
+        (question, index) =>
+          index >= DEFAULT_SCREENING_QUESTION_COUNT &&
+          question.toLowerCase() === linkedQuestion.toLowerCase()
+      );
+    }
+
+    return isUserAddedResultField(field);
+  });
+}
+
+/** Editor table order: outcomes, default screening, custom questions, then other rows. */
+export function orderResultFieldsForEditor(
+  fields: ResultAgentFieldLike[],
+  questions: string[] = []
+): Array<{ columnName: string; expectedValue: string }> {
+  const normalized = fields
+    .map((field) => ({
+      columnName: field.columnName.trim(),
+      expectedValue: field.expectedValue.trim(),
+    }))
+    .filter((field) => field.columnName || field.expectedValue);
+
+  const byColumn = new Map(
+    normalized.map((field) => [field.columnName.toLowerCase(), field] as const)
+  );
+  const ordered: Array<{ columnName: string; expectedValue: string }> = [];
+  const used = new Set<string>();
+
+  const pushField = (field?: { columnName: string; expectedValue: string } | null) => {
+    const columnName = field?.columnName?.trim();
+    if (!columnName) return;
+    const key = columnName.toLowerCase();
+    if (used.has(key)) return;
+    ordered.push({
+      columnName,
+      expectedValue: field?.expectedValue?.trim() || "",
+    });
+    used.add(key);
+  };
+
+  for (const defaultField of DEFAULT_OUTCOME_RESULT_FIELDS) {
+    pushField(byColumn.get(defaultField.columnName.toLowerCase()) || defaultField);
+  }
+
+  for (const defaultField of DEFAULT_SCREENING_RESULT_FIELDS) {
+    pushField(byColumn.get(defaultField.columnName.toLowerCase()) || defaultField);
+  }
+
+  questions.forEach((question, index) => {
+    if (index < DEFAULT_SCREENING_QUESTION_COUNT) return;
+    const trimmedQuestion = question.trim();
+    if (!trimmedQuestion) return;
+    const matched = normalized.find((field) =>
+      resultFieldCoversScreeningQuestion(field, trimmedQuestion, index)
+    );
+    pushField(matched);
+  });
+
+  for (const field of normalized) {
+    pushField(field);
+  }
+
+  return ordered;
 }
 
 export type VoiceCallTableColumn = {

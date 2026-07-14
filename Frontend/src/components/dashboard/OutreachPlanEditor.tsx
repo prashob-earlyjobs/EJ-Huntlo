@@ -16,6 +16,7 @@ import { OutreachPillSelect } from "@/components/dashboard/OutreachPillSelect";
 import { OutreachTimePicker } from "@/components/dashboard/OutreachTimePicker";
 import { OutreachTestEmailModal } from "@/components/dashboard/OutreachTestEmailModal";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
 import { authHeaders, getStoredAuth } from "@/lib/auth";
 import type { CampaignEmailSenderOption } from "@/lib/emailIntegrations";
 import {
@@ -236,10 +237,9 @@ function SaveSequenceButton({
     >
       <span className="dashboard-outreach-save-btn-inner" key={saving ? "saving" : saveSucceeded ? "saved" : "idle"}>
         {saving ? (
-          <>
-            <span className="dashboard-outreach-save-spinner" aria-hidden />
-            <span>Saving…</span>
-          </>
+          <ButtonLoadingContent loading loadingLabel="Saving sequence">
+            <span>{label}</span>
+          </ButtonLoadingContent>
         ) : saveSucceeded ? (
           <>
             <MaterialIcon name="check" className="dashboard-outreach-save-check" aria-hidden />
@@ -1252,17 +1252,12 @@ export function OutreachPlanEditor({
                   disabled={launchBusy}
                   className={`${dashboardBtnPrimaryClass} dashboard-outreach-save-btn inline-flex h-8 items-center justify-center gap-1 whitespace-nowrap px-3 py-1 text-xs disabled:opacity-55`}
                 >
-                  {launchBusy ? (
-                    <>
-                      <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-                      Resuming…
-                    </>
-                  ) : (
-                    <>
+                  <ButtonLoadingContent loading={launchBusy} loadingLabel="Resuming campaign">
+                    <span className="inline-flex items-center gap-1">
                       <MaterialIcon name="play_circle" className="text-sm" />
                       Resume campaign
-                    </>
-                  )}
+                    </span>
+                  </ButtonLoadingContent>
                 </button>
               ) : campaignOutreachStatus === "completed" ? (
                 <button
@@ -1305,17 +1300,12 @@ export function OutreachPlanEditor({
                   }
                   className={`${dashboardBtnPrimaryClass} dashboard-outreach-save-btn inline-flex h-8 items-center justify-center gap-1 whitespace-nowrap px-3 py-1 text-xs disabled:opacity-55`}
                 >
-                  {launching ? (
-                    <>
-                      <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-                      Launching…
-                    </>
-                  ) : (
-                    <>
+                  <ButtonLoadingContent loading={launching} loadingLabel="Launching campaign">
+                    <span className="inline-flex items-center gap-1">
                       <MaterialIcon name="rocket_launch" className="text-sm" />
                       Launch campaign
-                    </>
-                  )}
+                    </span>
+                  </ButtonLoadingContent>
                 </button>
               )}
             </div>
@@ -1467,13 +1457,12 @@ export function OutreachPlanEditor({
                     : undefined
                 }
               >
-                {calendlyLoading
-                  ? "Checking Calendly…"
-                  : calendlySaving
-                    ? "Saving…"
-                    : calendlyEnabled
-                      ? "Change interview link"
-                      : "Add interview link"}
+                <ButtonLoadingContent
+                  loading={calendlyLoading || calendlySaving}
+                  loadingLabel={calendlyLoading ? "Checking Calendly" : "Saving"}
+                >
+                  {calendlyEnabled ? "Change interview link" : "Add interview link"}
+                </ButtonLoadingContent>
               </button>
             ) : null}
             {calendlyError ? (

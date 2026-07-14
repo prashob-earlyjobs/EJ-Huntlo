@@ -1,4 +1,5 @@
 const CampaignSequenceEnrollment = require("../models/CampaignSequenceEnrollment");
+const OutreachModuleEnrollment = require("../models/OutreachModuleEnrollment");
 const CampaignWhatsAppMessage = require("../models/CampaignWhatsAppMessage");
 const UserIntegration = require("../models/UserIntegration");
 const { logCampaignWhatsAppMessage } = require("./campaignWhatsAppCommsService");
@@ -8,6 +9,7 @@ const {
   maybeHandleWhatsAppAiQualification,
   isWhatsAppAiEnabled,
 } = require("./whatsappQualificationAiService");
+const { maybeCompleteCampaign } = require("./campaignOutreachSendService");
 const { sendWhatsAppSessionMessage } = require("./whatsappSendService");
 const { applyMergeFields } = require("./outreachMergeService");
 const WhatsAppOutreachPlan = require("../models/WhatsAppOutreachPlan");
@@ -128,17 +130,41 @@ async function findEnrollmentForInbound(integrationProvider, businessKey, fromNu
   const integrations = await UserIntegration.find(integrationQuery).select("userId").lean();
   if (integrations.length === 0) return null;
 
+  let bestEnrollment = null;
+  let bestUpdatedAt = 0;
+
   for (const integration of integrations) {
-    const enrollment = await CampaignSequenceEnrollment.findOne({
+    const legacy = await CampaignSequenceEnrollment.findOne({
       userId: integration.userId,
       contactPhone: { $in: candidates },
     })
       .sort({ updatedAt: -1 })
       .lean();
-    if (enrollment) return enrollment;
+    if (legacy) {
+      const updatedAt = new Date(legacy.updatedAt || 0).getTime();
+      if (updatedAt >= bestUpdatedAt) {
+        bestEnrollment = legacy;
+        bestUpdatedAt = updatedAt;
+      }
+    }
+
+    const moduleEnrollment = await OutreachModuleEnrollment.findOne({
+      userId: integration.userId,
+      contactPhone: { $in: candidates },
+      status: { $in: ["active", "paused"] },
+    })
+      .sort({ updatedAt: -1 })
+      .lean();
+    if (moduleEnrollment) {
+      const updatedAt = new Date(moduleEnrollment.updatedAt || 0).getTime();
+      if (updatedAt >= bestUpdatedAt) {
+        bestEnrollment = moduleEnrollment;
+        bestUpdatedAt = updatedAt;
+      }
+    }
   }
 
-  return null;
+  return bestEnrollment;
 }
 
 function mapDeliveryStatus(status) {
@@ -157,6 +183,18 @@ async function storeInboundWhatsAppMessage({
   fromNumber,
   sentAt,
 }) {
+  if (enrollment?.outreachModuleCampaignId) {
+    const { handleOutreachModuleInboundWhatsApp } = require("./outreachModuleSendService");
+    return handleOutreachModuleInboundWhatsApp({
+      enrollment,
+      provider,
+      externalMessageId,
+      body,
+      fromNumber,
+      sentAt,
+    });
+  }
+
   const normalizedFromPhone = normalizeToE164(fromNumber) || fromNumber;
 
   const exists = await CampaignWhatsAppMessage.findOne({
@@ -208,6 +246,9 @@ async function storeInboundWhatsAppMessage({
       },
     }
   );
+  if (nextStatus === "paused") {
+    await maybeCompleteCampaign(String(enrollment.campaignId));
+  }
 
   notifyCampaignThreadUpdated(String(enrollment.userId), {
     campaignId: String(enrollment.campaignId),

@@ -3,8 +3,12 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
-import { COUNTRY_OPTIONS } from "@/lib/countryOptions";
 import { dashboardInputClass } from "@/lib/dashboardStyles";
+import { fetchFilterAutocomplete } from "@/lib/filterAutocompleteApi";
+
+const MIN_QUERY_LENGTH = 3;
+const DEBOUNCE_MS = 300;
+const COUNTRY_FILTER_TYPE = "location_country";
 
 type Props = {
   value: string[];
@@ -18,6 +22,9 @@ export function CountryRegionField({ value, onChange, disabled = false }: Props)
   const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [fetchedFor, setFetchedFor] = useState("");
 
   const selected = useMemo(
     () =>
@@ -36,30 +43,80 @@ export function CountryRegionField({ value, onChange, disabled = false }: Props)
     [selected]
   );
 
-  const suggestions = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const pool = COUNTRY_OPTIONS.filter((country) => !selectedLower.has(country.toLowerCase()));
-    if (!q) return pool.slice(0, 12);
-    return pool.filter((country) => country.toLowerCase().includes(q)).slice(0, 12);
-  }, [query, selectedLower]);
+  const trimmedQuery = query.trim();
+  const showList =
+    open &&
+    !disabled &&
+    trimmedQuery.length >= MIN_QUERY_LENGTH &&
+    (loading || fetchedFor === trimmedQuery);
 
   useEffect(() => {
     if (!open) return;
-    const onPointerDown = (event: MouseEvent) => {
+    const onPointerDown = (event: PointerEvent) => {
       if (!rootRef.current?.contains(event.target as Node)) {
         setOpen(false);
       }
     };
-    document.addEventListener("mousedown", onPointerDown);
-    return () => document.removeEventListener("mousedown", onPointerDown);
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [open]);
+
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < MIN_QUERY_LENGTH) {
+      setSuggestions([]);
+      setLoading(false);
+      setFetchedFor("");
+      return;
+    }
+
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      setLoading(true);
+      fetchFilterAutocomplete({
+        filterType: COUNTRY_FILTER_TYPE,
+        query: q,
+        limit: 10,
+        signal: controller.signal,
+      })
+        .then((items) => {
+          if (controller.signal.aborted) return;
+          setSuggestions(
+            items.filter((item) => !selectedLower.has(item.toLowerCase())).slice(0, 10)
+          );
+          setFetchedFor(q);
+          setOpen(true);
+        })
+        .catch(() => {
+          if (controller.signal.aborted) return;
+          setSuggestions([]);
+          setFetchedFor(q);
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setLoading(false);
+        });
+    }, DEBOUNCE_MS);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [query, selectedLower]);
 
   const addCountry = (country: string) => {
     const trimmed = country.trim();
     if (!trimmed) return;
-    if (selectedLower.has(trimmed.toLowerCase())) return;
+    if (selectedLower.has(trimmed.toLowerCase())) {
+      setQuery("");
+      setSuggestions([]);
+      setFetchedFor("");
+      setOpen(false);
+      return;
+    }
     onChange([...selected, trimmed]);
     setQuery("");
+    setSuggestions([]);
+    setFetchedFor("");
     setOpen(false);
     requestAnimationFrame(() => inputRef.current?.focus());
   };
@@ -72,7 +129,9 @@ export function CountryRegionField({ value, onChange, disabled = false }: Props)
   return (
     <div ref={rootRef} className="relative mt-1">
       <div
-        className={`dashboard-filter-country-field${disabled ? " dashboard-filter-country-field--disabled" : ""}`}
+        className={`dashboard-filter-country-field${
+          disabled ? " dashboard-filter-country-field--disabled" : ""
+        }`}
         onClick={() => inputRef.current?.focus()}
       >
         {selected.map((country) => (
@@ -97,14 +156,20 @@ export function CountryRegionField({ value, onChange, disabled = false }: Props)
           id={listId}
           type="text"
           disabled={disabled}
-          placeholder={selected.length > 0 ? "Add another country" : "Type to search countries"}
+          placeholder={
+            selected.length > 0
+              ? "Add another country"
+              : "Type at least 3 letters to search"
+          }
           className={`dashboard-filter-country-input ${dashboardInputClass}`}
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
             setOpen(true);
           }}
-          onFocus={() => setOpen(true)}
+          onFocus={() => {
+            if (trimmedQuery.length >= MIN_QUERY_LENGTH) setOpen(true);
+          }}
           onKeyDown={(e) => {
             if (e.key === "Escape") {
               setOpen(false);
@@ -115,36 +180,59 @@ export function CountryRegionField({ value, onChange, disabled = false }: Props)
               removeCountry(selected[selected.length - 1]);
               return;
             }
-            if (e.key === "Enter" && suggestions.length > 0) {
+            if (e.key === "Enter") {
               e.preventDefault();
-              addCountry(suggestions[0]);
+              if (suggestions.length > 0) {
+                addCountry(suggestions[0]);
+              }
             }
           }}
           autoComplete="off"
+          aria-label="Select region / country"
           aria-autocomplete="list"
-          aria-expanded={open}
+          aria-expanded={showList}
           aria-controls={`${listId}-listbox`}
         />
       </div>
 
-      {open && suggestions.length > 0 ? (
+      {showList ? (
         <ul
           id={`${listId}-listbox`}
           role="listbox"
           className="dashboard-filter-country-list"
+          style={{ zIndex: 40 }}
         >
-          {suggestions.map((country) => (
-            <li key={country} role="option">
-              <button
-                type="button"
-                className="dashboard-filter-country-option"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => addCountry(country)}
-              >
-                {country}
-              </button>
+          {loading ? (
+            <li
+              className="dashboard-filter-country-option dashboard-filter-location-status"
+              role="presentation"
+            >
+              Searching countries…
             </li>
-          ))}
+          ) : suggestions.length > 0 ? (
+            suggestions.map((country) => (
+              <li key={country} role="option">
+                <button
+                  type="button"
+                  className="dashboard-filter-country-option"
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    addCountry(country);
+                  }}
+                >
+                  {country}
+                </button>
+              </li>
+            ))
+          ) : (
+            <li
+              className="dashboard-filter-country-option dashboard-filter-location-status"
+              role="presentation"
+            >
+              No countries found
+            </li>
+          )}
         </ul>
       ) : null}
     </div>

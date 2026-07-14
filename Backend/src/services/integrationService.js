@@ -224,6 +224,8 @@ async function connectGmail(userId, code) {
 
 async function listUserIntegrations(userId) {
   const userOid = new mongoose.Types.ObjectId(userId);
+
+  console.time("integrations query");
   const platformChannel = await getActiveMessagingChannel();
   const docs = await UserIntegration.find({ userId: userOid })
     .sort({ updatedAt: -1 })
@@ -235,7 +237,10 @@ async function listUserIntegrations(userId) {
     fallbackSenderName =
       typeof user?.fullName === "string" ? user.fullName.trim() : "";
   }
-  return docs.map((doc) =>
+  console.timeEnd("integrations query");
+
+  console.time("response mapping");
+  const integrations = docs.map((doc) =>
     formatIntegrationRow(
       {
         ...doc,
@@ -244,6 +249,9 @@ async function listUserIntegrations(userId) {
       platformChannel
     )
   );
+  console.timeEnd("response mapping");
+
+  return integrations;
 }
 
 async function getGmailStatus(userId) {

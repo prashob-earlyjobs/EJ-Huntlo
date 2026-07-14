@@ -5,13 +5,20 @@ const mongoose = require("mongoose");
  */
 const Campaign = require("../models/Campaign");
 const CampaignVoiceCall = require("../models/CampaignVoiceCall");
+const OutreachModuleCampaign = require("../models/OutreachModuleCampaign");
 const { findCampaignInScope } = require("../utils/campaignScope");
 const {
   loadAllContactsForCampaign,
-  listCampaignContactsPaginated,
 } = require("./campaignContactService");
 const { normalizeToWhatsAppDigits } = require("./whatsappPhoneUtils");
 const { resolvePendingVoiceCall } = require("./voiceCallCreditsService");
+const {
+  campaignHasVoiceCapability,
+  outreachModuleContactsForVoice,
+  syncOutreachModuleCandidateFromVoiceCall,
+  maybeCompleteOutreachModuleVoiceCampaign,
+  toHunarCampaignAdapter,
+} = require("./outreachModuleVoiceService");
 
 function userOid(userId) {
   return new mongoose.Types.ObjectId(String(userId));
@@ -155,9 +162,29 @@ function resolveSummaryText(doc, callResult) {
 async function loadCampaignForWebhook(campaignId, body) {
   const resolvedId = resolveCampaignId(campaignId, body);
   if (!mongoose.Types.ObjectId.isValid(resolvedId)) return null;
-  const campaign = await Campaign.findById(resolvedId).lean();
-  if (!campaign || campaign.outreachChannel !== "voice_call") return null;
-  return campaign;
+
+  const legacy = await Campaign.findById(resolvedId).lean();
+  if (legacy && legacy.outreachChannel === "voice_call") {
+    return { ...legacy, _outreachVoiceSource: "legacy" };
+  }
+
+  const moduleCampaign = await OutreachModuleCampaign.findById(resolvedId).lean();
+  if (moduleCampaign && campaignHasVoiceCapability(moduleCampaign)) {
+    return {
+      ...toHunarCampaignAdapter(moduleCampaign),
+      _outreachVoiceSource: "outreach_module",
+      _outreachModuleCampaign: moduleCampaign,
+    };
+  }
+
+  return null;
+}
+
+async function loadContactsForVoiceWebhook(campaign) {
+  if (campaign?._outreachVoiceSource === "outreach_module") {
+    return outreachModuleContactsForVoice(campaign._outreachModuleCampaign);
+  }
+  return loadAllContactsForCampaign(String(campaign._id));
 }
 
 async function resolveVoiceCallWebhook(campaignId, body) {
@@ -175,7 +202,7 @@ async function resolveVoiceCallWebhook(campaignId, body) {
     throw err;
   }
 
-  const contacts = await loadAllContactsForCampaign(String(campaign._id));
+  const contacts = await loadContactsForVoiceWebhook(campaign);
   const matched = matchContactForNumber(contacts, body?.to_number);
   const existing = await CampaignVoiceCall.findOne({
     campaignId: campaign._id,
@@ -290,11 +317,11 @@ async function upsertVoiceCallStatus(campaignId, body) {
   const doc = await CampaignVoiceCall.findOneAndUpdate(
     { campaignId: campaign._id, callId },
     { $set: update },
-    { upsert: true, new: true, setDefaultsOnInsert: true }
+    { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
   );
 
   const row = formatVoiceCallRow(doc);
-  void afterVoiceCallWebhook(String(campaign._id));
+  void afterVoiceCallWebhook(String(campaign._id), row);
   return row;
 }
 
@@ -337,11 +364,11 @@ async function upsertVoiceCallResult(campaignId, body) {
   const doc = await CampaignVoiceCall.findOneAndUpdate(
     { campaignId: campaign._id, callId },
     { $set: update },
-    { upsert: true, new: true, setDefaultsOnInsert: true }
+    { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
   );
 
   const row = formatVoiceCallRow(doc);
-  void afterVoiceCallWebhook(String(campaign._id));
+  void afterVoiceCallWebhook(String(campaign._id), row);
   return row;
 }
 
@@ -363,7 +390,7 @@ async function upsertVoiceCallRecording(campaignId, body) {
   const doc = await CampaignVoiceCall.findOneAndUpdate(
     { campaignId: campaign._id, callId },
     { $set: update },
-    { upsert: true, new: true, setDefaultsOnInsert: true }
+    { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
   );
 
   return formatVoiceCallRow(doc);
@@ -387,7 +414,7 @@ async function upsertVoiceCallSummary(campaignId, body) {
   const doc = await CampaignVoiceCall.findOneAndUpdate(
     { campaignId: campaign._id, callId },
     { $set: update },
-    { upsert: true, new: true, setDefaultsOnInsert: true }
+    { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
   );
 
   return formatVoiceCallRow(doc);
@@ -548,12 +575,24 @@ async function maybeCompleteVoiceCampaign(campaignId) {
   return true;
 }
 
-async function afterVoiceCallWebhook(campaignId) {
+async function afterVoiceCallWebhook(campaignId, callRow = null) {
   try {
     await maybeCompleteVoiceCampaign(campaignId);
   } catch (error) {
     console.error(
       "[hunar-voice] maybeCompleteVoiceCampaign failed:",
+      error?.message || error
+    );
+  }
+
+  try {
+    if (callRow) {
+      await syncOutreachModuleCandidateFromVoiceCall(campaignId, callRow);
+    }
+    await maybeCompleteOutreachModuleVoiceCampaign(campaignId);
+  } catch (error) {
+    console.error(
+      "[hunar-voice] outreach module voice webhook sync failed:",
       error?.message || error
     );
   }
@@ -570,8 +609,8 @@ async function getCampaignVoiceCalls(actorUserId, campaignId, options = {}) {
   const page = Math.max(1, Number(options.page) || 1);
   const limit = Math.min(100, Math.max(1, Number(options.limit) || 25));
 
-  const [contactsPage, callDocs] = await Promise.all([
-    listCampaignContactsPaginated(campaignId, { page, limit }),
+  const [allContacts, callDocs] = await Promise.all([
+    loadAllContactsForCampaign(campaignId),
     CampaignVoiceCall.find({ campaignId: campaignOid(campaignId) })
       .sort({ lastEventAt: -1, updatedAt: -1 })
       .lean(),
@@ -599,7 +638,16 @@ async function getCampaignVoiceCalls(actorUserId, campaignId, options = {}) {
     }
   }
 
-  const rows = contactsPage.contacts.map((contact) => {
+  const dialableContacts = allContacts.filter((contact) =>
+    Boolean(normalizeToWhatsAppDigits(contact.phone))
+  );
+  const total = dialableContacts.length;
+  const totalPages = Math.max(1, Math.ceil(total / limit) || 1);
+  const safePage = Math.min(page, totalPages);
+  const start = (safePage - 1) * limit;
+  const pagedContacts = dialableContacts.slice(start, start + limit);
+
+  const rows = pagedContacts.map((contact) => {
     const call = pickLatestCallForContact(callsByKey, callsByPhone, contact);
     const displayStatus =
       call?.status ||
@@ -617,7 +665,13 @@ async function getCampaignVoiceCalls(actorUserId, campaignId, options = {}) {
     outreachStatus: campaign.outreachStatus || "idle",
     outreachChannel: "voice_call",
     rows,
-    pagination: contactsPage.pagination,
+    pagination: {
+      page: safePage,
+      limit,
+      total,
+      totalPages,
+      hasMore: safePage < totalPages,
+    },
   };
 }
 

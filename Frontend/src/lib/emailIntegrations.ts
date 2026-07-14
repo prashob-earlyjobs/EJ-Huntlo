@@ -51,6 +51,22 @@ export function formatEmailSenderLabel(row: EmailIntegrationRow) {
   return email || name || row.integration || "Email account";
 }
 
+export async function fetchConnectedEmailIntegrations(
+  token: string
+): Promise<EmailIntegrationRow[]> {
+  const res = await fetch(`${apiBase()}/api/integrations`, {
+    headers: authHeaders(token),
+    cache: "no-store",
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success || !Array.isArray(data.integrations)) {
+    return [];
+  }
+  return (data.integrations as EmailIntegrationRow[]).filter(
+    (row) => isMultiAccountMailProvider(row.provider) && row.status === "connected"
+  );
+}
+
 export async function setDefaultEmailIntegration(
   token: string,
   integrationId: string

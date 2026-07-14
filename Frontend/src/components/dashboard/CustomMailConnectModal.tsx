@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
 import { getStoredAuth } from "@/lib/auth";
 import {
   verifyCustomMailCredentials,
@@ -42,6 +43,7 @@ const EMPTY_FORM: CustomMailConnectFormValues = {
 type Props = {
   open: boolean;
   busy: boolean;
+  elevated?: boolean;
   onClose: () => void;
   onSubmit: (values: CustomMailConnectFormValues) => void | Promise<void>;
 };
@@ -58,7 +60,13 @@ function buildPayload(form: CustomMailConnectFormValues): CustomMailConnectPaylo
   };
 }
 
-export function CustomMailConnectModal({ open, busy, onClose, onSubmit }: Props) {
+export function CustomMailConnectModal({
+  open,
+  busy,
+  elevated = false,
+  onClose,
+  onSubmit,
+}: Props) {
   const [form, setForm] = useState<CustomMailConnectFormValues>(EMPTY_FORM);
   const [error, setError] = useState("");
   const [testing, setTesting] = useState(false);
@@ -152,7 +160,7 @@ export function CustomMailConnectModal({ open, busy, onClose, onSubmit }: Props)
 
   return (
     <div
-      className="dashboard-modal-overlay py-6"
+      className={`dashboard-modal-overlay py-6${elevated ? " dashboard-modal-overlay--elevated" : ""}`}
       role="presentation"
       onClick={(e) => {
         if (e.target === e.currentTarget && !busy && !testing) onClose();
@@ -301,22 +309,19 @@ export function CustomMailConnectModal({ open, busy, onClose, onSubmit }: Props)
               disabled={!canTest}
               onClick={() => void handleTestConnection()}
             >
-              {testing ? (
-                <>
-                  <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-                  Testing…
-                </>
-              ) : credsVerified ? (
-                <>
-                  <MaterialIcon name="check_circle" className="text-base text-emerald-600" />
-                  Test again
-                </>
-              ) : (
-                <>
-                  <MaterialIcon name="cable" className="text-base" />
-                  Test connection
-                </>
-              )}
+              <ButtonLoadingContent loading={testing} loadingLabel="Testing">
+                {credsVerified ? (
+                  <>
+                    <MaterialIcon name="check_circle" className="text-base text-emerald-600" />
+                    Test again
+                  </>
+                ) : (
+                  <>
+                    <MaterialIcon name="cable" className="text-base" />
+                    Test connection
+                  </>
+                )}
+              </ButtonLoadingContent>
             </button>
             {!credsVerified ? (
               <span className="text-xs text-slate-500">Test SMTP before saving.</span>
@@ -350,17 +355,12 @@ export function CustomMailConnectModal({ open, busy, onClose, onSubmit }: Props)
               className={`${dashboardBtnPrimaryClass} disabled:opacity-60`}
               title={!credsVerified ? "Test connection first" : undefined}
             >
-              {busy ? (
-                <>
-                  <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-                  Saving…
-                </>
-              ) : (
+              <ButtonLoadingContent loading={busy} loadingLabel="Saving">
                 <>
                   <MaterialIcon name="link" className="text-base" />
                   Save configuration
                 </>
-              )}
+              </ButtonLoadingContent>
             </button>
           </div>
         </form>

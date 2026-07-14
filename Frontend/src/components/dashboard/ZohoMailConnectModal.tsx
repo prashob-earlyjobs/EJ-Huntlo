@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
 import { authHeaders, getStoredAuth } from "@/lib/auth";
 import {
   dashboardBtnPrimaryClass,
@@ -39,11 +40,18 @@ type ConnectMode = "oauth" | "smtp";
 type Props = {
   open: boolean;
   busy: boolean;
+  elevated?: boolean;
   onClose: () => void;
   onSubmit: (values: ZohoMailConnectFormValues) => void;
 };
 
-export function ZohoMailConnectModal({ open, busy, onClose, onSubmit }: Props) {
+export function ZohoMailConnectModal({
+  open,
+  busy,
+  elevated = false,
+  onClose,
+  onSubmit,
+}: Props) {
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
 
   const [mode, setMode] = useState<ConnectMode>("oauth");
@@ -180,7 +188,7 @@ export function ZohoMailConnectModal({ open, busy, onClose, onSubmit }: Props) {
 
   return (
     <div
-      className="dashboard-modal-overlay py-6"
+      className={`dashboard-modal-overlay py-6${elevated ? " dashboard-modal-overlay--elevated" : ""}`}
       role="presentation"
       onClick={(e) => {
         if (e.target === e.currentTarget && !busy && !testing && !oauthLoading) onClose();
@@ -308,12 +316,7 @@ export function ZohoMailConnectModal({ open, busy, onClose, onSubmit }: Props) {
                 disabled={busy || oauthLoading || oauthConfigured !== true}
                 onClick={() => void handleOAuthSignIn()}
               >
-                {oauthLoading ? (
-                  <>
-                    <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-                    Redirecting to Zoho…
-                  </>
-                ) : (
+                <ButtonLoadingContent loading={oauthLoading} loadingLabel="Redirecting to Zoho">
                   <>
                     <IntegrationBrandLogo
                       provider="zoho_mail"
@@ -322,7 +325,7 @@ export function ZohoMailConnectModal({ open, busy, onClose, onSubmit }: Props) {
                     />
                     Sign in with Zoho
                   </>
-                )}
+                </ButtonLoadingContent>
               </button>
 
               {oauthConfigured === false ? (
@@ -401,22 +404,19 @@ export function ZohoMailConnectModal({ open, busy, onClose, onSubmit }: Props) {
                   disabled={!canTest}
                   onClick={() => void handleTestCredentials()}
                 >
-                  {testing ? (
-                    <>
-                      <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-                      Testing…
-                    </>
-                  ) : credsVerified ? (
-                    <>
-                      <MaterialIcon name="check_circle" className="text-base text-emerald-600" />
-                      Test again
-                    </>
-                  ) : (
-                    <>
-                      <MaterialIcon name="verified_user" className="text-base" />
-                      Test credentials
-                    </>
-                  )}
+                  <ButtonLoadingContent loading={testing} loadingLabel="Testing">
+                    {credsVerified ? (
+                      <>
+                        <MaterialIcon name="check_circle" className="text-base text-emerald-600" />
+                        Test again
+                      </>
+                    ) : (
+                      <>
+                        <MaterialIcon name="verified_user" className="text-base" />
+                        Test credentials
+                      </>
+                    )}
+                  </ButtonLoadingContent>
                 </button>
                 {!credsVerified ? (
                   <span className="text-xs text-slate-500">Test credentials to enable Connect.</span>
@@ -453,17 +453,12 @@ export function ZohoMailConnectModal({ open, busy, onClose, onSubmit }: Props) {
                 className={`${dashboardBtnPrimaryClass} disabled:opacity-60`}
                 title={!credsVerified ? "Test credentials first" : undefined}
               >
-                {busy ? (
-                  <>
-                    <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-                    Saving…
-                  </>
-                ) : (
+                <ButtonLoadingContent loading={busy} loadingLabel="Saving">
                   <>
                     <MaterialIcon name="link" className="text-base" />
                     Connect Zoho Mail
                   </>
-                )}
+                </ButtonLoadingContent>
               </button>
             ) : null}
           </div>

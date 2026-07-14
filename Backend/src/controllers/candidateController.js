@@ -156,6 +156,26 @@ function escapeRegexLiteral(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/** Parse YYYY-MM-DD (date input) or ISO datetime for admin session filters. */
+function parseAdminDateFilter(value, bound) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+  if (dateOnly) {
+    const year = Number(dateOnly[1]);
+    const month = Number(dateOnly[2]) - 1;
+    const day = Number(dateOnly[3]);
+    if (bound === "start") {
+      return new Date(year, month, day, 0, 0, 0, 0);
+    }
+    return new Date(year, month, day, 23, 59, 59, 999);
+  }
+
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 /** User-submitted drawer form wins; FJ round-trip may drop RANGE fields (e.g. years of experience). */
 function mergePersistedFilterForm(userForm, responseForm) {
   const userNorm = normalizeFilterFormForUi(userForm);
@@ -195,6 +215,18 @@ function mergePersistedFilterForm(userForm, responseForm) {
   if (Array.isArray(userNorm.selectRegion) && userNorm.selectRegion.length > 0) {
     merged.selectRegion = userNorm.selectRegion;
   }
+  if (Array.isArray(userNorm.school) && userNorm.school.length > 0) {
+    merged.school = userNorm.school;
+  }
+  if (Array.isArray(userNorm.fieldOfStudy) && userNorm.fieldOfStudy.length > 0) {
+    merged.fieldOfStudy = userNorm.fieldOfStudy;
+  }
+  if (Array.isArray(userNorm.degree) && userNorm.degree.length > 0) {
+    merged.degree = userNorm.degree;
+  }
+  if (Array.isArray(userNorm.certifications) && userNorm.certifications.length > 0) {
+    merged.certifications = userNorm.certifications;
+  }
   if (Array.isArray(userNorm.currentCompany) && userNorm.currentCompany.length > 0) {
     merged.currentCompany = userNorm.currentCompany;
   }
@@ -203,6 +235,21 @@ function mergePersistedFilterForm(userForm, responseForm) {
   }
   if (Array.isArray(userNorm.pastTitle) && userNorm.pastTitle.length > 0) {
     merged.pastTitle = userNorm.pastTitle;
+  }
+  for (const key of [
+    "companyFocus",
+    "yearsAtCompany",
+    "fundingStage",
+    "totalFundingRaised",
+    "recentlyFunded",
+    "languages",
+  ]) {
+    if (Array.isArray(userNorm[key]) && userNorm[key].length > 0) {
+      merged[key] = userNorm[key];
+    }
+  }
+  if (userNorm.targetCompanyScope) {
+    merged.targetCompanyScope = userNorm.targetCompanyScope;
   }
   merged.openToWork = userNorm.openToWork;
   merged.searchOtherRegions = userNorm.searchOtherRegions;
@@ -216,6 +263,72 @@ function mergePersistedFilterForm(userForm, responseForm) {
 function filterFormForApi(form) {
   const normalized = normalizeFilterFormForUi(form);
   return normalized || undefined;
+}
+
+function ownerDisplayFromPopulatedUser(userIdField) {
+  if (!userIdField || typeof userIdField !== "object") {
+    return {
+      userId: userIdField != null ? String(userIdField) : "",
+      searchedByName: "",
+      searchedByEmail: "",
+    };
+  }
+  return {
+    userId: userIdField._id != null ? String(userIdField._id) : "",
+    searchedByName:
+      typeof userIdField.fullName === "string" ? userIdField.fullName.trim() : "",
+    searchedByEmail:
+      typeof userIdField.email === "string" ? userIdField.email.trim() : "",
+  };
+}
+
+function serializeSourcingSessionListItem(d, storedCountBySession = {}) {
+  const sid =
+    typeof d.futureJobsSessionId === "string" ? d.futureJobsSessionId.trim() : "";
+  const storedCount = sid ? storedCountBySession[sid] : undefined;
+  const totalDocs =
+    typeof storedCount === "number"
+      ? storedCount
+      : typeof d.totalDocs === "number"
+        ? d.totalDocs
+        : null;
+  const owner = ownerDisplayFromPopulatedUser(d.userId);
+  const promptLabel =
+    (typeof d.prompt === "string" && d.prompt.trim()) ||
+    (typeof d.sessionTitle === "string" && d.sessionTitle.trim()) ||
+    "Untitled search";
+
+  return {
+    id: d._id.toString(),
+    futureJobsSessionId: d.futureJobsSessionId,
+    userId: owner.userId,
+    searchedByName: owner.searchedByName,
+    searchedByEmail: owner.searchedByEmail,
+    prompt: d.prompt,
+    sessionTitle: d.sessionTitle,
+    usingSessionOverride: d.usingSessionOverride,
+    futureJobsStatus: d.futureJobsStatus,
+    totalDocs,
+    candidateCountFirstPage: d.candidateCountFirstPage,
+    candidatePreview: Array.isArray(d.candidatePreview)
+      ? d.candidatePreview.map((c) => ({
+          id: c?.id || "",
+          sourcingSessionId: c?.sourcingSessionId || "",
+          linkedin_profile_url: c?.linkedin_profile_url || "",
+          name: c?.name || "",
+          role: c?.role || "",
+          location: c?.location || "",
+          status: c?.status || "",
+        }))
+      : [],
+    profilesFetchError: d.profilesFetchError,
+    filterForm: filterFormForApi(d.filterForm) ?? null,
+    createdAt: d.createdAt,
+    updatedAt: d.updatedAt,
+    label: owner.searchedByName
+      ? `${owner.searchedByName}: ${promptLabel}`
+      : promptLabel,
+  };
 }
 
 /** Case-insensitive match on stored candidate fields (name, role, company, skills, etc.). */
@@ -1830,6 +1943,32 @@ function detailPayloadFromStoredRawDoc(rawDoc, candidateId) {
   };
 }
 
+/** Normalize FJ details `data` so FE always receives `{ candidate, ... }`. */
+function normalizeFjCandidateDetailData(data) {
+  if (!data || typeof data !== "object") return null;
+  if (data.candidate && typeof data.candidate === "object") return data;
+  if (data.profile && typeof data.profile === "object") {
+    return {
+      candidate: data.profile,
+      finalScore:
+        typeof data.finalScore === "number" ? data.finalScore : undefined,
+      profileAnalysis:
+        data.profileAnalysis && typeof data.profileAnalysis === "object"
+          ? data.profileAnalysis
+          : undefined,
+    };
+  }
+  if (
+    Array.isArray(data.current_employers) ||
+    Array.isArray(data.current_employers_object) ||
+    Array.isArray(data.past_employers) ||
+    Array.isArray(data.all_employers)
+  ) {
+    return { candidate: data };
+  }
+  return data;
+}
+
 async function findOwnedSourcedCandidateDetail(
   userId,
   candidateId,
@@ -1966,14 +2105,18 @@ const getSessionCandidateDetails = async (req, res) => {
     for (const fjId of idsToTry) {
       try {
         futureJobs = await getSourcingSessionCandidateDetails(fjId);
-        detail =
+        detail = normalizeFjCandidateDetailData(
           futureJobs?.data && typeof futureJobs.data === "object"
             ? futureJobs.data
-            : null;
+            : null
+        );
         if (detail) break;
       } catch (err) {
         lastFjError = err;
-        if (err.statusCode !== 404) break;
+        // Upstream helpers map HTTP failures to statusCode 502; real FJ HTTP
+        // status lives on fjHttpStatus. Keep trying alternate ids on 404 only.
+        const fjHttp = Number(err?.fjHttpStatus || err?.statusCode || 0);
+        if (fjHttp !== 404) break;
       }
     }
 
@@ -2035,7 +2178,8 @@ const getSessionCandidateDetails = async (req, res) => {
 
 /**
  * GET /api/candidates/session/:sessionId/profiles
- * Loads all profile pages from Future Jobs for this session (no fetch-more).
+ * Prefer persisted candidates (includes fetch-more totals). Fall back to Future Jobs
+ * first page only when nothing is stored yet.
  */
 const loadSessionProfiles = async (req, res) => {
   const userId = req.auth?.userId;
@@ -2071,6 +2215,65 @@ const loadSessionProfiles = async (req, res) => {
       userId,
       sessionId,
     });
+
+    const scopeFilter =
+      (await userIdFilterForActor(userId)) || {
+        userId: new mongoose.Types.ObjectId(userId),
+      };
+    const storedFilter = {
+      sourcingSessionId: sessionId,
+    };
+    // Session access already checked via findSessionInScope — load all stored rows for it.
+    const storedCount = await SourcedCandidateDetail.countDocuments(storedFilter);
+
+    if (storedCount > 0) {
+      const storedRows = await SourcedCandidateDetail.find(storedFilter)
+        .sort({ createdAt: 1, _id: 1 })
+        .limit(STORED_CANDIDATES_ALL_LIMIT)
+        .lean();
+      const storedDocs = storedRows
+        .map((r) => r?.rawDoc)
+        .filter((d) => d && typeof d === "object");
+
+      if (storedDocs.length > 0) {
+        const mapped = mapProfilesResToLists(
+          buildProfilesResWithDocs({}, storedDocs)
+        );
+        const displayedCount = mapped.candidates.length;
+
+        logApi("candidates/session/profiles", "success (stored)", {
+          userId,
+          sessionId,
+          storedCount,
+          docCount: displayedCount,
+          scopeUserIds: scopeFilter.userId,
+        });
+
+        return res.status(200).json({
+          success: true,
+          sessionId,
+          prompt: typeof owned.prompt === "string" ? owned.prompt : "",
+          page: 1,
+          limit: displayedCount,
+          canFetchMore: true,
+          storedProfileCount: storedCount,
+          candidates: mapped.candidates,
+          profilesPagination: {
+            totalDocs: Math.max(storedCount, displayedCount),
+            page: 1,
+            limit: displayedCount || PROFILE_FETCH_PAGE_LIMIT,
+            totalPages: 1,
+            hasNextPage: false,
+            hasPrevPage: false,
+            nextPage: null,
+            prevPage: null,
+          },
+          filterForm: filterFormForApi(owned?.filterForm),
+          futureJobsProfiles: mapped.futureJobsProfiles,
+          fromStored: true,
+        });
+      }
+    }
 
     const expectedFromSession =
       typeof owned?.totalDocs === "number" && owned.totalDocs > 0
@@ -2195,10 +2398,10 @@ const fetchMoreSessionProfiles = async (req, res) => {
             : {};
         const nextMapped = await fetchAllSessionProfilesFromFj(sessionId, {
           expectedProfileCount:
-            typeof nextSourcingMeta.newProfilesCount === "number"
-              ? nextSourcingMeta.newProfilesCount
-              : typeof nextSourcingMeta.total_display_count === "number"
-                ? nextSourcingMeta.total_display_count
+            typeof nextSourcingMeta.total_display_count === "number"
+              ? nextSourcingMeta.total_display_count
+              : typeof nextSourcingMeta.newProfilesCount === "number"
+                ? nextSourcingMeta.newProfilesCount
                 : null,
           profileMatchingStatus:
             typeof nextSourcingMeta.profileMatchingStatus === "string"
@@ -2224,7 +2427,41 @@ const fetchMoreSessionProfiles = async (req, res) => {
     });
 
     const storedCount = await syncSourcingSessionStoredCount(sessionId);
-    const docs = mapped.futureJobsProfiles?.data?.docs;
+
+    // Future Jobs fetch-more often returns only the new batch. Rebuild the response
+    // from our DB so clients get existing + newly fetched profiles together.
+    const storedRows = await SourcedCandidateDetail.find({
+      sourcingSessionId: sessionId,
+    })
+      .sort({ createdAt: 1, _id: 1 })
+      .limit(STORED_CANDIDATES_ALL_LIMIT)
+      .lean();
+    const storedDocs = storedRows
+      .map((r) => r?.rawDoc)
+      .filter((d) => d && typeof d === "object");
+    const fjDocs = Array.isArray(mapped.futureJobsProfiles?.data?.docs)
+      ? mapped.futureJobsProfiles.data.docs
+      : [];
+    const mergedDocs = [];
+    const seenDocKeys = new Set();
+    for (const doc of [...storedDocs, ...fjDocs]) {
+      if (mergedDocs.length >= STORED_CANDIDATES_ALL_LIMIT) break;
+      const id = doc?._id != null ? String(doc._id).trim() : "";
+      const linkedin = String(doc?.profile?.linkedin_profile_url || "")
+        .trim()
+        .toLowerCase();
+      const key = id || (linkedin ? `li:${linkedin}` : "");
+      if (key) {
+        if (seenDocKeys.has(key)) continue;
+        seenDocKeys.add(key);
+      }
+      mergedDocs.push(doc);
+    }
+    const responseMapped = mapProfilesResToLists(
+      buildProfilesResWithDocs(mapped.futureJobsProfiles || {}, mergedDocs)
+    );
+
+    const docs = responseMapped.futureJobsProfiles?.data?.docs;
     const docCount = Array.isArray(docs) ? docs.length : 0;
     const canFetchMore = canFetchMoreFromFjSourcing(sourcingMeta);
 
@@ -2242,18 +2479,18 @@ const fetchMoreSessionProfiles = async (req, res) => {
       success: true,
       sessionId,
       canFetchMore,
-      storedProfileCount: storedCount,
+      storedProfileCount: Math.max(storedCount, docCount),
       fetchMoreResult,
-      candidates: mapped.candidates,
+      candidates: responseMapped.candidates,
       profilesPagination: {
-        totalDocs: storedCount,
+        totalDocs: Math.max(storedCount, docCount),
         page: 1,
-        limit: storedCount || docCount || PROFILE_FETCH_PAGE_LIMIT,
+        limit: Math.max(storedCount, docCount) || PROFILE_FETCH_PAGE_LIMIT,
         totalPages: 1,
         hasNextPage: false,
         hasPrevPage: false,
       },
-      futureJobsProfiles: mapped.futureJobsProfiles,
+      futureJobsProfiles: responseMapped.futureJobsProfiles,
     });
   } catch (error) {
     if (respondIfQuotaExceeded(res, error)) return;
@@ -2323,8 +2560,8 @@ const loadStoredSessionCandidates = async (req, res) => {
       : clampInt(req.query.limit, 1, 100, 20);
     const skip = loadAll ? 0 : (page - 1) * limit;
 
+    // Access already gated by findSessionInScope — include every stored profile for this session.
     const filter = {
-      userId: owned.userId,
       sourcingSessionId: sessionId,
     };
 
@@ -2375,16 +2612,18 @@ const loadStoredSessionCandidates = async (req, res) => {
       canFetchMore: true,
       detailedDocs,
       candidates,
-      profilesPagination: {
-        totalDocs: displayedCount,
-        page: 1,
-        limit: displayedCount || limit,
-        totalPages: 1,
-        hasNextPage: false,
-        hasPrevPage: false,
-        nextPage: null,
-        prevPage: null,
-      },
+      profilesPagination: loadAll
+        ? {
+            totalDocs,
+            page: 1,
+            limit: displayedCount || limit,
+            totalPages: 1,
+            hasNextPage: false,
+            hasPrevPage: false,
+            nextPage: null,
+            prevPage: null,
+          }
+        : profilesPagination,
       filterForm: filterFormForApi(owned?.filterForm),
     });
   } catch (error) {
@@ -2657,7 +2896,7 @@ const listAllSourcedCandidatesAdmin = async (req, res) => {
 
 /**
  * GET /api/candidates/admin/sessions
- * Admin: sourcing sessions for pool filters (optional userId).
+ * Admin: sourcing sessions (optional userId, from/to dates).
  */
 const listSourcingSessionsAdmin = async (req, res) => {
   try {
@@ -2666,6 +2905,15 @@ const listSourcingSessionsAdmin = async (req, res) => {
       req.query.userId != null && String(req.query.userId).trim() !== ""
         ? String(req.query.userId).trim()
         : "";
+    const fromDate = parseAdminDateFilter(req.query.from, "start");
+    const toDate = parseAdminDateFilter(req.query.to, "end");
+
+    if (fromDate && toDate && fromDate.getTime() > toDate.getTime()) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid date range: from must be on or before to",
+      });
+    }
 
     const filter = {};
     if (userFilter) {
@@ -2678,6 +2926,12 @@ const listSourcingSessionsAdmin = async (req, res) => {
       filter.userId = new mongoose.Types.ObjectId(userFilter);
     }
 
+    if (fromDate || toDate) {
+      filter.createdAt = {};
+      if (fromDate) filter.createdAt.$gte = fromDate;
+      if (toDate) filter.createdAt.$lte = toDate;
+    }
+
     const docs = await SourcingSession.find(filter)
       .sort({ createdAt: -1 })
       .limit(limit)
@@ -2688,31 +2942,23 @@ const listSourcingSessionsAdmin = async (req, res) => {
       count: docs.length,
       limit,
       userFilter: userFilter || undefined,
+      from: fromDate ? fromDate.toISOString() : undefined,
+      to: toDate ? toDate.toISOString() : undefined,
     });
+
+    const storedCountScope = {};
+    if (userFilter) {
+      storedCountScope.userId = new mongoose.Types.ObjectId(userFilter);
+    }
+
+    const storedCountBySession = await storedProfileCountBySessionIds(
+      docs.map((d) => d.futureJobsSessionId),
+      storedCountScope
+    );
 
     return res.status(200).json({
       success: true,
-      sessions: docs.map((d) => {
-        const owner = d.userId;
-        const ownerName =
-          owner && typeof owner === "object" && typeof owner.fullName === "string"
-            ? owner.fullName.trim()
-            : "";
-        const promptLabel =
-          (typeof d.prompt === "string" && d.prompt.trim()) ||
-          (typeof d.sessionTitle === "string" && d.sessionTitle.trim()) ||
-          "Untitled search";
-        return {
-          id: d.futureJobsSessionId,
-          futureJobsSessionId: d.futureJobsSessionId,
-          userId: owner?._id != null ? String(owner._id) : String(d.userId || ""),
-          ownerName,
-          prompt: d.prompt,
-          sessionTitle: d.sessionTitle,
-          label: ownerName ? `${ownerName}: ${promptLabel}` : promptLabel,
-          createdAt: d.createdAt,
-        };
-      }),
+      sessions: docs.map((d) => serializeSourcingSessionListItem(d, storedCountBySession)),
     });
   } catch (error) {
     logApi("candidates/admin/sessions", "error", {
@@ -2897,50 +3143,7 @@ const listSourcingSessions = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      sessions: docs.map((d) => {
-        const sid =
-          typeof d.futureJobsSessionId === "string" ? d.futureJobsSessionId.trim() : "";
-        const storedCount = sid ? storedCountBySession[sid] : undefined;
-        const totalDocs =
-          typeof storedCount === "number"
-            ? storedCount
-            : typeof d.totalDocs === "number"
-              ? d.totalDocs
-              : null;
-        const searchedByName =
-          d.userId &&
-          typeof d.userId === "object" &&
-          typeof d.userId.fullName === "string" &&
-          d.userId.fullName.trim()
-            ? d.userId.fullName.trim()
-            : "";
-        return {
-        id: d._id.toString(),
-        futureJobsSessionId: d.futureJobsSessionId,
-        prompt: d.prompt,
-        sessionTitle: d.sessionTitle,
-        usingSessionOverride: d.usingSessionOverride,
-        futureJobsStatus: d.futureJobsStatus,
-        totalDocs,
-        candidateCountFirstPage: d.candidateCountFirstPage,
-        candidatePreview: Array.isArray(d.candidatePreview)
-          ? d.candidatePreview.map((c) => ({
-              id: c?.id || "",
-              sourcingSessionId: c?.sourcingSessionId || "",
-              linkedin_profile_url: c?.linkedin_profile_url || "",
-              name: c?.name || "",
-              role: c?.role || "",
-              location: c?.location || "",
-              status: c?.status || "",
-            }))
-          : [],
-        profilesFetchError: d.profilesFetchError,
-        filterForm: filterFormForApi(d.filterForm) ?? null,
-        searchedByName,
-        createdAt: d.createdAt,
-        updatedAt: d.updatedAt,
-        };
-      }),
+      sessions: docs.map((d) => serializeSourcingSessionListItem(d, storedCountBySession)),
     });
   } catch (error) {
     logApi("candidates/sessions", "error", {

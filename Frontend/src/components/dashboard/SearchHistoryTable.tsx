@@ -6,7 +6,9 @@ import { MaterialIcon } from "@/components/landing/MaterialIcon";
 export type SearchHistoryRow = {
   id: string;
   futureJobsSessionId: string;
+  userId?: string;
   searchedByName?: string;
+  searchedByEmail?: string;
   prompt: string;
   sessionTitle: string;
   usingSessionOverride: boolean;
@@ -198,6 +200,9 @@ type Props = {
   onOpenSession: (row: SearchHistoryRow) => void;
   onGoToSearch: () => void;
   showSearchedBy?: boolean;
+  emptyTitle?: string;
+  emptyDescription?: string;
+  emptyCtaLabel?: string;
 };
 
 export function SearchHistoryTable({
@@ -209,6 +214,9 @@ export function SearchHistoryTable({
   onOpenSession,
   onGoToSearch,
   showSearchedBy = false,
+  emptyTitle = "No searches yet",
+  emptyDescription = "Run your first AI candidate search to build your sourcing history. Each session is saved automatically.",
+  emptyCtaLabel = "Start searching",
 }: Props) {
   const [unavailableRow, setUnavailableRow] = useState<SearchHistoryRow | null>(null);
 
@@ -226,14 +234,11 @@ export function SearchHistoryTable({
         <div className="dashboard-empty-state-icon">
           <MaterialIcon name="history" className="text-[28px]" />
         </div>
-        <p className="mt-4 text-base font-semibold text-[#141b2b]">No searches yet</p>
-        <p className="mt-2 max-w-sm text-sm text-[#424656]">
-          Run your first AI candidate search to build your sourcing history. Each session is
-          saved automatically.
-        </p>
+        <p className="mt-4 text-base font-semibold text-[#141b2b]">{emptyTitle}</p>
+        <p className="mt-2 max-w-sm text-sm text-[#424656]">{emptyDescription}</p>
         <button type="button" onClick={onGoToSearch} className="dashboard-btn-primary mt-6">
           <MaterialIcon name="search" className="text-base" />
-          Start searching
+          {emptyCtaLabel}
         </button>
       </div>
     );
@@ -329,10 +334,18 @@ export function SearchHistoryTable({
                   <td className="max-w-48">
                     <span
                       className="dashboard-table-prompt line-clamp-2"
-                      title={row.searchedByName || "—"}
+                      title={
+                        [row.searchedByName, row.searchedByEmail].filter(Boolean).join(" · ") ||
+                        "—"
+                      }
                     >
                       {row.searchedByName?.trim() || "—"}
                     </span>
+                    {row.searchedByEmail?.trim() ? (
+                      <span className="dashboard-table-when-secondary line-clamp-1">
+                        {row.searchedByEmail.trim()}
+                      </span>
+                    ) : null}
                   </td>
                 ) : null}
                 <td className="max-w-[18rem]">

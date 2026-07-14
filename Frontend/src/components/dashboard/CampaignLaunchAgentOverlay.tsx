@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 
-type LaunchChannel = "whatsapp" | "gmail";
+type LaunchChannel = "whatsapp" | "gmail" | "voice";
 
 type LaunchStep = {
   id: string;
@@ -21,7 +21,7 @@ const LAUNCH_CONFIG: Record<
     subtitle: string;
     successText: string;
     launchedTitle: string;
-    provider: "whatsapp" | "gmail";
+    provider: "whatsapp" | "gmail" | "voice";
     overlayClass: string;
   }
 > = {
@@ -52,6 +52,20 @@ const LAUNCH_CONFIG: Record<
     launchedTitle: "Email Outreach agent launched",
     provider: "gmail",
     overlayClass: "dashboard-launch-agent-overlay--gmail",
+  },
+  voice: {
+    steps: [
+      { id: "save", label: "Saving voice screening", icon: "save" },
+      { id: "script", label: "Preparing AI call script", icon: "description" },
+      { id: "enroll", label: "Enrolling candidates", icon: "group_add" },
+      { id: "calls", label: "Placing AI voice calls", icon: "call" },
+    ],
+    title: "Launching AI Voice Screening",
+    subtitle: "Your screening agent is preparing voice calls for selected candidates.",
+    successText: "Voice screening launched",
+    launchedTitle: "Voice screening launched",
+    provider: "voice",
+    overlayClass: "dashboard-launch-agent-overlay--voice",
   },
 };
 
@@ -144,16 +158,23 @@ export function CampaignLaunchAgentOverlay({ open, channel = "whatsapp" }: Props
             }`}
           >
             <MaterialIcon
-              name={allComplete ? "check" : "smart_toy"}
+              name={allComplete ? "check" : config.provider === "voice" ? "record_voice_over" : "smart_toy"}
               className="dashboard-launch-agent-core-icon"
             />
           </span>
           <span className="dashboard-launch-agent-channel-badge">
-            <IntegrationBrandLogo
-              provider={config.provider}
-              title={channel === "gmail" ? "Gmail" : "WhatsApp"}
-              className="dashboard-integration-brand-logo--sm"
-            />
+            {config.provider === "voice" ? (
+              <MaterialIcon
+                name="record_voice_over"
+                className="text-base text-[#0050cb]"
+              />
+            ) : (
+              <IntegrationBrandLogo
+                provider={config.provider}
+                title={channel === "gmail" ? "Gmail" : "WhatsApp"}
+                className="dashboard-integration-brand-logo--sm"
+              />
+            )}
           </span>
         </div>
 

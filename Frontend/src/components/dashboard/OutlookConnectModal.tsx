@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { IntegrationBrandLogo } from "@/components/dashboard/IntegrationBrandLogo";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
 import { getStoredAuth } from "@/lib/auth";
 import { dashboardBtnSecondaryClass } from "@/lib/dashboardStyles";
 import { fetchOutlookOAuthUrl, fetchOutlookStatus } from "@/lib/outlookIntegrations";
@@ -11,10 +12,11 @@ import { fetchOutlookOAuthUrl, fetchOutlookStatus } from "@/lib/outlookIntegrati
 type Props = {
   open: boolean;
   busy: boolean;
+  elevated?: boolean;
   onClose: () => void;
 };
 
-export function OutlookConnectModal({ open, busy, onClose }: Props) {
+export function OutlookConnectModal({ open, busy, elevated = false, onClose }: Props) {
   const [oauthLoading, setOauthLoading] = useState(false);
   const [error, setError] = useState("");
   const [oauthConfigured, setOauthConfigured] = useState<boolean | null>(null);
@@ -61,7 +63,7 @@ export function OutlookConnectModal({ open, busy, onClose }: Props) {
 
   return (
     <div
-      className="dashboard-modal-overlay py-6"
+      className={`dashboard-modal-overlay py-6${elevated ? " dashboard-modal-overlay--elevated" : ""}`}
       role="presentation"
       onClick={(e) => {
         if (e.target === e.currentTarget && !working) onClose();
@@ -122,12 +124,7 @@ export function OutlookConnectModal({ open, busy, onClose }: Props) {
               disabled={working}
               onClick={() => void handleMicrosoftSignIn()}
             >
-              {working ? (
-                <>
-                  <span className="dashboard-reveal-spinner shrink-0" aria-hidden />
-                  Redirecting to Microsoft…
-                </>
-              ) : (
+              <ButtonLoadingContent loading={working} loadingLabel="Redirecting to Microsoft">
                 <>
                   <svg width="18" height="18" viewBox="0 0 21 21" aria-hidden>
                     <rect x="1" y="1" width="9" height="9" fill="#f25022" />
@@ -137,7 +134,7 @@ export function OutlookConnectModal({ open, busy, onClose }: Props) {
                   </svg>
                   Sign in with Microsoft
                 </>
-              )}
+              </ButtonLoadingContent>
             </button>
           )}
 

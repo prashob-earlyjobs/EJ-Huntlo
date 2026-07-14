@@ -124,7 +124,7 @@ function buildTouchpoints(parsed) {
 
   const replyQuestions = normalizeReplyQuestions(parsed.replyQuestions);
 
-  return [
+  const touchpoints = [
     {
       order: 1,
       label: "Opening message",
@@ -162,6 +162,8 @@ function buildTouchpoints(parsed) {
       isReplyFollowUp: true,
     })),
   ];
+
+  return { touchpoints, replyQuestions };
 }
 
 /**
@@ -184,7 +186,7 @@ async function generateWhatsAppSequenceFromJd({ jobDescription, planName = "" })
   });
 
   const parsed = parseJsonFromModel(raw);
-  const touchpoints = buildTouchpoints(parsed);
+  const { touchpoints, replyQuestions } = buildTouchpoints(parsed);
   const resolvedPlanName =
     String(parsed.planName || hint || "AI WhatsApp sequence").trim() ||
     "AI WhatsApp sequence";
@@ -192,6 +194,7 @@ async function generateWhatsAppSequenceFromJd({ jobDescription, planName = "" })
   return {
     planName: resolvedPlanName,
     touchpoints,
+    replyQuestions,
     touchpointCount: touchpoints.length,
   };
 }

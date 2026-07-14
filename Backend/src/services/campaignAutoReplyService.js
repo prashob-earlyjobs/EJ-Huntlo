@@ -150,10 +150,6 @@ async function maybeAutoReplyAfterCandidateMessage({
     return { sent: false, reason: "already_replied" };
   }
 
-  if (isFinalDisposition(enrollment.replyDisposition)) {
-    return { sent: false, reason: "disposition_final" };
-  }
-
   if ((enrollment.autoReplyCount || 0) >= MAX_AUTO_REPLIES) {
     return { sent: false, reason: "max_replies" };
   }
@@ -303,7 +299,7 @@ async function maybeAutoReplyAfterCandidateMessage({
     source: "auto_reply",
   });
 
-  if (isFinalDisposition(ai.disposition)) {
+  if (isFinalDisposition(ai.disposition) || update.status === "paused") {
     void maybeCompleteCampaign(String(enrollment.campaignId)).catch((err) => {
       console.error("[outreach-auto-reply] maybeCompleteCampaign failed:", err?.message || err);
     });

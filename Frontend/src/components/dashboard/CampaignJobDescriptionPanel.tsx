@@ -1,6 +1,7 @@
 "use client";
 
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
 import {
   dashboardBtnPrimaryClass,
   dashboardInputClass,
@@ -228,7 +229,9 @@ export function CampaignJobDescriptionPanel({
                   disabled={saving || locked || !trimmedTitle || !trimmed}
                   onClick={onSave}
                 >
-                  {saving ? "Saving…" : "Save job description"}
+                  <ButtonLoadingContent loading={saving} loadingLabel="Saving">
+                    Save job description
+                  </ButtonLoadingContent>
                 </button>
               </div>
             </>

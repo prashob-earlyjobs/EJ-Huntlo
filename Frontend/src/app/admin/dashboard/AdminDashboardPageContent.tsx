@@ -2,9 +2,14 @@
 
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+
+import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
 
 import { AdminBlogPanel } from "@/components/admin/AdminBlogPanel";
+import { AdminOutreachTriggersPanel } from "@/components/admin/AdminOutreachTriggersPanel";
+import { AdminSearchHistoryPanel } from "@/components/admin/AdminSearchHistoryPanel";
+import { type AdminUserSearchOption } from "@/components/admin/AdminUserSearchPicker";
 import {
   AdminMessagingChannelSettings,
   type AdminMessagingChannel,
@@ -14,6 +19,7 @@ import {
   type PoolCandidateRow,
   type PoolSessionOption,
 } from "@/components/dashboard/CandidatePoolPanel";
+import { type SearchHistoryRow } from "@/components/dashboard/SearchHistoryTable";
 import { LandingLogo } from "@/components/landing/LandingLogo";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { ConfirmModal } from "@/components/dashboard/ConfirmModal";
@@ -37,6 +43,28 @@ const sidebarItems = [
       <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
         <path
           d="M4 12L12 4L20 12M6 10V20H18V10"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    ),
+  },
+  {
+    label: "Search history",
+    subtitle: "Past sourcing sessions",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
+        <path
+          d="M12 8V12L15 15M21 12C21 16.97 16.97 21 12 21C7.03 21 3 16.97 3 12C3 7.03 7.03 3 12 3C16.97 3 21 7.03 21 12Z"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M3 3V8H8"
           stroke="currentColor"
           strokeWidth="1.8"
           strokeLinecap="round"
@@ -82,6 +110,21 @@ const sidebarItems = [
       <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
         <path
           d="M20 21V19C20 17.34 18.66 16 17 16H7C5.34 16 4 17.34 4 19V21M12 12C14.21 12 16 10.21 16 8C16 5.79 14.21 4 12 4C9.79 4 8 5.79 8 8C8 10.21 9.79 12 12 12Z"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    ),
+  },
+  {
+    label: "Outreach triggers",
+    subtitle: "Scheduled sends across users",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
+        <path
+          d="M12 6V12L16 14M21 12C21 16.97 16.97 21 12 21C7.03 21 3 16.97 3 12C3 7.03 7.03 3 12 3C16.97 3 21 7.03 21 12Z"
           stroke="currentColor"
           strokeWidth="1.8"
           strokeLinecap="round"
@@ -151,9 +194,28 @@ const sidebarItems = [
 ];
 
 const ADMIN_POOL_TAB = "Candidate pool";
+const ADMIN_SEARCH_HISTORY_TAB = "Search history";
 const ADMIN_ANALYTICS_TAB = "Analytics";
+const ADMIN_OUTREACH_TRIGGERS_TAB = "Outreach triggers";
 const ADMIN_SETTINGS_TAB = "Settings";
 const ADMIN_BLOG_TAB = "Blog";
+
+/** URL slugs for /admin/dashboard?tab=... */
+const ADMIN_TAB_SLUGS: Record<string, string> = {
+  overview: "Overview",
+  "search-history": ADMIN_SEARCH_HISTORY_TAB,
+  users: "Users",
+  analytics: ADMIN_ANALYTICS_TAB,
+  "candidate-pool": ADMIN_POOL_TAB,
+  "outreach-triggers": ADMIN_OUTREACH_TRIGGERS_TAB,
+  blog: ADMIN_BLOG_TAB,
+  "plans-pricing": "Plans & pricing",
+  settings: ADMIN_SETTINGS_TAB,
+};
+
+const ADMIN_TAB_SLUG_BY_LABEL = Object.fromEntries(
+  Object.entries(ADMIN_TAB_SLUGS).map(([slug, label]) => [label, slug])
+) as Record<string, string>;
 const ADMIN_POOL_LIMIT = 12;
 const ADMIN_USERS_LIMIT = 20;
 
@@ -668,6 +730,9 @@ type PricingTierForm = {
   name: string;
   primaryPrice: string;
   secondaryPrice: string;
+  paymentAmount: string;
+  paymentCurrency: "" | "inr" | "usd";
+  paymentAmountUsd: string;
   description: string;
   searches: string;
   candidateUnlocks: string;
@@ -710,6 +775,23 @@ function tierUsesOutreachQuotas(tier: Pick<PricingTierForm, "campaignsEnabled" |
   return tier.campaignsEnabled || tier.outreachesEnabled;
 }
 
+function paymentAmountApiToForm(v: unknown): string {
+  if (typeof v === "number" && Number.isFinite(v) && v > 0) return String(Math.floor(v));
+  return "";
+}
+
+function paymentCurrencyApiToForm(v: unknown): "" | "inr" | "usd" {
+  if (v === "inr" || v === "usd") return v;
+  return "";
+}
+
+function formPaymentAmountToApi(s: string): number | null {
+  const t = s.trim();
+  if (t === "") return null;
+  const n = parseInt(t, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 function formQuotaFieldToApi(s: string): number | null {
   const t = s.trim();
   if (t === "") return null;
@@ -743,6 +825,9 @@ function apiPlansToForm(plans: { intro?: unknown; tiers?: unknown }): PricingPla
       name: typeof t.name === "string" ? t.name : "",
       primaryPrice: typeof t.primaryPrice === "string" ? t.primaryPrice : "",
       secondaryPrice: typeof t.secondaryPrice === "string" ? t.secondaryPrice : "",
+      paymentAmount: paymentAmountApiToForm(t.paymentAmount),
+      paymentCurrency: paymentCurrencyApiToForm(t.paymentCurrency),
+      paymentAmountUsd: paymentAmountApiToForm(t.paymentAmountUsd),
       description: typeof t.description === "string" ? t.description : "",
       searches: quotaApiValueToFormField(t.searches),
       candidateUnlocks: quotaApiValueToFormField(t.candidateUnlocks),
@@ -779,6 +864,9 @@ function formToApiPayload(form: PricingPlansFormState) {
       name: t.name,
       primaryPrice: t.primaryPrice,
       secondaryPrice: t.secondaryPrice,
+      paymentAmount: formPaymentAmountToApi(t.paymentAmount),
+      paymentCurrency: formPaymentAmountToApi(t.paymentAmount) ? t.paymentCurrency || null : null,
+      paymentAmountUsd: formPaymentAmountToApi(t.paymentAmountUsd),
       description: t.description,
       searches: formQuotaFieldToApi(t.searches),
       candidateUnlocks: formQuotaFieldToApi(t.candidateUnlocks),
@@ -807,6 +895,7 @@ function formToApiPayload(form: PricingPlansFormState) {
 
 export function AdminDashboardPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [auth, setAuth] = useState<StoredAuth | null>(null);
   const [activeTab, setActiveTab] = useState("Users");
   const [adminMessagingChannel, setAdminMessagingChannel] =
@@ -882,6 +971,14 @@ export function AdminDashboardPage() {
   const [adminPoolUserFilter, setAdminPoolUserFilter] = useState("__all__");
   const [adminPoolSessions, setAdminPoolSessions] = useState<PoolSessionOption[]>([]);
   const [adminPoolSessionsLoading, setAdminPoolSessionsLoading] = useState(false);
+  const [adminSearchHistoryRows, setAdminSearchHistoryRows] = useState<SearchHistoryRow[]>([]);
+  const [adminSearchHistoryLoading, setAdminSearchHistoryLoading] = useState(false);
+  const [adminSearchHistoryHydrated, setAdminSearchHistoryHydrated] = useState(false);
+  const [adminSearchHistoryError, setAdminSearchHistoryError] = useState("");
+  const [adminHistorySelectedUser, setAdminHistorySelectedUser] =
+    useState<AdminUserSearchOption | null>(null);
+  const [adminHistoryFromDate, setAdminHistoryFromDate] = useState("");
+  const [adminHistoryToDate, setAdminHistoryToDate] = useState("");
   const [pricingForm, setPricingForm] = useState<PricingPlansFormState | null>(null);
   const [pricingLoading, setPricingLoading] = useState(false);
   const [pricingSaving, setPricingSaving] = useState(false);
@@ -889,6 +986,16 @@ export function AdminDashboardPage() {
   const [pricingSuccess, setPricingSuccess] = useState("");
 
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+
+  const selectAdminTab = useCallback(
+    (label: string) => {
+      setActiveTab(label);
+      const slug = ADMIN_TAB_SLUG_BY_LABEL[label];
+      const path = slug ? `/admin/dashboard?tab=${slug}` : "/admin/dashboard";
+      router.replace(path, { scroll: false });
+    },
+    [router]
+  );
 
   const loadUsers = useCallback(
     async (token: string, page = 1, searchQuery = "") => {
@@ -959,15 +1066,77 @@ export function AdminDashboardPage() {
         }
         const sessions = Array.isArray(data.sessions) ? data.sessions : [];
         setAdminPoolSessions(
-          sessions.map((s: { id?: string; label?: string }) => ({
-            id: typeof s.id === "string" ? s.id : "",
-            label: typeof s.label === "string" && s.label.trim() ? s.label.trim() : "Untitled search",
-          }))
+          sessions.map(
+            (s: {
+              id?: string;
+              futureJobsSessionId?: string;
+              label?: string;
+              prompt?: string;
+              sessionTitle?: string;
+            }) => {
+              const sessionId =
+                typeof s.futureJobsSessionId === "string" && s.futureJobsSessionId.trim()
+                  ? s.futureJobsSessionId.trim()
+                  : typeof s.id === "string"
+                    ? s.id.trim()
+                    : "";
+              const fallbackLabel =
+                (typeof s.prompt === "string" && s.prompt.trim()) ||
+                (typeof s.sessionTitle === "string" && s.sessionTitle.trim()) ||
+                "Untitled search";
+              return {
+                id: sessionId,
+                label:
+                  typeof s.label === "string" && s.label.trim() ? s.label.trim() : fallbackLabel,
+              };
+            }
+          )
         );
       } catch {
         setAdminPoolSessions([]);
       } finally {
         setAdminPoolSessionsLoading(false);
+      }
+    },
+    [apiBase]
+  );
+
+  const loadAdminSearchHistory = useCallback(
+    async (
+      token: string,
+      filters: { userId?: string; from?: string; to?: string }
+    ) => {
+      setAdminSearchHistoryLoading(true);
+      setAdminSearchHistoryError("");
+      try {
+        const params = new URLSearchParams({ limit: "100" });
+        if (filters.userId) {
+          params.set("userId", filters.userId);
+        }
+        if (filters.from) {
+          params.set("from", filters.from);
+        }
+        if (filters.to) {
+          params.set("to", filters.to);
+        }
+        const res = await fetch(
+          `${apiBase}/api/candidates/admin/sessions?${params.toString()}`,
+          { headers: authHeaders(token) }
+        );
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(data.message || "Failed to load search history");
+        }
+        const sessions = Array.isArray(data.sessions) ? data.sessions : [];
+        setAdminSearchHistoryRows(sessions as SearchHistoryRow[]);
+      } catch (e) {
+        setAdminSearchHistoryRows([]);
+        setAdminSearchHistoryError(
+          e instanceof Error ? e.message : "Failed to load search history"
+        );
+      } finally {
+        setAdminSearchHistoryHydrated(true);
+        setAdminSearchHistoryLoading(false);
       }
     },
     [apiBase]
@@ -1134,6 +1303,13 @@ export function AdminDashboardPage() {
   }, [router, loadUsers]);
 
   useEffect(() => {
+    const slug = searchParams.get("tab");
+    if (slug && ADMIN_TAB_SLUGS[slug]) {
+      setActiveTab(ADMIN_TAB_SLUGS[slug]);
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
     if (activeTab !== "Users") return;
     const timer = window.setTimeout(() => {
       setUsersSearchQuery(usersSearchInput.trim());
@@ -1160,6 +1336,23 @@ export function AdminDashboardPage() {
     if (activeTab !== ADMIN_POOL_TAB || !auth?.token) return;
     void loadAdminPoolSessions(auth.token, adminPoolUserFilter);
   }, [activeTab, adminPoolUserFilter, auth?.token, loadAdminPoolSessions]);
+
+  useEffect(() => {
+    if (activeTab !== ADMIN_SEARCH_HISTORY_TAB || !auth?.token) return;
+    setAdminSearchHistoryHydrated(false);
+    void loadAdminSearchHistory(auth.token, {
+      userId: adminHistorySelectedUser?.id,
+      from: adminHistoryFromDate,
+      to: adminHistoryToDate,
+    });
+  }, [
+    activeTab,
+    adminHistorySelectedUser?.id,
+    adminHistoryFromDate,
+    adminHistoryToDate,
+    auth?.token,
+    loadAdminSearchHistory,
+  ]);
 
   useEffect(() => {
     if (activeTab !== ADMIN_POOL_TAB || !auth?.token) return;
@@ -1189,6 +1382,17 @@ export function AdminDashboardPage() {
   const handleAdminPoolSessionFilterChange = (value: string) => {
     setAdminPoolSessionFilter(value);
     setAdminPoolPage(1);
+  };
+
+  const openAdminSessionFromHistory = (row: SearchHistoryRow) => {
+    const sessionId = row.futureJobsSessionId.trim();
+    if (!sessionId) return;
+    if (row.userId?.trim()) {
+      setAdminPoolUserFilter(row.userId.trim());
+    }
+    setAdminPoolSessionFilter(sessionId);
+    setAdminPoolPage(1);
+    selectAdminTab(ADMIN_POOL_TAB);
   };
 
   const loadUserManageData = useCallback(
@@ -1592,7 +1796,7 @@ export function AdminDashboardPage() {
   }
 
   return (
-    <main className="dashboard-page">
+    <main className="dashboard-page dashboard-page--admin">
       <ConfirmModal
         open={logoutConfirmOpen}
         title="Log out?"
@@ -1604,47 +1808,71 @@ export function AdminDashboardPage() {
         onConfirm={() => void handleLogout()}
       />
       <div className="dashboard-shell flex min-w-0 w-full">
-        <aside className="dashboard-sidebar hidden lg:block">
-          <p className="dashboard-sidebar-label">Admin Panel</p>
-          <div className="dashboard-sidebar-brand mt-3">
-            <Link
-              href="/admin/dashboard"
-              className="dashboard-sidebar-brand-link"
-              aria-label="Huntlo admin home"
-            >
-              <LandingLogo className="dashboard-sidebar-logo" priority />
-            </Link>
+        <aside className="dashboard-sidebar dashboard-sidebar--compact hidden flex-col lg:flex">
+          <div className="shrink-0">
+            <p className="dashboard-sidebar-label">Admin Panel</p>
+            <div className="dashboard-sidebar-brand mt-3">
+              <Link
+                href="/admin/dashboard"
+                className="dashboard-sidebar-brand-link"
+                aria-label="Huntlo admin home"
+              >
+                <LandingLogo className="dashboard-sidebar-logo" priority />
+              </Link>
+            </div>
           </div>
 
-          <nav className="dashboard-sidebar-nav space-y-2">
-            {sidebarItems.map((item) => (
-              <button
-                key={item.label}
-                type="button"
-                onClick={() => setActiveTab(item.label)}
-                className={`dashboard-nav-item ${
-                  activeTab === item.label ? "dashboard-nav-item--active" : ""
-                }`}
-              >
-                <span className="flex items-start gap-3">
-                  <span
-                    className={`dashboard-nav-icon ${
-                      activeTab === item.label ? "dashboard-nav-icon--active" : ""
+          <nav className="dashboard-sidebar-nav">
+            <div className="dashboard-sidebar-nav-scroll dashboard-sidebar-nav-scroll--visible">
+              <div className="dashboard-sidebar-nav-list">
+                {sidebarItems.map((item) => (
+                  <button
+                    key={item.label}
+                    type="button"
+                    onClick={() => selectAdminTab(item.label)}
+                    title={item.subtitle}
+                    className={`dashboard-nav-item ${
+                      activeTab === item.label ? "dashboard-nav-item--active" : ""
                     }`}
                   >
-                    {item.icon}
-                  </span>
-                  <span>
-                    <span className="block text-sm font-medium">{item.label}</span>
-                    <span className="dashboard-nav-subtitle">{item.subtitle}</span>
-                  </span>
-                </span>
-              </button>
-            ))}
+                    <span className="flex items-start gap-3">
+                      <span
+                        className={`dashboard-nav-icon ${
+                          activeTab === item.label ? "dashboard-nav-icon--active" : ""
+                        }`}
+                      >
+                        {item.icon}
+                      </span>
+                      <span>
+                        <span className="block text-sm font-medium">{item.label}</span>
+                        <span className="dashboard-nav-subtitle">{item.subtitle}</span>
+                      </span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
           </nav>
         </aside>
 
         <section className="dashboard-main-panel">
+          <nav
+            className="dashboard-admin-mobile-nav lg:hidden"
+            aria-label="Admin sections"
+          >
+            {sidebarItems.map((item) => (
+              <button
+                key={`mobile-${item.label}`}
+                type="button"
+                onClick={() => selectAdminTab(item.label)}
+                className={`dashboard-admin-mobile-nav-btn${
+                  activeTab === item.label ? " dashboard-admin-mobile-nav-btn--active" : ""
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </nav>
           <header className="dashboard-header">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -1664,7 +1892,9 @@ export function AdminDashboardPage() {
                   disabled={isLoggingOut}
                   className="dashboard-btn-secondary"
                 >
-                  {isLoggingOut ? "Logging out…" : "Logout"}
+                  <ButtonLoadingContent loading={isLoggingOut} loadingLabel="Logging out">
+                    Logout
+                  </ButtonLoadingContent>
                 </button>
                 {activeTab === "Users" ? (
                   <button
@@ -1681,7 +1911,7 @@ export function AdminDashboardPage() {
 
           <div className="dashboard-main-scroll">
             {activeTab === "Users" ? (
-              <article className="dashboard-card p-6">
+              <article className="dashboard-card dashboard-admin-scroll-panel p-6">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <h3 className="dashboard-section-title">Users</h3>
@@ -1818,7 +2048,7 @@ export function AdminDashboardPage() {
                 </div>
               </article>
             ) : activeTab === ADMIN_ANALYTICS_TAB ? (
-              <article className="dashboard-card p-6">
+              <article className="dashboard-card dashboard-admin-scroll-panel p-6">
                 <div>
                   <h3 className="dashboard-section-title">Analytics</h3>
                   <p className="mt-1 dashboard-text-body">
@@ -1940,6 +2170,30 @@ export function AdminDashboardPage() {
                   </div>
                 </div>
               </article>
+            ) : activeTab === ADMIN_SEARCH_HISTORY_TAB ? (
+              auth?.token ? (
+                <AdminSearchHistoryPanel
+                  apiBase={apiBase}
+                  token={auth.token}
+                  rows={adminSearchHistoryRows}
+                  loading={adminSearchHistoryLoading}
+                  hydrated={adminSearchHistoryHydrated}
+                  error={adminSearchHistoryError}
+                  selectedUser={adminHistorySelectedUser}
+                  fromDate={adminHistoryFromDate}
+                  toDate={adminHistoryToDate}
+                  onSelectedUserChange={setAdminHistorySelectedUser}
+                  onFromDateChange={setAdminHistoryFromDate}
+                  onToDateChange={setAdminHistoryToDate}
+                  onClearFilters={() => {
+                    setAdminHistorySelectedUser(null);
+                    setAdminHistoryFromDate("");
+                    setAdminHistoryToDate("");
+                  }}
+                  onOpenSession={openAdminSessionFromHistory}
+                  onGoToCandidatePool={() => selectAdminTab(ADMIN_POOL_TAB)}
+                />
+              ) : null
             ) : activeTab === ADMIN_POOL_TAB ? (
               <CandidatePoolPanel
                 title="All workspace candidates"
@@ -1987,7 +2241,7 @@ export function AdminDashboardPage() {
                 readOnly
               />
             ) : activeTab === ADMIN_SETTINGS_TAB ? (
-              <article className="dashboard-card p-6">
+              <article className="dashboard-card dashboard-admin-scroll-panel p-6">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <h3 className="dashboard-section-title">Settings</h3>
@@ -2002,7 +2256,9 @@ export function AdminDashboardPage() {
                     disabled={settingsSaving || settingsLoading}
                     className="dashboard-btn-primary disabled:opacity-50"
                   >
-                    {settingsSaving ? "Saving…" : "Save"}
+                    <ButtonLoadingContent loading={settingsSaving} loadingLabel="Saving settings">
+                      Save
+                    </ButtonLoadingContent>
                   </button>
                 </div>
                 {settingsError ? (
@@ -2028,8 +2284,10 @@ export function AdminDashboardPage() {
               </article>
             ) : activeTab === ADMIN_BLOG_TAB ? (
               auth?.token ? <AdminBlogPanel token={auth.token} /> : null
+            ) : activeTab === ADMIN_OUTREACH_TRIGGERS_TAB ? (
+              auth?.token ? <AdminOutreachTriggersPanel token={auth.token} /> : null
             ) : activeTab === "Plans & pricing" ? (
-              <article className="dashboard-card p-6">
+              <article className="dashboard-card dashboard-admin-scroll-panel p-6">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <h3 className="dashboard-section-title">Plans & pricing</h3>
@@ -2044,7 +2302,9 @@ export function AdminDashboardPage() {
                     disabled={pricingSaving || !pricingForm}
                     className="dashboard-btn-primary disabled:opacity-50"
                   >
-                    {pricingSaving ? "Saving…" : "Save"}
+                    <ButtonLoadingContent loading={pricingSaving} loadingLabel="Saving pricing">
+                      Save
+                    </ButtonLoadingContent>
                   </button>
                 </div>
                 {pricingError ? (
@@ -2128,6 +2388,65 @@ export function AdminDashboardPage() {
                               }
                               className="mt-1 w-full dashboard-input"
                             />
+                          </div>
+                        </div>
+                        <div className="mt-4 border-t border-slate-200 pt-4">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Payment gateway
+                          </p>
+                          <p className="mt-1 text-[10px] text-slate-500">
+                            Amount charged at checkout. Set currency for Razorpay (INR) or Dodo
+                            (USD). Use optional USD amount when primary currency is INR.
+                          </p>
+                          <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                            <div>
+                              <label className="text-xs text-slate-600">Payment amount</label>
+                              <input
+                                type="number"
+                                min={1}
+                                step={1}
+                                inputMode="numeric"
+                                placeholder="e.g. 8999"
+                                value={tier.paymentAmount}
+                                onChange={(e) =>
+                                  patchPricingTier(idx, { paymentAmount: e.target.value })
+                                }
+                                className="mt-1 w-full dashboard-input"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-xs text-slate-600">Currency</label>
+                              <select
+                                value={tier.paymentCurrency}
+                                onChange={(e) =>
+                                  patchPricingTier(idx, {
+                                    paymentCurrency: e.target.value as "" | "inr" | "usd",
+                                  })
+                                }
+                                className="mt-1 w-full dashboard-input"
+                              >
+                                <option value="">—</option>
+                                <option value="inr">INR (Razorpay)</option>
+                                <option value="usd">USD (Dodo)</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="text-xs text-slate-600">
+                                Payment amount (USD)
+                              </label>
+                              <input
+                                type="number"
+                                min={1}
+                                step={1}
+                                inputMode="numeric"
+                                placeholder="e.g. 99"
+                                value={tier.paymentAmountUsd}
+                                onChange={(e) =>
+                                  patchPricingTier(idx, { paymentAmountUsd: e.target.value })
+                                }
+                                className="mt-1 w-full dashboard-input"
+                              />
+                            </div>
                           </div>
                         </div>
                         <div className="mt-3">
@@ -2375,7 +2694,7 @@ export function AdminDashboardPage() {
                 )}
               </article>
             ) : (
-              <article className="dashboard-card p-6">
+              <article className="dashboard-card dashboard-admin-scroll-panel p-6">
                 <h3 className="dashboard-section-title">{activeTab}</h3>
                 <p className="mt-2 text-sm text-slate-600">
                   This section is ready. You can add {activeTab.toLowerCase()} features
@@ -2532,7 +2851,9 @@ export function AdminDashboardPage() {
                       disabled={isCreating}
                       className="dashboard-btn-primary disabled:opacity-60"
                     >
-                      {isCreating ? "Creating…" : "Create User"}
+                      <ButtonLoadingContent loading={isCreating} loadingLabel="Creating user">
+                        Create User
+                      </ButtonLoadingContent>
                     </button>
                   </div>
                 </form>
@@ -2599,7 +2920,9 @@ export function AdminDashboardPage() {
                         onClick={() => void handleSaveUserPlan()}
                         className="dashboard-btn-primary py-2.5 disabled:opacity-60"
                       >
-                        {planSaving ? "Saving…" : "Save plan"}
+                        <ButtonLoadingContent loading={planSaving} loadingLabel="Saving plan">
+                          Save plan
+                        </ButtonLoadingContent>
                       </button>
                     </div>
                     <p className="mt-1 text-xs text-slate-500">

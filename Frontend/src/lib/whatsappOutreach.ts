@@ -132,6 +132,18 @@ function createDefaultReplyQuestion(slot: number): string {
   return "Final question: are you interested in taking a short interview call this week?";
 }
 
+export const DEFAULT_WHATSAPP_REPLY_MESSAGE = createDefaultReplyQuestion(1);
+
+export const MAX_WHATSAPP_REPLY_QUESTIONS = 4;
+
+export function createDefaultWhatsAppReplyQuestions(): string[] {
+  return [1, 2, 3, 4].map((slot) => createDefaultReplyQuestion(slot));
+}
+
+export function createWhatsAppReplyQuestionPlaceholder(index: number): string {
+  return createDefaultReplyQuestion(Math.min(Math.max(index, 1), 4));
+}
+
 export function createEmptyWhatsAppStep(order: number): WhatsAppTouchpointDraft {
   return {
     order,
@@ -192,9 +204,16 @@ export function ensureWhatsAppSequenceWithFallbacks(
       2,
       existingFb.find((t) => t.order === 3) ?? touchpoints.find((t) => t.order === 3)
     );
-  const extra = touchpoints
-    .filter((t) => t.order > 3 && !t.isNoReplyFallback)
+
+  const replyFollowUps = touchpoints
+    .filter((t) => t.isReplyFollowUp)
     .sort((a, b) => a.order - b.order);
+  const extra =
+    replyFollowUps.length > 0
+      ? replyFollowUps
+      : touchpoints
+          .filter((t) => t.order > 3 && !t.isNoReplyFallback)
+          .sort((a, b) => a.order - b.order);
 
   const normalizedExtra = [...extra];
   while (minReplyFollowups > 0 && normalizedExtra.length < minReplyFollowups) {
@@ -244,6 +263,91 @@ export const WHATSAPP_MERGE_TAGS = [
 ] as const;
 
 export const WHATSAPP_MESSAGE_MAX_LENGTH = 4096;
+
+export type WhatsAppSingleChannelMessage = {
+  templateId: string;
+  body: string;
+  followUpTemplateId: string;
+  followUpBody: string;
+  followUpWaitHours: number;
+  followUp2TemplateId: string;
+  followUp2Body: string;
+  followUp2WaitHours: number;
+  replyQuestions: string[];
+};
+
+export function createDefaultWhatsAppSingleChannelMessage(): WhatsAppSingleChannelMessage {
+  const opening = WHATSAPP_OPENING_TEMPLATES[0];
+  const followUp1 = WHATSAPP_NO_REPLY_TEMPLATES[1][0];
+  const followUp2 = WHATSAPP_NO_REPLY_TEMPLATES[2][0];
+  return {
+    templateId: opening.id,
+    body: opening.body,
+    followUpTemplateId: followUp1.id,
+    followUpBody: followUp1.body,
+    followUpWaitHours: 48,
+    followUp2TemplateId: followUp2.id,
+    followUp2Body: followUp2.body,
+    followUp2WaitHours: 96,
+    replyQuestions: createDefaultWhatsAppReplyQuestions(),
+  };
+}
+
+export function resolveWhatsAppSingleChannelMessage(
+  partial: Partial<WhatsAppSingleChannelMessage> & { replyBody?: string } = {}
+): WhatsAppSingleChannelMessage {
+  const defaults = createDefaultWhatsAppSingleChannelMessage();
+  const templateId = partial.templateId?.trim() || defaults.templateId;
+  const opening = getWhatsAppOpeningTemplate(templateId) ?? WHATSAPP_OPENING_TEMPLATES[0];
+  const followUpTemplateId = partial.followUpTemplateId?.trim() || defaults.followUpTemplateId;
+  const followUp1 =
+    getWhatsAppNoReplyTemplate(1, followUpTemplateId) ?? WHATSAPP_NO_REPLY_TEMPLATES[1][0];
+  const followUp2TemplateId = partial.followUp2TemplateId?.trim() || defaults.followUp2TemplateId;
+  const followUp2 =
+    getWhatsAppNoReplyTemplate(2, followUp2TemplateId) ?? WHATSAPP_NO_REPLY_TEMPLATES[2][0];
+
+  return {
+    templateId: opening.id,
+    body: partial.body?.trim() || opening.body,
+    followUpTemplateId: followUp1.id,
+    followUpBody: partial.followUpBody?.trim() || followUp1.body,
+    followUpWaitHours: Math.max(1, partial.followUpWaitHours ?? defaults.followUpWaitHours),
+    followUp2TemplateId: followUp2.id,
+    followUp2Body: partial.followUp2Body?.trim() || followUp2.body,
+    followUp2WaitHours: Math.max(1, partial.followUp2WaitHours ?? defaults.followUp2WaitHours),
+    replyQuestions: normalizeWhatsAppReplyQuestions(partial.replyQuestions, partial.replyBody),
+  };
+}
+
+function normalizeWhatsAppReplyQuestions(
+  replyQuestions: string[] | undefined,
+  legacyReplyBody?: string
+): string[] {
+  let questions: string[] = [];
+  if (Array.isArray(replyQuestions) && replyQuestions.length > 0) {
+    questions = replyQuestions.map((q) => String(q ?? "").trim()).filter(Boolean);
+  } else if (legacyReplyBody?.trim()) {
+    questions = [legacyReplyBody.trim()];
+  }
+
+  if (questions.length === 0) {
+    return createDefaultWhatsAppReplyQuestions();
+  }
+
+  const padded = [...questions];
+  while (padded.length < MAX_WHATSAPP_REPLY_QUESTIONS) {
+    padded.push(createDefaultReplyQuestion(padded.length + 1));
+  }
+  return padded.slice(0, MAX_WHATSAPP_REPLY_QUESTIONS);
+}
+
+export function previewWhatsAppMergeTags(text: string) {
+  return text
+    .replace(/\{\{FirstName\}\}/g, "Rahul")
+    .replace(/\{\{CurrentCompany\}\}/g, "TechCorp India")
+    .replace(/\{\{JobTitle\}\}/g, "React Developer")
+    .replace(/\{\{SenderFirstName\}\}/g, "Priya");
+}
 
 export {
   formatWhatsAppWaitLabel,

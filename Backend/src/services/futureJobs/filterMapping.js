@@ -38,7 +38,7 @@ const OPEN_TO_WORK_CARD = "CAREER_INTEREST";
 
 const DEFAULT_FILTER_FORM = {
   searchType: "Flexible",
-  selectRegion: "",
+  selectRegion: [],
   currentTitle: "",
   yearsExpMin: "",
   yearsExpMax: "",
@@ -48,32 +48,34 @@ const DEFAULT_FILTER_FORM = {
   searchOtherRegions: false,
   openToWork: false,
   functionCategory: "",
-  geoDistance: "",
+  geoDistance: "50_km",
   industry: "",
-  school: "",
-  fieldOfStudy: "",
-  degree: "",
-  certifications: "",
+  school: [],
+  fieldOfStudy: [],
+  degree: [],
+  certifications: [],
   honorsAwards: "",
+  targetCompanyScope: "current_past",
   currentCompany: [],
-  yearsAtCompany: "",
+  yearsAtCompany: [],
   pastCompany: [],
   pastTitle: [],
   companyType: "",
   companyHeadquarters: "",
-  companyFocus: "",
+  companyFocus: [],
   employmentType: "",
   companyHeadcountRange: "",
-  fundingStage: "",
+  fundingStage: [],
   headcountGrowthMin: "",
   headcountGrowthMax: "",
   companyHeadcountMin: "",
   companyHeadcountMax: "",
   annualRevenue: "",
-  totalFundingRaised: "",
+  totalFundingRaised: [],
   yearFoundedMin: "",
   yearFoundedMax: "",
-  recentlyFunded: "",
+  recentlyFunded: [],
+  languages: [],
   frequentJobSwitch: false,
   recentlyChangedJob: false,
   largeEmploymentGaps: false,
@@ -127,6 +129,173 @@ const FILTER_FORM_RANGE_KEYS = [
   "yearFoundedMax",
 ];
 
+/** Multi-select chip fields (must survive normalizeFilterFormForUi). */
+const FILTER_FORM_CHIP_LIST_KEYS = [
+  "currentCompany",
+  "pastCompany",
+  "pastTitle",
+  "companyFocus",
+  "yearsAtCompany",
+  "fundingStage",
+  "totalFundingRaised",
+  "recentlyFunded",
+  "languages",
+  "school",
+  "fieldOfStudy",
+  "degree",
+  "certifications",
+];
+
+/** UI label → Future Jobs query tokens for preset multi-selects. */
+const YEARS_AT_COMPANY_LABEL_TO_TOKEN = {
+  "Less than 1 year": "less_than_1",
+  "1 to 2 years": "1_2",
+  "3 to 5 years": "3_5",
+  "6 to 10 years": "6_10",
+  "More than 10 years": "more_than_10",
+};
+
+const FUNDING_STAGE_LABEL_TO_TOKEN = {
+  Seed: "seed",
+  "Series A": "series_a",
+  "Series B": "series_b",
+  "Series C": "series_c",
+  "Series D": "series_d",
+  "Series E": "series_e",
+  "Series F+": "series_f_plus",
+  IPO: "ipo",
+};
+
+const TOTAL_FUNDING_LABEL_TO_TOKEN = {
+  "Under $1M": "under_1",
+  "$1M – $10M": "1_10",
+  "$1M - $10M": "1_10",
+  "$10M – $50M": "10_50",
+  "$10M - $50M": "10_50",
+  "$50M – $500M": "50_500",
+  "$50M - $500M": "50_500",
+  "Over $500M": "over_500",
+};
+
+const RECENTLY_FUNDED_LABEL_TO_TOKEN = {
+  "Last 3 months": "3m",
+  "Last 6 months": "6m",
+  "Last 12 months": "12m",
+  "Last 24 months": "24m",
+};
+
+/** UI labels match Future Jobs Degree dropdown. Query value uses enum tokens. */
+const DEGREE_LABEL_TO_TOKEN = {
+  "High School or Above": "HIGH_SCHOOL",
+  "Associate's or Above": "ASSOCIATES",
+  "Associates or Above": "ASSOCIATES",
+  "Bachelor's or Above": "BACHELORS",
+  "Bachelors or Above": "BACHELORS",
+  "Master's or Above": "MASTERS",
+  "Masters or Above": "MASTERS",
+  "Doctorate or Above": "DOCTORATE",
+  "Post-Doctorate": "POST_DOCTORATE",
+  "Post Doctorate": "POST_DOCTORATE",
+};
+
+function invertLabelTokenMap(map) {
+  const out = {};
+  for (const [label, token] of Object.entries(map)) {
+    out[String(token).toLowerCase()] = label;
+  }
+  return out;
+}
+
+const YEARS_AT_COMPANY_TOKEN_TO_LABEL = invertLabelTokenMap(YEARS_AT_COMPANY_LABEL_TO_TOKEN);
+const FUNDING_STAGE_TOKEN_TO_LABEL = invertLabelTokenMap(FUNDING_STAGE_LABEL_TO_TOKEN);
+/** Prefer en-dash UI labels when mapping tokens back. */
+const TOTAL_FUNDING_TOKEN_TO_LABEL = {
+  under_1: "Under $1M",
+  "1_10": "$1M – $10M",
+  "10_50": "$10M – $50M",
+  "50_500": "$50M – $500M",
+  over_500: "Over $500M",
+};
+const RECENTLY_FUNDED_TOKEN_TO_LABEL = invertLabelTokenMap(RECENTLY_FUNDED_LABEL_TO_TOKEN);
+const DEGREE_TOKEN_TO_LABEL = {
+  high_school: "High School or Above",
+  associates: "Associate's or Above",
+  bachelors: "Bachelor's or Above",
+  masters: "Master's or Above",
+  doctorate: "Doctorate or Above",
+  post_doctorate: "Post-Doctorate",
+};
+
+function mapChipListWithLookup(values, lookup) {
+  const list = normalizeChipListValue(values);
+  return list.map((item) => {
+    if (lookup[item]) return lookup[item];
+    const lower = lookup[String(item).toLowerCase()];
+    return lower || item;
+  });
+}
+
+function yearsAtCompanyToTokens(values) {
+  return mapChipListWithLookup(values, YEARS_AT_COMPANY_LABEL_TO_TOKEN);
+}
+
+function yearsAtCompanyToLabels(values) {
+  return mapChipListWithLookup(values, YEARS_AT_COMPANY_TOKEN_TO_LABEL);
+}
+
+function fundingStageToTokens(values) {
+  return mapChipListWithLookup(values, FUNDING_STAGE_LABEL_TO_TOKEN);
+}
+
+function fundingStageToLabels(values) {
+  return mapChipListWithLookup(values, FUNDING_STAGE_TOKEN_TO_LABEL);
+}
+
+function totalFundingToTokens(values) {
+  return mapChipListWithLookup(values, TOTAL_FUNDING_LABEL_TO_TOKEN);
+}
+
+function totalFundingToLabels(values) {
+  return mapChipListWithLookup(values, TOTAL_FUNDING_TOKEN_TO_LABEL);
+}
+
+function recentlyFundedToTokens(values) {
+  return mapChipListWithLookup(values, RECENTLY_FUNDED_LABEL_TO_TOKEN);
+}
+
+function recentlyFundedToLabels(values) {
+  return mapChipListWithLookup(values, RECENTLY_FUNDED_TOKEN_TO_LABEL);
+}
+
+function degreeToTokens(values) {
+  return mapChipListWithLookup(values, DEGREE_LABEL_TO_TOKEN).map((token) =>
+    String(token).toUpperCase()
+  );
+}
+
+function degreeToLabels(values) {
+  return mapChipListWithLookup(values, DEGREE_TOKEN_TO_LABEL);
+}
+
+function inferTargetCompanyScope(currentCompany, pastCompany) {
+  const current = normalizeChipListValue(currentCompany);
+  const past = normalizeChipListValue(pastCompany);
+  if (current.length > 0 && past.length > 0) return "current_past";
+  if (current.length > 0) return "current";
+  if (past.length > 0) return "past";
+  return "current_past";
+}
+
+function normalizeTargetCompanyScopeValue(value) {
+  const s = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  if (s === "current" || s === "current_only") return "current";
+  if (s === "past" || s === "past_only") return "past";
+  return "current_past";
+}
+
 /**
  * Normalize flat filter form for API responses and Mongo (string ranges, array regions).
  * @param {object} [form]
@@ -157,6 +326,8 @@ function normalizeFilterFormForUi(form) {
           .split(/[,;|]/)
           .map((s) => s.trim())
           .filter(Boolean);
+      } else {
+        out.selectRegion = [];
       }
       continue;
     }
@@ -166,8 +337,13 @@ function normalizeFilterFormForUi(form) {
       continue;
     }
 
-    if (key === "pastCompany" || key === "pastTitle" || key === "currentCompany") {
+    if (FILTER_FORM_CHIP_LIST_KEYS.includes(key)) {
       out[key] = normalizeChipListValue(val);
+      continue;
+    }
+
+    if (key === "targetCompanyScope") {
+      out.targetCompanyScope = normalizeTargetCompanyScopeValue(val);
       continue;
     }
 
@@ -186,6 +362,23 @@ function normalizeFilterFormForUi(form) {
       out[key] = val == null ? "" : String(val);
     }
   }
+
+  if (out.currentCompany.length > 0 || out.pastCompany.length > 0) {
+    out.targetCompanyScope = inferTargetCompanyScope(
+      out.currentCompany,
+      out.pastCompany
+    );
+  } else if ("targetCompanyScope" in form) {
+    out.targetCompanyScope = normalizeTargetCompanyScopeValue(form.targetCompanyScope);
+  } else {
+    out.targetCompanyScope = "current_past";
+  }
+
+  out.yearsAtCompany = yearsAtCompanyToLabels(out.yearsAtCompany);
+  out.fundingStage = fundingStageToLabels(out.fundingStage);
+  out.totalFundingRaised = totalFundingToLabels(out.totalFundingRaised);
+  out.recentlyFunded = recentlyFundedToLabels(out.recentlyFunded);
+  out.degree = degreeToLabels(out.degree);
 
   return out;
 }
@@ -500,7 +693,7 @@ function normalizeRegionForFutureJobs(raw) {
   return out || s;
 }
 
-const COUNTRY_ALIASES = {
+const COUNTRY_ABBREVIATIONS = {
   usa: "United States",
   us: "United States",
   "u.s.": "United States",
@@ -512,10 +705,14 @@ const COUNTRY_ALIASES = {
 function normalizeCountryLabel(raw) {
   const s = String(raw ?? "").trim();
   if (!s) return "";
-  return COUNTRY_ALIASES[s.toLowerCase()] || s;
+  return COUNTRY_ABBREVIATIONS[s.toLowerCase()] || s;
 }
 
-/** Derive a country label from a region string (e.g. "City, State, India" → "India"). */
+/**
+ * Country from a location/region chip.
+ * Prefer last comma segment ("Dubai, United Arab Emirates" → UAE).
+ * Single tokens only map through abbreviations (usa/uk/uae) — never invent city→country.
+ */
 function countryFromRegionString(raw) {
   const normalized = normalizeRegionForFutureJobs(raw);
   if (!normalized) return "";
@@ -526,7 +723,11 @@ function countryFromRegionString(raw) {
     .filter(Boolean);
   if (parts.length === 0) return "";
 
-  return normalizeCountryLabel(parts[parts.length - 1]);
+  if (parts.length >= 2) {
+    return normalizeCountryLabel(parts[parts.length - 1]);
+  }
+
+  return COUNTRY_ABBREVIATIONS[parts[0].toLowerCase()] || "";
 }
 
 function selectRegionsFromRegionFallback(regionValues) {
@@ -574,12 +775,12 @@ function industryTokensFromForm(form) {
 }
 
 function industryLabelFromQuery(queries) {
+  const all = queryValues(queries, "all_employers.company_industries");
+  if (all.length > 0) return all.join(", ");
   const current = queryValues(queries, "current_employers.company_industries");
   if (current.length > 0) return current.join(", ");
   const legacy = queryValues(queries, "current_employers.industry");
   if (legacy.length > 0) return legacy[0];
-  const all = queryValues(queries, "all_employers.company_industries");
-  if (all.length > 0) return all.join(", ");
   return "";
 }
 
@@ -669,34 +870,46 @@ function filterFormFromCreateResponse(futureJobsCreateResponse, requestPayload) 
     functionCategory: queryValues(queries, "current_employers.function_category").join(", "),
     geoDistance: queryValueFirst(queries, "geo_distance"),
     industry: industryLabelFromQuery(queries),
-    school: queryValueFirst(queries, "education_background.institute_name", [
-      "education.school",
-    ]),
-    fieldOfStudy: queryValueFirst(queries, "education_background.field_of_study", [
-      "education.field_of_study",
-    ]),
-    degree: queryValueFirst(queries, "education_background.degree_name", [
-      "education.degree",
-    ]),
-    certifications: queryValueFirst(queries, "certifications.name", ["certifications"]),
+    school: queryValues(queries, "education_background.institute_name").length
+      ? queryValues(queries, "education_background.institute_name")
+      : queryValues(queries, "education.school"),
+    fieldOfStudy: (() => {
+      const primary = queryValues(queries, "education_background.field_of_study");
+      if (primary.length > 0) return primary;
+      return queryValues(queries, "education.field_of_study");
+    })(),
+    degree: (() => {
+      const primary = queryValues(queries, "education_background.degree_name");
+      if (primary.length > 0) return primary;
+      return queryValues(queries, "education.degree");
+    })(),
+    certifications: (() => {
+      const primary = queryValues(queries, "certifications.name");
+      if (primary.length > 0) return primary;
+      return queryValues(queries, "certifications");
+    })(),
     honorsAwards: queryValueFirst(queries, "honors.title", ["honors_awards"]),
     currentCompany: queryValues(queries, "current_employers.name"),
-    yearsAtCompany: queryValues(queries, "current_employers.years_at_company")[0] || "",
+    yearsAtCompany: queryValues(queries, "current_employers.years_at_company"),
     pastCompany: queryValues(queries, "past_employers.name"),
     pastTitle: queryValues(queries, "past_employers.title"),
     companyType: queryValues(queries, "current_employers.company_type")[0] || "",
     companyHeadquarters: queryValueFirst(queries, "current_employers.company_hq_location", [
       "current_employers.company_headquarters",
     ]),
-    companyFocus: queryValueFirst(queries, "current_employers.description", [
-      "current_employers.company_focus",
-    ]),
+    companyFocus: (() => {
+      const primary = queryValues(queries, "current_employers.description");
+      if (primary.length > 0) return primary;
+      return queryValues(queries, "current_employers.company_focus");
+    })(),
     employmentType: queryValues(queries, "current_employers.employment_type").join(", "),
     companyHeadcountRange:
       queryValues(queries, "current_employers.company_headcount_range")[0] || "",
-    fundingStage: queryValueFirst(queries, "funding_stage", [
-      "current_employers.funding_stage",
-    ]),
+    fundingStage: (() => {
+      const primary = queryValues(queries, "funding_stage");
+      if (primary.length > 0) return primary;
+      return queryValues(queries, "current_employers.funding_stage");
+    })(),
     headcountGrowthMin: headcountGrowth.min,
     headcountGrowthMax: headcountGrowth.max,
     companyHeadcountMin: companyHeadcount.min,
@@ -704,14 +917,19 @@ function filterFormFromCreateResponse(futureJobsCreateResponse, requestPayload) 
     annualRevenue: queryValueFirst(queries, "annual_revenue", [
       "current_employers.annual_revenue",
     ]),
-    totalFundingRaised: queryValueFirst(queries, "total_funding", [
-      "current_employers.total_funding_raised",
-    ]),
+    totalFundingRaised: (() => {
+      const primary = queryValues(queries, "total_funding");
+      if (primary.length > 0) return primary;
+      return queryValues(queries, "current_employers.total_funding_raised");
+    })(),
     yearFoundedMin: yearFounded.min,
     yearFoundedMax: yearFounded.max,
-    recentlyFunded: queryValueFirst(queries, "recently_funded", [
-      "current_employers.recently_funded",
-    ]),
+    recentlyFunded: (() => {
+      const primary = queryValues(queries, "recently_funded");
+      if (primary.length > 0) return primary;
+      return queryValues(queries, "current_employers.recently_funded");
+    })(),
+    languages: queryValues(queries, "languages"),
     frequentJobSwitch: nuanceHas("Frequent Job Switch"),
     recentlyChangedJob: nuanceHas("Recently Changed Job"),
     largeEmploymentGaps: nuanceHas("Large Employment Gaps"),
@@ -739,11 +957,16 @@ function mergeFilterFormIntoSession(baseSession, form) {
 
   const existingSkills = queries?.skills?.value;
 
-  const countries = selectRegionsFromForm(form);
-  setQueryIn(queries, "country_region", countries, "(.)");
+  const countriesFromForm = selectRegionsFromForm(form);
   const locations = normalizeLocationsValue(form.location)
     .map((r) => normalizeRegionForFutureJobs(r))
     .filter(Boolean);
+  // Keep country_region linked to Location chips when Country is empty.
+  const countries =
+    countriesFromForm.length > 0
+      ? countriesFromForm
+      : selectRegionsFromRegionFallback(locations);
+  setQueryIn(queries, "country_region", countries, "(.)");
   const regionsForFj =
     locations.length > 0
       ? locations
@@ -794,42 +1017,47 @@ function mergeFilterFormIntoSession(baseSession, form) {
   delete queries["current_employers.industry"];
   const industryTokens = industryTokensFromForm(form);
   if (industryTokens.length > 0) {
-    setQueryIn(queries, "current_employers.company_industries", industryTokens);
+    // Future Jobs search uses all_employers.company_industries (not current-only).
     setQueryIn(queries, "all_employers.company_industries", industryTokens);
   } else {
-    delete queries["current_employers.company_industries"];
     delete queries["all_employers.company_industries"];
   }
+  delete queries["current_employers.company_industries"];
 
   setQueryIn(
     queries,
     "education_background.degree_name",
-    [form.degree].filter(Boolean)
+    degreeToTokens(form.degree)
   );
   setQueryIn(
     queries,
     "education_background.field_of_study",
-    commaSplitTokens(form.fieldOfStudy)
+    normalizeChipListValue(form.fieldOfStudy)
   );
   setQueryIn(
     queries,
     "education_background.institute_name",
-    [form.school].filter(Boolean)
+    normalizeChipListValue(form.school)
   );
   delete queries["education.school"];
   delete queries["education.field_of_study"];
   delete queries["education.degree"];
 
-  setQueryIn(queries, "certifications.name", [form.certifications].filter(Boolean));
+  setQueryIn(
+    queries,
+    "certifications.name",
+    normalizeChipListValue(form.certifications)
+  );
   delete queries.certifications;
   setQueryIn(queries, "honors.title", [form.honorsAwards].filter(Boolean));
   delete queries.honors_awards;
 
   setQueryIn(queries, "current_employers.name", normalizeChipListValue(form.currentCompany));
+  // FJ expects human labels e.g. "1 to 2 years" (not tokens like 1_2).
   setQueryIn(
     queries,
     "current_employers.years_at_company",
-    [form.yearsAtCompany].filter(Boolean)
+    yearsAtCompanyToLabels(form.yearsAtCompany)
   );
   setQueryIn(queries, "past_employers.name", normalizeChipListValue(form.pastCompany));
   setQueryIn(queries, "past_employers.title", normalizeChipListValue(form.pastTitle));
@@ -840,7 +1068,11 @@ function mergeFilterFormIntoSession(baseSession, form) {
     [form.companyHeadquarters].filter(Boolean)
   );
   delete queries["current_employers.company_headquarters"];
-  setQueryIn(queries, "current_employers.description", [form.companyFocus].filter(Boolean));
+  setQueryIn(
+    queries,
+    "current_employers.description",
+    normalizeChipListValue(form.companyFocus)
+  );
   delete queries["current_employers.company_focus"];
 
   const employmentTokens = commaSplitTokens(form.employmentType);
@@ -856,11 +1088,7 @@ function mergeFilterFormIntoSession(baseSession, form) {
     [form.companyHeadcountRange].filter(Boolean)
   );
 
-  if (String(form.fundingStage || "").trim()) {
-    setQueryEquals(queries, "funding_stage", [form.fundingStage]);
-  } else {
-    delete queries.funding_stage;
-  }
+  setQueryIn(queries, "funding_stage", fundingStageToTokens(form.fundingStage));
   delete queries["current_employers.funding_stage"];
 
   setQueryRange(queries, "headcount_growth", form.headcountGrowthMin, form.headcountGrowthMax);
@@ -881,22 +1109,16 @@ function mergeFilterFormIntoSession(baseSession, form) {
   }
   delete queries["current_employers.annual_revenue"];
 
-  if (String(form.totalFundingRaised || "").trim()) {
-    setQueryEquals(queries, "total_funding", [form.totalFundingRaised]);
-  } else {
-    delete queries.total_funding;
-  }
+  setQueryEquals(queries, "total_funding", totalFundingToTokens(form.totalFundingRaised));
   delete queries["current_employers.total_funding_raised"];
 
   setQueryRange(queries, "year_founded", form.yearFoundedMin, form.yearFoundedMax);
   delete queries["current_employers.year_founded"];
 
-  if (String(form.recentlyFunded || "").trim()) {
-    setQueryEquals(queries, "recently_funded", [form.recentlyFunded]);
-  } else {
-    delete queries.recently_funded;
-  }
+  setQueryEquals(queries, "recently_funded", recentlyFundedToTokens(form.recentlyFunded));
   delete queries["current_employers.recently_funded"];
+
+  setQueryIn(queries, "languages", normalizeChipListValue(form.languages));
 
   const skillsValue = ensureSkillsForFutureJobs(
     keywordToSkills(form.keywordSkills, existingSkills),
@@ -1009,14 +1231,14 @@ function filterFormFromAnnotation(annotationData) {
 
   const degrees = annotationFieldValues(annotationData["education_background.degree_name"]);
   if (degrees.length > 0) {
-    form.degree = degrees[0];
+    form.degree = degrees;
   }
 
   const fieldsOfStudy = annotationFieldValues(
     annotationData["education_background.field_of_study"]
   );
   if (fieldsOfStudy.length > 0) {
-    form.fieldOfStudy = fieldsOfStudy.join(", ");
+    form.fieldOfStudy = fieldsOfStudy;
   }
 
   const yoe = annotationFieldValues(annotationData.years_of_experience_raw);
@@ -1033,20 +1255,17 @@ function filterFormFromAnnotation(annotationData) {
     form.currentTitle = titles.join(", ");
   }
 
-  const regions = annotationFieldValues(annotationData.region, {
-    allowWithoutPresence: true,
-  });
+  const regions = annotationFieldValues(annotationData.region);
   if (regions.length > 0) {
     form.location = regions
       .map((r) => normalizeRegionForFutureJobs(r))
       .filter(Boolean);
   }
 
-  const countries = annotationFieldValues(annotationData.country_region, {
-    allowWithoutPresence: true,
-  });
+  // FJ template often includes country_region: ["India"] with presence:false — ignore that.
+  const countries = annotationFieldValues(annotationData.country_region);
   if (countries.length > 0) {
-    form.selectRegion = countries;
+    form.selectRegion = countries.map(normalizeCountryLabel).filter(Boolean);
   } else if (regions.length > 0) {
     const derived = selectRegionsFromRegionFallback(regions);
     if (derived.length > 0) {
@@ -1071,7 +1290,7 @@ function filterFormFromAnnotation(annotationData) {
     annotationData["education_background.institute_name"]
   );
   if (institutes.length > 0) {
-    form.school = institutes[0];
+    form.school = institutes;
   }
 
   const openTo = annotationFieldValues(annotationData.open_to_cards);

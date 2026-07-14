@@ -26,6 +26,7 @@ function parseCorsOrigins() {
 
 const app = express();
 const { handleDodoWebhook } = require("./controllers/billingController");
+const { handleCalendlyWebhook } = require("./controllers/campaignCalendlyBookingController");
 const requestTiming = require("./middleware/requestTiming");
 
 app.use(morgan("dev"));
@@ -40,6 +41,12 @@ app.post(
   "/api/billing/dodo/webhook",
   express.raw({ type: "application/json" }),
   handleDodoWebhook
+);
+
+app.post(
+  "/api/integrations/calendly/webhook",
+  express.raw({ type: "application/json" }),
+  handleCalendlyWebhook
 );
 
 app.use(express.json());
