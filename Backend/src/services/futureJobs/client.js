@@ -1,5 +1,3 @@
-const fs = require("fs");
-const path = require("path");
 const { getFutureJobsConfig } = require("./config");
 const {
   createFutureJobsUpstreamError,
@@ -11,45 +9,6 @@ const {
   payloadForSupportLog,
   logFutureJobsExchange,
 } = require("../../utils/logger");
-
-/** Testing progress log — set CANDIDATE_SEARCH_PROGRESS_LOG=0 to disable. */
-const SEARCH_PROGRESS_LOG_PATH = path.join(
-  __dirname,
-  "../../../../docs/candidate-search-api-flow.txt",
-);
-
-function appendSearchProgressLog({ label, method, url, body, res }) {
-  if (process.env.CANDIDATE_SEARCH_PROGRESS_LOG === "0") return;
-  try {
-    const stamp = new Date().toISOString();
-    const bodyJson =
-      body === undefined || body === null
-        ? "(none)"
-        : JSON.stringify(body, null, 2);
-    const resJson =
-      res === undefined || res === null
-        ? "(none)"
-        : JSON.stringify(res, null, 2);
-    const block = [
-      "",
-      "================================================================================",
-      `[${stamp}] ${label}`,
-      `method: ${method || "GET"}`,
-      `url: ${url}`,
-      "body:",
-      bodyJson,
-      "res:",
-      resJson,
-      "================================================================================",
-      "",
-    ].join("\n");
-    fs.appendFileSync(SEARCH_PROGRESS_LOG_PATH, block, "utf8");
-  } catch (err) {
-    logOutbound("futurejobs", "search progress log write failed", {
-      message: err?.message,
-    });
-  }
-}
 
 /**
  * Perform one Future Jobs HTTP call and emit a single support log with request + response.
@@ -92,13 +51,6 @@ async function futureJobsHttpRequest({
       requestBody: payloadForSupportLog(hasBody ? body : undefined),
       responseBody: null,
     });
-    appendSearchProgressLog({
-      label: `${fjOperation || method} NETWORK ERROR`,
-      method,
-      url,
-      body: hasBody ? body : null,
-      res: { networkError: networkErr?.message || String(networkErr) },
-    });
     throw createFutureJobsUpstreamError({
       details: { networkError: networkErr?.message || String(networkErr) },
       fjHttpStatus: 0,
@@ -130,14 +82,6 @@ async function futureJobsHttpRequest({
     responseBody: payloadForSupportLog(
       parseError ? { parseError: true, raw: text } : data,
     ),
-  });
-
-  appendSearchProgressLog({
-    label: fjOperation || `${method} ${url}`,
-    method,
-    url,
-    body: hasBody ? body : null,
-    res: data,
   });
 
   throwIfFjHttpNotOk(res, data, {
@@ -436,18 +380,6 @@ const getSourcingSessionProfiles = async (
   throwIfFjHttpNotOk(res, data, {
     label: "profiles response error",
     extra: { elapsedMs },
-  });
-
-  const pollLabel =
-    typeof pollAttempt === "number" && pollAttempt > 0
-      ? `POLL #${pollAttempt} GET …/profiles`
-      : "GET …/profiles";
-  appendSearchProgressLog({
-    label: pollLabel,
-    method: "GET",
-    url,
-    body: null,
-    res: data,
   });
 
   logOutbound("futurejobs", "profiles response ok", {
@@ -991,14 +923,6 @@ const getSourcingSessionAnnotation = async (body) => {
   throwIfFjHttpNotOk(res, data, {
     label: "get-annotation response error",
     extra: { elapsedMs },
-  });
-
-  appendSearchProgressLog({
-    label: "POST /wl/sourcing-session/get-annotation",
-    method: "POST",
-    url,
-    body: payload,
-    res: data,
   });
 
   logOutbound("futurejobs", "get-annotation response ok", {
