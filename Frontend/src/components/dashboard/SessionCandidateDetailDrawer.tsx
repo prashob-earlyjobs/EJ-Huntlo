@@ -12,6 +12,8 @@ import { isOpenToWork } from "@/lib/openToWork";
 import { formatCandidateScore, nameInitials } from "@/lib/sessionResultUi";
 import {
   formatEmployerDateRange,
+  formatSessionCertificationLabel,
+  sortEmployersChronologically,
   type SessionEmployerRow,
   type SessionEducationRow,
   type SessionHonorRow,
@@ -298,6 +300,64 @@ function InsightItem({
   );
 }
 
+/** Full-body shimmer while candidate details fetch — replaces content, not stacked on top. */
+function SessionCandidateDetailSkeleton() {
+  return (
+    <div
+      className="dashboard-profile-drawer-skeleton"
+      aria-busy="true"
+      aria-label="Loading profile"
+    >
+      <div className="dashboard-profile-drawer-skeleton-hero">
+        <div className="dashboard-shimmer dashboard-profile-drawer-skeleton-avatar" />
+        <div className="dashboard-profile-drawer-skeleton-hero-copy">
+          <div className="dashboard-shimmer h-6 w-52 max-w-full rounded" />
+          <div className="dashboard-shimmer h-4 w-40 max-w-full rounded" />
+          <div className="dashboard-shimmer h-3.5 w-64 max-w-full rounded" />
+          <div className="dashboard-shimmer h-3.5 w-48 max-w-full rounded" />
+        </div>
+        <div className="dashboard-profile-drawer-skeleton-hero-actions">
+          <div className="dashboard-shimmer h-9 w-9 rounded-lg" />
+          <div className="dashboard-shimmer h-9 w-9 rounded-lg" />
+          <div className="dashboard-shimmer h-9 w-9 rounded-lg" />
+        </div>
+      </div>
+
+      <div className="dashboard-profile-drawer-skeleton-tabs">
+        <div className="dashboard-shimmer h-9 w-24 rounded-lg" />
+        <div className="dashboard-shimmer h-9 w-24 rounded-lg" />
+      </div>
+
+      <div className="dashboard-profile-drawer-skeleton-section">
+        <div className="dashboard-shimmer h-4 w-28 rounded" />
+        <div className="dashboard-shimmer mt-3 h-3.5 w-full rounded" />
+        <div className="dashboard-shimmer mt-2 h-3.5 w-[92%] rounded" />
+        <div className="dashboard-shimmer mt-2 h-3.5 w-[78%] rounded" />
+      </div>
+
+      <div className="dashboard-profile-drawer-skeleton-section">
+        <div className="dashboard-shimmer h-4 w-32 rounded" />
+        <div className="mt-3 space-y-3">
+          <div className="dashboard-shimmer h-16 w-full rounded-xl" />
+          <div className="dashboard-shimmer h-16 w-full rounded-xl" />
+          <div className="dashboard-shimmer h-16 w-full rounded-xl" />
+        </div>
+      </div>
+
+      <div className="dashboard-profile-drawer-skeleton-section">
+        <div className="dashboard-shimmer h-4 w-24 rounded" />
+        <div className="mt-3 flex flex-wrap gap-2">
+          <div className="dashboard-shimmer h-7 w-20 rounded-full" />
+          <div className="dashboard-shimmer h-7 w-24 rounded-full" />
+          <div className="dashboard-shimmer h-7 w-16 rounded-full" />
+          <div className="dashboard-shimmer h-7 w-28 rounded-full" />
+          <div className="dashboard-shimmer h-7 w-20 rounded-full" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function SessionCandidateDetailDrawer({
   open,
   doc,
@@ -343,6 +403,43 @@ export function SessionCandidateDetailDrawer({
       ? profile.current_employers
       : [];
   const pastEmployers = Array.isArray(profile?.past_employers) ? profile.past_employers : [];
+  const allEmployers = Array.isArray(profile?.all_employers) ? profile.all_employers : [];
+  // Full history: prefer all_employers when richer; otherwise current + past (People Scout style).
+  const workHistory = sortEmployersChronologically(
+    allEmployers.length > currentEmployers.length + pastEmployers.length
+      ? allEmployers
+      : [...currentEmployers, ...pastEmployers]
+  );
+  const currentEmployerKeys = new Set(
+    currentEmployers.map((emp) => {
+      const company = String(emp.company_name || emp.name || "")
+        .trim()
+        .toLowerCase();
+      const title = String(emp.job_title || emp.title || "")
+        .trim()
+        .toLowerCase();
+      const start = String(emp.start_date || "").trim();
+      return `${company}|${title}|${start}`;
+    })
+  );
+  const isCurrentEmployer = (emp: (typeof currentEmployers)[number]) => {
+    const company = String(emp.company_name || emp.name || "")
+      .trim()
+      .toLowerCase();
+    const title = String(emp.job_title || emp.title || "")
+      .trim()
+      .toLowerCase();
+    const start = String(emp.start_date || "").trim();
+    const key = `${company}|${title}|${start}`;
+    if (currentEmployerKeys.has(key)) return true;
+    if (!emp.end_date) return currentEmployers.some((c) => {
+      const cCompany = String(c.company_name || c.name || "")
+        .trim()
+        .toLowerCase();
+      return cCompany && cCompany === company;
+    });
+    return false;
+  };
   const education = Array.isArray(profile?.education_background)
     ? profile.education_background
     : [];
@@ -487,27 +584,16 @@ export function SessionCandidateDetailDrawer({
         <div className="dashboard-profile-drawer-scroll">
           <div className="dashboard-profile-drawer-content">
             <div className="dashboard-profile-drawer-body-inner">
-              {detailLoading ? (
-                <div className="space-y-4 py-2" aria-busy="true" aria-label="Loading profile">
-                  <div className="flex gap-4">
-                    <div className="dashboard-shimmer h-20 w-20 shrink-0 rounded-full" />
-                    <div className="min-w-0 flex-1 space-y-2 pt-2">
-                      <div className="dashboard-shimmer h-5 w-48 max-w-full rounded" />
-                      <div className="dashboard-shimmer h-4 w-36 max-w-full rounded" />
-                      <div className="dashboard-shimmer h-3 w-56 max-w-full rounded" />
-                    </div>
-                  </div>
-                  <div className="dashboard-shimmer h-24 w-full rounded-xl" />
-                  <div className="dashboard-shimmer h-4 w-full max-w-md rounded" />
-                  <div className="dashboard-shimmer h-4 w-[90%] max-w-lg rounded" />
-                </div>
-              ) : null}
+              {detailLoading ? <SessionCandidateDetailSkeleton /> : null}
+
               {detailError && !detailLoading ? (
                 <p className="dashboard-alert-warning" role="alert">
                   {detailError}
                 </p>
               ) : null}
 
+              {!detailLoading ? (
+              <>
               <article className="dashboard-profile-hero">
                 <div className="dashboard-profile-hero-layout">
                   {showImage ? (
@@ -742,26 +828,16 @@ export function SessionCandidateDetailDrawer({
                       </ProfileSection>
                     ) : null}
 
-                    {currentEmployers.length > 0 ? (
-                      <ProfileSection icon="work" title="Current roles">
+                    {workHistory.length > 0 ? (
+                      <ProfileSection icon="work" title="Experience">
                         <ul className="dashboard-profile-timeline">
-                          {currentEmployers.map((emp, i) => (
+                          {workHistory.map((emp, i) => (
                             <RoleTimelineItem
-                              key={`cur-${i}`}
-                              keyId={`cur-${i}`}
+                              key={`role-${i}`}
+                              keyId={`role-${i}`}
                               emp={emp}
-                              current
+                              current={isCurrentEmployer(emp)}
                             />
-                          ))}
-                        </ul>
-                      </ProfileSection>
-                    ) : null}
-
-                    {pastEmployers.length > 0 ? (
-                      <ProfileSection icon="history" title="Experience">
-                        <ul className="dashboard-profile-timeline">
-                          {pastEmployers.map((emp, i) => (
-                            <RoleTimelineItem key={`past-${i}`} keyId={`past-${i}`} emp={emp} />
                           ))}
                         </ul>
                       </ProfileSection>
@@ -821,11 +897,15 @@ export function SessionCandidateDetailDrawer({
                     {certifications.length > 0 ? (
                       <ProfileSection icon="verified" title="Certifications">
                         <ul className="dashboard-profile-cert-list">
-                          {certifications.map((c, i) => (
-                            <li key={`cert-${i}`} className="dashboard-profile-cert-item">
-                              {typeof c === "string" ? c : String(c)}
-                            </li>
-                          ))}
+                          {certifications.map((c, i) => {
+                            const label = formatSessionCertificationLabel(c);
+                            if (!label) return null;
+                            return (
+                              <li key={`cert-${i}`} className="dashboard-profile-cert-item">
+                                {label}
+                              </li>
+                            );
+                          })}
                         </ul>
                       </ProfileSection>
                     ) : null}
@@ -947,6 +1027,8 @@ export function SessionCandidateDetailDrawer({
                   </div>
                 ) : null}
               </div>
+              </>
+              ) : null}
             </div>
           </div>
         </div>
@@ -955,7 +1037,7 @@ export function SessionCandidateDetailDrawer({
           <button
             type="button"
             onClick={onToggleSave}
-            disabled={isSaveBusy}
+            disabled={isSaveBusy || detailLoading}
             className={`dashboard-profile-save-btn py-2.5 disabled:opacity-60 ${
               isSaved
                 ? "dashboard-btn-secondary dashboard-btn-toggle-active"

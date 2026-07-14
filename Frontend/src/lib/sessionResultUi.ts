@@ -7,24 +7,30 @@ import type {
 import type { SessionResultDoc } from "@/lib/sessionCandidateDetail";
 import { isOpenToWork } from "@/lib/openToWork";
 
+/** Future Jobs first-page size — live search poll stops here. */
+export const SESSION_RESULTS_FIRST_PAGE_LIMIT = 200;
+/** Max candidates in the session grid (stored DB + fetch-more). */
+export const SESSION_RESULTS_MAX = 500;
+
 export type SessionResultDocLike = {
-  _id?: string;
+  _id?: string | { toString?: () => string };
   profile?: {
     linkedin_profile_url?: string;
     name?: string;
   };
 };
 
-/** Stable key for deduping session profile docs (_id, then LinkedIn URL, then name). */
+/** Stable person key — LinkedIn first so rotated Future Jobs `_id`s do not remount cards. */
 export function sessionResultDocIdentityKey(doc: SessionResultDocLike): string {
-  const id = typeof doc._id === "string" ? doc._id.trim() : "";
-  if (id) return `id:${id}`;
-
   const linkedin =
     typeof doc.profile?.linkedin_profile_url === "string"
       ? doc.profile.linkedin_profile_url.trim().toLowerCase()
       : "";
   if (linkedin) return `li:${linkedin}`;
+
+  const id =
+    doc._id != null && String(doc._id).trim() ? String(doc._id).trim() : "";
+  if (id) return `id:${id}`;
 
   const name = typeof doc.profile?.name === "string" ? doc.profile.name.trim().toLowerCase() : "";
   if (name) return `name:${name}`;
@@ -50,6 +56,72 @@ export function dedupeSessionResultDocs<T extends SessionResultDocLike>(docs: T[
   }
 
   return out;
+}
+
+/**
+ * Append only new identities; keep existing object refs so React does not remount cards.
+ * Returns `prev` unchanged when there is nothing new to add.
+ */
+export function appendSessionResultDocs<T extends SessionResultDocLike>(
+  prev: T[],
+  incoming: T[],
+  max = SESSION_RESULTS_MAX
+): T[] {
+  if (!Array.isArray(incoming) || incoming.length === 0) return prev;
+  if (prev.length >= max) return prev;
+
+  const seen = new Set<string>();
+  for (const doc of prev) {
+    const key = sessionResultDocIdentityKey(doc);
+    if (key) seen.add(key);
+  }
+
+  const additions: T[] = [];
+  let anon = 0;
+  for (const doc of incoming) {
+    if (prev.length + additions.length >= max) break;
+    let key = sessionResultDocIdentityKey(doc);
+    if (!key) {
+      anon += 1;
+      key = `anon:${anon}:${prev.length + additions.length}`;
+    }
+    if (seen.has(key)) continue;
+    seen.add(key);
+    additions.push(doc);
+  }
+
+  if (additions.length === 0) return prev;
+  return [...prev, ...additions];
+}
+
+/**
+ * Merge a socket/HTTP poll snapshot into the grid.
+ * Prefer append; if snapshot is larger but identities don't match, rebuild
+ * from snapshot while keeping existing card refs where possible.
+ */
+export function mergePollSessionResultDocs<T extends SessionResultDocLike>(
+  prev: T[],
+  incoming: T[],
+  max = SESSION_RESULTS_MAX
+): T[] {
+  if (!Array.isArray(incoming) || incoming.length === 0) return prev;
+
+  const appended = appendSessionResultDocs(prev, incoming, max);
+  if (appended.length > prev.length) return appended;
+
+  const incomingDeduped = dedupeSessionResultDocs(incoming).slice(0, max);
+  if (incomingDeduped.length <= prev.length) return prev;
+
+  const prevByKey = new Map<string, T>();
+  for (const doc of prev) {
+    const key = sessionResultDocIdentityKey(doc);
+    if (key) prevByKey.set(key, doc);
+  }
+
+  return incomingDeduped.map((doc, idx) => {
+    const key = sessionResultDocIdentityKey(doc) || `anon:${idx}`;
+    return prevByKey.get(key) ?? doc;
+  });
 }
 
 export function formatCandidateScore(score: number): string {

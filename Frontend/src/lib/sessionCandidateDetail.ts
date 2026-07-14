@@ -34,6 +34,38 @@ export type SessionHonorRow = {
   issued_date?: string;
 };
 
+/** Future Jobs may return certification strings or objects (`certifications.name`). */
+export type SessionCertificationRow = {
+  name?: string;
+  title?: string;
+  authority?: string;
+  organization?: string;
+  issuer?: string;
+  license_number?: string;
+  url?: string;
+};
+
+export function formatSessionCertificationLabel(
+  cert: string | SessionCertificationRow | null | undefined
+): string {
+  if (cert == null) return "";
+  if (typeof cert === "string") return cert.trim();
+  if (typeof cert !== "object") return "";
+
+  const name =
+    (typeof cert.name === "string" && cert.name.trim()) ||
+    (typeof cert.title === "string" && cert.title.trim()) ||
+    "";
+  const org =
+    (typeof cert.authority === "string" && cert.authority.trim()) ||
+    (typeof cert.organization === "string" && cert.organization.trim()) ||
+    (typeof cert.issuer === "string" && cert.issuer.trim()) ||
+    "";
+
+  if (name && org) return `${name} · ${org}`;
+  return name || org;
+}
+
 export type SessionResultDoc = {
   _id?: string;
   sourcingSessionId?: string;
@@ -58,7 +90,7 @@ export type SessionResultDoc = {
     past_employers?: SessionEmployerRow[];
     all_employers?: SessionEmployerRow[];
     education_background?: SessionEducationRow[];
-    certifications?: string[];
+    certifications?: Array<string | SessionCertificationRow>;
     honors?: SessionHonorRow[];
     languages?: string[];
     location_details?: {
@@ -166,6 +198,42 @@ function mapEmployers(raw: unknown): SessionEmployerRow[] | undefined {
     .map((e) => mapEmployerRow(e as Record<string, unknown>));
 }
 
+/** Prefer the longest non-empty employer list (details often richer than list cards). */
+function pickRicherEmployers(
+  ...lists: (SessionEmployerRow[] | undefined)[]
+): SessionEmployerRow[] | undefined {
+  let best: SessionEmployerRow[] | undefined;
+  for (const list of lists) {
+    if (!list || list.length === 0) continue;
+    if (!best || list.length > best.length) best = list;
+  }
+  return best;
+}
+
+function employerIdentityKey(emp: SessionEmployerRow): string {
+  const company = String(emp.company_name || emp.name || "")
+    .trim()
+    .toLowerCase();
+  const title = String(emp.job_title || emp.title || "")
+    .trim()
+    .toLowerCase();
+  const start = String(emp.start_date || "").trim();
+  return `${company}|${title}|${start}`;
+}
+
+/**
+ * When past_employers is missing, derive past roles from all_employers minus current.
+ */
+function pastEmployersFromAll(
+  all: SessionEmployerRow[] | undefined,
+  current: SessionEmployerRow[] | undefined
+): SessionEmployerRow[] | undefined {
+  if (!all || all.length === 0) return undefined;
+  const currentKeys = new Set((current || []).map(employerIdentityKey));
+  const past = all.filter((emp) => !currentKeys.has(employerIdentityKey(emp)));
+  return past.length > 0 ? past : undefined;
+}
+
 export function formatEmployerDateRange(
   start?: string,
   end?: string
@@ -184,6 +252,40 @@ export function formatEmployerDateRange(
   return null;
 }
 
+function employerDateMs(iso?: string): number | null {
+  if (!iso || typeof iso !== "string") return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.getTime();
+}
+
+/**
+ * Newest-first career order: current / open-ended roles first, then by end date,
+ * then start date. Roles with no dates keep relative order at the end.
+ */
+export function sortEmployersChronologically(
+  employers: SessionEmployerRow[]
+): SessionEmployerRow[] {
+  return [...employers].sort((a, b) => {
+    const aEnd = employerDateMs(a.end_date);
+    const bEnd = employerDateMs(b.end_date);
+    const aCurrent = aEnd == null;
+    const bCurrent = bEnd == null;
+
+    if (aCurrent !== bCurrent) return aCurrent ? -1 : 1;
+    if (aEnd != null && bEnd != null && aEnd !== bEnd) return bEnd - aEnd;
+
+    const aStart = employerDateMs(a.start_date);
+    const bStart = employerDateMs(b.start_date);
+    if (aStart != null && bStart != null && aStart !== bStart) {
+      return bStart - aStart;
+    }
+    if (aStart != null && bStart == null) return -1;
+    if (aStart == null && bStart != null) return 1;
+    return 0;
+  });
+}
+
 export function mergeSessionDetailFromFj(
   base: SessionResultDoc,
   detailPayload: unknown
@@ -192,8 +294,14 @@ export function mergeSessionDetailFromFj(
     return base;
   }
   const payload = detailPayload as Record<string, unknown>;
-  const candidate = payload.candidate;
-  if (!candidate || typeof candidate !== "object") {
+  // Details may nest under `candidate` or `profile`; stored fallback uses `candidate`.
+  const candidate =
+    payload.candidate && typeof payload.candidate === "object"
+      ? payload.candidate
+      : payload.profile && typeof payload.profile === "object"
+        ? payload.profile
+        : null;
+  if (!candidate) {
     return {
       ...base,
       finalScore:
@@ -208,10 +316,21 @@ export function mergeSessionDetailFromFj(
   }
 
   const c = candidate as Record<string, unknown>;
-  const currentEmployers =
-    mapEmployers(c.current_employers) ||
-    mapEmployers(c.current_employers_object) ||
-    base.profile?.current_employers_object;
+  const currentEmployers = pickRicherEmployers(
+    mapEmployers(c.current_employers),
+    mapEmployers(c.current_employers_object),
+    base.profile?.current_employers_object,
+    base.profile?.current_employers
+  );
+  const allEmployers = pickRicherEmployers(
+    mapEmployers(c.all_employers),
+    base.profile?.all_employers
+  );
+  const pastEmployers = pickRicherEmployers(
+    mapEmployers(c.past_employers),
+    base.profile?.past_employers,
+    pastEmployersFromAll(allEmployers, currentEmployers)
+  );
 
   const profileAnalysis =
     payload.profileAnalysis && typeof payload.profileAnalysis === "object"
@@ -270,14 +389,14 @@ export function mergeSessionDetailFromFj(
           ? c.num_of_followers
           : base.profile?.num_of_followers,
       current_employers_object: currentEmployers,
-      current_employers: mapEmployers(c.current_employers),
-      past_employers: mapEmployers(c.past_employers),
-      all_employers: mapEmployers(c.all_employers),
+      current_employers: currentEmployers,
+      past_employers: pastEmployers,
+      all_employers: allEmployers,
       education_background: Array.isArray(c.education_background)
         ? (c.education_background as SessionEducationRow[])
         : base.profile?.education_background,
       certifications: Array.isArray(c.certifications)
-        ? (c.certifications as string[])
+        ? (c.certifications as Array<string | SessionCertificationRow>)
         : base.profile?.certifications,
       honors: Array.isArray(c.honors)
         ? (c.honors as SessionHonorRow[])

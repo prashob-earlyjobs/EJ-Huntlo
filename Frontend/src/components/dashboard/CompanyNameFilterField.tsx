@@ -8,15 +8,23 @@ import { fetchFilterAutocomplete } from "@/lib/filterAutocompleteApi";
 
 const MIN_QUERY_LENGTH = 3;
 const DEBOUNCE_MS = 300;
-const COUNTRY_FILTER_TYPE = "location_country";
+const COMPANY_FILTER_TYPE = "current_employers.name";
 
 type Props = {
   value: string[];
   onChange: (value: string[]) => void;
   disabled?: boolean;
+  placeholder?: string;
+  "aria-label"?: string;
 };
 
-export function CountryRegionField({ value, onChange, disabled = false }: Props) {
+export function CompanyNameFilterField({
+  value,
+  onChange,
+  disabled = false,
+  placeholder = "Type at least 3 letters to search",
+  "aria-label": ariaLabel = "Target Company",
+}: Props) {
   const listId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -29,26 +37,29 @@ export function CountryRegionField({ value, onChange, disabled = false }: Props)
   const selected = useMemo(
     () =>
       value
-        .map((c) => c.trim())
+        .map((item) => item.trim())
         .filter(Boolean)
         .filter(
-          (country, index, list) =>
-            list.findIndex((x) => x.toLowerCase() === country.toLowerCase()) === index
+          (item, index, list) =>
+            list.findIndex((x) => x.toLowerCase() === item.toLowerCase()) === index
         ),
     [value]
   );
 
   const selectedLower = useMemo(
-    () => new Set(selected.map((c) => c.toLowerCase())),
+    () => new Set(selected.map((item) => item.toLowerCase())),
     [selected]
   );
 
   const trimmedQuery = query.trim();
+  const canAddCustom =
+    trimmedQuery.length > 0 && !selectedLower.has(trimmedQuery.toLowerCase());
+
   const showList =
     open &&
     !disabled &&
     trimmedQuery.length >= MIN_QUERY_LENGTH &&
-    (loading || fetchedFor === trimmedQuery);
+    (loading || fetchedFor === trimmedQuery || canAddCustom);
 
   useEffect(() => {
     if (!open) return;
@@ -74,7 +85,7 @@ export function CountryRegionField({ value, onChange, disabled = false }: Props)
     const timer = window.setTimeout(() => {
       setLoading(true);
       fetchFilterAutocomplete({
-        filterType: COUNTRY_FILTER_TYPE,
+        filterType: COMPANY_FILTER_TYPE,
         query: q,
         limit: 10,
         signal: controller.signal,
@@ -103,8 +114,8 @@ export function CountryRegionField({ value, onChange, disabled = false }: Props)
     };
   }, [query, selectedLower]);
 
-  const addCountry = (country: string) => {
-    const trimmed = country.trim();
+  const addCompany = (company: string) => {
+    const trimmed = company.trim();
     if (!trimmed) return;
     if (selectedLower.has(trimmed.toLowerCase())) {
       setQuery("");
@@ -121,30 +132,35 @@ export function CountryRegionField({ value, onChange, disabled = false }: Props)
     requestAnimationFrame(() => inputRef.current?.focus());
   };
 
-  const removeCountry = (country: string) => {
-    onChange(selected.filter((c) => c !== country));
+  const removeCompany = (company: string) => {
+    onChange(selected.filter((item) => item !== company));
     requestAnimationFrame(() => inputRef.current?.focus());
   };
 
   return (
     <div ref={rootRef} className="relative mt-1">
       <div
-        className={`dashboard-filter-country-field${
+        className={`dashboard-filter-country-field dashboard-filter-location-field${
           disabled ? " dashboard-filter-country-field--disabled" : ""
         }`}
         onClick={() => inputRef.current?.focus()}
       >
-        {selected.map((country) => (
-          <span key={country} className="dashboard-chip dashboard-chip--selected">
-            <span className="dashboard-chip-label">{country}</span>
+        {selected.map((company) => (
+          <span
+            key={company}
+            className="dashboard-chip dashboard-chip--selected"
+            title={company}
+          >
+            <span className="dashboard-chip-label">{company}</span>
             <button
               type="button"
               className="dashboard-chip-remove"
-              aria-label={`Remove ${country}`}
+              aria-label={`Remove ${company}`}
               disabled={disabled}
               onClick={(e) => {
+                e.preventDefault();
                 e.stopPropagation();
-                removeCountry(country);
+                removeCompany(company);
               }}
             >
               <MaterialIcon name="close" className="text-[9px]" />
@@ -156,11 +172,7 @@ export function CountryRegionField({ value, onChange, disabled = false }: Props)
           id={listId}
           type="text"
           disabled={disabled}
-          placeholder={
-            selected.length > 0
-              ? "Add another country"
-              : "Type at least 3 letters to search"
-          }
+          placeholder={selected.length > 0 ? "Add another company" : placeholder}
           className={`dashboard-filter-country-input ${dashboardInputClass}`}
           value={query}
           onChange={(e) => {
@@ -177,18 +189,25 @@ export function CountryRegionField({ value, onChange, disabled = false }: Props)
             }
             if (e.key === "Backspace" && !query && selected.length > 0) {
               e.preventDefault();
-              removeCountry(selected[selected.length - 1]);
+              removeCompany(selected[selected.length - 1]);
               return;
             }
-            if (e.key === "Enter") {
+            if (e.key === "Enter" || e.key === ",") {
               e.preventDefault();
-              if (suggestions.length > 0) {
-                addCountry(suggestions[0]);
+              const trimmed = query.replace(/,+$/, "").trim();
+              if (!trimmed) return;
+              const exact = suggestions.find(
+                (item) => item.toLowerCase() === trimmed.toLowerCase()
+              );
+              if (exact) {
+                addCompany(exact);
+                return;
               }
+              addCompany(trimmed);
             }
           }}
           autoComplete="off"
-          aria-label="Select region / country"
+          aria-label={ariaLabel}
           aria-autocomplete="list"
           aria-expanded={showList}
           aria-controls={`${listId}-listbox`}
@@ -202,37 +221,52 @@ export function CountryRegionField({ value, onChange, disabled = false }: Props)
           className="dashboard-filter-country-list"
           style={{ zIndex: 40 }}
         >
+          {canAddCustom ? (
+            <li role="option">
+              <button
+                type="button"
+                className="dashboard-filter-country-option"
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  addCompany(trimmedQuery);
+                }}
+              >
+                Add “{trimmedQuery}”
+              </button>
+            </li>
+          ) : null}
           {loading ? (
             <li
               className="dashboard-filter-country-option dashboard-filter-location-status"
               role="presentation"
             >
-              Searching countries…
+              Searching companies…
             </li>
           ) : suggestions.length > 0 ? (
-            suggestions.map((country) => (
-              <li key={country} role="option">
+            suggestions.map((company) => (
+              <li key={company} role="option">
                 <button
                   type="button"
                   className="dashboard-filter-country-option"
                   onPointerDown={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    addCountry(country);
+                    addCompany(company);
                   }}
                 >
-                  {country}
+                  {company}
                 </button>
               </li>
             ))
-          ) : (
+          ) : fetchedFor === trimmedQuery ? (
             <li
               className="dashboard-filter-country-option dashboard-filter-location-status"
               role="presentation"
             >
-              No countries found
+              No companies found — press Enter to add custom
             </li>
-          )}
+          ) : null}
         </ul>
       ) : null}
     </div>
