@@ -474,3 +474,42 @@ export async function fetchOutreachModuleCandidateInteractions(
     scheduledInterview: CampaignScheduledInterview | null;
   }>(res);
 }
+
+export type OutreachConversationMessage = {
+  id: string;
+  channel: string;
+  direction: "inbound" | "outbound";
+  body: string;
+  subject: string;
+  at: string | null;
+  status?: string;
+  stepLabel?: string;
+  fromEmail?: string;
+  toEmail?: string;
+  recordingUrl?: string;
+  durationSeconds?: number | null;
+  fromInteraction?: boolean;
+};
+
+export async function fetchOutreachModuleCandidateConversation(
+  token: string,
+  campaignId: string,
+  candidateId: string,
+  channel?: string
+) {
+  const params = new URLSearchParams();
+  if (channel?.trim()) params.set("channel", channel.trim());
+  const qs = params.toString();
+  const res = await fetch(
+    `${apiBase()}/api/outreach-campaigns/${campaignId}/candidates/${candidateId}/conversation${
+      qs ? `?${qs}` : ""
+    }`,
+    { headers: authHeaders(token) }
+  );
+  return parseJson<{
+    success: boolean;
+    channel: string;
+    candidate: CampaignTrackingCandidate;
+    messages: OutreachConversationMessage[];
+  }>(res);
+}

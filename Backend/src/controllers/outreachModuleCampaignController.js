@@ -15,6 +15,7 @@ const {
   getOutreachModuleCampaignTracking,
   recordOutreachModuleCandidateAction,
   getOutreachModuleCandidateInteractions,
+  getOutreachModuleCandidateConversation,
 } = require("../services/outreachModuleCampaignService");
 const { listOutreachModuleCandidatePool, importOutreachModuleCandidatesFromCsv } = require("../services/outreachModuleCandidatePoolService");
 const { listAdminUpcomingOutreachTriggers } = require("../services/adminOutreachTriggersService");
@@ -235,6 +236,22 @@ const getCandidateInteractionsHandler = async (req, res) => {
   }
 };
 
+const getCandidateConversationHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
+    const result = await getOutreachModuleCandidateConversation(
+      uid,
+      req.params.id,
+      req.params.candidateId,
+      { channel: req.query?.channel }
+    );
+    return res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
 const recordCandidateActionHandler = async (req, res) => {
   try {
     const uid = req.auth?.userId;
@@ -283,6 +300,7 @@ module.exports = {
   resumeCampaignHandler,
   getTrackingHandler,
   getCandidateInteractionsHandler,
+  getCandidateConversationHandler,
   recordCandidateActionHandler,
   listAdminUpcomingTriggersHandler,
 };
