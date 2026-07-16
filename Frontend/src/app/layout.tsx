@@ -76,6 +76,27 @@ export default function RootLayout({
         />
       </head>
       <body className="flex min-h-full flex-col" suppressHydrationWarning>
+            <Script
+          src="https://www.googletagmanager.com/gtag/js?id=G-KQE932R4J6"
+          strategy="afterInteractive"
+        />
+        <Script
+          id="google-analytics"
+          strategy="afterInteractive"
+          dangerouslySetInnerHTML={{
+            __html: `window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-KQE932R4J6');`,
+          }}
+        />
+        <Script
+          id="reb2b-loader"
+          strategy="beforeInteractive"
+          dangerouslySetInnerHTML={{
+            __html: `!function(key) {if (window.reb2b) return;window.reb2b = {loaded: true};var s = document.createElement("script");s.async = true;s.src = "https://ddwl4m2hdecbv.cloudfront.net/b/" + key + "/" + key + ".js.gz";document.getElementsByTagName("script")[0].parentNode.insertBefore(s, document.getElementsByTagName("script")[0]);}("1N5W0H7Y82O5");`,
+          }}
+        />
         <GoogleOAuthProvider clientId={process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ""}>
           {children}
         </GoogleOAuthProvider>
