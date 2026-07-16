@@ -3222,6 +3222,8 @@ export function UserDashboardPage() {
     }
 
     const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+    const previousPrompt = filterSearchPrompt.trim();
+    const promptChanged = previousPrompt !== prompt;
     setFilterSearchPrompt(prompt);
     setPendingSearchSessionId(null);
     setPendingSessionPayload(null);
@@ -3229,7 +3231,9 @@ export function UserDashboardPage() {
     setSessionResultDocs([]);
     setAnnotateLoading(true);
     setFilterSkillsError("");
-    setCandidateFilterForm(DEFAULT_CANDIDATE_FILTER_FORM);
+    if (promptChanged) {
+      setCandidateFilterForm(DEFAULT_CANDIDATE_FILTER_FORM);
+    }
     setIsFilterDrawerOpen(true);
 
     try {
@@ -3249,11 +3253,11 @@ export function UserDashboardPage() {
         );
       }
       if (data.filterForm && typeof data.filterForm === "object") {
-        setCandidateFilterForm(
-          mergeFilterForm(
-            DEFAULT_CANDIDATE_FILTER_FORM,
-            data.filterForm as Partial<CandidateFilterForm>
-          )
+        const annotatePatch = data.filterForm as Partial<CandidateFilterForm>;
+        setCandidateFilterForm((prev) =>
+          promptChanged
+            ? mergeFilterForm(DEFAULT_CANDIDATE_FILTER_FORM, annotatePatch)
+            : mergeFilterFormPreserveFilled(prev, annotatePatch)
         );
       }
     } catch (err) {
@@ -3381,11 +3385,18 @@ export function UserDashboardPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
-        if (userActionAlert.fromApi(res, data, "Failed to load candidates")) return;
-        if (userActionAlert.fromFutureJobsApi(res, data)) return;
+        if (userActionAlert.fromApi(res, data, "Failed to load candidates")) {
+          setIsFilterDrawerOpen(true);
+          return;
+        }
+        if (userActionAlert.fromFutureJobsApi(res, data)) {
+          setIsFilterDrawerOpen(true);
+          return;
+        }
         userActionAlert.showError(
           userActionAlert.apiMessage(res, data, "Failed to load candidates")
         );
+        setIsFilterDrawerOpen(true);
         return;
       }
 
@@ -3508,12 +3519,16 @@ export function UserDashboardPage() {
         }
       }
     } catch (err) {
-      if (userActionAlert.fromThrown(err)) return;
+      if (userActionAlert.fromThrown(err)) {
+        setIsFilterDrawerOpen(true);
+        return;
+      }
       const message =
         err instanceof Error ? err.message : "Could not apply filters";
       setSessionResultError(message);
       userActionAlert.showError(message);
       setSessionSearchPolling(false);
+      setIsFilterDrawerOpen(true);
     } finally {
       setApplyFiltersLoading(false);
     }
@@ -6439,9 +6454,9 @@ export function UserDashboardPage() {
         }}
         onSearchAgain={() => {
           userActionAlert.close();
-          setIsFilterDrawerOpen(false);
           setApplySessionChoiceOpen(false);
           navigateToTab("Search Candidates");
+          setIsFilterDrawerOpen(true);
           setPromptFocusSignal((n) => n + 1);
         }}
       />

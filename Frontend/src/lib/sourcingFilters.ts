@@ -363,6 +363,12 @@ export function mergeFilterFormPreserveFilled(
 ): CandidateFilterForm {
   if (!patch || typeof patch !== "object") return base;
   const merged = mergeFilterForm(mergeFilterForm(DEFAULT_CANDIDATE_FILTER_FORM, base), patch);
+  if (
+    normalizeSelectRegions((patch as Partial<CandidateFilterForm>).selectRegion).length === 0 &&
+    normalizeSelectRegions(base.selectRegion).length > 0
+  ) {
+    merged.selectRegion = normalizeSelectRegions(base.selectRegion);
+  }
   for (const key of FILTER_FORM_RANGE_KEYS) {
     const patchVal = (patch as Partial<CandidateFilterForm>)[key];
     const baseVal = base[key];
@@ -471,6 +477,26 @@ export function mergeFilterFormPreserveFilled(
     normalizeChipList(base.languages).length > 0
   ) {
     merged.languages = normalizeChipList(base.languages);
+  }
+
+  // Booleans: after apply, API may normalize missing fields to false.
+  // Preserve "true" values the user had in the drawer when the patch is falsy.
+  const booleanKeys = [
+    "searchOtherRegions",
+    "openToWork",
+    "frequentJobSwitch",
+    "recentlyChangedJob",
+    "largeEmploymentGaps",
+    "noCareerProgression",
+    "grammarSpellingIssues",
+    "overlappingFullTimeJobs",
+    "unspecifiedDatesOrLocations",
+  ] as const;
+  for (const key of booleanKeys) {
+    const patchVal = (patch as Partial<CandidateFilterForm>)[key];
+    if (!patchVal && base[key]) {
+      merged[key] = true;
+    }
   }
   return merged;
 }
