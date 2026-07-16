@@ -1,10 +1,13 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Epilogue, Inter } from "next/font/google";
 import "./globals.css";
 import "./landing.css";
 import "./dashboard.css";
 import { GoogleOAuthProvider } from "@react-oauth/google";
+import { AuthSessionGuard } from "@/components/AuthSessionGuard";
+import { RealtimeConnect } from "@/components/RealtimeConnect";
 import { buildPageMetadata, OG_IMAGES, SITE_URL } from "@/lib/siteMetadata";
 
 const geistSans = Geist({
@@ -65,18 +68,13 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <head>
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `!function(key) {if (window.reb2b) return;window.reb2b = {loaded: true};var s = document.createElement("script");s.async = true;s.src = "https://ddwl4m2hdecbv.cloudfront.net/b/" + key + "/" + key + ".js.gz";document.getElementsByTagName("script")[0].parentNode.insertBefore(s, document.getElementsByTagName("script")[0]);}("1N5W0H7Y82O5");`,
-          }}
-        />
         <link
           href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0"
           rel="stylesheet"
         />
       </head>
       <body className="flex min-h-full flex-col" suppressHydrationWarning>
-            <Script
+        <Script
           src="https://www.googletagmanager.com/gtag/js?id=G-KQE932R4J6"
           strategy="afterInteractive"
         />
@@ -98,6 +96,8 @@ gtag('config', 'G-KQE932R4J6');`,
           }}
         />
         <GoogleOAuthProvider clientId={process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ""}>
+          <AuthSessionGuard />
+          <RealtimeConnect />
           {children}
         </GoogleOAuthProvider>
       </body>
