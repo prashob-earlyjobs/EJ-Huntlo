@@ -22,6 +22,7 @@ const {
   resumeCampaignHandler,
   getTrackingHandler,
   getCandidateInteractionsHandler,
+  getCandidateConversationHandler,
   recordCandidateActionHandler,
   listAdminUpcomingTriggersHandler,
 } = require("../controllers/outreachModuleCampaignController");
@@ -60,6 +61,11 @@ router.get(
   "/:id/candidates/:candidateId/interactions",
   authenticate,
   getCandidateInteractionsHandler
+);
+router.get(
+  "/:id/candidates/:candidateId/conversation",
+  authenticate,
+  getCandidateConversationHandler
 );
 router.post(
   "/:id/candidates/:candidateId/actions",

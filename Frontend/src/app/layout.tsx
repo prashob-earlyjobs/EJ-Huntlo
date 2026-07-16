@@ -6,6 +6,7 @@ import "./globals.css";
 import "./landing.css";
 import "./dashboard.css";
 import { GoogleOAuthProvider } from "@react-oauth/google";
+import { AuthSessionGuard } from "@/components/AuthSessionGuard";
 import { RealtimeConnect } from "@/components/RealtimeConnect";
 import { buildPageMetadata, OG_IMAGES, SITE_URL } from "@/lib/siteMetadata";
 
@@ -74,6 +75,20 @@ export default function RootLayout({
       </head>
       <body className="flex min-h-full flex-col" suppressHydrationWarning>
         <Script
+          src="https://www.googletagmanager.com/gtag/js?id=G-KQE932R4J6"
+          strategy="afterInteractive"
+        />
+        <Script
+          id="google-analytics"
+          strategy="afterInteractive"
+          dangerouslySetInnerHTML={{
+            __html: `window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-KQE932R4J6');`,
+          }}
+        />
+        <Script
           id="reb2b-loader"
           strategy="beforeInteractive"
           dangerouslySetInnerHTML={{
@@ -81,6 +96,7 @@ export default function RootLayout({
           }}
         />
         <GoogleOAuthProvider clientId={process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ""}>
+          <AuthSessionGuard />
           <RealtimeConnect />
           {children}
         </GoogleOAuthProvider>

@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const OutreachModuleCampaign = require("../models/OutreachModuleCampaign");
+const CampaignVoiceCall = require("../models/CampaignVoiceCall");
 const { userIdFilterForActor } = require("../utils/orgScope");
 const { extractVoiceJdDetailsFromGemini, fallbackJdExtract } = require("./voiceJdExtractService");
 const {
@@ -11,6 +12,7 @@ const { screeningGoalObjective } = require("../constants/screeningGoals");
 const { VOICE_CALL_OBJECTIVE_DEFAULT } = require("../constants/outreachVoiceDefaults");
 const {
   createOutreachModuleCampaign,
+  updateOutreachModuleCampaign,
   launchOutreachModuleCampaign,
   pauseOutreachModuleCampaign,
   getOutreachModuleCampaignTracking,
@@ -192,6 +194,136 @@ function latestVoiceInteraction(candidate) {
   return null;
 }
 
+function normalizeResultValue(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item || "").trim()).filter(Boolean).join(", ");
+  }
+  if (value && typeof value === "object") return "";
+  return String(value ?? "").trim();
+}
+
+function rawHunarResult(voiceCall) {
+  const result = voiceCall?.resultPayload?.result;
+  return result && typeof result === "object" && !Array.isArray(result) ? result : {};
+}
+
+const RESULT_DETAIL_FIELDS = [
+  ["Final outcome", "final_outcome"],
+  ["Interest level", "interest_level"],
+  ["Candidate status", "candidate_status"],
+  ["Experience", "experience"],
+  ["Relevant experience", "relevant_experience"],
+  ["Skills and tools", "skills_and_tools"],
+  ["Recent project", "recent_project"],
+  ["Current CTC", "ctc"],
+  ["Expected CTC", "expected_ctc"],
+  ["Notice period", "notice_period"],
+  ["Location", "location"],
+  ["Education", "education"],
+  ["Callback requested", "callback_requested"],
+  ["Callback time", "callback_time"],
+  ["Candidate questions", "candidate_questions"],
+];
+
+function buildResultDetails(callResult = {}) {
+  return RESULT_DETAIL_FIELDS
+    .map(([label, key]) => ({ label, value: normalizeResultValue(callResult[key]) }))
+    .filter((entry) => entry.value);
+}
+
+function normalizeTranscript(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => {
+        if (typeof entry === "string") {
+          const match = entry.match(/^\s*([^:]{1,30}):\s*(.+)$/);
+          return {
+            speaker: match ? match[1].trim() : "Speaker",
+            text: match ? match[2].trim() : entry.trim(),
+          };
+        }
+        if (!entry || typeof entry !== "object") return null;
+        const speaker = String(
+          entry.speaker || entry.role || entry.participant || entry.author || "Speaker"
+        ).trim();
+        const text = String(
+          entry.text || entry.content || entry.message || entry.transcript || ""
+        ).trim();
+        return text ? { speaker, text } : null;
+      })
+      .filter(Boolean);
+  }
+
+  if (typeof value !== "string" || !value.trim()) return [];
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const match = line.match(/^([^:]{1,30}):\s*(.+)$/);
+      return {
+        speaker: match ? match[1].trim() : "Speaker",
+        text: match ? match[2].trim() : line,
+      };
+    });
+}
+
+function extractTranscript(voiceCall) {
+  const rawResult = rawHunarResult(voiceCall);
+  const candidates = [
+    rawResult.transcript,
+    rawResult.call_transcript,
+    rawResult.conversation,
+    voiceCall?.resultPayload?.transcript,
+    voiceCall?.resultPayload?.call_transcript,
+    voiceCall?.summaryPayload?.transcript,
+    voiceCall?.summaryPayload?.call_transcript,
+    voiceCall?.summaryPayload?.result?.transcript,
+  ];
+  for (const candidate of candidates) {
+    const lines = normalizeTranscript(candidate);
+    if (lines.length > 0) return lines;
+  }
+  return [];
+}
+
+function buildScorecard(rawResult = {}) {
+  const source = rawResult.scorecard || rawResult.scores || rawResult.evaluation_scores;
+  const entries = [];
+
+  if (Array.isArray(source)) {
+    for (const item of source) {
+      if (!item || typeof item !== "object") continue;
+      const label = String(item.label || item.name || item.criterion || "").trim();
+      const score = Number(item.score ?? item.value);
+      if (label && Number.isFinite(score)) {
+        entries.push({ label, score: Math.max(0, Math.min(100, score)) });
+      }
+    }
+  } else if (source && typeof source === "object") {
+    for (const [key, value] of Object.entries(source)) {
+      const score = Number(value?.score ?? value);
+      if (Number.isFinite(score)) {
+        entries.push({
+          label: key.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase()),
+          score: Math.max(0, Math.min(100, score)),
+        });
+      }
+    }
+  }
+
+  const explicitOverall = Number(
+    rawResult.overall_score ?? rawResult.smart_score ?? rawResult.score
+  );
+  const overallScore = Number.isFinite(explicitOverall)
+    ? Math.max(0, Math.min(100, explicitOverall))
+    : entries.length > 0
+      ? Math.round(entries.reduce((sum, entry) => sum + entry.score, 0) / entries.length)
+      : null;
+
+  return { entries, overallScore };
+}
+
 function formatScreeningResultRow(candidate, screeningType = "voice") {
   const voice = latestVoiceInteraction(candidate);
   const callResult =
@@ -278,9 +410,15 @@ function buildScreeningFunnel(candidates = []) {
   ];
 }
 
-function formatScreeningResultDetail(candidate, screeningType = "voice") {
+function formatScreeningResultDetail(candidate, screeningType = "voice", voiceCall = null) {
   const row = formatScreeningResultRow(candidate, screeningType);
-  const callResult = row.callResult || {};
+  const storedResult = rawHunarResult(voiceCall);
+  const callResult = {
+    ...(row.callResult || {}),
+    ...storedResult,
+  };
+  const score = buildScorecard(storedResult);
+  const fallbackSummary = row.aiSummary === "—" ? "" : row.aiSummary;
   const insights = [];
   if (callResult.experience) insights.push(`Experience: ${callResult.experience}`);
   if (callResult.relevant_experience) {
@@ -302,10 +440,23 @@ function formatScreeningResultDetail(candidate, screeningType = "voice") {
     role: row.role,
     location: candidate.location || "—",
     experience: candidate.experience || callResult.experience || "—",
-    overallScore: 0,
-    recommendation: row.recommendation || "needs_review",
-    aiSummary: row.aiSummary,
-    scorecard: [],
+    overallScore: score.overallScore,
+    recommendation: mapRecommendation({
+      finalOutcome: callResult.finalOutcome || callResult.final_outcome,
+      interestLevel: callResult.interestLevel || callResult.interest_level,
+      candidateStatus: callResult.candidateStatus || callResult.candidate_status,
+    }) || row.recommendation || "needs_review",
+    aiSummary:
+      String(
+        callResult.summary ||
+          voiceCall?.summaryText ||
+          fallbackSummary ||
+          ""
+      ).trim() || "No AI summary is available yet.",
+    scorecard: score.entries,
+    resultDetails: buildResultDetails(storedResult),
+    transcript: extractTranscript(voiceCall),
+    recordingUrl: String(voiceCall?.recordingUrl || "").trim(),
     insights: insights.length > 0 ? insights : ["Awaiting call results"],
     concerns: concerns.length > 0 ? concerns : ["None noted"],
     type: screeningType === "video" ? "video" : "voice",
@@ -424,16 +575,70 @@ async function getScreeningCandidateDetail(actorUserId, screeningId, candidateId
   if (!candidate) throw notFound("Candidate not found");
 
   const screeningType = doc.screeningType === "video" ? "video" : "voice";
-  const interactions = await getOutreachModuleCandidateInteractions(
-    actorUserId,
-    screeningId,
-    candidateId
+  const candidateKey = String(candidate.candidateRefId || "").trim();
+  const [interactions, voiceCall] = await Promise.all([
+    getOutreachModuleCandidateInteractions(actorUserId, screeningId, candidateId),
+    candidateKey
+      ? CampaignVoiceCall.findOne({
+          campaignId: screeningId,
+          candidateKey,
+        })
+          .sort({ lastEventAt: -1, updatedAt: -1 })
+          .lean()
+      : Promise.resolve(null),
+  ]);
+
+  return {
+    detail: formatScreeningResultDetail(candidate, screeningType, voiceCall),
+    interactions: interactions.interactions || [],
+    candidate: interactions.candidate,
+  };
+}
+
+async function getScreeningResultVariables(actorUserId, screeningId) {
+  const doc = await findScreeningInScope(actorUserId, screeningId);
+  const screeningType = doc.screeningType === "video" ? "video" : "voice";
+  const candidates = Array.isArray(doc.candidates) ? doc.candidates : [];
+
+  const voiceCalls = await CampaignVoiceCall.find({ campaignId: screeningId })
+    .sort({ lastEventAt: 1, updatedAt: 1 })
+    .lean();
+  const callByCandidateKey = new Map();
+  for (const call of voiceCalls) {
+    const key = String(call.candidateKey || "").trim();
+    if (key) callByCandidateKey.set(key, call);
+  }
+
+  const rows = candidates.map((candidate) => {
+    const row = formatScreeningResultRow(candidate, screeningType);
+    const candidateKey = String(candidate.candidateRefId || "").trim();
+    const voiceCall = candidateKey ? callByCandidateKey.get(candidateKey) : null;
+    const storedResult = rawHunarResult(voiceCall);
+    const callResult = { ...(row.callResult || {}), ...storedResult };
+
+    const variables = { Summary: normalizeResultValue(callResult.summary) };
+    for (const [label, key] of RESULT_DETAIL_FIELDS) {
+      variables[label] = normalizeResultValue(callResult[key]);
+    }
+
+    return {
+      id: row.id,
+      name: row.name,
+      role: row.role,
+      status: row.status,
+      variables,
+    };
+  });
+
+  const allColumns = ["Summary", ...RESULT_DETAIL_FIELDS.map(([label]) => label)];
+  const columns = allColumns.filter((label) =>
+    rows.some((row) => row.variables[label])
   );
 
   return {
-    detail: formatScreeningResultDetail(candidate, screeningType),
-    interactions: interactions.interactions || [],
-    candidate: interactions.candidate,
+    screening: formatScreeningRow(doc),
+    columns,
+    rows,
   };
 }
 
@@ -572,6 +777,89 @@ async function createVoiceScreening(actorUserId, payload = {}) {
   };
 }
 
+function attemptGapHoursToLabel(hours) {
+  const h = Math.max(1, Number(hours) || 24);
+  if (h % 24 === 0) {
+    const days = h / 24;
+    return days === 1 ? "1 day" : `${days} days`;
+  }
+  return h === 1 ? "1 hour" : `${h} hours`;
+}
+
+/** Builder state for resuming a draft screening in the frontend wizard. */
+async function getScreeningDraft(actorUserId, screeningId) {
+  const doc = await findScreeningInScope(actorUserId, screeningId);
+  const config = doc.screeningConfig || {};
+  const candidates = Array.isArray(doc.candidates) ? doc.candidates : [];
+
+  return {
+    screening: formatScreeningRow(doc),
+    draft: {
+      details: {
+        name: doc.name || "",
+        jobTitle: doc.jobTitle || "",
+        companyName: String(config.companyName || ""),
+        location: String(config.location || ""),
+        experienceRequired: String(config.experienceRequired || ""),
+        goal: String(config.goal || "interest"),
+        jobDescription: doc.jobDescription || "",
+      },
+      candidateIds: candidates
+        .map((c) => String(c.candidateRefId || "").trim())
+        .filter(Boolean),
+      candidateSource: doc.candidateSource || "talent_pool",
+      language: String(config.language || "english"),
+      voiceTone: String(config.voiceTone || "professional"),
+      attempts: Math.max(1, Number(config.attempts) || 1),
+      attemptGap: attemptGapHoursToLabel(config.attemptGapHours),
+      durationLimit: String(config.durationLimit || "5 minutes"),
+      script: config.script || {},
+      questions: Array.isArray(config.questions) ? config.questions : [],
+    },
+  };
+}
+
+/** Update a draft screening in place (and optionally launch it). */
+async function updateVoiceScreening(actorUserId, screeningId, payload = {}) {
+  if (payload.screeningType === "video") {
+    throw badRequest("Video screening is not available yet");
+  }
+
+  const existing = await findScreeningInScope(actorUserId, screeningId);
+  if (existing.status !== "draft") {
+    throw badRequest("Only draft screenings can be edited");
+  }
+
+  const normalized = normalizeCreatePayload(payload);
+  const shouldLaunch = payload.launch !== false;
+
+  await updateOutreachModuleCampaign(actorUserId, screeningId, {
+    name: normalized.name,
+    jobTitle: normalized.jobTitle,
+    jobDescription: normalized.jobDescription,
+    candidateSource: normalized.candidateSource,
+    channel: "voice",
+    channelMessage: normalized.channelMessage,
+    candidateIds: normalized.candidateIds,
+  });
+
+  // screeningConfig is not part of the generic campaign update path.
+  await OutreachModuleCampaign.updateOne(
+    { _id: screeningId },
+    { $set: { screeningConfig: normalized.screeningConfig } }
+  );
+
+  if (shouldLaunch) {
+    await launchOutreachModuleCampaign(actorUserId, screeningId);
+  }
+
+  const refreshed = await findScreeningInScope(actorUserId, screeningId);
+  return {
+    screening: formatScreeningRow(refreshed),
+    launched: shouldLaunch,
+  };
+}
+
 async function launchScreening(actorUserId, screeningId) {
   await findScreeningInScope(actorUserId, screeningId);
   const result = await launchOutreachModuleCampaign(actorUserId, screeningId);
@@ -660,7 +948,10 @@ module.exports = {
   listScreenings,
   getScreeningDetail,
   getScreeningCandidateDetail,
+  getScreeningResultVariables,
+  getScreeningDraft,
   createVoiceScreening,
+  updateVoiceScreening,
   launchScreening,
   pauseScreening,
   recordScreeningCandidateAction,

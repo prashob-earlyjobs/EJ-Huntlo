@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { ScreeningLandingPage } from "@/components/dashboard/screening/ScreeningLandingPage";
 import { ScreeningResultsPage } from "@/components/dashboard/screening/ScreeningResultsPage";
+import { ScreeningVariablesPage } from "@/components/dashboard/screening/ScreeningVariablesPage";
 import { ScreeningTypeSelection } from "@/components/dashboard/screening/ScreeningTypeSelection";
 import { VideoScreeningBuilder } from "@/components/dashboard/screening/VideoScreeningBuilder";
 import { VoiceScreeningBuilder } from "@/components/dashboard/screening/VoiceScreeningBuilder";
@@ -13,29 +14,23 @@ import type { ScreeningRow } from "@/components/dashboard/screening/types";
 import { getStoredAuth } from "@/lib/auth";
 import {
   createVoiceScreening,
-  fetchScreeningStats,
+  updateVoiceScreening,
   fetchScreenings,
   type VoiceScreeningPayload,
-  type ScreeningDashboardStats,
 } from "@/lib/screeningApi";
 import {
   parseScreeningRoute,
   pathForScreeningBuilder,
   pathForScreeningDetail,
+  pathForScreeningEdit,
   pathForScreeningLanding,
   pathForScreeningNew,
+  pathForScreeningVariables,
   type ParsedScreeningRoute,
 } from "@/lib/screeningRoutes";
 
 type Props = {
   segments: string[];
-};
-
-const EMPTY_STATS: ScreeningDashboardStats = {
-  totalScreenings: 0,
-  completed: 0,
-  shortlisted: 0,
-  avgScore: "—",
 };
 
 function resolveView(segments: string[]): ParsedScreeningRoute {
@@ -52,7 +47,6 @@ export function ScreeningPanel({ segments }: Props) {
   const [toastVariant, setToastVariant] = useState<"success" | "error">("success");
   const [submitting, setSubmitting] = useState(false);
   const [screenings, setScreenings] = useState<ScreeningRow[]>([]);
-  const [stats, setStats] = useState<ScreeningDashboardStats>(EMPTY_STATS);
   const [landingLoading, setLandingLoading] = useState(route.view === "landing");
 
   const navigate = useCallback((path: string) => router.push(path), [router]);
@@ -70,11 +64,7 @@ export function ScreeningPanel({ segments }: Props) {
     }
     setLandingLoading(true);
     try {
-      const [statsResult, listResult] = await Promise.all([
-        fetchScreeningStats(auth.token),
-        fetchScreenings(auth.token, { limit: 20 }),
-      ]);
-      setStats(statsResult);
+      const listResult = await fetchScreenings(auth.token, { limit: 20 });
       setScreenings(listResult.screenings);
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Could not load screenings", "error");
@@ -89,6 +79,9 @@ export function ScreeningPanel({ segments }: Props) {
     }
   }, [route.view, loadLanding]);
 
+  // When the builder was opened for an existing draft, save/launch updates it in place.
+  const editingDraftId = route.view === "voice-builder" ? route.screeningId : undefined;
+
   const persistScreening = async (
     payload: VoiceScreeningPayload,
     options?: { navigateOnSuccess?: boolean }
@@ -99,7 +92,9 @@ export function ScreeningPanel({ segments }: Props) {
     }
     setSubmitting(true);
     try {
-      const result = await createVoiceScreening(auth.token, payload);
+      const result = editingDraftId
+        ? await updateVoiceScreening(auth.token, editingDraftId, payload)
+        : await createVoiceScreening(auth.token, payload);
       showToast(
         payload.launch === false
           ? "Screening saved as draft"
@@ -144,7 +139,6 @@ export function ScreeningPanel({ segments }: Props) {
       <div className="dashboard-screening-panel-body">
         {(route.view === "landing" || route.view === "mode-select") && (
           <ScreeningLandingPage
-            stats={stats}
             screenings={screenings}
             loading={landingLoading}
             onNewScreening={() => {
@@ -153,12 +147,19 @@ export function ScreeningPanel({ segments }: Props) {
             }}
             onStartVoice={() => navigate(pathForScreeningBuilder("voice"))}
             onStartVideo={() => navigate(pathForScreeningBuilder("video"))}
-            onViewScreening={(id) => navigate(pathForScreeningDetail(id))}
+            onViewScreening={(id) => {
+              const row = screenings.find((s) => s.id === id);
+              navigate(
+                row?.status === "draft" ? pathForScreeningEdit(id) : pathForScreeningDetail(id)
+              );
+            }}
           />
         )}
 
         {route.view === "voice-builder" ? (
           <VoiceScreeningBuilder
+            key={editingDraftId || "new"}
+            draftId={editingDraftId}
             onBack={() => navigate(pathForScreeningLanding())}
             onSaveDraft={handleSaveDraft}
             onLaunch={handleLaunch}
@@ -181,6 +182,17 @@ export function ScreeningPanel({ segments }: Props) {
           <ScreeningResultsPage
             screeningId={route.screeningId}
             onBack={() => navigate(pathForScreeningLanding())}
+            onViewAllDetails={() =>
+              navigate(pathForScreeningVariables(route.screeningId as string))
+            }
+            onToast={showToast}
+          />
+        ) : null}
+
+        {route.view === "variables" && route.screeningId ? (
+          <ScreeningVariablesPage
+            screeningId={route.screeningId}
+            onBack={() => navigate(pathForScreeningDetail(route.screeningId as string))}
             onToast={showToast}
           />
         ) : null}

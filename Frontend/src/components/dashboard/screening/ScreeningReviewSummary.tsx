@@ -20,10 +20,11 @@ type Props = {
   candidateCount: number;
   questionsCount: number;
   stats?: ScreeningReviewStat[];
-  /** @deprecated Use stats — kept for video builder extras grid */
+  /** Labeled configuration values rendered in the Configuration panel. */
   extras?: { label: string; value: string }[];
   goalLabel?: string;
   callObjective?: string;
+  onBack?: () => void;
   onSaveDraft: () => void;
   onLaunch: () => void;
   launchLabel: string;
@@ -40,6 +41,7 @@ export function ScreeningReviewSummary({
   extras = [],
   goalLabel,
   callObjective,
+  onBack,
   onSaveDraft,
   onLaunch,
   launchLabel,
@@ -97,105 +99,122 @@ export function ScreeningReviewSummary({
           </span>
         </header>
 
-        <div className="dashboard-screening-review-stats-bar" aria-label="Screening summary">
-          <span className="dashboard-screening-review-stat">
-            <MaterialIcon
-              name={type === "voice" ? "record_voice_over" : "videocam"}
-              className="dashboard-screening-review-stat-icon"
-            />
-            {typeLabel}
-          </span>
-          <span className="dashboard-screening-review-stat">
-            <MaterialIcon name="groups" className="dashboard-screening-review-stat-icon" />
-            {candidateCount} {candidateCount === 1 ? "candidate" : "candidates"}
-          </span>
-          <span className="dashboard-screening-review-stat">
-            <MaterialIcon name="quiz" className="dashboard-screening-review-stat-icon" />
-            {questionsCount} {questionsCount === 1 ? "question" : "questions"}
-          </span>
-          {stats.map((stat) => (
-            <span key={`${stat.icon}-${stat.value}`} className="dashboard-screening-review-stat">
-              <MaterialIcon name={stat.icon} className="dashboard-screening-review-stat-icon" />
-              {stat.value}
-              {stat.muted ? (
-                <>
-                  <span className="dashboard-screening-review-stat-sep" aria-hidden>
-                    ·
-                  </span>
-                  <span className="dashboard-screening-review-stat-muted">{stat.muted}</span>
-                </>
-              ) : null}
-            </span>
-          ))}
-        </div>
-
-        {goalLabel || callObjective ? (
-          <section className="dashboard-screening-review-panel">
-            <div className="dashboard-screening-review-panel-head">
-              <h4 className="dashboard-screening-review-section-title">Call objective</h4>
-              {goalLabel ? (
-                <span className="dashboard-screening-review-goal-badge">{goalLabel}</span>
-              ) : null}
-            </div>
-            {callObjective ? (
-              <p className="dashboard-screening-review-objective">{callObjective}</p>
-            ) : null}
-          </section>
-        ) : null}
-
-        {extras.length > 0 ? (
-          <section className="dashboard-screening-review-panel">
-            <h4 className="dashboard-screening-review-section-title">Configuration</h4>
-            <dl className="dashboard-screening-review-detail-grid">
-              {extras.map((item) => (
-                <div key={item.label}>
-                  <dt>{item.label}</dt>
-                  <dd>{item.value}</dd>
-                </div>
-              ))}
-            </dl>
-          </section>
-        ) : null}
-
-        <aside className="dashboard-screening-review-aside">
-          <section className="dashboard-screening-review-panel dashboard-screening-review-checklist">
-            <div className="dashboard-screening-review-panel-head dashboard-screening-review-panel-head--row">
-              <div>
-                <h4 className="dashboard-screening-review-section-title">Launch checklist</h4>
-                <p className="dashboard-screening-review-section-lead">
-                  {checklistDone} of {checklist.length} complete
-                </p>
-              </div>
-              <span className="dashboard-screening-review-checklist-ring" aria-hidden>
-                {checklistDone}/{checklist.length}
+        <div className="dashboard-screening-review-columns">
+          <div className="dashboard-screening-review-main">
+            <div className="dashboard-screening-review-stats-bar" aria-label="Screening summary">
+              <span className="dashboard-screening-review-stat">
+                <MaterialIcon
+                  name={type === "voice" ? "record_voice_over" : "videocam"}
+                  className="dashboard-screening-review-stat-icon"
+                />
+                {typeLabel}
               </span>
-            </div>
-            <ul>
-              {checklist.map((item) => (
-                <li
-                  key={item.label}
-                  className={`dashboard-screening-review-checklist-item${
-                    item.done ? " dashboard-screening-review-checklist-item--done" : ""
-                  }`}
-                >
-                  <MaterialIcon
-                    name={item.done ? "check_circle" : "radio_button_unchecked"}
-                    className="text-sm"
-                  />
-                  {item.label}
-                </li>
+              <span className="dashboard-screening-review-stat">
+                <MaterialIcon name="groups" className="dashboard-screening-review-stat-icon" />
+                {candidateCount} {candidateCount === 1 ? "candidate" : "candidates"}
+              </span>
+              <span className="dashboard-screening-review-stat">
+                <MaterialIcon name="quiz" className="dashboard-screening-review-stat-icon" />
+                {questionsCount} {questionsCount === 1 ? "question" : "questions"}
+              </span>
+              {stats.map((stat) => (
+                <span key={`${stat.icon}-${stat.value}`} className="dashboard-screening-review-stat">
+                  <MaterialIcon name={stat.icon} className="dashboard-screening-review-stat-icon" />
+                  {stat.value}
+                  {stat.muted ? (
+                    <>
+                      <span className="dashboard-screening-review-stat-sep" aria-hidden>
+                        ·
+                      </span>
+                      <span className="dashboard-screening-review-stat-muted">{stat.muted}</span>
+                    </>
+                  ) : null}
+                </span>
               ))}
-            </ul>
-          </section>
+            </div>
 
-          <p className="dashboard-screening-review-note">
-            <MaterialIcon name="info" className="text-sm" />
-            {launchHint}
-          </p>
-        </aside>
+            {goalLabel || callObjective ? (
+              <section className="dashboard-screening-review-panel">
+                <div className="dashboard-screening-review-panel-head">
+                  <h4 className="dashboard-screening-review-section-title">Call objective</h4>
+                  {goalLabel ? (
+                    <span className="dashboard-screening-review-goal-badge">{goalLabel}</span>
+                  ) : null}
+                </div>
+                {callObjective ? (
+                  <p className="dashboard-screening-review-objective">{callObjective}</p>
+                ) : null}
+              </section>
+            ) : null}
+
+            {extras.length > 0 ? (
+              <section className="dashboard-screening-review-panel">
+                <div className="dashboard-screening-review-panel-head">
+                  <h4 className="dashboard-screening-review-section-title">Configuration</h4>
+                </div>
+                <dl className="dashboard-screening-review-detail-grid">
+                  {extras.map((item) => (
+                    <div key={item.label}>
+                      <dt>{item.label}</dt>
+                      <dd>{item.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </section>
+            ) : null}
+          </div>
+
+          <aside className="dashboard-screening-review-aside">
+            <section className="dashboard-screening-review-panel dashboard-screening-review-checklist">
+              <div className="dashboard-screening-review-panel-head dashboard-screening-review-panel-head--row">
+                <div>
+                  <h4 className="dashboard-screening-review-section-title">Launch checklist</h4>
+                  <p className="dashboard-screening-review-section-lead">
+                    {checklistDone} of {checklist.length} complete
+                  </p>
+                </div>
+                <span className="dashboard-screening-review-checklist-ring" aria-hidden>
+                  {checklistDone}/{checklist.length}
+                </span>
+              </div>
+              <ul>
+                {checklist.map((item) => (
+                  <li
+                    key={item.label}
+                    className={`dashboard-screening-review-checklist-item${
+                      item.done ? " dashboard-screening-review-checklist-item--done" : ""
+                    }`}
+                  >
+                    <MaterialIcon
+                      name={item.done ? "check_circle" : "radio_button_unchecked"}
+                      className="text-sm"
+                    />
+                    {item.label}
+                  </li>
+                ))}
+              </ul>
+            </section>
+
+            <p className="dashboard-screening-review-note">
+              <MaterialIcon name="info" className="text-sm" />
+              {launchHint}
+            </p>
+          </aside>
+        </div>
       </div>
 
       <footer className="dashboard-screening-review-actions">
+        {onBack ? (
+          <button
+            type="button"
+            className={`${dashboardBtnSecondaryClass} dashboard-screening-review-back-btn`}
+            onClick={onBack}
+            disabled={launchDisabled}
+          >
+            <MaterialIcon name="arrow_back" className="text-sm" />
+            Back
+          </button>
+        ) : null}
         <button
           type="button"
           className={dashboardBtnSecondaryClass}

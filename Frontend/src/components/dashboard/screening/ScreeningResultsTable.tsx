@@ -16,9 +16,10 @@ const STATUS_LABELS: Record<string, string> = {
 type Props = {
   rows: ScreeningResultRow[];
   onView: (id: string) => void;
+  onViewAllDetails?: () => void;
 };
 
-export function ScreeningResultsTable({ rows, onView }: Props) {
+export function ScreeningResultsTable({ rows, onView, onViewAllDetails }: Props) {
   if (rows.length === 0) {
     return (
       <div className="dashboard-screening-empty-state">
@@ -35,12 +36,21 @@ export function ScreeningResultsTable({ rows, onView }: Props) {
             <th>Candidate</th>
             <th>Type</th>
             <th>Status</th>
-            <th>Score</th>
             <th>Recommendation</th>
             <th>Key strength</th>
             <th>Concern</th>
             <th>Completed</th>
-            <th />
+            <th className="dashboard-screening-table-actions-th">
+              {onViewAllDetails ? (
+                <button
+                  type="button"
+                  className="dashboard-btn-secondary dashboard-btn-secondary--sm"
+                  onClick={onViewAllDetails}
+                >
+                  All details
+                </button>
+              ) : null}
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -58,7 +68,6 @@ export function ScreeningResultsTable({ rows, onView }: Props) {
                   {STATUS_LABELS[row.status]}
                 </span>
               </td>
-              <td>{row.score ?? "-"}</td>
               <td>{recommendationLabel(row.recommendation)}</td>
               <td>{row.keyStrength}</td>
               <td>{row.concern}</td>

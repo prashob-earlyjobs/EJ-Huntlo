@@ -387,6 +387,10 @@ function userOid(userId) {
   return new mongoose.Types.ObjectId(String(userId));
 }
 
+function campaignOid(campaignId) {
+  return new mongoose.Types.ObjectId(String(campaignId));
+}
+
 function badRequest(message, code) {
   const err = new Error(message);
   err.statusCode = 400;
@@ -1777,6 +1781,205 @@ async function getOutreachModuleCandidateInteractions(actorUserId, campaignId, c
   };
 }
 
+function normalizeConversationChannel(raw) {
+  const key = String(raw || "").trim().toLowerCase();
+  if (key === "whatsapp" || key === "message" || key === "chat") return "whatsapp";
+  if (key === "email" || key === "mail") return "email";
+  if (key === "voice" || key === "call") return "voice";
+  if (key === "note" || key === "action") return key;
+  return key || "all";
+}
+
+function formatConversationTime(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+}
+
+async function loadWhatsAppConversationMessages(campaignId, candidate) {
+  const CampaignWhatsAppMessage = require("../models/CampaignWhatsAppMessage");
+  const candidateKey = String(candidate.candidateRefId || "").trim();
+  if (!candidateKey) return [];
+
+  const docs = await CampaignWhatsAppMessage.find({
+    campaignId: campaignOid(campaignId),
+    candidateKey,
+  })
+    .sort({ sentAt: 1 })
+    .lean();
+
+  return docs.map((doc) => ({
+    id: String(doc._id),
+    channel: "whatsapp",
+    direction: doc.direction === "inbound" ? "inbound" : "outbound",
+    body: String(doc.body || "").trim(),
+    subject: "",
+    at: formatConversationTime(doc.sentAt),
+    status: String(doc.status || "").trim(),
+    stepLabel: String(doc.sequenceStepLabel || "").trim(),
+  }));
+}
+
+async function loadEmailConversationMessages(campaignId, candidate) {
+  const CampaignOutreachReply = require("../models/CampaignOutreachReply");
+  const candidateKey = String(candidate.candidateRefId || "").trim();
+  if (!candidateKey) return [];
+
+  const enrollment = await OutreachModuleEnrollment.findOne({
+    outreachModuleCampaignId: campaignOid(campaignId),
+    candidateRefId: candidateKey,
+  })
+    .select("_id")
+    .lean();
+  if (!enrollment) return [];
+
+  const docs = await CampaignOutreachReply.find({ enrollmentId: enrollment._id })
+    .sort({ receivedAt: 1 })
+    .lean();
+
+  return docs.map((doc) => ({
+    id: String(doc._id),
+    channel: "email",
+    direction: doc.isFromCandidate ? "inbound" : "outbound",
+    body: String(doc.bodyText || doc.snippet || "").trim(),
+    subject: String(doc.subject || "").trim(),
+    at: formatConversationTime(doc.receivedAt),
+    status: "",
+    stepLabel: "",
+    fromEmail: String(doc.fromEmail || "").trim(),
+    toEmail: String(doc.toEmail || "").trim(),
+  }));
+}
+
+async function loadVoiceConversationMessages(campaignId, candidate) {
+  const CampaignVoiceCall = require("../models/CampaignVoiceCall");
+  const candidateKey = String(candidate.candidateRefId || "").trim();
+  const phone = String(candidate.phone || "").trim();
+
+  const filter = { campaignId: campaignOid(campaignId) };
+  if (candidateKey) {
+    filter.candidateKey = candidateKey;
+  } else if (phone) {
+    filter.toNumber = phone;
+  } else {
+    return [];
+  }
+
+  const docs = await CampaignVoiceCall.find(filter).sort({ lastEventAt: 1, createdAt: 1 }).lean();
+
+  return docs.map((doc) => {
+    const callResult =
+      doc.callResult && typeof doc.callResult === "object" ? doc.callResult : {};
+    const summary =
+      String(doc.summaryText || callResult.summary || callResult.finalOutcome || "").trim();
+    const outcome = String(callResult.finalOutcome || callResult.interestLevel || "").trim();
+    const parts = [
+      outcome ? `Outcome: ${outcome}` : "",
+      summary,
+      doc.recordingUrl ? `Recording: ${doc.recordingUrl}` : "",
+    ].filter(Boolean);
+
+    return {
+      id: String(doc._id),
+      channel: "voice",
+      direction: "outbound",
+      body: parts.join("\n\n") || `Call status: ${doc.status || doc.lifecycleStatus || "placed"}`,
+      subject: "AI Voice Call",
+      at: formatConversationTime(doc.endedAt || doc.startedAt || doc.lastEventAt || doc.createdAt),
+      status: String(doc.status || doc.lifecycleStatus || "").trim(),
+      stepLabel: "",
+      recordingUrl: String(doc.recordingUrl || "").trim(),
+      durationSeconds:
+        doc.durationSeconds != null && Number.isFinite(Number(doc.durationSeconds))
+          ? Number(doc.durationSeconds)
+          : null,
+      callResult,
+    };
+  });
+}
+
+function interactionFallbackMessages(interactions, channel) {
+  return (Array.isArray(interactions) ? interactions : [])
+    .filter((item) => normalizeConversationChannel(item.type) === channel)
+    .map((item) => {
+      const content =
+        item.content && typeof item.content === "object" && !Array.isArray(item.content)
+          ? item.content
+          : {};
+      const body =
+        String(content.bodyPreview || content.body || content.note || content.summary || "").trim() ||
+        String(item.summary || "").trim();
+      return {
+        id: `interaction-${item.id}`,
+        channel,
+        direction: "outbound",
+        body,
+        subject: String(content.subject || "").trim(),
+        at: item.at || null,
+        status: String(content.status || "").trim(),
+        stepLabel: "",
+        fromInteraction: true,
+      };
+    })
+    .filter((row) => row.body);
+}
+
+async function getOutreachModuleCandidateConversation(
+  actorUserId,
+  campaignId,
+  candidateId,
+  options = {}
+) {
+  const doc = await findCampaignInScope(actorUserId, campaignId);
+  const candidate = (doc.candidates || []).find((c) => String(c._id) === String(candidateId));
+  if (!candidate) throw notFound("Candidate not found in campaign");
+
+  const channel = normalizeConversationChannel(options.channel);
+  const interactions = dedupeInterviewBookedInteractions(
+    (candidate.interactions || []).map((item) => ({
+      id: String(item._id),
+      type: item.type,
+      summary: item.summary || "",
+      content: item.content ?? null,
+      at: item.at ? new Date(item.at).toISOString() : null,
+    }))
+  );
+
+  let messages = [];
+  if (channel === "whatsapp" || channel === "all") {
+    const wa = await loadWhatsAppConversationMessages(campaignId, candidate);
+    messages.push(...(wa.length > 0 ? wa : interactionFallbackMessages(interactions, "whatsapp")));
+  }
+  if (channel === "email" || channel === "all") {
+    const email = await loadEmailConversationMessages(campaignId, candidate);
+    messages.push(
+      ...(email.length > 0 ? email : interactionFallbackMessages(interactions, "email"))
+    );
+  }
+  if (channel === "voice" || channel === "all") {
+    const voice = await loadVoiceConversationMessages(campaignId, candidate);
+    messages.push(
+      ...(voice.length > 0 ? voice : interactionFallbackMessages(interactions, "voice"))
+    );
+  }
+  if (channel === "note" || channel === "action") {
+    messages.push(...interactionFallbackMessages(interactions, channel));
+  }
+
+  messages.sort((a, b) => {
+    const aMs = a.at ? new Date(a.at).getTime() : 0;
+    const bMs = b.at ? new Date(b.at).getTime() : 0;
+    return aMs - bMs;
+  });
+
+  return {
+    channel: channel === "all" ? "all" : channel,
+    candidate: await formatSingleTrackingCandidate(doc, candidate, actorUserId),
+    messages,
+  };
+}
+
 module.exports = {
   getOutreachModuleDashboardStats,
   listOutreachModuleCampaigns,
@@ -1793,6 +1996,7 @@ module.exports = {
   getOutreachModuleCampaignTracking,
   recordOutreachModuleCandidateAction,
   getOutreachModuleCandidateInteractions,
+  getOutreachModuleCandidateConversation,
   recomputeCampaignDocStatsById,
   syncCandidateReplyStatusFromEnrollments,
 };

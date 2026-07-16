@@ -2,7 +2,6 @@ import type {
   EvaluationCriterion,
   ScreeningCandidate,
   ScreeningQuestion,
-  ScreeningResultDetail,
   ScreeningResultRow,
   ScreeningRow,
   VoiceScriptSections,
@@ -341,60 +340,6 @@ export const mockScreeningResults: ScreeningResultRow[] = [
     keyStrength: "Experienced developer",
     concern: "Not open to relocation",
     completedAt: "Jun 27, 2026",
-  },
-];
-
-export const mockResultDetail: ScreeningResultDetail = {
-  id: "r1",
-  name: "Rahul Nair",
-  role: "React Developer",
-  location: "Bangalore",
-  experience: "4 years",
-  overallScore: 82,
-  recommendation: "strong_fit",
-  type: "voice",
-  aiSummary:
-    "Rahul shows strong React and Node.js experience, is open to relocation, and can join within 30 days. Salary expectation is slightly higher than the budget.",
-  scorecard: [
-    { label: "Communication", score: 82 },
-    { label: "Role Fit", score: 76 },
-    { label: "Experience", score: 80 },
-    { label: "Availability", score: 90 },
-    { label: "Salary Fit", score: 68 },
-  ],
-  insights: [
-    "Interested in the role",
-    "Comfortable with Bangalore location",
-    "Notice period: 30 days",
-    "Expected salary: ₹8 LPA",
-    "Has relevant experience",
-  ],
-  concerns: [
-    "Salary expectation above budget",
-    "Limited experience in required tool",
-    "Needs recruiter review",
-  ],
-};
-
-export const mockVoiceTranscript = [
-  { speaker: "AI", text: "Are you currently looking for a job change?" },
-  { speaker: "Candidate", text: "Yes, I am actively looking." },
-  { speaker: "AI", text: "How many years of experience do you have in React development?" },
-  { speaker: "Candidate", text: "I have about 4 years of experience with React and Node.js." },
-  { speaker: "AI", text: "What is your expected salary?" },
-  { speaker: "Candidate", text: "I am looking for around 8 lakhs per annum." },
-];
-
-export const mockVideoTranscript = [
-  {
-    question: "Please introduce yourself briefly.",
-    answer:
-      "Hi, I am Rahul Nair, a React developer with 4 years of experience building scalable web applications.",
-  },
-  {
-    question: "Why are you interested in this role?",
-    answer:
-      "The tech stack aligns with my expertise and the company mission resonates with me.",
   },
 ];
 

@@ -6,11 +6,14 @@ const {
   classifyVoiceInterest,
 } = require("./outreachModuleVoiceService");
 
+const POST_QUAL_CALL_LANGUAGES = ["english", "hindi", "malayalam", "kannada", "tamil", "telugu"];
+
 function normalizePostQualificationVoice(raw) {
   const o = raw && typeof raw === "object" ? raw : {};
   return {
     callObjective: String(o.callObjective || "").trim(),
     body: String(o.body || "").trim(),
+    language: POST_QUAL_CALL_LANGUAGES.includes(o.language) ? o.language : "english",
     voiceTone: ["professional", "friendly", "direct"].includes(o.voiceTone)
       ? o.voiceTone
       : "professional",
@@ -66,6 +69,7 @@ function resolvePostQualVoiceConfig(campaignDoc) {
     return {
       callObjective: String(voice.callObjective || "").trim(),
       body: String(voice.body || "").trim(),
+      language: POST_QUAL_CALL_LANGUAGES.includes(voice.language) ? voice.language : "english",
       voiceTone: voice.voiceTone || "professional",
       callAttempts: Math.max(1, Number(voice.callAttempts) || 1),
       attemptGapHours: Math.max(0, Number(voice.attemptGapHours) || 24),

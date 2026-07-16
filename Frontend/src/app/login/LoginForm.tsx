@@ -21,6 +21,18 @@ export function LoginForm() {
   const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("reason") === "session_expired") {
+      const message = params.get("message");
+      setErrorMessage(
+        message?.trim() || "Your session has expired. Please sign in again."
+      );
+      // Stay on the login form — do not auto-bounce to dashboard.
+      return;
+    }
+
     const auth = getStoredAuth();
     if (auth && isBlockedMemberStatus(auth.memberStatus)) {
       setBlockedOpen(true);
