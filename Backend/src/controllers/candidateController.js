@@ -212,28 +212,28 @@ function mergePersistedFilterForm(userForm, responseForm) {
     }
   }
 
-  if (Array.isArray(userNorm.selectRegion) && userNorm.selectRegion.length > 0) {
+  if (Array.isArray(userNorm.selectRegion)) {
     merged.selectRegion = userNorm.selectRegion;
   }
-  if (Array.isArray(userNorm.school) && userNorm.school.length > 0) {
+  if (Array.isArray(userNorm.school)) {
     merged.school = userNorm.school;
   }
-  if (Array.isArray(userNorm.fieldOfStudy) && userNorm.fieldOfStudy.length > 0) {
+  if (Array.isArray(userNorm.fieldOfStudy)) {
     merged.fieldOfStudy = userNorm.fieldOfStudy;
   }
-  if (Array.isArray(userNorm.degree) && userNorm.degree.length > 0) {
+  if (Array.isArray(userNorm.degree)) {
     merged.degree = userNorm.degree;
   }
-  if (Array.isArray(userNorm.certifications) && userNorm.certifications.length > 0) {
+  if (Array.isArray(userNorm.certifications)) {
     merged.certifications = userNorm.certifications;
   }
-  if (Array.isArray(userNorm.currentCompany) && userNorm.currentCompany.length > 0) {
+  if (Array.isArray(userNorm.currentCompany)) {
     merged.currentCompany = userNorm.currentCompany;
   }
-  if (Array.isArray(userNorm.pastCompany) && userNorm.pastCompany.length > 0) {
+  if (Array.isArray(userNorm.pastCompany)) {
     merged.pastCompany = userNorm.pastCompany;
   }
-  if (Array.isArray(userNorm.pastTitle) && userNorm.pastTitle.length > 0) {
+  if (Array.isArray(userNorm.pastTitle)) {
     merged.pastTitle = userNorm.pastTitle;
   }
   for (const key of [
@@ -244,7 +244,7 @@ function mergePersistedFilterForm(userForm, responseForm) {
     "recentlyFunded",
     "languages",
   ]) {
-    if (Array.isArray(userNorm[key]) && userNorm[key].length > 0) {
+    if (Array.isArray(userNorm[key])) {
       merged[key] = userNorm[key];
     }
   }
