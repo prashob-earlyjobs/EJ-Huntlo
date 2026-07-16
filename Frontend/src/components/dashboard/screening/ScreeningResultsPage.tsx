@@ -21,6 +21,7 @@ import { dashboardBtnSecondaryClass } from "@/lib/dashboardStyles";
 type Props = {
   screeningId: string;
   onBack: () => void;
+  onViewAllDetails: () => void;
   onToast: (message: string) => void;
 };
 
@@ -34,7 +35,7 @@ const EMPTY_STATS: ScreeningDetailStats = {
   avgScore: "—",
 };
 
-export function ScreeningResultsPage({ screeningId, onBack, onToast }: Props) {
+export function ScreeningResultsPage({ screeningId, onBack, onViewAllDetails, onToast }: Props) {
   const [screening, setScreening] = useState<ScreeningRow | null>(null);
   const [stats, setStats] = useState<ScreeningDetailStats>(EMPTY_STATS);
   const [funnel, setFunnel] = useState<{ label: string; count: number }[]>([]);
@@ -44,6 +45,7 @@ export function ScreeningResultsPage({ screeningId, onBack, onToast }: Props) {
   const [detail, setDetail] = useState<ScreeningResultDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [pausing, setPausing] = useState(false);
+  const [funnelOpen, setFunnelOpen] = useState(false);
 
   const loadDetail = useCallback(async () => {
     const auth = getStoredAuth();
@@ -115,7 +117,7 @@ export function ScreeningResultsPage({ screeningId, onBack, onToast }: Props) {
     }
   };
 
-  const handleCandidateAction = async (action: string) => {
+  const handleCandidateAction = async (action: string, note?: string) => {
     if (!drawerId) return;
     const auth = getStoredAuth();
     if (!auth?.token) {
@@ -124,16 +126,19 @@ export function ScreeningResultsPage({ screeningId, onBack, onToast }: Props) {
     }
     const actionMap: Record<string, string> = {
       shortlist: "shortlist",
-      schedule_interview: "schedule_interview",
+      interview: "schedule_interview",
       reject: "reject",
-      add_note: "add_note",
+      note: "add_note",
     };
     const apiAction = actionMap[action];
-    if (!apiAction) return;
+    if (!apiAction) {
+      onToast("This action isn't available yet");
+      return;
+    }
 
     try {
-      await recordScreeningCandidateAction(auth.token, screeningId, drawerId, apiAction);
-      onToast(`Action: ${action.replace(/_/g, " ")}`);
+      await recordScreeningCandidateAction(auth.token, screeningId, drawerId, apiAction, note);
+      onToast(action === "note" ? "Note added" : `Action: ${action.replace(/_/g, " ")}`);
       await loadDetail();
       const refreshed = await fetchScreeningCandidateDetail(auth.token, screeningId, drawerId);
       setDetail(refreshed);
@@ -190,9 +195,11 @@ export function ScreeningResultsPage({ screeningId, onBack, onToast }: Props) {
             <button
               type="button"
               className={dashboardBtnSecondaryClass}
-              onClick={() => onToast("Export coming soon")}
+              onClick={() => setFunnelOpen((open) => !open)}
+              aria-expanded={funnelOpen}
             >
-              Export results
+              <MaterialIcon name={funnelOpen ? "expand_less" : "filter_alt"} className="text-sm" />
+              Screening funnel
             </button>
           </div>
         </div>
@@ -205,38 +212,43 @@ export function ScreeningResultsPage({ screeningId, onBack, onToast }: Props) {
         <ScreeningStatsCard label="Shortlisted" value={stats.shortlisted} icon="thumb_up" />
         <ScreeningStatsCard label="Rejected" value={stats.rejected} icon="thumb_down" />
         <ScreeningStatsCard label="Pending" value={stats.pending} icon="hourglass_empty" />
-        <ScreeningStatsCard label="Avg score" value={stats.avgScore} icon="analytics" />
       </section>
 
-      <section className="dashboard-screening-funnel">
-        <h2 className="dashboard-screening-subsection-title">Screening funnel</h2>
-        <div className="dashboard-screening-funnel-track">
-          {funnel.map((stage, i) => (
-            <div key={stage.label} className="dashboard-screening-funnel-step">
-              {i > 0 ? (
-                <div className="dashboard-screening-funnel-connector" aria-hidden>
-                  <MaterialIcon name="arrow_forward" className="dashboard-screening-funnel-arrow" />
+      {funnelOpen ? (
+        <section className="dashboard-screening-funnel">
+          <h2 className="dashboard-screening-subsection-title">Screening funnel</h2>
+          <div className="dashboard-screening-funnel-track">
+            {funnel.map((stage, i) => (
+              <div key={stage.label} className="dashboard-screening-funnel-step">
+                {i > 0 ? (
+                  <div className="dashboard-screening-funnel-connector" aria-hidden>
+                    <MaterialIcon name="arrow_forward" className="dashboard-screening-funnel-arrow" />
+                  </div>
+                ) : null}
+                <div className="dashboard-screening-funnel-card">
+                  <span className="dashboard-screening-funnel-count">{stage.count}</span>
+                  <span className="dashboard-screening-funnel-label">{stage.label}</span>
                 </div>
-              ) : null}
-              <div className="dashboard-screening-funnel-card">
-                <span className="dashboard-screening-funnel-count">{stage.count}</span>
-                <span className="dashboard-screening-funnel-label">{stage.label}</span>
               </div>
-            </div>
-          ))}
-        </div>
-      </section>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section>
         <h2 className="dashboard-screening-subsection-title">Candidate results</h2>
-        <ScreeningResultsTable rows={results} onView={setDrawerId} />
+        <ScreeningResultsTable
+          rows={results}
+          onView={setDrawerId}
+          onViewAllDetails={onViewAllDetails}
+        />
       </section>
 
       <CandidateScreeningResultDrawer
         detail={detailLoading ? null : detail}
         open={Boolean(drawerId)}
         onClose={() => setDrawerId(null)}
-        onAction={(action) => void handleCandidateAction(action)}
+        onAction={(action, note) => void handleCandidateAction(action, note)}
       />
     </div>
   );

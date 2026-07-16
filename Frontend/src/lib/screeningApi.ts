@@ -117,9 +117,78 @@ export async function fetchScreeningCandidateDetail(
   return data.detail;
 }
 
+export type ScreeningVariablesRow = {
+  id: string;
+  name: string;
+  role: string;
+  status: string;
+  variables: Record<string, string>;
+};
+
+export async function fetchScreeningResultVariables(token: string, screeningId: string) {
+  const res = await fetch(
+    `${apiBase()}/api/screenings/${encodeURIComponent(screeningId)}/variables`,
+    { headers: authHeaders(token), cache: "no-store" }
+  );
+  const data = await parseJson<{
+    success: boolean;
+    screening: ScreeningRow;
+    columns: string[];
+    rows: ScreeningVariablesRow[];
+  }>(res);
+  return data;
+}
+
+export type ScreeningDraft = {
+  details: ScreeningDetailsForm;
+  candidateIds: string[];
+  candidateSource: CandidateSource;
+  language: CallLanguage;
+  voiceTone: VoiceTone;
+  attempts: number;
+  attemptGap: string;
+  durationLimit: string;
+  script: Partial<VoiceScriptSections>;
+  questions: ScreeningQuestion[];
+};
+
+export async function fetchScreeningDraft(token: string, screeningId: string) {
+  const res = await fetch(
+    `${apiBase()}/api/screenings/${encodeURIComponent(screeningId)}/draft`,
+    { headers: authHeaders(token), cache: "no-store" }
+  );
+  const data = await parseJson<{
+    success: boolean;
+    screening: ScreeningRow;
+    draft: ScreeningDraft;
+  }>(res);
+  return data;
+}
+
 export async function createVoiceScreening(token: string, payload: VoiceScreeningPayload) {
   const res = await fetch(`${apiBase()}/api/screenings`, {
     method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify({
+      ...payload,
+      screeningType: "voice",
+    }),
+  });
+  const data = await parseJson<{
+    success: boolean;
+    screening: ScreeningRow;
+    launched: boolean;
+  }>(res);
+  return data;
+}
+
+export async function updateVoiceScreening(
+  token: string,
+  screeningId: string,
+  payload: VoiceScreeningPayload
+) {
+  const res = await fetch(`${apiBase()}/api/screenings/${encodeURIComponent(screeningId)}`, {
+    method: "PUT",
     headers: authHeaders(token),
     body: JSON.stringify({
       ...payload,

@@ -163,6 +163,11 @@ const outreachModulePostQualificationVoiceSchema = new mongoose.Schema(
   {
     callObjective: { type: String, default: "", trim: true },
     body: { type: String, default: "" },
+    language: {
+      type: String,
+      enum: ["english", "hindi", "malayalam", "kannada", "tamil", "telugu"],
+      default: "english",
+    },
     voiceTone: {
       type: String,
       enum: ["professional", "friendly", "direct"],

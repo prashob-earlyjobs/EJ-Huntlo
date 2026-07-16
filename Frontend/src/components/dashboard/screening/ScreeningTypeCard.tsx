@@ -39,14 +39,26 @@ export function ScreeningTypeCard({
         </span>
         <div>
           <h3 className="dashboard-screening-type-card-title">{title}</h3>
-          <p className="dashboard-screening-type-card-desc">{description}</p>
+          <div className="dashboard-screening-type-card-desc">
+            {description}{" "}
+            <span
+              className="dashboard-screening-best-for-info"
+              tabIndex={0}
+              aria-label={`Best for: ${bestFor.join(", ")}`}
+            >
+              <MaterialIcon name="info" className="text-sm" />
+              <span className="dashboard-screening-best-for-tooltip" role="tooltip">
+                <strong>Best for</strong>
+                <ul className="dashboard-screening-best-for-list">
+                  {bestFor.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </span>
+            </span>
+          </div>
         </div>
       </div>
-      <ul className="dashboard-screening-best-for-list">
-        {bestFor.map((item) => (
-          <li key={item}>{item}</li>
-        ))}
-      </ul>
       <button
         type="button"
         className={`${dashboardBtnPrimaryClass}${

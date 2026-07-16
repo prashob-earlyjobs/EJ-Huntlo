@@ -118,16 +118,29 @@ export type ScorecardEntry = {
   score: number;
 };
 
+export type ScreeningTranscriptLine = {
+  speaker: string;
+  text: string;
+};
+
+export type ScreeningResultField = {
+  label: string;
+  value: string;
+};
+
 export type ScreeningResultDetail = {
   id: string;
   name: string;
   role: string;
   location: string;
   experience: string;
-  overallScore: number;
+  overallScore: number | null;
   recommendation: Recommendation;
   aiSummary: string;
   scorecard: ScorecardEntry[];
+  resultDetails: ScreeningResultField[];
+  transcript: ScreeningTranscriptLine[];
+  recordingUrl: string;
   insights: string[];
   concerns: string[];
   type: ScreeningType;

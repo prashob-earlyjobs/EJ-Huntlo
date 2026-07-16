@@ -115,7 +115,6 @@ type VoiceProps = {
   onScriptChange: (s: VoiceScriptSections) => void;
   questions: ScreeningQuestion[];
   onQuestionsChange: (q: ScreeningQuestion[]) => void;
-  onGenerateAi: () => void;
 };
 
 export function VoiceQuestionBuilder({
@@ -123,7 +122,6 @@ export function VoiceQuestionBuilder({
   onScriptChange,
   questions,
   onQuestionsChange,
-  onGenerateAi,
 }: VoiceProps) {
   const addQuestion = () => {
     onQuestionsChange([
@@ -143,14 +141,6 @@ export function VoiceQuestionBuilder({
 
   return (
     <div className="dashboard-screening-questions">
-      <div className="dashboard-screening-questions-toolbar">
-        <span className="dashboard-screening-badge dashboard-screening-badge--ai">AI Generated</span>
-        <button type="button" className="dashboard-btn-secondary" onClick={onGenerateAi}>
-          <MaterialIcon name="auto_awesome" className="text-sm" />
-          Generate questions with AI
-        </button>
-      </div>
-
       <div className="dashboard-screening-script-sections">
         <div className="dashboard-screening-field">
           <label className={dashboardLabelClass}>Opening message</label>

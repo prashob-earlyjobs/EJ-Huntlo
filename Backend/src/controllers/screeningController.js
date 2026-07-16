@@ -4,7 +4,10 @@ const {
   listScreenings,
   getScreeningDetail,
   getScreeningCandidateDetail,
+  getScreeningResultVariables,
+  getScreeningDraft,
   createVoiceScreening,
+  updateVoiceScreening,
   launchScreening,
   pauseScreening,
   recordScreeningCandidateAction,
@@ -77,6 +80,39 @@ const getCandidateHandler = async (req, res) => {
   }
 };
 
+const getResultVariablesHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
+    const result = await getScreeningResultVariables(uid, req.params.id);
+    return res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
+const getDraftHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
+    const result = await getScreeningDraft(uid, req.params.id);
+    return res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
+const updateScreeningHandler = async (req, res) => {
+  try {
+    const uid = req.auth?.userId;
+    if (!uid || !mongoose.Types.ObjectId.isValid(uid)) return invalidSession(res);
+    const result = await updateVoiceScreening(uid, req.params.id, req.body || {});
+    return res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
 const createScreeningHandler = async (req, res) => {
   try {
     const uid = req.auth?.userId;
@@ -142,7 +178,10 @@ module.exports = {
   listScreeningsHandler,
   getScreeningHandler,
   getCandidateHandler,
+  getResultVariablesHandler,
+  getDraftHandler,
   createScreeningHandler,
+  updateScreeningHandler,
   launchScreeningHandler,
   pauseScreeningHandler,
   recordCandidateActionHandler,

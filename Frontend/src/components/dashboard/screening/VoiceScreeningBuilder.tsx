@@ -26,8 +26,7 @@ import type {
 } from "@/components/dashboard/screening/types";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { getStoredAuth } from "@/lib/auth";
-import type { VoiceScreeningPayload } from "@/lib/screeningApi";
-import { generateScreeningQuestions } from "@/lib/screeningApi";
+import { fetchScreeningDraft, type ScreeningDraft, type VoiceScreeningPayload } from "@/lib/screeningApi";
 import {
   fetchOutreachModuleCandidatePool,
   importOutreachModuleCandidatesCsv,
@@ -68,6 +67,11 @@ function screeningDisplayName(jobTitle: string): string {
   return title ? `${title} screening` : "Voice screening";
 }
 
+function titleCase(value: string): string {
+  const s = value.trim();
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+
 type Props = {
   onBack: () => void;
   onSaveDraft: (payload: VoiceScreeningPayload) => void | Promise<void>;
@@ -75,7 +79,20 @@ type Props = {
   onLaunchSuccess: (screeningId: string) => void;
   onToast: (msg: string) => void;
   submitting?: boolean;
+  /** When set, the builder loads this draft screening and resumes where it left off. */
+  draftId?: string;
 };
+
+function resumeStepForDraft(draft: ScreeningDraft): number {
+  if (
+    !draft.details.jobTitle.trim() ||
+    draft.details.jobDescription.trim().length < MIN_JD_LENGTH
+  ) {
+    return 0;
+  }
+  if (draft.candidateIds.length === 0) return 3;
+  return 4;
+}
 
 function buildPayload(state: {
   form: ScreeningDetailsForm;
@@ -126,8 +143,10 @@ export function VoiceScreeningBuilder({
   onLaunchSuccess,
   onToast,
   submitting = false,
+  draftId,
 }: Props) {
   const [step, setStep] = useState(0);
+  const [draftLoading, setDraftLoading] = useState(Boolean(draftId));
   const [launching, setLaunching] = useState(false);
   const [form, setForm] = useState<ScreeningDetailsForm>(DEFAULT_FORM);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -145,6 +164,51 @@ export function VoiceScreeningBuilder({
   const [csvCandidates, setCsvCandidates] = useState<ScreeningCandidate[]>([]);
   const [candidatesLoading, setCandidatesLoading] = useState(false);
   const [candidatesError, setCandidatesError] = useState("");
+
+  useEffect(() => {
+    if (!draftId) return;
+    let cancelled = false;
+
+    const loadDraft = async () => {
+      const auth = getStoredAuth();
+      if (!auth?.token) {
+        setDraftLoading(false);
+        onToast("Please sign in again");
+        return;
+      }
+      setDraftLoading(true);
+      try {
+        const { draft } = await fetchScreeningDraft(auth.token, draftId);
+        if (cancelled) return;
+        setForm({ ...DEFAULT_FORM, ...draft.details });
+        setSelectedIds(draft.candidateIds);
+        // CSV imports live in the candidate pool, so restore csv drafts from there.
+        setSource(draft.candidateSource === "csv" ? "talent_pool" : draft.candidateSource);
+        setLanguage(draft.language);
+        setVoiceTone(draft.voiceTone);
+        setAttempts(draft.attempts);
+        setAttemptGap(draft.attemptGap);
+        if (draft.durationLimit) setDurationLimit(draft.durationLimit);
+        setScript({ ...mockVoiceScript, ...draft.script });
+        if (draft.questions.length > 0) {
+          setQuestions(draft.questions.map((q) => ({ ...q })));
+        }
+        setStep(resumeStepForDraft(draft));
+      } catch (err) {
+        if (!cancelled) {
+          onToast(err instanceof Error ? err.message : "Could not load draft screening");
+        }
+      } finally {
+        if (!cancelled) setDraftLoading(false);
+      }
+    };
+
+    void loadDraft();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftId]);
 
   const loadPoolCandidates = useCallback(async () => {
     const auth = getStoredAuth();
@@ -234,30 +298,6 @@ export function VoiceScreeningBuilder({
   const goNext = () => step < STEPS.length - 1 && setStep((s) => s + 1);
   const goBack = () => (step === 0 ? onBack() : setStep((s) => s - 1));
 
-  const handleGenerateAi = async () => {
-    const auth = getStoredAuth();
-    if (!auth?.token) {
-      onToast("Please sign in again");
-      return;
-    }
-    if (!form.jobTitle.trim()) {
-      onToast("Add a job title before generating questions");
-      return;
-    }
-    if (form.jobDescription.trim().length < MIN_JD_LENGTH) {
-      onToast(`Add a job description (at least ${MIN_JD_LENGTH} characters) before generating questions`);
-      return;
-    }
-    try {
-      const result = await generateScreeningQuestions(auth.token, form);
-      if (result.questions.length > 0) setQuestions(result.questions);
-      if (result.script) setScript(result.script);
-      onToast("AI screening questions generated");
-    } catch (err) {
-      onToast(err instanceof Error ? err.message : "Could not generate questions");
-    }
-  };
-
   const handleLaunch = async () => {
     if (launching || submitting) return;
     setLaunching(true);
@@ -279,6 +319,23 @@ export function VoiceScreeningBuilder({
   };
 
   const launchBusy = launching || submitting;
+
+  if (draftLoading) {
+    return (
+      <div className="dashboard-screening-builder">
+        <header className="dashboard-screening-builder-header">
+          <button type="button" className="dashboard-screening-back-btn" onClick={onBack}>
+            <MaterialIcon name="arrow_back" className="text-sm" />
+            Back to screening
+          </button>
+          <div className="dashboard-screening-builder-header-copy">
+            <h1 className="dashboard-section-title">AI Voice Screening</h1>
+            <p className="dashboard-text-body">Loading draft…</p>
+          </div>
+        </header>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -358,7 +415,6 @@ export function VoiceScreeningBuilder({
             onScriptChange={setScript}
             questions={questions}
             onQuestionsChange={setQuestions}
-            onGenerateAi={() => void handleGenerateAi()}
           />
         ) : null}
 
@@ -383,12 +439,16 @@ export function VoiceScreeningBuilder({
             type="voice"
             candidateCount={selectedIds.length}
             questionsCount={questions.length}
-            stats={[
-              { icon: "language", value: language },
-              { icon: "mic", value: voiceTone },
-              { icon: "replay", value: `${attempts} attempts`, muted: attemptGap },
-              { icon: "timer", value: durationLimit },
+            extras={[
+              { label: "Call language", value: titleCase(language) },
+              { label: "Voice tone", value: titleCase(voiceTone) },
+              {
+                label: "Call attempts",
+                value: `${attempts} ${attempts === 1 ? "attempt" : "attempts"} · ${attemptGap} gap`,
+              },
+              { label: "Duration limit", value: durationLimit },
             ]}
+            onBack={goBack}
             onSaveDraft={() => onSaveDraft(buildPayload({ ...payloadState, launch: false }))}
             onLaunch={() => void handleLaunch()}
             launchLabel={launchBusy ? "Launching…" : "Launch voice screening"}

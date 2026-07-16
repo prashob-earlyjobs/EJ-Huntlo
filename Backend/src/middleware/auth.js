@@ -54,10 +54,16 @@ const authenticate = async (req, res, next) => {
     }
 
     next();
-  } catch {
+  } catch (error) {
+    const expired =
+      error &&
+      typeof error === "object" &&
+      "name" in error &&
+      String(error.name) === "TokenExpiredError";
     return res.status(401).json({
       success: false,
-      message: "Invalid or expired token",
+      code: expired ? "TOKEN_EXPIRED" : "TOKEN_INVALID",
+      message: expired ? "Session expired. Please sign in again." : "Invalid or expired token",
     });
   }
 };

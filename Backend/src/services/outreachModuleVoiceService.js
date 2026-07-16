@@ -67,6 +67,7 @@ function parseVoiceStepMessageFields(fields) {
   return {
     callObjective: String(fields.callObjective || "").trim(),
     body: String(fields.body || fields.script || "").trim(),
+    language: String(fields.language || "").trim(),
     voiceTone: fields.voiceTone || "professional",
     callAttempts: Math.max(1, Number(fields.callAttempts) || 1),
     attemptGapHours: Math.max(0, Number(fields.attemptGapHours) || 24),
@@ -115,11 +116,13 @@ function resolveVoiceFieldsFromCampaign(campaignDoc, stepVoiceConfig = null) {
     0,
     Number(source.attemptGapHours ?? channelMsg.attemptGapHours) || 24
   );
+  const language = String(source.language || channelMsg.language || "").trim();
 
   return {
     callObjective,
     callPrompt,
     introductoryStatement: buildIntroductoryStatement(voiceTone),
+    language,
     voiceTone,
     callAttempts,
     attemptGapHours,
@@ -231,7 +234,10 @@ async function ensureOutreachModuleVoiceAgent(campaignDoc, options = {}) {
     resultPrompt: resolvedConfig.resultPrompt,
     resultSchema: buildResultSchema(voiceAgentConfig.resultFields),
     voicePersona: storedAgent?.voice_persona,
-    language: storedAgent?.language,
+    // Hunar expects uppercase language names (e.g. ENGLISH, HINDI).
+    language: voiceFields.language
+      ? voiceFields.language.toUpperCase()
+      : storedAgent?.language,
     personaName: storedAgent?.persona_name ?? null,
   };
 

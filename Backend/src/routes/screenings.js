@@ -5,7 +5,10 @@ const {
   listScreeningsHandler,
   getScreeningHandler,
   getCandidateHandler,
+  getResultVariablesHandler,
+  getDraftHandler,
   createScreeningHandler,
+  updateScreeningHandler,
   launchScreeningHandler,
   pauseScreeningHandler,
   recordCandidateActionHandler,
@@ -19,6 +22,9 @@ router.post("/generate-questions", authenticate, generateQuestionsHandler);
 router.get("/", authenticate, listScreeningsHandler);
 router.post("/", authenticate, createScreeningHandler);
 router.get("/:id", authenticate, getScreeningHandler);
+router.put("/:id", authenticate, updateScreeningHandler);
+router.get("/:id/draft", authenticate, getDraftHandler);
+router.get("/:id/variables", authenticate, getResultVariablesHandler);
 router.post("/:id/launch", authenticate, launchScreeningHandler);
 router.post("/:id/pause", authenticate, pauseScreeningHandler);
 router.get("/:id/candidates/:candidateId", authenticate, getCandidateHandler);

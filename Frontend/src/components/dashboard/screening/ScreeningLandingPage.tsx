@@ -1,14 +1,71 @@
 "use client";
 
-import { ScreeningStatsCard } from "@/components/dashboard/screening/ScreeningStatsCard";
 import { ScreeningTypeCard } from "@/components/dashboard/screening/ScreeningTypeCard";
 import type { ScreeningRow } from "@/components/dashboard/screening/types";
-import type { ScreeningDashboardStats } from "@/lib/screeningApi";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { dashboardBtnPrimaryClass } from "@/lib/dashboardStyles";
 
+const RECENT_TABLE_COLUMNS = 8;
+
+function RecentScreeningsSkeleton({ rowCount = 4 }: { rowCount?: number }) {
+  return (
+    <div
+      className="dashboard-screening-table-wrap"
+      aria-busy="true"
+      aria-label="Loading screenings"
+    >
+      <table className="dashboard-screening-table">
+        <thead>
+          <tr>
+            {Array.from({ length: RECENT_TABLE_COLUMNS }).map((_, idx) => (
+              <th key={`recent-th-skel-${idx}`}>
+                <div
+                  className="dashboard-shimmer h-3 rounded"
+                  style={{ width: `${2.5 + (idx % 4) * 0.75}rem` }}
+                />
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {Array.from({ length: rowCount }).map((_, idx) => (
+            <tr key={`recent-row-skel-${idx}`} aria-hidden>
+              <td>
+                <div
+                  className="dashboard-shimmer h-4 rounded"
+                  style={{ width: `${55 + (idx % 3) * 12}%`, maxWidth: "12rem" }}
+                />
+              </td>
+              <td>
+                <div className="dashboard-shimmer h-4 w-12 rounded" />
+              </td>
+              <td>
+                <div className="dashboard-shimmer h-4 w-8 rounded" />
+              </td>
+              <td>
+                <div className="dashboard-shimmer h-4 w-8 rounded" />
+              </td>
+              <td>
+                <div className="dashboard-shimmer h-4 w-8 rounded" />
+              </td>
+              <td>
+                <div className="dashboard-shimmer h-5 w-16 rounded-full" />
+              </td>
+              <td>
+                <div className="dashboard-shimmer h-4 w-20 rounded" />
+              </td>
+              <td>
+                <div className="dashboard-shimmer h-7 w-14 rounded-full" />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 type Props = {
-  stats: ScreeningDashboardStats;
   screenings: ScreeningRow[];
   loading?: boolean;
   onNewScreening: () => void;
@@ -18,7 +75,6 @@ type Props = {
 };
 
 export function ScreeningLandingPage({
-  stats,
   screenings,
   loading = false,
   onNewScreening,
@@ -69,17 +125,10 @@ export function ScreeningLandingPage({
         />
       </section>
 
-      <section className="dashboard-screening-stats-grid">
-        <ScreeningStatsCard label="Total screenings" value={loading ? "…" : stats.totalScreenings} icon="fact_check" />
-        <ScreeningStatsCard label="Completed" value={loading ? "…" : stats.completed} icon="task_alt" />
-        <ScreeningStatsCard label="Shortlisted" value={loading ? "…" : stats.shortlisted} icon="thumb_up" />
-        <ScreeningStatsCard label="Avg score" value={loading ? "…" : stats.avgScore} icon="analytics" />
-      </section>
-
       <section>
         <h2 className="dashboard-screening-subsection-title">Recent screenings</h2>
         {loading ? (
-          <p className="dashboard-text-body">Loading screenings…</p>
+          <RecentScreeningsSkeleton />
         ) : screenings.length === 0 ? (
           <div className="dashboard-screening-empty-state">
             <MaterialIcon name="inbox" />
