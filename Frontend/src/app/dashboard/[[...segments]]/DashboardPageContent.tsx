@@ -258,7 +258,8 @@ const engagementsSidebarGroup: UserSidebarNavGroup = {
     outreachSidebarItem,
     screenSidebarItem,
     scheduleSidebarItem,
-    campaignsSidebarItem,
+    // Temporarily hidden — restore by uncommenting:
+    // campaignsSidebarItem,
     integrationsSidebarItem,
   ],
 };
