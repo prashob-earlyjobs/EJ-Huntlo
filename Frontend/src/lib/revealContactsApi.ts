@@ -85,7 +85,7 @@ export function foldRevealedContactsIntoState(
   prevEmailKeys: string[],
   prevPhoneKeys: string[],
   candidates: RevealContactCandidateRef[],
-  lookup: Record<string, RevealedContactLookup>
+  lookup: Record<string, { email?: string; phone?: string }>
 ): {
   values: Record<string, { email?: string; phone?: string }>;
   emailKeys: string[];
