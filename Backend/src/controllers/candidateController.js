@@ -3395,6 +3395,39 @@ const bulkRevealContactsHandler = async (req, res) => {
           .filter((t) => t === "EMAIL" || t === "PHONE")
       : ["EMAIL", "PHONE"];
 
+    const preflightOnly = Boolean(req.body?.preflightOnly);
+
+    if (preflightOnly) {
+      // Credit check only — FE sends totals, not the full candidate payload.
+      const emailNeeded = Math.min(
+        2000,
+        Math.max(0, Math.floor(Number(req.body?.emailNeeded) || 0))
+      );
+      const phoneNeeded = Math.min(
+        2000,
+        Math.max(0, Math.floor(Number(req.body?.phoneNeeded) || 0))
+      );
+      try {
+        if (emailNeeded > 0) {
+          await assertQuotaAvailableByUserId(userId, "emailUnveils", emailNeeded);
+        }
+        if (phoneNeeded > 0) {
+          await assertQuotaAvailableByUserId(userId, "mobileUnveils", phoneNeeded);
+        }
+        return res.status(200).json({
+          success: true,
+          ready: true,
+          emailNeeded,
+          phoneNeeded,
+        });
+      } catch (error) {
+        if (respondIfQuotaExceeded(res, error)) {
+          return;
+        }
+        throw error;
+      }
+    }
+
     if (items.length === 0) {
       return res.status(400).json({
         success: false,
@@ -3616,7 +3649,7 @@ const listSavedCandidates = async (req, res) => {
 
     if (parseQueryBool(req.query.keysOnly, false)) {
       const rows = await SavedCandidate.find(scopeFilter)
-        .select("candidateId sourcingSessionId linkedinProfileUrl name")
+        .select("candidateId sourcingSessionId linkedinProfileUrl name saveListId")
         .lean();
 
       return res.status(200).json({
@@ -3626,6 +3659,7 @@ const listSavedCandidates = async (req, res) => {
           sourcingSessionId: r.sourcingSessionId || "",
           linkedin_profile_url: r.linkedinProfileUrl || "",
           name: r.name || "",
+          saveListId: r.saveListId ? r.saveListId.toString() : "",
         })),
       });
     }
@@ -3730,13 +3764,7 @@ const saveCandidate = async (req, res) => {
       });
     }
 
-    try {
-      await assertQuotaAvailableByUserId(userId, "candidateUnveils");
-    } catch (quotaErr) {
-      if (respondIfQuotaExceeded(res, quotaErr)) return;
-      throw quotaErr;
-    }
-
+    // Save-to-list only categorizes search results — no unlock/unveil credits.
     const baseFilter = {
       userId: new mongoose.Types.ObjectId(userId),
       sourcingSessionId,
@@ -3769,10 +3797,6 @@ const saveCandidate = async (req, res) => {
       { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
     );
 
-    if (userId && mongoose.Types.ObjectId.isValid(String(userId))) {
-      await incrementUserUsage(String(userId), "candidateUnveils");
-    }
-
     return res.status(200).json({
       success: true,
       candidate: {
@@ -3794,10 +3818,220 @@ const saveCandidate = async (req, res) => {
       },
     });
   } catch (error) {
-    if (respondIfQuotaExceeded(res, error)) return;
     return res.status(500).json({
       success: false,
       message: error.message || "Failed to save candidate",
+    });
+  }
+};
+
+const BULK_SAVE_MAX = 300;
+const BULK_SAVE_CHUNK = 50;
+
+/**
+ * POST /api/candidates/saved/bulk
+ * Body: { candidates: Array<{...}>, saveListId?: string }
+ * One round-trip for large multi-select saves — avoids UI + event-loop stalls.
+ */
+const bulkSaveCandidates = async (req, res) => {
+  const userId = req.auth?.userId;
+  try {
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    const rawItems = Array.isArray(req.body?.candidates) ? req.body.candidates : [];
+    if (rawItems.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "candidates array is required",
+      });
+    }
+    if (rawItems.length > BULK_SAVE_MAX) {
+      return res.status(400).json({
+        success: false,
+        message: `You can save at most ${BULK_SAVE_MAX} candidates at once`,
+      });
+    }
+
+    const saveListIdRaw = String(req.body?.saveListId ?? "").trim();
+    let saveListIdToSet = null;
+    if (saveListIdRaw && mongoose.Types.ObjectId.isValid(saveListIdRaw)) {
+      const listOk = await SavedCandidateList.findOne({
+        _id: new mongoose.Types.ObjectId(saveListIdRaw),
+        userId: new mongoose.Types.ObjectId(userId),
+      })
+        .select("_id")
+        .lean();
+      if (listOk) {
+        saveListIdToSet = listOk._id;
+      }
+    }
+
+    const uid = new mongoose.Types.ObjectId(userId);
+    const normalized = [];
+    for (const item of rawItems) {
+      if (!item || typeof item !== "object") continue;
+      const candidateId = String(item.candidateId || "").trim();
+      const sourcingSessionId = String(item.sourcingSessionId || "").trim();
+      const linkedinProfileUrl = String(item.linkedin_profile_url || "").trim();
+      if (!candidateId && !linkedinProfileUrl) continue;
+      normalized.push({
+        candidateId,
+        sourcingSessionId,
+        linkedinProfileUrl,
+        name: String(item.name || "").trim(),
+        role: String(item.role || "").trim(),
+        currentCompany: String(item.currentCompany || "").trim(),
+        location: String(item.location || "").trim(),
+        experience: String(item.experience || "").trim(),
+        finalScore: typeof item.finalScore === "number" ? item.finalScore : null,
+        highlights: Array.isArray(item.highlights)
+          ? item.highlights
+              .map((x) => String(x || "").trim())
+              .filter((x) => x !== "")
+              .slice(0, 20)
+          : [],
+        recommendation: String(item.recommendation || "").trim(),
+        status: String(item.status || "Saved").trim() || "Saved",
+      });
+    }
+
+    if (normalized.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No valid candidates to save",
+      });
+    }
+
+    const orClauses = [];
+    for (const row of normalized) {
+      if (row.candidateId) {
+        orClauses.push({
+          userId: uid,
+          sourcingSessionId: row.sourcingSessionId,
+          candidateId: row.candidateId,
+        });
+      } else if (row.linkedinProfileUrl) {
+        orClauses.push({
+          userId: uid,
+          sourcingSessionId: row.sourcingSessionId,
+          linkedinProfileUrl: row.linkedinProfileUrl,
+        });
+      }
+    }
+
+    const existingRows =
+      orClauses.length > 0
+        ? await SavedCandidate.find({ $or: orClauses })
+            .select("candidateId sourcingSessionId linkedinProfileUrl saveListId")
+            .lean()
+        : [];
+
+    const existingByIdentity = new Map();
+    for (const row of existingRows) {
+      const sid = String(row.sourcingSessionId || "");
+      if (row.candidateId) {
+        existingByIdentity.set(`id:${sid}:${row.candidateId}`, row);
+      }
+      if (row.linkedinProfileUrl) {
+        existingByIdentity.set(`li:${sid}:${row.linkedinProfileUrl}`, row);
+      }
+    }
+
+    let newCount = 0;
+    let moveCount = 0;
+    let sameCount = 0;
+    const ops = [];
+    const targetListKey = saveListIdToSet ? saveListIdToSet.toString() : "";
+
+    for (const row of normalized) {
+      const sid = row.sourcingSessionId;
+      const existing =
+        (row.candidateId && existingByIdentity.get(`id:${sid}:${row.candidateId}`)) ||
+        (row.linkedinProfileUrl &&
+          existingByIdentity.get(`li:${sid}:${row.linkedinProfileUrl}`)) ||
+        null;
+
+      if (existing) {
+        const currentList = existing.saveListId ? existing.saveListId.toString() : "";
+        if (currentList === targetListKey) {
+          sameCount += 1;
+          continue;
+        }
+        moveCount += 1;
+      } else {
+        newCount += 1;
+      }
+
+      const filter = row.candidateId
+        ? { userId: uid, sourcingSessionId: sid, candidateId: row.candidateId }
+        : {
+            userId: uid,
+            sourcingSessionId: sid,
+            linkedinProfileUrl: row.linkedinProfileUrl,
+          };
+
+      ops.push({
+        updateOne: {
+          filter,
+          update: {
+            $set: {
+              userId: uid,
+              sourcingSessionId: sid,
+              candidateId: row.candidateId,
+              linkedinProfileUrl: row.linkedinProfileUrl,
+              name: row.name,
+              role: row.role,
+              currentCompany: row.currentCompany,
+              location: row.location,
+              experience: row.experience,
+              finalScore: row.finalScore,
+              highlights: row.highlights,
+              recommendation: row.recommendation,
+              status: row.status,
+              saveListId: saveListIdToSet,
+            },
+          },
+          upsert: true,
+        },
+      });
+    }
+
+    if (ops.length === 0) {
+      return res.status(200).json({
+        success: true,
+        saved: 0,
+        moved: 0,
+        alreadyOnList: sameCount,
+        processed: 0,
+        saveListId: targetListKey,
+      });
+    }
+
+    // Save-to-list only categorizes search results — no unlock/unveil credits.
+    for (let i = 0; i < ops.length; i += BULK_SAVE_CHUNK) {
+      const chunk = ops.slice(i, i + BULK_SAVE_CHUNK);
+      await SavedCandidate.bulkWrite(chunk, { ordered: false });
+      // Yield so other HTTP / socket work can run during large saves.
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+
+    return res.status(200).json({
+      success: true,
+      saved: newCount,
+      moved: moveCount,
+      alreadyOnList: sameCount,
+      processed: ops.length,
+      saveListId: targetListKey,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to save candidates",
     });
   }
 };
@@ -3987,6 +4221,7 @@ module.exports = {
   deleteSaveList,
   listSavedCandidates,
   saveCandidate,
+  bulkSaveCandidates,
   unsaveCandidate,
   filterAutocomplete,
 };

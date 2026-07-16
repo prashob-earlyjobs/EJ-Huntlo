@@ -283,8 +283,12 @@ export function WorkspaceCandidatesTable({
                     typeof candidate.linkedin_profile_url === "string"
                       ? candidate.linkedin_profile_url.trim()
                       : "";
-                  const emailRevealed = revealedEmailKeys.includes(key);
-                  const phoneRevealed = revealedPhoneKeys.includes(key);
+                  const emailRevealed =
+                    revealedEmailKeys.includes(key) ||
+                    Boolean(getDisplayedEmail(candidate).trim());
+                  const phoneRevealed =
+                    revealedPhoneKeys.includes(key) ||
+                    Boolean(getDisplayedPhone(candidate).trim());
                   const canOpenDetail = Boolean(onOpenDetail && candidate.rawDoc);
 
                   return (

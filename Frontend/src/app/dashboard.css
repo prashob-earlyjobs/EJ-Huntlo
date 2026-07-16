@@ -647,6 +647,14 @@
   max-height: 100%;
 }
 
+.dashboard-main-scroll > .dashboard-main-scroll-banner {
+  flex: 0 0 auto;
+  max-height: none;
+  min-height: 0;
+  width: fit-content;
+  max-width: min(28rem, 100%);
+}
+
 @keyframes dashboard-tab-switch-in {
   from {
     opacity: 0;
@@ -692,6 +700,7 @@
   min-height: 0;
   max-height: 100%;
   overflow: hidden;
+  cursor: default;
 }
 
 .dashboard-card-panel-header {
@@ -1504,6 +1513,92 @@
   overflow: hidden;
 }
 
+.dashboard-saved-export-modal.dashboard-modal {
+  padding: 0;
+  max-height: min(90vh, 40rem);
+  overflow: hidden;
+}
+
+.dashboard-saved-export-modal--wide.dashboard-modal {
+  max-height: min(92vh, 44rem);
+}
+
+.dashboard-saved-export-btn {
+  min-height: 2rem;
+  padding: 0 0.75rem;
+  font-size: 0.8125rem;
+}
+
+.dashboard-saved-export-icon-btn {
+  display: inline-flex;
+  height: 2rem;
+  width: 2rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--dash-outline) 58%, transparent);
+  background: #fff;
+  color: var(--dash-on-surface-variant);
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.dashboard-saved-export-icon-btn:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--dash-primary) 40%, transparent);
+  background: color-mix(in srgb, var(--dash-primary) 8%, white);
+  color: var(--dash-primary);
+}
+
+.dashboard-saved-export-icon-btn:disabled {
+  cursor: not-allowed;
+}
+
+.dashboard-saved-export-table-wrap {
+  overflow: auto;
+  max-height: min(48vh, 22rem);
+  border: 1px solid #e8eaed;
+  border-radius: 0.75rem;
+}
+
+.dashboard-saved-export-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.dashboard-saved-export-table th,
+.dashboard-saved-export-table td {
+  padding: 0.55rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid #eef1f5;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.dashboard-saved-export-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f8fafc;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.dashboard-saved-export-table tbody tr[data-selected="false"] {
+  opacity: 0.55;
+}
+
+.dashboard-saved-export-check-col {
+  width: 2.25rem;
+}
+
 .dashboard-add-campaign-overlay {
   padding: 0.75rem;
 }
@@ -1892,6 +1987,16 @@
 .dashboard-add-campaign-grid .dashboard-add-campaign-create-option {
   height: 100%;
   min-height: 3.25rem;
+}
+
+.dashboard-save-to-list-overlay {
+  z-index: 120;
+}
+
+.dashboard-save-list-modal.dashboard-modal {
+  padding: 0;
+  overflow: hidden;
+  max-height: min(90vh, 34rem);
 }
 
 @media (min-width: 540px) {
@@ -3930,10 +4035,44 @@
   min-width: 0;
   grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
+  align-items: stretch;
+  cursor: default;
 }
 
 .dashboard-results-grid > * {
   min-width: 0;
+}
+
+/* Equal tile height within a row; pointer only on cards, not empty panel space */
+.dashboard-results-grid > .dashboard-candidate-card {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  cursor: pointer;
+}
+
+.dashboard-candidate-card-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  /* One chip line — cards without chips keep the same footprint */
+  min-height: 1.625rem;
+}
+
+.dashboard-candidate-card--compact .dashboard-candidate-card-chips {
+  margin-top: 0.625rem;
+  gap: 0.375rem;
+}
+
+.dashboard-candidate-card--compact
+  .dashboard-candidate-skills-compact
+  + .dashboard-candidate-card-chips {
+  margin-top: 0.5rem;
+}
+
+.dashboard-results-grid > .dashboard-candidate-card > .dashboard-candidate-actions {
+  margin-top: auto;
 }
 
 @media (min-width: 1024px) {
@@ -4596,24 +4735,21 @@
   margin-left: auto;
 }
 
-.dashboard-saved-header-badge {
-  display: inline-flex;
-  align-items: center;
-  min-height: 2rem;
-  padding: 0 0.75rem;
-  border-radius: 0.5rem;
-  border: 1px solid color-mix(in srgb, var(--dash-outline) 58%, transparent);
-  background: color-mix(in srgb, var(--dash-surface-container) 65%, white);
-  font-size: 0.8125rem;
-  font-weight: 500;
-  line-height: 1.35;
+.dashboard-saved-header-count {
+  margin-left: 0.15rem;
+  font-size: 0.95em;
+  font-weight: 600;
   color: var(--dash-on-surface-variant);
-  white-space: nowrap;
 }
 
 .dashboard-saved-header-actions .dashboard-saved-filter-select-wrap {
-  min-width: 7.75rem;
-  max-width: 11.5rem;
+  min-width: 9.5rem;
+  max-width: 14rem;
+}
+
+.dashboard-saved-filter-select-wrap {
+  min-width: 9.5rem;
+  max-width: 14rem;
 }
 
 .dashboard-saved-header-actions .dashboard-saved-list-select {
@@ -4630,11 +4766,6 @@
   flex: 1 1 auto;
   min-width: 5.5rem;
   max-width: 12rem;
-}
-
-.dashboard-saved-filter-select-wrap {
-  min-width: 7.5rem;
-  max-width: 11rem;
 }
 
 .dashboard-saved-list-select-wrap--menu {
@@ -4820,6 +4951,168 @@
   align-items: center;
   justify-content: space-between;
   gap: 0.625rem;
+}
+
+.dashboard-saved-card-list {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.5rem;
+}
+
+.dashboard-saved-card-list-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--dash-on-surface);
+}
+
+.dashboard-saved-card-list-change {
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--dash-primary, #0050cb);
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
+  cursor: pointer;
+}
+
+.dashboard-saved-card-list-change:hover:not(:disabled) {
+  color: color-mix(in srgb, var(--dash-primary, #0050cb) 82%, #000);
+}
+
+.dashboard-saved-card-list-change:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  text-decoration: none;
+}
+
+.dashboard-saved-card-list-menu {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  z-index: 20;
+  display: flex;
+  min-width: 10.5rem;
+  max-width: 17.5rem;
+  max-height: 20rem;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid #e8eaed;
+  border-radius: 0.75rem;
+  background: #fff;
+  box-shadow: 0 12px 28px rgba(20, 27, 43, 0.14);
+}
+
+.dashboard-saved-card-list-menu--portal {
+  position: fixed;
+  z-index: 1300;
+  max-width: none;
+}
+
+.dashboard-saved-card-list-search {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.375rem;
+  border-bottom: 1px solid #eef1f5;
+  padding: 0.5rem 0.625rem;
+}
+
+.dashboard-saved-card-list-search-icon {
+  flex-shrink: 0;
+  font-size: 1.05rem;
+  color: #94a3b8;
+}
+
+.dashboard-saved-card-list-search-input {
+  width: 100%;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #141b2b;
+  outline: none;
+}
+
+.dashboard-saved-card-list-search-input::placeholder {
+  color: #94a3b8;
+  font-weight: 450;
+}
+
+.dashboard-saved-card-list-options {
+  display: flex;
+  min-height: 0;
+  max-height: 15rem;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0.125rem;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0.375rem;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--dash-outline) 70%, transparent) transparent;
+}
+
+.dashboard-saved-card-list-options::-webkit-scrollbar {
+  width: 4px;
+}
+
+.dashboard-saved-card-list-options::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--dash-outline) 65%, transparent);
+}
+
+.dashboard-saved-card-list-empty {
+  margin: 0;
+  padding: 0.75rem 0.5rem;
+  text-align: center;
+  font-size: 0.8125rem;
+  color: #94a3b8;
+}
+
+.dashboard-saved-card-list-option {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border: none;
+  border-radius: 0.5rem;
+  background: transparent;
+  padding: 0.5rem 0.625rem;
+  text-align: left;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #141b2b;
+  cursor: pointer;
+}
+
+.dashboard-saved-card-list-option:hover:not(:disabled) {
+  background: #f8f9fa;
+}
+
+.dashboard-saved-card-list-option--active {
+  background: #e8f0fe;
+  color: var(--dash-primary, #0050cb);
+  font-weight: 600;
+}
+
+.dashboard-saved-card-list-option:disabled:not(.dashboard-saved-card-list-option--active) {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .dashboard-saved-card-footer--spread {

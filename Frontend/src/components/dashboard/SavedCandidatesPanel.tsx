@@ -3,12 +3,20 @@
 import {
   useEffect,
   useId,
+  useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ChangeEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
+import Select, {
+  type GroupBase,
+  type SingleValue,
+  type StylesConfig,
+} from "react-select";
 
 import {
   SessionResultCandidateCard,
@@ -20,6 +28,7 @@ import { RevealContactIconButton } from "@/components/dashboard/RevealContactIco
 import { SavedCandidatesSkeleton } from "@/components/dashboard/SavedCandidatesSkeleton";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
+import { ButtonSpinner } from "@/components/ui/ButtonSpinner";
 type SavedRawDoc = {
   _id?: string;
   sourcingSessionId?: string;
@@ -92,7 +101,319 @@ function listLabel(saveListId: string, saveLists: SaveListRow[]): string {
   return saveLists.find((l) => l.id === saveListId)?.name ?? "List";
 }
 
+function SavedCardListControl({
+  candidateName,
+  currentListId,
+  options,
+  disabled,
+  open,
+  menuId,
+  onToggle,
+  onClose,
+  onSelect,
+}: {
+  candidateName: string;
+  currentListId: string;
+  options: SavedListSelectOption[];
+  disabled?: boolean;
+  open: boolean;
+  menuId: string;
+  onToggle: () => void;
+  onClose: () => void;
+  onSelect: (listId: string) => void;
+}) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number; width: number } | null>(
+    null
+  );
+  const [mounted, setMounted] = useState(false);
+  const [listSearch, setListSearch] = useState("");
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!open) {
+      setListSearch("");
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      searchInputRef.current?.focus();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [open]);
+
+  const filteredOptions = useMemo(() => {
+    const q = listSearch.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter((option) => option.label.toLowerCase().includes(q));
+  }, [options, listSearch]);
+
+  useLayoutEffect(() => {
+    if (!open || !wrapRef.current) {
+      setMenuPos(null);
+      return;
+    }
+    const update = () => {
+      const rect = wrapRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const width = Math.max(220, Math.min(280, Math.max(rect.width, 220)));
+      let left = rect.left;
+      if (left + width > window.innerWidth - 8) {
+        left = Math.max(8, window.innerWidth - width - 8);
+      }
+      const estimatedHeight = Math.min(320, 56 + Math.max(filteredOptions.length, 1) * 36);
+      let top = rect.bottom + 6;
+      if (top + estimatedHeight > window.innerHeight - 8) {
+        top = Math.max(8, rect.top - estimatedHeight - 6);
+      }
+      setMenuPos({ top, left, width });
+    };
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [open, filteredOptions.length]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (wrapRef.current?.contains(target) || menuRef.current?.contains(target)) {
+        return;
+      }
+      onClose();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open, onClose]);
+
+  const label = listLabel(currentListId, options.map((o) => ({ id: o.value, name: o.label })));
+
+  return (
+    <div className="dashboard-saved-card-list" ref={wrapRef}>
+      <span className="dashboard-saved-card-list-name" title={label}>
+        {label}
+      </span>
+      <button
+        type="button"
+        className="dashboard-saved-card-list-change"
+        disabled={disabled}
+        aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
+        aria-haspopup="listbox"
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggle();
+        }}
+      >
+        Change
+      </button>
+      {open && mounted && menuPos
+        ? createPortal(
+            <div
+              ref={menuRef}
+              id={menuId}
+              className="dashboard-saved-card-list-menu dashboard-saved-card-list-menu--portal"
+              style={{
+                top: menuPos.top,
+                left: menuPos.left,
+                width: menuPos.width,
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="dashboard-saved-card-list-search">
+                <MaterialIcon name="search" className="dashboard-saved-card-list-search-icon" />
+                <input
+                  ref={searchInputRef}
+                  type="search"
+                  value={listSearch}
+                  onChange={(e) => setListSearch(e.target.value)}
+                  placeholder="Search lists"
+                  aria-label={`Search lists for ${candidateName}`}
+                  className="dashboard-saved-card-list-search-input"
+                  autoComplete="off"
+                />
+              </div>
+              <div
+                role="listbox"
+                aria-label={`Choose list for ${candidateName}`}
+                className="dashboard-saved-card-list-options"
+              >
+                {filteredOptions.length === 0 ? (
+                  <p className="dashboard-saved-card-list-empty">No lists match</p>
+                ) : (
+                  filteredOptions.map((option) => {
+                    const selected = currentListId === option.value;
+                    return (
+                      <button
+                        key={option.value || "__general__"}
+                        type="button"
+                        role="option"
+                        aria-selected={selected}
+                        disabled={disabled || selected}
+                        className={`dashboard-saved-card-list-option${
+                          selected ? " dashboard-saved-card-list-option--active" : ""
+                        }`}
+                        onClick={() => {
+                          onClose();
+                          if (!selected) onSelect(option.value);
+                        }}
+                      >
+                        <span className="truncate">{option.label}</span>
+                        {selected ? (
+                          <MaterialIcon
+                            name="check"
+                            className="shrink-0 text-base text-[#0050cb]"
+                          />
+                        ) : null}
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
+    </div>
+  );
+}
+
 type SavedListSelectOption = { value: string; label: string };
+
+const savedFilterSelectStyles: StylesConfig<
+  SavedListSelectOption,
+  false,
+  GroupBase<SavedListSelectOption>
+> = {
+  container: (base) => ({ ...base, width: "100%", minWidth: "9.5rem" }),
+  control: (base, state) => ({
+    ...base,
+    minHeight: "2rem",
+    borderRadius: "0.5rem",
+    borderWidth: 1,
+    borderColor: state.isFocused
+      ? "var(--dash-primary, #0050cb)"
+      : "color-mix(in srgb, var(--dash-outline) 58%, transparent)",
+    backgroundColor: state.isDisabled ? "#f8f9fa" : "#fff",
+    boxShadow: state.isFocused ? "0 0 0 3px rgba(0, 80, 203, 0.12)" : "none",
+    cursor: state.isDisabled ? "not-allowed" : "pointer",
+    "&:hover": {
+      borderColor: state.isDisabled
+        ? base.borderColor
+        : "color-mix(in srgb, var(--dash-primary, #0050cb) 45%, transparent)",
+    },
+  }),
+  valueContainer: (base) => ({
+    ...base,
+    padding: "0 0.5rem",
+  }),
+  singleValue: (base) => ({
+    ...base,
+    margin: 0,
+    fontSize: "0.8125rem",
+    fontWeight: 500,
+    color: "#141b2b",
+  }),
+  placeholder: (base) => ({
+    ...base,
+    margin: 0,
+    fontSize: "0.8125rem",
+    color: "#94a3b8",
+  }),
+  input: (base) => ({ ...base, margin: 0, padding: 0, fontSize: "0.8125rem" }),
+  indicatorsContainer: (base) => ({ ...base, height: "2rem" }),
+  indicatorSeparator: () => ({ display: "none" }),
+  dropdownIndicator: (base) => ({
+    ...base,
+    padding: "0 0.4rem",
+    color: "#64748b",
+  }),
+  clearIndicator: (base) => ({
+    ...base,
+    padding: "0 0.25rem",
+  }),
+  menuPortal: (base) => ({ ...base, zIndex: 10_000 }),
+  menu: (base) => ({
+    ...base,
+    marginTop: 6,
+    borderRadius: "0.75rem",
+    border: "1px solid #e8eaed",
+    boxShadow: "0 12px 32px rgba(20, 27, 43, 0.14)",
+    overflow: "hidden",
+    zIndex: 10_000,
+  }),
+  menuList: (base) => ({ ...base, padding: 6, maxHeight: 260 }),
+  option: (base, state) => ({
+    ...base,
+    borderRadius: 8,
+    padding: "8px 10px",
+    fontSize: "0.8125rem",
+    fontWeight: state.isSelected ? 600 : 450,
+    color: state.isSelected ? "var(--dash-primary, #0050cb)" : "#141b2b",
+    backgroundColor: state.isSelected
+      ? "#e8f0fe"
+      : state.isFocused
+        ? "#f8f9fa"
+        : "transparent",
+    cursor: "pointer",
+  }),
+  noOptionsMessage: (base) => ({
+    ...base,
+    fontSize: "0.8125rem",
+    color: "#80868b",
+    padding: "10px",
+  }),
+};
+
+function SavedFilterSelect({
+  value,
+  onChange,
+  options,
+  ariaLabel,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  options: SavedListSelectOption[];
+  ariaLabel: string;
+}) {
+  const selected =
+    options.find((option) => option.value === value) ?? options[0] ?? null;
+
+  return (
+    <div className="dashboard-saved-filter-select-wrap">
+      <Select<SavedListSelectOption, false>
+        inputId="saved-list-filter"
+        aria-label={ariaLabel}
+        options={options}
+        value={selected}
+        onChange={(next: SingleValue<SavedListSelectOption>) => {
+          if (next?.value) onChange(next.value);
+        }}
+        styles={savedFilterSelectStyles}
+        isSearchable
+        menuPlacement="auto"
+        menuPortalTarget={typeof document !== "undefined" ? document.body : null}
+        placeholder="Filter by list"
+        classNamePrefix="saved-filter-select"
+      />
+    </div>
+  );
+}
 
 export function SavedListSelect({
   value,
@@ -190,15 +511,12 @@ type Props = {
   saveListFilter: string;
   onSaveListFilterChange: (value: string) => void;
   saveLists: SaveListRow[];
-  saveListsLoading: boolean;
   newSaveListName: string;
   onNewSaveListNameChange: (value: string) => void;
   onCreateSaveList: () => void;
   createSaveListBusy: boolean;
   onDeleteSaveList: (listId: string) => void;
   deleteSaveListBusyId: string | null;
-  saveTargetListId: string;
-  onSaveTargetListChange: (listId: string) => void;
   rowKey: (candidate: SavedCandidateRow) => string;
   identityKey: (candidate: SavedCandidateRow) => string;
   saveBusyKeys: string[];
@@ -214,6 +532,8 @@ type Props = {
   getDisplayedEmail: (candidate: SavedCandidateRow) => string;
   getDisplayedPhone: (candidate: SavedCandidateRow) => string;
   onGoToSessionResults: () => void;
+  onExport?: () => void;
+  exportBusy?: boolean;
 };
 
 export function SavedCandidatesPanel({
@@ -227,15 +547,12 @@ export function SavedCandidatesPanel({
   saveListFilter,
   onSaveListFilterChange,
   saveLists,
-  saveListsLoading,
   newSaveListName,
   onNewSaveListNameChange,
   onCreateSaveList,
   createSaveListBusy,
   onDeleteSaveList,
   deleteSaveListBusyId,
-  saveTargetListId,
-  onSaveTargetListChange,
   rowKey,
   identityKey,
   saveBusyKeys,
@@ -251,10 +568,13 @@ export function SavedCandidatesPanel({
   getDisplayedEmail,
   getDisplayedPhone,
   onGoToSessionResults,
+  onExport,
+  exportBusy = false,
 }: Props) {
   const [listsMenuOpen, setListsMenuOpen] = useState(false);
   const listsMenuRef = useRef<HTMLDivElement>(null);
   const listsMenuId = useId();
+  const moveListMenuId = useId();
 
   const filterLabel =
     saveListFilter === "__all__"
@@ -265,6 +585,23 @@ export function SavedCandidatesPanel({
 
   const canDeleteActiveList =
     saveListFilter !== "__all__" && saveListFilter !== "__general__";
+
+  const filterOptions = useMemo(
+    (): SavedListSelectOption[] => [
+      { value: "__all__", label: "All saved" },
+      { value: "__general__", label: "General" },
+      ...saveLists.map((list) => ({ value: list.id, label: list.name })),
+    ],
+    [saveLists]
+  );
+
+  const moveListOptions = useMemo(
+    (): SavedListSelectOption[] => [
+      { value: "", label: "General" },
+      ...saveLists.map((list) => ({ value: list.id, label: list.name })),
+    ],
+    [saveLists]
+  );
 
   useEffect(() => {
     if (!listsMenuOpen) return;
@@ -287,6 +624,8 @@ export function SavedCandidatesPanel({
     };
   }, [listsMenuOpen]);
 
+  const [moveListMenuKey, setMoveListMenuKey] = useState<string | null>(null);
+
   return (
     <section className="dashboard-card dashboard-card--fill flex h-full min-w-0 max-w-full w-full flex-col p-6">
       <div className="dashboard-card-panel-header">
@@ -295,6 +634,12 @@ export function SavedCandidatesPanel({
           <h3 className="flex items-center gap-2 dashboard-section-title">
             <MaterialIcon name="bookmark" className="text-xl text-[#0050cb]" />
             Saved candidates
+            <span
+              className="dashboard-saved-header-count tabular-nums"
+              title={`${totalSavedCount.toLocaleString()} saved candidates`}
+            >
+              {totalSavedCount.toLocaleString()}
+            </span>
           </h3>
           <p className="mt-1 dashboard-text-body">
             Shortlisted profiles you marked for follow-up. Organize them into custom lists.
@@ -302,23 +647,11 @@ export function SavedCandidatesPanel({
         </div>
 
         <div className="dashboard-saved-header-actions">
-          <span
-            className="dashboard-saved-header-badge tabular-nums"
-            title={`${totalSavedCount} saved candidates`}
-          >
-            {totalSavedCount} saved
-          </span>
-
-          <SavedListSelect
-            wrapClassName="dashboard-saved-filter-select-wrap"
+          <SavedFilterSelect
             value={saveListFilter}
-            onChange={(e) => onSaveListFilterChange(e.target.value)}
+            onChange={onSaveListFilterChange}
             ariaLabel="Filter by list"
-            options={[
-              { value: "__all__", label: "All saved" },
-              { value: "__general__", label: "General" },
-              ...saveLists.map((list) => ({ value: list.id, label: list.name })),
-            ]}
+            options={filterOptions}
           />
 
           <div className="dashboard-saved-lists-menu-wrap" ref={listsMenuRef}>
@@ -377,21 +710,6 @@ export function SavedCandidatesPanel({
                   </div>
                 </label>
 
-                <label className="dashboard-saved-menu-field">
-                  <span className="dashboard-label">Default list for new saves</span>
-                  <SavedListSelect
-                    wrapClassName="dashboard-saved-list-select-wrap--menu mt-1"
-                    value={saveTargetListId}
-                    onChange={(e) => onSaveTargetListChange(e.target.value)}
-                    disabled={saveListsLoading}
-                    ariaLabel="Default list for new saves"
-                    options={[
-                      { value: "", label: "General" },
-                      ...saveLists.map((l) => ({ value: l.id, label: l.name })),
-                    ]}
-                  />
-                </label>
-
                 {canDeleteActiveList ? (
                   <button
                     type="button"
@@ -411,6 +729,23 @@ export function SavedCandidatesPanel({
               </div>
             ) : null}
           </div>
+
+          {onExport ? (
+            <button
+              type="button"
+              onClick={onExport}
+              disabled={exportBusy || loading || filteredTotalDocs === 0}
+              className="dashboard-saved-export-icon-btn disabled:opacity-55"
+              title="Export saved candidates"
+              aria-label="Export saved candidates"
+            >
+              {exportBusy ? (
+                <ButtonSpinner size="sm" />
+              ) : (
+                <MaterialIcon name="download" className="text-xl" />
+              )}
+            </button>
+          ) : null}
         </div>
       </div>
       </div>
@@ -457,8 +792,12 @@ export function SavedCandidatesPanel({
           {candidates.map((candidate, idx) => {
             const key = identityKey(candidate);
             const busy = saveBusyKeys.includes(key);
-            const emailRevealed = revealedEmailKeys.includes(rowKey(candidate));
-            const phoneRevealed = revealedPhoneKeys.includes(rowKey(candidate));
+            const emailRevealed =
+              revealedEmailKeys.includes(rowKey(candidate)) ||
+              Boolean(getDisplayedEmail(candidate).trim());
+            const phoneRevealed =
+              revealedPhoneKeys.includes(rowKey(candidate)) ||
+              Boolean(getDisplayedPhone(candidate).trim());
             const canOpen = Boolean(onOpenDetail && candidate.rawDoc);
 
             return (
@@ -475,17 +814,18 @@ export function SavedCandidatesPanel({
                       onClick={(e) => e.stopPropagation()}
                       onKeyDown={(e) => e.stopPropagation()}
                     >
-                      <SavedListSelect
-                        wrapClassName="dashboard-saved-list-select-wrap--card"
-                        value={String(candidate.saveListId || "")}
-                        onChange={(e) => onMoveList(candidate, e.target.value)}
-                        onClick={(e) => e.stopPropagation()}
+                      <SavedCardListControl
+                        candidateName={candidate.name}
+                        currentListId={String(candidate.saveListId || "")}
+                        options={moveListOptions}
                         disabled={busy}
-                        ariaLabel={`Move ${candidate.name} to list`}
-                        options={[
-                          { value: "", label: "General" },
-                          ...saveLists.map((l) => ({ value: l.id, label: l.name })),
-                        ]}
+                        open={moveListMenuKey === key}
+                        menuId={moveListMenuId}
+                        onToggle={() =>
+                          setMoveListMenuKey((prev) => (prev === key ? null : key))
+                        }
+                        onClose={() => setMoveListMenuKey(null)}
+                        onSelect={(listId) => onMoveList(candidate, listId)}
                       />
 
                       <div
@@ -555,22 +895,6 @@ export function SavedCandidatesPanel({
                         </SavedIconAction>
                       </div>
                     </div>
-                    {emailRevealed || phoneRevealed ? (
-                      <div className="dashboard-saved-revealed mt-2">
-                        {emailRevealed ? (
-                          <p className="dashboard-table-revealed">
-                            <span className="text-[#424656]">Email </span>
-                            {getDisplayedEmail(candidate) || "—"}
-                          </p>
-                        ) : null}
-                        {phoneRevealed ? (
-                          <p className="dashboard-table-revealed">
-                            <span className="text-[#424656]">Phone </span>
-                            {getDisplayedPhone(candidate) || "—"}
-                          </p>
-                        ) : null}
-                      </div>
-                    ) : null}
                   </>
                 }
               />
