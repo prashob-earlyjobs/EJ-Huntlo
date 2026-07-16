@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { CandidateFilterDrawer } from "@/components/CandidateFilterDrawer";
 import {
@@ -55,6 +55,7 @@ import {
   type RecentAiSearchItem,
 } from "@/components/dashboard/SearchCandidatesPanel";
 import { AddToCampaignModal } from "@/components/dashboard/AddToCampaignModal";
+import { SaveToListModal } from "@/components/dashboard/SaveToListModal";
 import { CampaignsPanel } from "@/components/dashboard/CampaignsPanel";
 import { IntegrationsPanel } from "@/components/dashboard/IntegrationsPanel";
 import { Huntlo360Panel } from "@/components/dashboard/huntlo360/Huntlo360Panel";
@@ -63,6 +64,7 @@ import { SchedulePanel } from "@/components/dashboard/schedule/SchedulePanel";
 import { ScreeningPanel } from "@/components/dashboard/screening/ScreeningPanel";
 import { OutreachesPanel } from "@/components/dashboard/OutreachesPanel";
 import { SavedCandidatesPanel } from "@/components/dashboard/SavedCandidatesPanel";
+import { SavedExportModals } from "@/components/dashboard/SavedExportModals";
 import { LandingLogo } from "@/components/landing/LandingLogo";
 import { MaterialIcon } from "@/components/landing/MaterialIcon";
 import { ButtonLoadingContent } from "@/components/ui/ButtonLoadingContent";
@@ -99,6 +101,12 @@ import {
   revealContactNotFoundMessage,
   type RevealContactType,
 } from "@/lib/revealContactMessages";
+import {
+  foldRevealedContactsIntoState,
+  foldRevealUpdatesIntoState,
+  lookupRevealedContacts,
+  normalizeLinkedinUrl,
+} from "@/lib/revealContactsApi";
 import {
   FUTURE_JOBS_UPSTREAM_ERROR_CODE,
   FUTURE_JOBS_UPSTREAM_ERROR_MESSAGE,
@@ -1210,6 +1218,7 @@ function SessionCandidateGridAvatar({
 
 export function UserDashboardPage() {
   const router = useRouter();
+  const pathname = usePathname();
   const routeParams = useParams();
   const urlSearchParams = useSearchParams();
 
@@ -1230,11 +1239,7 @@ export function UserDashboardPage() {
   } = useMemo(() => tabFromPathSegments(segments), [segments]);
 
   const userActionAlert = useUserActionAlert();
-  const showRevealContactNotice = (message: string) => {
-    const trimmed = message.trim();
-    if (trimmed) setRevealContactNotice(trimmed);
-  };
-  const clearRevealContactNotice = () => setRevealContactNotice("");
+  const [revealContactNotice, setRevealContactNotice] = useState("");
   const [aiPrompt, setAiPrompt] = useState("");
   const [peopleScoutQuery, setPeopleScoutQuery] = useState("");
   const [activeTab, setActiveTab] = useState<string>(tabFromRoute);
@@ -1269,7 +1274,6 @@ export function UserDashboardPage() {
   const collapsedNavGroupLeaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showAdminLink, setShowAdminLink] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
-  const [revealContactNotice, setRevealContactNotice] = useState("");
   const [searchSummary, setSearchSummary] = useState<SearchSummaryState | null>(
     null
   );
@@ -1295,6 +1299,13 @@ export function UserDashboardPage() {
     message: string;
     variant: DashboardToastVariant;
   } | null>(null);
+  const showRevealContactNotice = (message: string) => {
+    const trimmed = message.trim();
+    if (!trimmed) return;
+    setRevealContactNotice(trimmed);
+    setDashboardToast({ message: trimmed, variant: "warning" });
+  };
+  const clearRevealContactNotice = () => setRevealContactNotice("");
   const [sessionResultSelectedKeys, setSessionResultSelectedKeys] = useState<string[]>([]);
   const [addToCampaignOpen, setAddToCampaignOpen] = useState(false);
   const [sessionResultNotice, setSessionResultNotice] = useState("");
@@ -1310,6 +1321,10 @@ export function UserDashboardPage() {
   });
   const [addToCampaignBusy, setAddToCampaignBusy] = useState(false);
   const [savedSessionCandidateKeys, setSavedSessionCandidateKeys] = useState<string[]>([]);
+  /** identityKey → saveListId ("" = General) for already-saved candidates */
+  const [savedCandidateListByKey, setSavedCandidateListByKey] = useState<Record<string, string>>(
+    {}
+  );
   const [savedCandidatesList, setSavedCandidatesList] = useState<CandidateRow[]>([]);
   const [savedCandidatesLoading, setSavedCandidatesLoading] = useState(false);
   const [savedCandidatesPage, setSavedCandidatesPage] = useState(1);
@@ -1326,7 +1341,9 @@ export function UserDashboardPage() {
   const [saveListFilter, setSaveListFilter] = useState<"__all__" | "__general__" | string>(
     "__all__"
   );
-  const [saveTargetListId, setSaveTargetListId] = useState("");
+  const [saveToListCandidates, setSaveToListCandidates] = useState<CandidateRow[]>([]);
+  const [saveToListSubmitting, setSaveToListSubmitting] = useState(false);
+  const [savedExportOpen, setSavedExportOpen] = useState(false);
   const [sessionResultsFromDb, setSessionResultsFromDb] = useState(false);
   const sessionResultsFromDbRef = useRef(false);
   useEffect(() => {
@@ -1373,6 +1390,11 @@ export function UserDashboardPage() {
             }
           : {}),
       });
+      // Avoid a soft-nav remount when apply already painted Session Results.
+      if (pathname === path) {
+        setActiveTab(tabKey);
+        return;
+      }
       if (options?.replace) {
         router.replace(path);
       } else {
@@ -1380,7 +1402,7 @@ export function UserDashboardPage() {
       }
       setActiveTab(tabKey);
     },
-    [router, searchSummary?.sessionId]
+    [pathname, router, searchSummary?.sessionId]
   );
   const [filterSearchPrompt, setFilterSearchPrompt] = useState("");
   const [pendingSearchSessionId, setPendingSearchSessionId] = useState<string | null>(null);
@@ -1432,6 +1454,62 @@ export function UserDashboardPage() {
   const [revealedContactValues, setRevealedContactValues] = useState<
     Record<string, { email?: string; phone?: string }>
   >({});
+  const revealedContactValuesRef = useRef(revealedContactValues);
+  const revealedEmailRef = useRef(revealedEmail);
+  const revealedPhoneRef = useRef(revealedPhone);
+  useEffect(() => {
+    revealedContactValuesRef.current = revealedContactValues;
+  }, [revealedContactValues]);
+  useEffect(() => {
+    revealedEmailRef.current = revealedEmail;
+  }, [revealedEmail]);
+  useEffect(() => {
+    revealedPhoneRef.current = revealedPhone;
+  }, [revealedPhone]);
+
+  const applyRevealedLookup = useCallback(
+    (
+      candidates: { id?: string; name?: string; linkedin_profile_url?: string }[],
+      lookup: Record<string, { email?: string; phone?: string }>
+    ) => {
+      if (candidates.length === 0) return;
+      const folded = foldRevealedContactsIntoState(
+        revealedContactValuesRef.current,
+        revealedEmailRef.current,
+        revealedPhoneRef.current,
+        candidates,
+        lookup
+      );
+      revealedContactValuesRef.current = folded.values;
+      revealedEmailRef.current = folded.emailKeys;
+      revealedPhoneRef.current = folded.phoneKeys;
+      setRevealedContactValues(folded.values);
+      setRevealedEmail(folded.emailKeys);
+      setRevealedPhone(folded.phoneKeys);
+    },
+    []
+  );
+
+  const hydrateRevealedContactsForCandidates = useCallback(
+    async (
+      candidates: { id?: string; name?: string; linkedin_profile_url?: string }[]
+    ) => {
+      const auth = getStoredAuth();
+      if (!auth?.token || candidates.length === 0) return;
+      const urls = candidates
+        .map((c) => String(c.linkedin_profile_url || "").trim())
+        .filter(Boolean);
+      if (urls.length === 0) return;
+      try {
+        const lookup = await lookupRevealedContacts(auth.token, urls);
+        applyRevealedLookup(candidates, lookup);
+      } catch {
+        // Non-blocking — UI still works without hydrated unveils.
+      }
+    },
+    [applyRevealedLookup]
+  );
+
   const [recentSearches, setRecentSearches] = useState<RecentSearchItem[]>([]);
   const [recentSearchesLoading, setRecentSearchesLoading] = useState(false);
   const [recentSearchesRefresh, setRecentSearchesRefresh] = useState(0);
@@ -1497,15 +1575,6 @@ export function UserDashboardPage() {
   });
   const [passwordUpdateLoading, setPasswordUpdateLoading] = useState(false);
   const myProfileHydratedRef = useRef(false);
-
-  useEffect(() => {
-    try {
-      const v = window.localStorage.getItem("ejhunter_save_target_list_id");
-      if (typeof v === "string") setSaveTargetListId(v);
-    } catch {
-      /* ignore */
-    }
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -1783,19 +1852,6 @@ export function UserDashboardPage() {
       .catch(() => setSaveLists([]))
       .finally(() => setSaveListsLoading(false));
   }, [activeTab]);
-
-  useEffect(() => {
-    if (!saveTargetListId) return;
-    if (saveLists.length === 0) return;
-    if (!saveLists.some((l) => l.id === saveTargetListId)) {
-      setSaveTargetListId("");
-      try {
-        localStorage.removeItem("ejhunter_save_target_list_id");
-      } catch {
-        /* ignore */
-      }
-    }
-  }, [saveLists, saveTargetListId]);
 
   useEffect(() => {
     if (activeTab !== "My Profile") return;
@@ -2115,12 +2171,21 @@ export function UserDashboardPage() {
       if (!res.ok || !data.success || !Array.isArray(data.keyRows)) {
         throw new Error("Failed to load saved keys");
       }
-      const keys = (data.keyRows as Parameters<typeof mapSavedApiRowToCandidate>[0][])
-        .map((row) => candidateIdentityKey(mapSavedApiRowToCandidate(row)))
-        .filter((k: string, idx: number, arr: string[]) => k !== "" && arr.indexOf(k) === idx);
+      const listByKey: Record<string, string> = {};
+      const keys: string[] = [];
+      for (const row of data.keyRows as Parameters<typeof mapSavedApiRowToCandidate>[0][]) {
+        const mapped = mapSavedApiRowToCandidate(row);
+        const key = candidateIdentityKey(mapped);
+        if (!key || keys.includes(key)) continue;
+        keys.push(key);
+        listByKey[key] =
+          typeof row.saveListId === "string" ? row.saveListId.trim() : mapped.saveListId || "";
+      }
       setSavedSessionCandidateKeys(keys);
+      setSavedCandidateListByKey(listByKey);
     } catch {
       setSavedSessionCandidateKeys([]);
+      setSavedCandidateListByKey({});
     }
   };
 
@@ -2168,6 +2233,7 @@ export function UserDashboardPage() {
       setSavedCandidatesTotalDocs(totalDocs);
       setSavedCandidatesTotalPages(totalPages);
       setSavedCandidatesPage(serverPage);
+      void hydrateRevealedContactsForCandidates(mapped);
     } catch {
       setSavedCandidatesList([]);
       setSavedCandidatesTotalDocs(0);
@@ -2241,6 +2307,7 @@ export function UserDashboardPage() {
         ? (data.detailedDocs as SessionResultDoc[])
         : [];
       setWorkspaceCandidates(mergeWorkspaceCandidatesWithDetailedDocs(list, detailedDocs));
+      void hydrateRevealedContactsForCandidates(list);
       const pg = data.profilesPagination as
         | {
             totalDocs?: number;
@@ -2931,7 +2998,12 @@ export function UserDashboardPage() {
   const applySessionProfilesFromSearchResponse = (
     data: Record<string, unknown>,
     backTab: string,
-    options?: { appendDocs?: boolean; skipWorkspaceRefresh?: boolean }
+    options?: {
+      appendDocs?: boolean;
+      skipWorkspaceRefresh?: boolean;
+      skipNavigate?: boolean;
+      replaceNavigate?: boolean;
+    }
   ) => {
     const fjProfiles = data.futureJobsProfiles as
       | { data?: { docs?: SessionResultDoc[] } }
@@ -2989,9 +3061,25 @@ export function UserDashboardPage() {
     setSessionResultsBackTab(backTab);
     const sessionIdFromData =
       typeof data.sessionId === "string" ? data.sessionId.trim() : "";
-    navigateToTab("Session Results", {
-      sessionId: sessionIdFromData || searchSummary?.sessionId || undefined,
-    });
+    const hydrateRows =
+      list.length > 0
+        ? list
+        : nextDocs.map((doc, idx) =>
+            sessionDocToCandidateRow(
+              doc,
+              idx,
+              sessionIdFromData || searchSummary?.sessionId || null
+            )
+          );
+    void hydrateRevealedContactsForCandidates(hydrateRows);
+    if (!options?.skipNavigate) {
+      navigateToTab("Session Results", {
+        sessionId: sessionIdFromData || searchSummary?.sessionId || undefined,
+        ...(options?.replaceNavigate ? { replace: true } : {}),
+      });
+    } else {
+      setActiveTab("Session Results");
+    }
     setSessionResultError("");
     setWorkspaceCandidatesPage(1);
     if (!options?.skipWorkspaceRefresh && !appendDocs) {
@@ -3004,7 +3092,12 @@ export function UserDashboardPage() {
     limit: number,
     token: string,
     backTab: string,
-    options?: { appendDocs?: boolean }
+    options?: {
+      appendDocs?: boolean;
+      skipWorkspaceRefresh?: boolean;
+      skipNavigate?: boolean;
+      replaceNavigate?: boolean;
+    }
   ) => {
     const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
     const sid = encodeURIComponent(sessionId);
@@ -3129,6 +3222,8 @@ export function UserDashboardPage() {
     }
 
     const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+    const previousPrompt = filterSearchPrompt.trim();
+    const promptChanged = previousPrompt !== prompt;
     setFilterSearchPrompt(prompt);
     setPendingSearchSessionId(null);
     setPendingSessionPayload(null);
@@ -3136,7 +3231,9 @@ export function UserDashboardPage() {
     setSessionResultDocs([]);
     setAnnotateLoading(true);
     setFilterSkillsError("");
-    setCandidateFilterForm(DEFAULT_CANDIDATE_FILTER_FORM);
+    if (promptChanged) {
+      setCandidateFilterForm(DEFAULT_CANDIDATE_FILTER_FORM);
+    }
     setIsFilterDrawerOpen(true);
 
     try {
@@ -3156,11 +3253,11 @@ export function UserDashboardPage() {
         );
       }
       if (data.filterForm && typeof data.filterForm === "object") {
-        setCandidateFilterForm(
-          mergeFilterForm(
-            DEFAULT_CANDIDATE_FILTER_FORM,
-            data.filterForm as Partial<CandidateFilterForm>
-          )
+        const annotatePatch = data.filterForm as Partial<CandidateFilterForm>;
+        setCandidateFilterForm((prev) =>
+          promptChanged
+            ? mergeFilterForm(DEFAULT_CANDIDATE_FILTER_FORM, annotatePatch)
+            : mergeFilterFormPreserveFilled(prev, annotatePatch)
         );
       }
     } catch (err) {
@@ -3288,11 +3385,18 @@ export function UserDashboardPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
-        if (userActionAlert.fromApi(res, data, "Failed to load candidates")) return;
-        if (userActionAlert.fromFutureJobsApi(res, data)) return;
+        if (userActionAlert.fromApi(res, data, "Failed to load candidates")) {
+          setIsFilterDrawerOpen(true);
+          return;
+        }
+        if (userActionAlert.fromFutureJobsApi(res, data)) {
+          setIsFilterDrawerOpen(true);
+          return;
+        }
         userActionAlert.showError(
           userActionAlert.apiMessage(res, data, "Failed to load candidates")
         );
+        setIsFilterDrawerOpen(true);
         return;
       }
 
@@ -3309,6 +3413,11 @@ export function UserDashboardPage() {
       }
 
       searchPollSessionRef.current = sessionId;
+      // Lock route before painting candidates so URL catch-up doesn't remount the grid.
+      sessionProfilesAutoLoadRef.current = sessionId;
+      setPendingSearchSessionId(sessionId);
+      navigateToTab("Session Results", { sessionId, replace: true });
+
       const docsFromApply = Array.isArray(
         (data as { futureJobsProfiles?: { data?: { docs?: unknown[] } } })
           .futureJobsProfiles?.data?.docs
@@ -3337,7 +3446,6 @@ export function UserDashboardPage() {
         }
       }
 
-      setPendingSearchSessionId(sessionId);
       if (data.sessionPayload && typeof data.sessionPayload === "object") {
         setPendingSessionPayload(data.sessionPayload as Record<string, unknown>);
       }
@@ -3347,11 +3455,14 @@ export function UserDashboardPage() {
         );
       }
 
-      const profileOptions = appendToExisting
-        ? { appendDocs: true as const, skipWorkspaceRefresh: true as const }
-        : httpPollingContinues
-          ? { skipWorkspaceRefresh: true as const }
-          : undefined;
+      const profileOptions = {
+        skipNavigate: true as const,
+        ...(appendToExisting
+          ? { appendDocs: true as const, skipWorkspaceRefresh: true as const }
+          : httpPollingContinues
+            ? { skipWorkspaceRefresh: true as const }
+            : {}),
+      };
 
       if (docsFromApply.length > 0) {
         applySessionProfilesFromSearchResponse(
@@ -3366,7 +3477,7 @@ export function UserDashboardPage() {
         }
         setIsFilterDrawerOpen(false);
         setSessionResultsBackTab(backTab);
-        navigateToTab("Session Results", { sessionId });
+        setActiveTab("Session Results");
         setSessionResultError("");
         setSearchSummary({
           candidateCount: 0,
@@ -3408,12 +3519,16 @@ export function UserDashboardPage() {
         }
       }
     } catch (err) {
-      if (userActionAlert.fromThrown(err)) return;
+      if (userActionAlert.fromThrown(err)) {
+        setIsFilterDrawerOpen(true);
+        return;
+      }
       const message =
         err instanceof Error ? err.message : "Could not apply filters";
       setSessionResultError(message);
       userActionAlert.showError(message);
       setSessionSearchPolling(false);
+      setIsFilterDrawerOpen(true);
     } finally {
       setApplyFiltersLoading(false);
     }
@@ -3531,6 +3646,7 @@ export function UserDashboardPage() {
           }
           return merged.slice(0, SESSION_RESULTS_MAX);
         });
+        void hydrateRevealedContactsForCandidates(incomingCandidates);
       }
 
       const displayedCount = Math.max(
@@ -3709,17 +3825,21 @@ export function UserDashboardPage() {
     }
   };
 
-  const toggleSaveCandidate = async (candidate: CandidateRow) => {
+  const toggleSaveCandidate = async (
+    candidate: CandidateRow,
+    options?: { listId?: string }
+  ): Promise<boolean> => {
     const auth = getStoredAuth();
     if (!auth?.token) {
       userActionAlert.showError("Please sign in again to save candidates.");
-      return;
+      return false;
     }
     const key = candidateIdentityKey(candidate);
-    if (!key) return;
+    if (!key) return false;
     const isSaved = savedSessionCandidateKeys.includes(key);
     setSaveCandidateBusyKeys((prev) => (prev.includes(key) ? prev : [...prev, key]));
     const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+    const listIdForSave = options?.listId !== undefined ? options.listId.trim() : "";
     try {
       const res = await fetch(`${apiBase}/api/candidates/saved`, {
         method: isSaved ? "DELETE" : "POST",
@@ -3739,14 +3859,14 @@ export function UserDashboardPage() {
           recommendation: candidate.recommendation || "",
           rawDoc: candidate.rawDoc || null,
           status: "Saved",
-          ...(!isSaved && saveTargetListId.trim()
-            ? { saveListId: saveTargetListId.trim() }
-            : {}),
+          ...(!isSaved && listIdForSave ? { saveListId: listIdForSave } : {}),
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
-        if (userActionAlert.fromApi(res, data, "Failed to update saved candidate")) return;
+        if (userActionAlert.fromApi(res, data, "Failed to update saved candidate")) {
+          return false;
+        }
         throw new Error(
           userActionAlert.apiMessage(res, data, "Failed to update saved candidate")
         );
@@ -3755,6 +3875,14 @@ export function UserDashboardPage() {
       setSavedSessionCandidateKeys((prev) =>
         isSaved ? prev.filter((x) => x !== key) : [...prev, key]
       );
+      setSavedCandidateListByKey((prev) => {
+        if (isSaved) {
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        }
+        return { ...prev, [key]: listIdForSave };
+      });
       if (activeTab === "Saved") {
         const nextPage =
           isSaved && savedCandidatesList.length <= 1 && savedCandidatesPage > 1
@@ -3768,13 +3896,270 @@ export function UserDashboardPage() {
       } else {
         void loadSavedCandidateKeys();
       }
+      return true;
     } catch (err) {
-      if (userActionAlert.fromThrown(err)) return;
+      if (userActionAlert.fromThrown(err)) return false;
       userActionAlert.showError(
         err instanceof Error ? err.message : "Could not update saved candidate"
       );
+      return false;
     } finally {
       setSaveCandidateBusyKeys((prev) => prev.filter((x) => x !== key));
+    }
+  };
+
+  const requestSaveCandidate = (candidate: CandidateRow) => {
+    const key = candidateIdentityKey(candidate);
+    if (!key) return;
+    if (savedSessionCandidateKeys.includes(key)) {
+      void toggleSaveCandidate(candidate);
+      return;
+    }
+    setSaveToListCandidates([candidate]);
+  };
+
+  const resolveSelectedSessionCandidates = useCallback((): CandidateRow[] => {
+    const sessionId = searchSummary?.sessionId ?? null;
+    const selected: CandidateRow[] = [];
+    for (let idx = 0; idx < sessionResultDocs.length; idx += 1) {
+      const doc = sessionResultDocs[idx];
+      const row = sessionDocToCandidateRow(doc, idx, sessionId);
+      const identityKey = candidateIdentityKey(row);
+      const key = sessionResultDocSelectionKey(doc, idx, identityKey);
+      const docId = typeof doc._id === "string" ? doc._id.trim() : "";
+      if (!isSessionResultRowSelected(sessionResultSelectedKeys, key, identityKey, docId)) {
+        continue;
+      }
+      selected.push(row);
+    }
+    return selected;
+  }, [sessionResultDocs, searchSummary?.sessionId, sessionResultSelectedKeys]);
+
+  const openBulkSaveToList = () => {
+    const selected = resolveSelectedSessionCandidates();
+    if (selected.length === 0) {
+      setDashboardToast({
+        message: "Select at least one candidate to save.",
+        variant: "warning",
+      });
+      return;
+    }
+    setSaveToListCandidates(selected);
+  };
+
+  const upsertCandidateToList = async (
+    candidate: CandidateRow,
+    listId: string
+  ): Promise<"same" | "ok" | "fail"> => {
+    const key = candidateIdentityKey(candidate);
+    if (!key) return "fail";
+
+    const isSaved = savedSessionCandidateKeys.includes(key);
+    const currentListId = (savedCandidateListByKey[key] ?? "").trim();
+    const targetListId = listId.trim();
+
+    if (isSaved && currentListId === targetListId) {
+      return "same";
+    }
+
+    const auth = getStoredAuth();
+    if (!auth?.token) return "fail";
+
+    setSaveCandidateBusyKeys((prev) => (prev.includes(key) ? prev : [...prev, key]));
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+    try {
+      const res = await fetch(`${apiBase}/api/candidates/saved`, {
+        method: "POST",
+        headers: authHeaders(auth.token),
+        body: JSON.stringify({
+          candidateId: candidate.id || "",
+          sourcingSessionId: candidate.sourcingSessionId || "",
+          linkedin_profile_url: candidate.linkedin_profile_url || "",
+          name: candidate.name || "",
+          role: candidate.role || "",
+          currentCompany: candidate.currentCompany || "",
+          location: candidate.location || "",
+          experience: candidate.experience || "",
+          finalScore:
+            typeof candidate.finalScore === "number" ? candidate.finalScore : null,
+          highlights: Array.isArray(candidate.highlights) ? candidate.highlights : [],
+          recommendation: candidate.recommendation || "",
+          rawDoc: candidate.rawDoc || null,
+          status: "Saved",
+          saveListId: targetListId,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        if (userActionAlert.fromApi(res, data, "Failed to update saved candidate")) {
+          return "fail";
+        }
+        throw new Error(
+          userActionAlert.apiMessage(res, data, "Failed to update saved candidate")
+        );
+      }
+
+      setSavedSessionCandidateKeys((prev) => (prev.includes(key) ? prev : [...prev, key]));
+      setSavedCandidateListByKey((prev) => ({ ...prev, [key]: targetListId }));
+      return "ok";
+    } catch (err) {
+      if (userActionAlert.fromThrown(err)) return "fail";
+      userActionAlert.showError(
+        err instanceof Error ? err.message : "Could not update saved candidate"
+      );
+      return "fail";
+    } finally {
+      setSaveCandidateBusyKeys((prev) => prev.filter((x) => x !== key));
+    }
+  };
+
+  const handleSaveToListConfirm = async (
+    payload: { listId: string } | { newListName: string }
+  ) => {
+    const candidates = saveToListCandidates;
+    if (candidates.length === 0 || saveToListSubmitting) return;
+
+    const auth = getStoredAuth();
+    if (!auth?.token) {
+      throw new Error("Please sign in again to save candidates.");
+    }
+
+    setSaveToListSubmitting(true);
+    try {
+      let listId = "";
+      if ("newListName" in payload) {
+        const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+        const res = await fetch(`${apiBase}/api/candidates/save-lists`, {
+          method: "POST",
+          headers: authHeaders(auth.token),
+          body: JSON.stringify({ name: payload.newListName }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success) {
+          throw new Error(
+            typeof data.message === "string" ? data.message : "Failed to create list"
+          );
+        }
+        const id = typeof data.list?.id === "string" ? data.list.id : "";
+        const listName =
+          typeof data.list?.name === "string" ? data.list.name : payload.newListName;
+        if (!id) {
+          throw new Error("List was created but no id was returned.");
+        }
+        setSaveLists((prev) => [{ id, name: listName }, ...prev]);
+        listId = id;
+      } else {
+        listId = payload.listId.trim();
+      }
+
+      const listLabel =
+        listId === ""
+          ? "General"
+          : saveLists.find((l) => l.id === listId)?.name || "this list";
+
+      // Single save — keep one-request path used elsewhere.
+      if (candidates.length === 1) {
+        const result = await upsertCandidateToList(candidates[0], listId);
+        if (result === "same") {
+          throw new Error(`Already saved to ${listLabel}.`);
+        }
+        if (result !== "ok") {
+          throw new Error("Could not save candidate. Please try again.");
+        }
+        setSaveToListCandidates([]);
+        return;
+      }
+
+      const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+      // Slim identity + display fields only (no rawDoc / long text) — keeps bulk under body limit.
+      const bulkCandidates = candidates.map((candidate) => ({
+        candidateId: candidate.id || "",
+        sourcingSessionId: candidate.sourcingSessionId || "",
+        linkedin_profile_url: candidate.linkedin_profile_url || "",
+        name: candidate.name || "",
+        role: candidate.role || "",
+        currentCompany: candidate.currentCompany || "",
+        location: candidate.location || "",
+        experience: candidate.experience || "",
+        finalScore:
+          typeof candidate.finalScore === "number" ? candidate.finalScore : null,
+        status: "Saved",
+      }));
+
+      const BULK_REQUEST_CHUNK = 80;
+      let savedOrMoved = 0;
+      let alreadyOnList = 0;
+      let targetListId = listId;
+
+      for (let i = 0; i < bulkCandidates.length; i += BULK_REQUEST_CHUNK) {
+        const chunk = bulkCandidates.slice(i, i + BULK_REQUEST_CHUNK);
+        const res = await fetch(`${apiBase}/api/candidates/saved/bulk`, {
+          method: "POST",
+          headers: authHeaders(auth.token),
+          body: JSON.stringify({
+            candidates: chunk,
+            saveListId: listId,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success) {
+          if (userActionAlert.fromApi(res, data, "Failed to save candidates")) return;
+          throw new Error(
+            typeof data.message === "string" ? data.message : "Failed to save candidates"
+          );
+        }
+
+        const processed =
+          (typeof data.processed === "number" ? data.processed : 0) ||
+          (typeof data.saved === "number" ? data.saved : 0) +
+            (typeof data.moved === "number" ? data.moved : 0);
+        savedOrMoved += processed;
+        alreadyOnList +=
+          typeof data.alreadyOnList === "number" ? data.alreadyOnList : 0;
+        if (typeof data.saveListId === "string") {
+          targetListId = data.saveListId.trim();
+        }
+      }
+
+      if (savedOrMoved === 0 && alreadyOnList > 0) {
+        throw new Error(
+          alreadyOnList === 1
+            ? `Already saved to ${listLabel}.`
+            : `All selected candidates are already saved to ${listLabel}.`
+        );
+      }
+
+      if (savedOrMoved === 0) {
+        throw new Error("Could not save the selected candidates.");
+      }
+
+      const nextKeys = new Set(savedSessionCandidateKeys);
+      const nextListByKey = { ...savedCandidateListByKey };
+      for (const candidate of candidates) {
+        const key = candidateIdentityKey(candidate);
+        if (!key) continue;
+        const current = (nextListByKey[key] ?? "").trim();
+        const wasSaved = nextKeys.has(key);
+        if (wasSaved && current === targetListId) continue;
+        nextKeys.add(key);
+        nextListByKey[key] = targetListId;
+      }
+      setSavedSessionCandidateKeys([...nextKeys]);
+      setSavedCandidateListByKey(nextListByKey);
+
+      setSaveToListCandidates([]);
+      setSessionResultSelectedKeys([]);
+      setSessionResultNotice(
+        alreadyOnList > 0
+          ? `Updated ${savedOrMoved} candidate${savedOrMoved === 1 ? "" : "s"} (${alreadyOnList} already on that list).`
+          : `Saved ${savedOrMoved} candidate${savedOrMoved === 1 ? "" : "s"}.`
+      );
+
+      if (activeTab === "Saved") {
+        void loadSavedCandidates(savedCandidatesPage, saveListFilter);
+      }
+    } finally {
+      setSaveToListSubmitting(false);
     }
   };
 
@@ -3844,14 +4229,6 @@ export function UserDashboardPage() {
         setSavedCandidatesPage(1);
         setSaveListFilter("__all__");
       }
-      if (saveTargetListId === listId) {
-        setSaveTargetListId("");
-        try {
-          localStorage.removeItem("ejhunter_save_target_list_id");
-        } catch {
-          /* ignore */
-        }
-      }
     } catch (err) {
       userActionAlert.showError(err instanceof Error ? err.message : "Could not delete list");
     } finally {
@@ -3897,6 +4274,7 @@ export function UserDashboardPage() {
           typeof data.message === "string" ? data.message : "Failed to move candidate"
         );
       }
+      setSavedCandidateListByKey((prev) => ({ ...prev, [key]: nextListId.trim() }));
       if (activeTab === "Saved") {
         void loadSavedCandidates(savedCandidatesPage, saveListFilter);
       }
@@ -3921,15 +4299,28 @@ export function UserDashboardPage() {
     const busyKey = revealContactBusyKey(candidate, revealType);
     if (revealContactBusyKeys.includes(busyKey)) return;
 
-    const cached = revealedContactValues[key];
+    const linkedin = normalizeLinkedinUrl(candidate.linkedin_profile_url || "");
+    const cached =
+      revealedContactValues[key] ||
+      (linkedin ? revealedContactValues[linkedin] : undefined);
     if (
       (revealType === "EMAIL" && cached?.email) ||
       (revealType === "PHONE" && cached?.phone)
     ) {
       if (revealType === "EMAIL") {
-        setRevealedEmail((prev) => (prev.includes(key) ? prev : [...prev, key]));
+        setRevealedEmail((prev) => {
+          const next = new Set(prev);
+          next.add(key);
+          if (linkedin) next.add(linkedin);
+          return [...next];
+        });
       } else {
-        setRevealedPhone((prev) => (prev.includes(key) ? prev : [...prev, key]));
+        setRevealedPhone((prev) => {
+          const next = new Set(prev);
+          next.add(key);
+          if (linkedin) next.add(linkedin);
+          return [...next];
+        });
       }
       return;
     }
@@ -3992,25 +4383,50 @@ export function UserDashboardPage() {
         return;
       }
 
-      setRevealedContactValues((prev) => ({
-        ...prev,
-        [key]: {
-          ...prev[key],
-          email:
-            revealType === "EMAIL"
-              ? value || prev[key]?.email
-              : prev[key]?.email,
-          phone:
-            revealType === "PHONE"
-              ? value || prev[key]?.phone
-              : prev[key]?.phone,
-        },
-      }));
+      setRevealedContactValues((prev) => {
+        const linkedin = normalizeLinkedinUrl(candidate.linkedin_profile_url || "");
+        const next = {
+          ...prev,
+          [key]: {
+            ...prev[key],
+            email:
+              revealType === "EMAIL" ? value || prev[key]?.email : prev[key]?.email,
+            phone:
+              revealType === "PHONE" ? value || prev[key]?.phone : prev[key]?.phone,
+          },
+        };
+        if (linkedin) {
+          next[linkedin] = {
+            ...prev[linkedin],
+            email:
+              revealType === "EMAIL"
+                ? value || prev[linkedin]?.email
+                : prev[linkedin]?.email,
+            phone:
+              revealType === "PHONE"
+                ? value || prev[linkedin]?.phone
+                : prev[linkedin]?.phone,
+          };
+        }
+        return next;
+      });
 
       if (revealType === "EMAIL") {
-        setRevealedEmail((prev) => (prev.includes(key) ? prev : [...prev, key]));
+        setRevealedEmail((prev) => {
+          const next = new Set(prev);
+          next.add(key);
+          const linkedin = normalizeLinkedinUrl(candidate.linkedin_profile_url || "");
+          if (linkedin) next.add(linkedin);
+          return [...next];
+        });
       } else {
-        setRevealedPhone((prev) => (prev.includes(key) ? prev : [...prev, key]));
+        setRevealedPhone((prev) => {
+          const next = new Set(prev);
+          next.add(key);
+          const linkedin = normalizeLinkedinUrl(candidate.linkedin_profile_url || "");
+          if (linkedin) next.add(linkedin);
+          return [...next];
+        });
       }
     } catch (err) {
       if (userActionAlert.fromThrown(err)) return;
@@ -4162,7 +4578,12 @@ export function UserDashboardPage() {
   const sessionResultsOutOfSync =
     activeTab === "Session Results" &&
     Boolean(routeSessionId) &&
-    searchSummary?.sessionId !== routeSessionId;
+    searchSummary?.sessionId !== routeSessionId &&
+    // Apply navigates before the App Router URL catches up — keep the grid mounted.
+    !(
+      Boolean(pendingSearchSessionId) &&
+      searchSummary?.sessionId === pendingSearchSessionId
+    );
   const showSessionResultsSkeleton =
     sessionResultDocs.length === 0 &&
     (searchLoading || sessionResultsOutOfSync) &&
@@ -4620,12 +5041,44 @@ export function UserDashboardPage() {
 
   const getDisplayedEmail = (candidate: CandidateRow) => {
     const key = candidateRowKey(candidate);
-    return revealedContactValues[key]?.email || candidate.email || "";
+    const linkedin = normalizeLinkedinUrl(candidate.linkedin_profile_url || "");
+    return (
+      revealedContactValues[key]?.email ||
+      (linkedin ? revealedContactValues[linkedin]?.email : "") ||
+      candidate.email ||
+      ""
+    );
   };
 
   const getDisplayedPhone = (candidate: CandidateRow) => {
     const key = candidateRowKey(candidate);
-    return revealedContactValues[key]?.phone || candidate.phone || "";
+    const linkedin = normalizeLinkedinUrl(candidate.linkedin_profile_url || "");
+    return (
+      revealedContactValues[key]?.phone ||
+      (linkedin ? revealedContactValues[linkedin]?.phone : "") ||
+      candidate.phone ||
+      ""
+    );
+  };
+
+  const isEmailRevealedForCandidate = (candidate: CandidateRow) => {
+    const key = candidateRowKey(candidate);
+    const linkedin = normalizeLinkedinUrl(candidate.linkedin_profile_url || "");
+    return (
+      revealedEmail.includes(key) ||
+      (Boolean(linkedin) && revealedEmail.includes(linkedin)) ||
+      Boolean(getDisplayedEmail(candidate).trim())
+    );
+  };
+
+  const isPhoneRevealedForCandidate = (candidate: CandidateRow) => {
+    const key = candidateRowKey(candidate);
+    const linkedin = normalizeLinkedinUrl(candidate.linkedin_profile_url || "");
+    return (
+      revealedPhone.includes(key) ||
+      (Boolean(linkedin) && revealedPhone.includes(linkedin)) ||
+      Boolean(getDisplayedPhone(candidate).trim())
+    );
   };
 
   useLayoutEffect(() => {
@@ -5053,9 +5506,6 @@ export function UserDashboardPage() {
             key={activeTab}
             className="dashboard-main-scroll dashboard-main-scroll--tab-transition"
           >
-            {revealContactNotice ? (
-              <p className="mb-4 shrink-0 dashboard-alert-warning">{revealContactNotice}</p>
-            ) : null}
             {activeTab === "Dashboard" ? (
               <DashboardOverviewPanel
                 loading={dashboardOverviewLoading}
@@ -5168,14 +5618,25 @@ export function UserDashboardPage() {
                       {showSessionResultsGrid ? (
                         <>
                           {sessionResultSelectedKeys.length > 0 ? (
-                            <button
-                              type="button"
-                              onClick={openAddToCampaignModal}
-                              className="dashboard-btn-primary"
-                            >
-                              <MaterialIcon name="flag" aria-hidden />
-                              Add to campaign
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                onClick={openBulkSaveToList}
+                                className="dashboard-btn-secondary"
+                                disabled={saveToListSubmitting}
+                              >
+                                <MaterialIcon name="bookmark" aria-hidden />
+                                Save candidates
+                              </button>
+                              <button
+                                type="button"
+                                onClick={openAddToCampaignModal}
+                                className="dashboard-btn-primary"
+                              >
+                                <MaterialIcon name="flag" aria-hidden />
+                                Add to campaign
+                              </button>
+                            </>
                           ) : null}
                           <button
                             type="button"
@@ -5389,19 +5850,17 @@ export function UserDashboardPage() {
                                 : ""}
                             </p>
 
-                            {highlights.length > 0 ? (
-                              <div className="mt-3 flex flex-wrap gap-2">
-                                {highlights.slice(0, 4).map((h, i) => (
-                                  <span
-                                    key={`${h.Category || "highlight"}-${i}`}
-                                    className="dashboard-chip"
-                                  >
-                                    {h.Category ? `${h.Category}: ` : ""}
-                                    {h.Highlight || "—"}
-                                  </span>
-                                ))}
-                              </div>
-                            ) : null}
+                            <div className="dashboard-candidate-card-chips" aria-hidden={highlights.length === 0}>
+                              {highlights.slice(0, 4).map((h, i) => (
+                                <span
+                                  key={`${h.Category || "highlight"}-${i}`}
+                                  className="dashboard-chip"
+                                >
+                                  {h.Category ? `${h.Category}: ` : ""}
+                                  {h.Highlight || "—"}
+                                </span>
+                              ))}
+                            </div>
 
                             <div
                               className="dashboard-candidate-actions"
@@ -5485,7 +5944,7 @@ export function UserDashboardPage() {
                                     title="Save candidate"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      void toggleSaveCandidate(revealCandidate);
+                                      requestSaveCandidate(revealCandidate);
                                     }}
                                     disabled={isSaveBusy}
                                     className={`dashboard-candidate-action-save-btn ${
@@ -5503,12 +5962,12 @@ export function UserDashboardPage() {
                                   </button>
                                 </div>
                               </div>
-                              {revealedEmail.includes(candidateRowKey(revealCandidate)) ? (
+                              {isEmailRevealedForCandidate(revealCandidate) ? (
                                 <p className="mt-2 text-xs text-slate-600">
                                   {getDisplayedEmail(revealCandidate) || "—"}
                                 </p>
                               ) : null}
-                              {revealedPhone.includes(candidateRowKey(revealCandidate)) ? (
+                              {isPhoneRevealedForCandidate(revealCandidate) ? (
                                 <p className="mt-1 text-xs text-slate-600">
                                   {getDisplayedPhone(revealCandidate) || "—"}
                                 </p>
@@ -5684,7 +6143,7 @@ export function UserDashboardPage() {
                 onRevealPhone={revealPhone}
                 getDisplayedEmail={getDisplayedEmail}
                 getDisplayedPhone={getDisplayedPhone}
-                onToggleSave={(candidate) => void toggleSaveCandidate(candidate as CandidateRow)}
+                onToggleSave={(candidate) => requestSaveCandidate(candidate as CandidateRow)}
                 onOpenDetail={(candidate) =>
                   openCandidateProfileDetail(
                     candidate as CandidateRow,
@@ -5705,23 +6164,12 @@ export function UserDashboardPage() {
                 saveListFilter={saveListFilter}
                 onSaveListFilterChange={handleSaveListFilterChange}
                 saveLists={saveLists}
-                saveListsLoading={saveListsLoading}
                 newSaveListName={newSaveListName}
                 onNewSaveListNameChange={setNewSaveListName}
                 onCreateSaveList={() => void handleCreateSaveList()}
                 createSaveListBusy={createSaveListBusy}
                 onDeleteSaveList={(listId) => void handleDeleteSaveList(listId)}
                 deleteSaveListBusyId={deleteSaveListBusyId}
-                saveTargetListId={saveTargetListId}
-                onSaveTargetListChange={(listId) => {
-                  setSaveTargetListId(listId);
-                  try {
-                    if (!listId) localStorage.removeItem("ejhunter_save_target_list_id");
-                    else localStorage.setItem("ejhunter_save_target_list_id", listId);
-                  } catch {
-                    /* ignore */
-                  }
-                }}
                 rowKey={candidateRowKey}
                 identityKey={candidateIdentityKey}
                 saveBusyKeys={saveCandidateBusyKeys}
@@ -5749,6 +6197,7 @@ export function UserDashboardPage() {
                 onRevealPhone={(candidate) => revealPhone(candidate as CandidateRow)}
                 getDisplayedEmail={(candidate) => getDisplayedEmail(candidate as CandidateRow)}
                 getDisplayedPhone={(candidate) => getDisplayedPhone(candidate as CandidateRow)}
+                onExport={() => setSavedExportOpen(true)}
                 onGoToSessionResults={() =>
                   navigateToTab("Session Results", {
                     sessionId: searchSummary?.sessionId ?? undefined,
@@ -5873,21 +6322,25 @@ export function UserDashboardPage() {
           onClose={closeSessionCandidateDetail}
           onRevealEmail={() => revealEmail(selectedSessionDetailCandidate)}
           onRevealPhone={() => revealPhone(selectedSessionDetailCandidate)}
-          onToggleSave={() => void toggleSaveCandidate(selectedSessionDetailCandidate)}
+          onToggleSave={() => requestSaveCandidate(selectedSessionDetailCandidate)}
           isSaved={savedSessionCandidateKeys.includes(
             candidateIdentityKey(selectedSessionDetailCandidate)
           )}
-          isSaveBusy={saveCandidateBusyKeys.includes(
-            candidateIdentityKey(selectedSessionDetailCandidate)
-          )}
+          isSaveBusy={
+            saveToListCandidates.some(
+              (c) =>
+                candidateIdentityKey(c) ===
+                candidateIdentityKey(selectedSessionDetailCandidate)
+            )
+              ? saveToListSubmitting
+              : saveCandidateBusyKeys.includes(
+                  candidateIdentityKey(selectedSessionDetailCandidate)
+                )
+          }
           displayedEmail={getDisplayedEmail(selectedSessionDetailCandidate)}
           displayedPhone={getDisplayedPhone(selectedSessionDetailCandidate)}
-          emailRevealed={revealedEmail.includes(
-            candidateRowKey(selectedSessionDetailCandidate)
-          )}
-          phoneRevealed={revealedPhone.includes(
-            candidateRowKey(selectedSessionDetailCandidate)
-          )}
+          emailRevealed={isEmailRevealedForCandidate(selectedSessionDetailCandidate)}
+          phoneRevealed={isPhoneRevealedForCandidate(selectedSessionDetailCandidate)}
           emailRevealBusy={isRevealContactBusy(
             selectedSessionDetailCandidate,
             "EMAIL"
@@ -5924,6 +6377,71 @@ export function UserDashboardPage() {
         onChoose={(mode) => void executeApplySearchFilters(mode)}
       />
 
+      <SaveToListModal
+        open={saveToListCandidates.length > 0}
+        candidateName={
+          saveToListCandidates.length === 1 ? saveToListCandidates[0]?.name || "" : ""
+        }
+        candidateCount={saveToListCandidates.length}
+        lists={saveLists}
+        listsLoading={saveListsLoading}
+        submitting={saveToListSubmitting}
+        onClose={() => {
+          if (saveToListSubmitting) return;
+          setSaveToListCandidates([]);
+        }}
+        onConfirm={handleSaveToListConfirm}
+      />
+
+      <SavedExportModals
+        open={savedExportOpen}
+        listFilter={saveListFilter}
+        knownContactsByKey={revealedContactValues}
+        onClose={() => setSavedExportOpen(false)}
+        onNotice={(message) =>
+          setDashboardToast({
+            message,
+            variant: /failed|error|quota/i.test(message) ? "error" : "success",
+          })
+        }
+        onQuotaExceeded={userActionAlert.showQuota}
+        onContactsRevealed={(updates) => {
+          const folded = foldRevealUpdatesIntoState(
+            revealedContactValuesRef.current,
+            revealedEmailRef.current,
+            revealedPhoneRef.current,
+            updates
+          );
+          revealedContactValuesRef.current = folded.values;
+          revealedEmailRef.current = folded.emailKeys;
+          revealedPhoneRef.current = folded.phoneKeys;
+          setRevealedContactValues(folded.values);
+          setRevealedEmail(folded.emailKeys);
+          setRevealedPhone(folded.phoneKeys);
+          // Also map onto currently loaded lists so history/workspace/saved cards refresh.
+          const byLinkedin = new Map(
+            updates
+              .map((u) => [normalizeLinkedinUrl(u.linkedinUrl || ""), u] as const)
+              .filter(([url]) => Boolean(url))
+          );
+          if (byLinkedin.size === 0) return;
+          const touchlists = [
+            ...savedCandidatesList,
+            ...workspaceCandidates,
+            ...searchedCandidates,
+          ];
+          applyRevealedLookup(
+            touchlists,
+            Object.fromEntries(
+              [...byLinkedin.entries()].map(([url, u]) => [
+                url,
+                { email: u.email || "", phone: u.phone || "" },
+              ])
+            )
+          );
+        }}
+      />
+
       <UserActionAlertModal
         open={userActionAlert.alert.open}
         message={userActionAlert.alert.message}
@@ -5936,9 +6454,9 @@ export function UserDashboardPage() {
         }}
         onSearchAgain={() => {
           userActionAlert.close();
-          setIsFilterDrawerOpen(false);
           setApplySessionChoiceOpen(false);
           navigateToTab("Search Candidates");
+          setIsFilterDrawerOpen(true);
           setPromptFocusSignal((n) => n + 1);
         }}
       />

@@ -249,29 +249,22 @@ export function SessionResultCandidateCard({
         </p>
       ) : null}
 
-      {highlights.length > 0 ? (
-        <div
-          className={`min-w-0 max-w-full flex flex-wrap${
-            compact
-              ? data.compactSkills
-                ? " mt-2 gap-1.5"
-                : " mt-2.5 gap-1.5"
-              : " mt-3 gap-1.5"
-          }`}
-        >
-          {highlights.slice(0, highlightLimit).map((h, i) => (
-            <span
-              key={`${h.Category || "h"}-${i}`}
-              className="dashboard-chip"
-              title={h.Highlight || undefined}
-            >
-              {compact
-                ? h.Highlight || h.Category || "—"
-                : `${h.Category ? `${h.Category}: ` : ""}${h.Highlight || "—"}`}
-            </span>
-          ))}
-        </div>
-      ) : null}
+      <div
+        className="dashboard-candidate-card-chips min-w-0 max-w-full"
+        aria-hidden={highlights.length === 0}
+      >
+        {highlights.slice(0, highlightLimit).map((h, i) => (
+          <span
+            key={`${h.Category || "h"}-${i}`}
+            className="dashboard-chip"
+            title={h.Highlight || undefined}
+          >
+            {compact
+              ? h.Highlight || h.Category || "—"
+              : `${h.Category ? `${h.Category}: ` : ""}${h.Highlight || "—"}`}
+          </span>
+        ))}
+      </div>
 
       {compact && data.compactAbout ? (
         <p className="dashboard-candidate-about-compact mt-2 text-xs leading-snug text-[#424656]">

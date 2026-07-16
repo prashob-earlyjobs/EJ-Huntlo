@@ -66,6 +66,107 @@ export function mergeRevealedLookupIntoContacts<
   });
 }
 
+export type RevealContactCandidateRef = {
+  id?: string;
+  name?: string;
+  linkedin_profile_url?: string;
+};
+
+export function candidateRevealRowKey(candidate: RevealContactCandidateRef) {
+  return String(candidate.id || candidate.name || "").trim();
+}
+
+/**
+ * Apply lookup (or unveil) results into session reveal maps so Saved / Session /
+ * Workspace all show the same unlocked contacts for this user.
+ */
+export function foldRevealedContactsIntoState(
+  prevValues: Record<string, { email?: string; phone?: string }>,
+  prevEmailKeys: string[],
+  prevPhoneKeys: string[],
+  candidates: RevealContactCandidateRef[],
+  lookup: Record<string, { email?: string; phone?: string }>
+): {
+  values: Record<string, { email?: string; phone?: string }>;
+  emailKeys: string[];
+  phoneKeys: string[];
+} {
+  const values = { ...prevValues };
+  const emailKeys = new Set(prevEmailKeys);
+  const phoneKeys = new Set(prevPhoneKeys);
+
+  for (const candidate of candidates) {
+    const linkedin = normalizeLinkedinUrl(candidate.linkedin_profile_url || "");
+    const cached = linkedin ? lookup[linkedin] : undefined;
+    if (!cached) continue;
+
+    const email = cached.email?.trim() || "";
+    const phone = cached.phone?.trim() || "";
+    if (!email && !phone) continue;
+
+    const rowKey = candidateRevealRowKey(candidate);
+    const keys = [rowKey, linkedin].filter(Boolean);
+    for (const key of keys) {
+      values[key] = {
+        email: email || values[key]?.email,
+        phone: phone || values[key]?.phone,
+      };
+    }
+    if (email && rowKey) emailKeys.add(rowKey);
+    if (phone && rowKey) phoneKeys.add(rowKey);
+    if (email && linkedin) emailKeys.add(linkedin);
+    if (phone && linkedin) phoneKeys.add(linkedin);
+  }
+
+  return {
+    values,
+    emailKeys: [...emailKeys],
+    phoneKeys: [...phoneKeys],
+  };
+}
+
+export function foldRevealUpdatesIntoState(
+  prevValues: Record<string, { email?: string; phone?: string }>,
+  prevEmailKeys: string[],
+  prevPhoneKeys: string[],
+  updates: {
+    rowKey: string;
+    linkedinUrl?: string;
+    email?: string;
+    phone?: string;
+  }[]
+): {
+  values: Record<string, { email?: string; phone?: string }>;
+  emailKeys: string[];
+  phoneKeys: string[];
+} {
+  const values = { ...prevValues };
+  const emailKeys = new Set(prevEmailKeys);
+  const phoneKeys = new Set(prevPhoneKeys);
+
+  for (const u of updates) {
+    const email = u.email?.trim() || "";
+    const phone = u.phone?.trim() || "";
+    if (!email && !phone) continue;
+    const linkedin = normalizeLinkedinUrl(u.linkedinUrl || "");
+    const keys = [u.rowKey, linkedin].filter(Boolean);
+    for (const key of keys) {
+      values[key] = {
+        email: email || values[key]?.email,
+        phone: phone || values[key]?.phone,
+      };
+      if (email) emailKeys.add(key);
+      if (phone) phoneKeys.add(key);
+    }
+  }
+
+  return {
+    values,
+    emailKeys: [...emailKeys],
+    phoneKeys: [...phoneKeys],
+  };
+}
+
 export async function lookupRevealedContacts(
   token: string,
   linkedinUrls: string[]
@@ -107,4 +208,32 @@ export async function bulkRevealContacts(
     throw new Error("Invalid bulk reveal response");
   }
   return { results: data.results as BulkRevealResult[] };
+}
+
+/** Assert full reveal quota before any unveils start — counts only, no candidate payload. */
+export async function preflightBulkRevealContacts(
+  token: string,
+  counts: { emailNeeded?: number; phoneNeeded?: number }
+): Promise<{ emailNeeded: number; phoneNeeded: number }> {
+  const emailNeeded = Math.max(0, Math.floor(Number(counts.emailNeeded) || 0));
+  const phoneNeeded = Math.max(0, Math.floor(Number(counts.phoneNeeded) || 0));
+  const res = await fetch(`${apiBase()}/api/candidates/reveal-contacts/bulk`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify({
+      preflightOnly: true,
+      emailNeeded,
+      phoneNeeded,
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.success) {
+    throw new Error(
+      typeof data.message === "string" ? data.message : "Reveal quota check failed"
+    );
+  }
+  return {
+    emailNeeded: typeof data.emailNeeded === "number" ? data.emailNeeded : emailNeeded,
+    phoneNeeded: typeof data.phoneNeeded === "number" ? data.phoneNeeded : phoneNeeded,
+  };
 }
