@@ -412,6 +412,7 @@ async function resolveContactReveal({
 
 /**
  * Return email/phone already unlocked by this user (no Future Jobs call, no credit).
+ * Bulk queries — avoids N×2 sequential finds per LinkedIn URL.
  */
 async function lookupUserRevealedContacts(userId, linkedinUrls) {
   const keys = [
@@ -425,18 +426,101 @@ async function lookupUserRevealedContacts(userId, linkedinUrls) {
   const contacts = {};
   for (const key of keys) {
     contacts[key] = { email: "", phone: "" };
-    for (const revealType of ["EMAIL", "PHONE"]) {
-      const unlock = await findUserContactUnlock(userId, key, revealType);
-      if (!unlock) continue;
+  }
 
-      let values = filterValidValues(unlock.values, revealType);
-      if (values.length === 0) {
-        values = await loadSharedContactValues(key, revealType);
+  if (keys.length === 0 || !mongoose.Types.ObjectId.isValid(String(userId))) {
+    return contacts;
+  }
+
+  const variantToCanonical = new Map();
+  const allVariants = [];
+  for (const key of keys) {
+    for (const variant of linkedinCacheLookupKeys(key)) {
+      if (!variantToCanonical.has(variant)) {
+        variantToCanonical.set(variant, key);
       }
-      const value = values[0] || "";
-      if (revealType === "EMAIL") contacts[key].email = value;
-      else contacts[key].phone = value;
+      allVariants.push(variant);
     }
+  }
+  const uniqueVariants = [...new Set(allVariants)];
+  const uid = new mongoose.Types.ObjectId(String(userId));
+
+  const [revealedDocs, scoutDocs] = await Promise.all([
+    RevealedContact.find({
+      userId: uid,
+      linkedinProfileUrl: { $in: uniqueVariants },
+      revealType: { $in: ["EMAIL", "PHONE"] },
+    }).lean(),
+    PeopleScoutRevealedContact.find({
+      userId: uid,
+      linkedinProfileUrl: { $in: uniqueVariants },
+      revealType: { $in: ["EMAIL", "PHONE"] },
+    }).lean(),
+  ]);
+
+  /** @type {Map<string, { hasUnlock: boolean, value: string }>} */
+  const unlocked = new Map();
+
+  const ingest = (docs) => {
+    for (const doc of docs) {
+      const canonical = variantToCanonical.get(doc.linkedinProfileUrl);
+      if (!canonical) continue;
+      const revealType = doc.revealType === "PHONE" ? "PHONE" : "EMAIL";
+      const mapKey = `${canonical}\0${revealType}`;
+      const valid = filterValidValues(doc.values, revealType);
+      const prev = unlocked.get(mapKey);
+      if (!prev) {
+        unlocked.set(mapKey, { hasUnlock: true, value: valid[0] || "" });
+      } else if (!prev.value && valid[0]) {
+        prev.value = valid[0];
+      }
+    }
+  };
+
+  ingest(revealedDocs);
+  ingest(scoutDocs);
+
+  const needShared = [];
+  for (const [mapKey, state] of unlocked) {
+    if (state.value) continue;
+    const [canonical, revealType] = mapKey.split("\0");
+    needShared.push({ canonical, revealType });
+  }
+
+  if (needShared.length > 0) {
+    const sharedVariants = [];
+    const sharedLookup = new Map();
+    for (const { canonical, revealType } of needShared) {
+      for (const variant of linkedinCacheLookupKeys(canonical)) {
+        sharedVariants.push(variant);
+        sharedLookup.set(`${variant}\0${revealType}`, canonical);
+      }
+    }
+
+    const sharedDocs = await CandidateContactCache.find({
+      linkedinProfileUrl: { $in: [...new Set(sharedVariants)] },
+      revealType: { $in: ["EMAIL", "PHONE"] },
+    }).lean();
+
+    for (const doc of sharedDocs) {
+      const revealType = doc.revealType === "PHONE" ? "PHONE" : "EMAIL";
+      const canonical =
+        sharedLookup.get(`${doc.linkedinProfileUrl}\0${revealType}`) ||
+        variantToCanonical.get(doc.linkedinProfileUrl);
+      if (!canonical) continue;
+      const mapKey = `${canonical}\0${revealType}`;
+      const state = unlocked.get(mapKey);
+      if (!state || state.value) continue;
+      const valid = filterValidValues(doc.values, revealType);
+      if (valid[0]) state.value = valid[0];
+    }
+  }
+
+  for (const [mapKey, state] of unlocked) {
+    const [canonical, revealType] = mapKey.split("\0");
+    if (!contacts[canonical]) continue;
+    if (revealType === "EMAIL") contacts[canonical].email = state.value || "";
+    else contacts[canonical].phone = state.value || "";
   }
 
   return contacts;

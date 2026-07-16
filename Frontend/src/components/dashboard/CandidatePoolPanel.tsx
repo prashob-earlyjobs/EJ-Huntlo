@@ -393,8 +393,12 @@ export function CandidatePoolPanel({
               const key = identityKey(candidate);
               const busy = saveBusyKeys.includes(key);
               const isSaved = savedKeys.includes(key);
-              const emailRevealed = revealedEmailKeys.includes(rowKey(candidate));
-              const phoneRevealed = revealedPhoneKeys.includes(rowKey(candidate));
+              const emailRevealed =
+                revealedEmailKeys.includes(rowKey(candidate)) ||
+                Boolean(getDisplayedEmail(candidate).trim());
+              const phoneRevealed =
+                revealedPhoneKeys.includes(rowKey(candidate)) ||
+                Boolean(getDisplayedPhone(candidate).trim());
               const canOpen = Boolean(onOpenDetail);
 
               return (

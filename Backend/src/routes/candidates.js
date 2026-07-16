@@ -23,6 +23,7 @@ const {
   deleteSaveList,
   listSavedCandidates,
   saveCandidate,
+  bulkSaveCandidates,
   unsaveCandidate,
   filterAutocomplete,
 } = require("../controllers/candidateController");
@@ -49,6 +50,7 @@ router.get("/save-lists", authenticate, listSaveLists);
 router.post("/save-lists", authenticate, createSaveList);
 router.delete("/save-lists/:listId", authenticate, deleteSaveList);
 router.get("/saved", authenticate, listSavedCandidates);
+router.post("/saved/bulk", authenticate, bulkSaveCandidates);
 router.post("/saved", authenticate, saveCandidate);
 router.delete("/saved", authenticate, unsaveCandidate);
 router.post("/scout-people/reveal-contact", authenticate, revealPeopleScoutContact);
