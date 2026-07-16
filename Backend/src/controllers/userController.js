@@ -1368,6 +1368,63 @@ const changeMyPassword = async (req, res) => {
   }
 };
 
+const resetUserPasswordByAdmin = async (req, res) => {
+  try {
+    const userId = req.params.id;
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ success: false, message: "Invalid user id" });
+    }
+
+    const password = typeof req.body?.password === "string" ? req.body.password : "";
+    const confirmPassword =
+      typeof req.body?.confirmPassword === "string" ? req.body.confirmPassword : "";
+
+    if (!password || !confirmPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Password and confirm password are required",
+      });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must be at least 6 characters",
+      });
+    }
+    if (password !== confirmPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Password and confirm password must match",
+      });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    user.password = await bcrypt.hash(password, 10);
+    user.passwordChangedAt = new Date();
+    await user.save();
+
+    await UserSession.updateMany(
+      { userId: user._id, revokedAt: null },
+      { $set: { revokedAt: new Date(), lastSeenAt: new Date() } }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Password reset successfully. The user must sign in with the new password.",
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to reset password",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   registerUser,
   loginUser,
@@ -1389,4 +1446,5 @@ module.exports = {
   removeMyProfilePhoto,
   completeMyOnboarding,
   changeMyPassword,
+  resetUserPasswordByAdmin,
 };

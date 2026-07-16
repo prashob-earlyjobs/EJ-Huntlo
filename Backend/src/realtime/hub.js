@@ -23,20 +23,41 @@ function removeConnection(userId, ws) {
 }
 
 function send(ws, event, data) {
-  if (ws.readyState !== 1) return;
-  ws.send(JSON.stringify({ event, data }));
+  if (ws.readyState !== 1) return false;
+  try {
+    const payload = JSON.stringify({ event, data });
+    // Drop oversized frames — FE falls back to HTTP poll merge.
+    if (payload.length > 1_500_000) {
+      console.warn(
+        `[realtime] skip emit ${event}: payload ${payload.length} bytes too large`
+      );
+      return false;
+    }
+    ws.send(payload);
+    return true;
+  } catch (err) {
+    console.warn(`[realtime] emit failed ${event}:`, err?.message || err);
+    return false;
+  }
 }
 
+/** Emit to every open socket for one user. */
 function emitToUser(userId, event, data) {
   const set = connectionsByUser.get(String(userId));
   if (!set || set.size === 0) return 0;
   let sent = 0;
   for (const ws of set) {
-    try {
-      send(ws, event, data);
-      sent += 1;
-    } catch {
-      /* ignore broken socket */
+    if (send(ws, event, data)) sent += 1;
+  }
+  return sent;
+}
+
+/** Emit to every connected socket (all users). */
+function broadcast(event, data) {
+  let sent = 0;
+  for (const set of connectionsByUser.values()) {
+    for (const ws of set) {
+      if (send(ws, event, data)) sent += 1;
     }
   }
   return sent;
@@ -67,6 +88,7 @@ module.exports = {
   addConnection,
   removeConnection,
   emitToUser,
+  broadcast,
   startHeartbeat,
   welcomeConnection,
 };

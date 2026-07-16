@@ -5,9 +5,18 @@ import {
 import type { CampaignCalendlyAutomation } from "@/lib/campaigns";
 import type { VoiceTone } from "@/components/dashboard/outreach/types";
 
+export type PostQualificationCallLanguage =
+  | "english"
+  | "hindi"
+  | "malayalam"
+  | "kannada"
+  | "tamil"
+  | "telugu";
+
 export type PostQualificationVoice = {
   callObjective: string;
   body: string;
+  language: PostQualificationCallLanguage;
   voiceTone: VoiceTone;
   callAttempts: number;
   attemptGapHours: number;
@@ -23,6 +32,7 @@ export function createDefaultPostQualificationVoice(): PostQualificationVoice {
   return {
     callObjective: VOICE_CALL_OBJECTIVE_DEFAULT,
     body: VOICE_CALL_PROMPT_DEFAULT,
+    language: "english",
     voiceTone: "professional",
     callAttempts: 1,
     attemptGapHours: 24,
@@ -51,6 +61,7 @@ export function resolvePostQualification(
       callObjective:
         String(voicePartial?.callObjective || "").trim() || defaults.voice.callObjective,
       body: String(voicePartial?.body || "").trim() || defaults.voice.body,
+      language: voicePartial?.language || defaults.voice.language,
       voiceTone: voicePartial?.voiceTone || defaults.voice.voiceTone,
       callAttempts: Math.max(1, Number(voicePartial?.callAttempts ?? defaults.voice.callAttempts)),
       attemptGapHours: Math.max(

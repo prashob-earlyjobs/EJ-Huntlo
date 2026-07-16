@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { CandidateFilterDrawer } from "@/components/CandidateFilterDrawer";
@@ -127,9 +127,14 @@ import {
   type DashboardTabKey,
 } from "@/lib/dashboardRoutes";
 import {
+  appendSessionResultDocs,
   candidateScoreBadgeClass,
   dedupeSessionResultDocs,
   formatCandidateScore,
+  mergePollSessionResultDocs,
+  sessionResultDocIdentityKey,
+  SESSION_RESULTS_FIRST_PAGE_LIMIT,
+  SESSION_RESULTS_MAX,
 } from "@/lib/sessionResultUi";
 import {
   DEFAULT_CANDIDATE_FILTER_FORM,
@@ -648,8 +653,9 @@ function sessionResultDocSelectionKey(
   idx: number,
   candidateKey: string
 ): string {
-  const id = typeof doc._id === "string" ? doc._id.trim() : "";
-  return id || `session-doc-${idx}-${candidateKey}`;
+  const stable = sessionResultDocIdentityKey(doc);
+  if (stable) return stable;
+  return candidateKey || `session-doc-${idx}`;
 }
 
 /** Keep selections valid when profile docs gain _id or list order changes. */
@@ -1250,6 +1256,7 @@ export function UserDashboardPage() {
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarAnimated, setSidebarAnimated] = useState(false);
   const [engagementsNavExpanded, setEngagementsNavExpanded] = useState(true);
   const [collapsedNavGroupHover, setCollapsedNavGroupHover] = useState<string | null>(null);
   const [collapsedFlyoutLayout, setCollapsedFlyoutLayout] = useState<{
@@ -1321,6 +1328,10 @@ export function UserDashboardPage() {
   );
   const [saveTargetListId, setSaveTargetListId] = useState("");
   const [sessionResultsFromDb, setSessionResultsFromDb] = useState(false);
+  const sessionResultsFromDbRef = useRef(false);
+  useEffect(() => {
+    sessionResultsFromDbRef.current = sessionResultsFromDb;
+  }, [sessionResultsFromDb]);
   const [sessionResultsBackTab, setSessionResultsBackTab] = useState("Search Candidates");
   const [isFilterDrawerOpen, setIsFilterDrawerOpen] = useState(false);
   const [promptFocusSignal, setPromptFocusSignal] = useState(0);
@@ -1378,6 +1389,16 @@ export function UserDashboardPage() {
     unknown
   > | null>(null);
   const [applyFiltersLoading, setApplyFiltersLoading] = useState(false);
+  const [sessionSearchPolling, setSessionSearchPolling] = useState(false);
+  const searchPollSessionRef = useRef<string | null>(null);
+  const sessionSearchPollingRef = useRef(false);
+  useEffect(() => {
+    sessionSearchPollingRef.current = sessionSearchPolling;
+  }, [sessionSearchPolling]);
+  const routeSessionIdRef = useRef<string>("");
+  const searchSummarySessionIdRef = useRef<string | null>(null);
+  /** Toolbar badge count — advances with socket hits / grid while polling. */
+  const [sessionToolbarCount, setSessionToolbarCount] = useState(0);
   const [applySessionChoiceOpen, setApplySessionChoiceOpen] = useState(false);
   const [annotateLoading, setAnnotateLoading] = useState(false);
   const [filterFormRestoreLoading, setFilterFormRestoreLoading] = useState(false);
@@ -2057,10 +2078,6 @@ export function UserDashboardPage() {
       setEngagementsNavExpanded(true);
     }
   }, [activeTab]);
-
-  useEffect(() => {
-    setSidebarCollapsed(readSidebarCollapsedPreference());
-  }, []);
 
   useEffect(() => {
     if (!sidebarCollapsed) {
@@ -2786,7 +2803,7 @@ export function UserDashboardPage() {
     if (!append || prev.length === 0) {
       return dedupeSessionResultDocs(incoming);
     }
-    return dedupeSessionResultDocs([...prev, ...incoming]);
+    return appendSessionResultDocs(prev, incoming, SESSION_RESULTS_MAX);
   };
 
   const syncSessionResultsSummary = (
@@ -2802,11 +2819,23 @@ export function UserDashboardPage() {
         ? `fetch-more: ${data.fetchMoreError}`
         : "");
     const canFetchMore = data.canFetchMore !== false;
+    const storedProfileCount =
+      typeof data.storedProfileCount === "number" ? data.storedProfileCount : null;
+    const paginationTotal =
+      typeof (data.profilesPagination as { totalDocs?: number } | undefined)?.totalDocs ===
+      "number"
+        ? (data.profilesPagination as { totalDocs: number }).totalDocs
+        : null;
+    const summaryCount = Math.max(
+      displayedCount,
+      storedProfileCount ?? 0,
+      paginationTotal ?? 0
+    );
 
     setSessionCanFetchMore(canFetchMore);
     setSearchSummary({
-      candidateCount: displayedCount,
-      totalDocs: displayedCount,
+      candidateCount: summaryCount,
+      totalDocs: summaryCount,
       page: 1,
       limit: typeof data.limit === "number" ? data.limit : prevSummary?.limit ?? 20,
       totalPages: 1,
@@ -2902,7 +2931,7 @@ export function UserDashboardPage() {
   const applySessionProfilesFromSearchResponse = (
     data: Record<string, unknown>,
     backTab: string,
-    options?: { appendDocs?: boolean }
+    options?: { appendDocs?: boolean; skipWorkspaceRefresh?: boolean }
   ) => {
     const fjProfiles = data.futureJobsProfiles as
       | { data?: { docs?: SessionResultDoc[] } }
@@ -2916,7 +2945,11 @@ export function UserDashboardPage() {
       appendDocs
     );
     setSessionResultDocs(nextDocs);
-    setSessionResultsFromDb(false);
+    if (data.fromStored === true) {
+      setSessionResultsFromDb(true);
+    } else {
+      setSessionResultsFromDb(false);
+    }
     setSessionResultPage(1);
     setSessionResultTotalPages(1);
 
@@ -2961,7 +2994,9 @@ export function UserDashboardPage() {
     });
     setSessionResultError("");
     setWorkspaceCandidatesPage(1);
-    setWorkspaceCandidatesRefresh((n) => n + 1);
+    if (!options?.skipWorkspaceRefresh && !appendDocs) {
+      setWorkspaceCandidatesRefresh((n) => n + 1);
+    }
   };
 
   const loadSessionProfilesFirstPage = async (
@@ -2973,6 +3008,43 @@ export function UserDashboardPage() {
   ) => {
     const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
     const sid = encodeURIComponent(sessionId);
+
+    // Prefer stored candidates so fetch-more totals (e.g. 267) appear, not FJ's 200 page.
+    try {
+      const storedRes = await fetch(
+        `${apiBase}/api/candidates/session/${sid}/stored-candidates?all=1`,
+        {
+          method: "GET",
+          headers: authHeaders(token),
+        }
+      );
+      const storedData = await storedRes.json().catch(() => ({}));
+      if (storedRes.ok && storedData.success) {
+        const storedDocs = Array.isArray(storedData.detailedDocs)
+          ? (storedData.detailedDocs as SessionResultDoc[])
+          : [];
+        if (storedDocs.length > 0) {
+          applySessionProfilesFromSearchResponse(
+            {
+              ...(storedData as Record<string, unknown>),
+              sessionId,
+              fromStored: true,
+              futureJobsProfiles: { data: { docs: storedDocs } },
+              candidates: Array.isArray(storedData.candidates)
+                ? storedData.candidates
+                : [],
+            },
+            backTab,
+            options
+          );
+          setSessionResultsFromDb(true);
+          return;
+        }
+      }
+    } catch {
+      /* fall through to /profiles */
+    }
+
     const url = `${apiBase}/api/candidates/session/${sid}/profiles?page=1&limit=${limit}`;
     const res = await fetch(url, {
       method: "GET",
@@ -2989,6 +3061,9 @@ export function UserDashboardPage() {
       throw err;
     }
     applySessionProfilesFromSearchResponse(data as Record<string, unknown>, backTab, options);
+    if (data.fromStored === true) {
+      setSessionResultsFromDb(true);
+    }
   };
 
   const sessionProfilesAutoLoadRef = useRef<string | null>(null);
@@ -2998,6 +3073,9 @@ export function UserDashboardPage() {
       sessionProfilesAutoLoadRef.current = null;
       return;
     }
+    // Apply in flight / live socket poll owns the list — do not HTTP-reload
+    // (that flips sessionResultsFromDb and blocks socket merges until refresh).
+    if (applyFiltersLoading || sessionSearchPolling) return;
     // History navigation hydrates via stored-candidates; avoid a parallel profiles fetch.
     if (sessionResultsFromDb) return;
     if (searchSummary?.sessionId === routeSessionId && sessionResultDocs.length > 0) {
@@ -3023,7 +3101,15 @@ export function UserDashboardPage() {
       .finally(() => {
         setSearchLoading(false);
       });
-  }, [tabFromRoute, routeSessionId, searchSummary?.sessionId, sessionResultsFromDb]);
+  }, [
+    tabFromRoute,
+    routeSessionId,
+    searchSummary?.sessionId,
+    sessionResultsFromDb,
+    applyFiltersLoading,
+    sessionSearchPolling,
+    sessionResultDocs.length,
+  ]);
 
   const handleSearch = async () => {
     if (annotateLoading || searchLoading || applyFiltersLoading) return;
@@ -3095,6 +3181,8 @@ export function UserDashboardPage() {
     setSearchSummary(null);
     setSessionCanFetchMore(false);
     setSessionResultsFromDb(false);
+    sessionResultsFromDbRef.current = false;
+    setSessionToolbarCount(0);
     setSessionResultPage(1);
     setSessionResultTotalPages(1);
     setPendingSearchSessionId(null);
@@ -3178,7 +3266,10 @@ export function UserDashboardPage() {
         : "";
 
     setApplySessionChoiceOpen(false);
+    setIsFilterDrawerOpen(false);
     setApplyFiltersLoading(true);
+    setSessionSearchPolling(false);
+    searchPollSessionRef.current = existingSessionId || null;
     setApplyStatusStepIndex(0);
     setFilterSkillsError("");
     setSessionResultError("");
@@ -3217,6 +3308,25 @@ export function UserDashboardPage() {
         return;
       }
 
+      searchPollSessionRef.current = sessionId;
+      const docsFromApply = Array.isArray(
+        (data as { futureJobsProfiles?: { data?: { docs?: unknown[] } } })
+          .futureJobsProfiles?.data?.docs
+      )
+        ? ((data as { futureJobsProfiles: { data: { docs: SessionResultDoc[] } } })
+            .futureJobsProfiles.data.docs)
+        : [];
+
+      // Live-update whenever first page is incomplete — do not rely only on backend `polling`.
+      const httpPollingContinues =
+        data.polling === true || docsFromApply.length < SESSION_RESULTS_FIRST_PAGE_LIMIT;
+      // Live socket owns growth; clear the history/fromDb latch so poll merges apply.
+      if (httpPollingContinues) {
+        sessionResultsFromDbRef.current = false;
+        setSessionResultsFromDb(false);
+      }
+      setSessionSearchPolling(httpPollingContinues);
+
       if (typeof data.profilesFetchError === "string" && data.profilesFetchError) {
         if (data.profilesFetchError === FUTURE_JOBS_UPSTREAM_ERROR_MESSAGE) {
           userActionAlert.showFutureJobsUpstream();
@@ -3237,15 +3347,11 @@ export function UserDashboardPage() {
         );
       }
 
-      const docsFromApply = Array.isArray(
-        (data as { futureJobsProfiles?: { data?: { docs?: unknown[] } } })
-          .futureJobsProfiles?.data?.docs
-      )
-        ? ((data as { futureJobsProfiles: { data: { docs: SessionResultDoc[] } } })
-            .futureJobsProfiles.data.docs)
-        : [];
-
-      const profileOptions = appendToExisting ? { appendDocs: true as const } : undefined;
+      const profileOptions = appendToExisting
+        ? { appendDocs: true as const, skipWorkspaceRefresh: true as const }
+        : httpPollingContinues
+          ? { skipWorkspaceRefresh: true as const }
+          : undefined;
 
       if (docsFromApply.length > 0) {
         applySessionProfilesFromSearchResponse(
@@ -3262,19 +3368,38 @@ export function UserDashboardPage() {
         setSessionResultsBackTab(backTab);
         navigateToTab("Session Results", { sessionId });
         setSessionResultError("");
-        await loadSessionProfilesFirstPage(
+        setSearchSummary({
+          candidateCount: 0,
+          totalDocs: 0,
+          page: 1,
+          limit: typeof data.limit === "number" ? data.limit : 20,
+          totalPages: 1,
+          hasNextPage: false,
+          canFetchMore: data.canFetchMore !== false,
           sessionId,
-          typeof data.limit === "number" ? data.limit : 20,
-          auth.token,
-          backTab,
-          profileOptions
-        );
+          sourcingStatus: null,
+          profilesFetchError:
+            typeof data.profilesFetchError === "string" ? data.profilesFetchError : null,
+        });
+        // Socket owns continued loading — skip HTTP profiles reload (it remounted the grid).
+        if (!httpPollingContinues) {
+          await loadSessionProfilesFirstPage(
+            sessionId,
+            typeof data.limit === "number" ? data.limit : 20,
+            auth.token,
+            backTab,
+            profileOptions
+          );
+        }
       }
 
       setIsFilterDrawerOpen(false);
       setHasSearched(true);
-      setWorkspaceCandidatesRefresh((n) => n + 1);
-      setRecentSearchesRefresh((n) => n + 1);
+      // Defer sidebar refreshes until polling finishes so Session Results stays stable.
+      if (!httpPollingContinues) {
+        setWorkspaceCandidatesRefresh((n) => n + 1);
+        setRecentSearchesRefresh((n) => n + 1);
+      }
       if (isBrandNewSession) {
         setSourcingSessionsHydrated(false);
         setSourcingSessionsRefresh((n) => n + 1);
@@ -3288,6 +3413,7 @@ export function UserDashboardPage() {
         err instanceof Error ? err.message : "Could not apply filters";
       setSessionResultError(message);
       userActionAlert.showError(message);
+      setSessionSearchPolling(false);
     } finally {
       setApplyFiltersLoading(false);
     }
@@ -3333,34 +3459,91 @@ export function UserDashboardPage() {
       const fjProfiles = data.futureJobsProfiles as
         | { data?: { docs?: SessionResultDoc[] } }
         | undefined;
-      const incomingDocs = Array.isArray(fjProfiles?.data?.docs)
+      let incomingDocs = Array.isArray(fjProfiles?.data?.docs)
         ? (fjProfiles.data.docs as SessionResultDoc[])
         : [];
-
-      // API returns the full session snapshot after fetch-more — replace, do not append by _id only.
-      const nextDocs = dedupeSessionResultDocs(incomingDocs);
-      setSessionResultDocs(nextDocs);
-      setSessionResultsFromDb(false);
-
-      const incomingCandidates = Array.isArray(data.candidates)
+      let incomingCandidates = Array.isArray(data.candidates)
         ? (data.candidates as CandidateRow[])
         : [];
-      if (incomingCandidates.length > 0) {
-        setSearchedCandidates(incomingCandidates);
+      let storedProfileCount =
+        typeof data.storedProfileCount === "number" ? data.storedProfileCount : null;
+      let canFetchMore = data.canFetchMore !== false;
+
+      // Reload full stored set so the grid matches history totals (> first-page 200).
+      try {
+        const storedRes = await fetch(
+          `${apiBase}/api/candidates/session/${sid}/stored-candidates?all=1`,
+          {
+            method: "GET",
+            headers: authHeaders(auth.token),
+          }
+        );
+        const storedData = await storedRes.json().catch(() => ({}));
+        if (storedRes.ok && storedData.success) {
+          const storedDocs = Array.isArray(storedData.detailedDocs)
+            ? (storedData.detailedDocs as SessionResultDoc[])
+            : [];
+          if (storedDocs.length > 0) {
+            incomingDocs = storedDocs;
+          }
+          const storedList = Array.isArray(storedData.candidates)
+            ? (storedData.candidates as CandidateRow[])
+            : [];
+          if (storedList.length > 0) {
+            incomingCandidates = storedList;
+          }
+          const pgTotal = storedData.profilesPagination?.totalDocs;
+          if (typeof pgTotal === "number" && pgTotal > 0) {
+            storedProfileCount = pgTotal;
+          } else if (storedDocs.length > 0) {
+            storedProfileCount = storedDocs.length;
+          }
+          if (typeof storedData.canFetchMore === "boolean") {
+            canFetchMore = storedData.canFetchMore;
+          }
+        }
+      } catch {
+        /* keep fetch-more payload */
       }
 
-      const canFetchMore = data.canFetchMore !== false;
-      const storedProfileCount =
-        typeof data.storedProfileCount === "number"
-          ? data.storedProfileCount
-          : nextDocs.length;
+      // Prefer full stored snapshot; fall back to appending when reload is incomplete.
+      const nextDocs =
+        incomingDocs.length >= sessionResultDocs.length
+          ? dedupeSessionResultDocs(incomingDocs).slice(0, SESSION_RESULTS_MAX)
+          : appendSessionResultDocs(sessionResultDocs, incomingDocs, SESSION_RESULTS_MAX);
+      setSessionResultDocs(nextDocs);
+      setSessionResultsFromDb(true);
+
+      if (incomingCandidates.length > 0) {
+        setSearchedCandidates((prev) => {
+          if (incomingCandidates.length >= prev.length) {
+            return incomingCandidates.slice(0, SESSION_RESULTS_MAX);
+          }
+          const seen = new Set(
+            prev.map((c) => candidateIdentityKey(c)).filter(Boolean)
+          );
+          const merged = [...prev];
+          for (const c of incomingCandidates) {
+            const key = candidateIdentityKey(c);
+            if (!key || seen.has(key)) continue;
+            seen.add(key);
+            merged.push(c);
+          }
+          return merged.slice(0, SESSION_RESULTS_MAX);
+        });
+      }
+
+      const displayedCount = Math.max(
+        storedProfileCount ?? 0,
+        nextDocs.length
+      );
       setSessionCanFetchMore(canFetchMore);
       setSearchSummary((prev) =>
         prev
           ? {
               ...prev,
-              candidateCount: storedProfileCount,
-              totalDocs: storedProfileCount,
+              candidateCount: displayedCount,
+              totalDocs: displayedCount,
               canFetchMore,
             }
           : prev
@@ -3473,22 +3656,33 @@ export function UserDashboardPage() {
           setAiPrompt(historyPrompt);
         }
       }
-      setSessionResultDocs(dedupeSessionResultDocs(detailedDocs));
+      const nextDocs = dedupeSessionResultDocs(detailedDocs).slice(
+        0,
+        SESSION_RESULTS_MAX
+      );
+      setSessionResultDocs(nextDocs);
       setSessionResultSelectedKeys([]);
       setSessionResultsFromDb(true);
-      const pg = data.profilesPagination;
       const warn =
         (typeof data.profilesFetchError === "string" && data.profilesFetchError) ||
         (typeof data.fetchMoreError === "string"
           ? `fetch-more: ${data.fetchMoreError}`
           : "");
       if (warn) userActionAlert.showError(warn);
-      const displayedCount = detailedDocs.length;
+      const displayedCount = nextDocs.length;
+      const totalFromApi =
+        typeof data.profilesPagination?.totalDocs === "number"
+          ? data.profilesPagination.totalDocs
+          : displayedCount;
+      const historyTotal =
+        typeof row.totalDocs === "number" && row.totalDocs > 0 ? row.totalDocs : 0;
+      const summaryCount = Math.max(displayedCount, totalFromApi, historyTotal);
       const canFetchMore = data.canFetchMore !== false;
       setSessionCanFetchMore(canFetchMore);
+      setSessionToolbarCount(displayedCount);
       setSearchSummary({
         candidateCount: displayedCount,
-        totalDocs: displayedCount,
+        totalDocs: Math.max(displayedCount, summaryCount),
         page: 1,
         limit: displayedCount || limit,
         totalPages: 1,
@@ -3970,9 +4164,23 @@ export function UserDashboardPage() {
     Boolean(routeSessionId) &&
     searchSummary?.sessionId !== routeSessionId;
   const showSessionResultsSkeleton =
-    sessionResultDocs.length === 0 && (searchLoading || sessionResultsOutOfSync);
+    sessionResultDocs.length === 0 &&
+    (searchLoading || sessionResultsOutOfSync) &&
+    !sessionSearchPolling &&
+    !applyFiltersLoading;
+  // Keep the grid mounted once docs exist — never hide it behind searchLoading
+  // (auto-load / HTTP races were unmounting every card + the toolbar actions).
   const showSessionResultsGrid =
-    sessionResultDocs.length > 0 && !searchLoading && !sessionResultsOutOfSync;
+    sessionResultDocs.length > 0 && !sessionResultsOutOfSync;
+
+  // Sync toolbar count from the grid; while polling never go backwards.
+  useEffect(() => {
+    if (sessionSearchPolling || applyFiltersLoading) {
+      setSessionToolbarCount((prev) => Math.max(prev, sessionResultDocs.length));
+      return;
+    }
+    setSessionToolbarCount(sessionResultDocs.length);
+  }, [sessionSearchPolling, applyFiltersLoading, sessionResultDocs.length]);
 
   const resolveSelectedSessionContacts = useCallback((): CampaignContact[] => {
     const sessionId = searchSummary?.sessionId ?? null;
@@ -4067,6 +4275,219 @@ export function UserDashboardPage() {
 
     return unsubscribe;
   }, [campaignsPage, handleCampaignUpdated, loadCampaignsList]);
+
+  useEffect(() => {
+    routeSessionIdRef.current = String(routeSessionId || "").trim();
+  }, [routeSessionId]);
+
+  useEffect(() => {
+    searchSummarySessionIdRef.current = searchSummary?.sessionId?.trim() || null;
+  }, [searchSummary?.sessionId]);
+
+  useEffect(() => {
+    const unsubscribe = realtimeClient.subscribeCandidateSearchPoll((payload) => {
+      const sid = String(payload.sessionId || "").trim();
+      if (!sid) return;
+
+      const tracked = searchPollSessionRef.current?.trim() || "";
+      const viewing =
+        routeSessionIdRef.current ||
+        searchSummarySessionIdRef.current ||
+        "";
+      const isLiveTracked = Boolean(tracked && sid === tracked);
+      const isLiveViewing =
+        Boolean(sid && sid === viewing) && sessionSearchPollingRef.current;
+      const allowLiveMerge = isLiveTracked || isLiveViewing;
+      const accepted = allowLiveMerge || sid === viewing;
+      if (!accepted) {
+        console.info(
+          `[realtime] poll skipped mismatch sid=${sid} tracked=${tracked || "-"} viewing=${viewing || "-"}`
+        );
+        return;
+      }
+
+      // History/stored latch — but never block an active live search.
+      if (sessionResultsFromDbRef.current && !allowLiveMerge) {
+        if (Boolean(payload.done || payload.status === true) || payload.polling === false) {
+          setSessionSearchPolling(false);
+        }
+        return;
+      }
+      if (allowLiveMerge && sessionResultsFromDbRef.current) {
+        sessionResultsFromDbRef.current = false;
+        setSessionResultsFromDb(false);
+      }
+
+      // Keep accepting later frames even if HTTP backup cleared the poll ref.
+      searchPollSessionRef.current = sid;
+
+      const docs = Array.isArray(payload.docs)
+        ? (payload.docs as SessionResultDoc[])
+        : [];
+      const hitCount =
+        typeof payload.candidateCount === "number"
+          ? payload.candidateCount
+          : docs.length;
+      const isFinal = Boolean(payload.done || payload.status === true);
+
+      if (!isFinal && payload.polling !== false) {
+        setSessionSearchPolling(true);
+      }
+
+      if (docs.length > 0) {
+        setSessionResultDocs((prev) => {
+          const next = mergePollSessionResultDocs(
+            prev,
+            docs,
+            SESSION_RESULTS_FIRST_PAGE_LIMIT
+          );
+          if (next !== prev) {
+            console.info(
+              `[realtime] grid merge prev=${prev.length} next=${next.length} hits:${hitCount}`
+            );
+          } else {
+            console.info(
+              `[realtime] grid unchanged prev=${prev.length} incoming=${docs.length} hits:${hitCount}`
+            );
+          }
+          // Full first page already shown — stop loader; further growth is via fetch-more.
+          if (next.length >= SESSION_RESULTS_FIRST_PAGE_LIMIT) {
+            queueMicrotask(() => setSessionSearchPolling(false));
+          }
+          return next;
+        });
+
+        if (Array.isArray(payload.candidates) && payload.candidates.length > 0) {
+          setSearchedCandidates((prev) => {
+            const incoming = payload.candidates as CandidateRow[];
+            const seen = new Set(
+              prev.map((c) => candidateIdentityKey(c)).filter(Boolean)
+            );
+            const additions: CandidateRow[] = [];
+            for (const row of incoming) {
+              const key = candidateIdentityKey(row);
+              if (!key || seen.has(key)) continue;
+              seen.add(key);
+              additions.push(row);
+            }
+            if (additions.length === 0) return prev;
+            return [...prev, ...additions].slice(0, SESSION_RESULTS_FIRST_PAGE_LIMIT);
+          });
+        }
+      }
+
+      // Keep the badge number moving even when React batches doc merges.
+      if (hitCount > 0) {
+        setSessionToolbarCount((prev) => Math.max(prev, hitCount, docs.length));
+      }
+
+      if (isFinal) {
+        setSessionSearchPolling(false);
+      }
+    });
+
+    return unsubscribe;
+  }, []);
+
+  const sessionResultDocsCountRef = useRef(0);
+  useEffect(() => {
+    sessionResultDocsCountRef.current = sessionResultDocs.length;
+    // Full first page already on screen — stop loader / backup fetches.
+    if (
+      sessionSearchPolling &&
+      sessionResultDocs.length >= SESSION_RESULTS_FIRST_PAGE_LIMIT
+    ) {
+      setSessionSearchPolling(false);
+    }
+  }, [sessionResultDocs.length, sessionSearchPolling]);
+
+  // HTTP backup while polling: if WS frames are dropped, grid still grows without refresh.
+  useEffect(() => {
+    if (!sessionSearchPolling) return;
+    // Only skip for pure history views — live apply clears the latch above.
+    if (
+      sessionResultsFromDbRef.current &&
+      !searchPollSessionRef.current?.trim()
+    ) {
+      return;
+    }
+    if (sessionResultDocsCountRef.current >= SESSION_RESULTS_FIRST_PAGE_LIMIT) return;
+
+    const sid =
+      searchPollSessionRef.current?.trim() ||
+      routeSessionIdRef.current ||
+      searchSummarySessionIdRef.current ||
+      "";
+    if (!sid) return;
+
+    let cancelled = false;
+    let inFlight = false;
+    let attempts = 0;
+    const MAX_ATTEMPTS = 30;
+
+    const stopPolling = () => {
+      if (cancelled) return;
+      setSessionSearchPolling(false);
+    };
+
+    const mergeFromApi = async () => {
+      if (cancelled || inFlight) return;
+      if (sessionResultDocsCountRef.current >= SESSION_RESULTS_FIRST_PAGE_LIMIT) {
+        stopPolling();
+        return;
+      }
+      const auth = getStoredAuth();
+      if (!auth?.token) return;
+      inFlight = true;
+      attempts += 1;
+      try {
+        const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+        const res = await fetch(
+          `${apiBase}/api/candidates/session/${encodeURIComponent(sid)}/profiles?page=1&limit=${SESSION_RESULTS_FIRST_PAGE_LIMIT}`,
+          { headers: authHeaders(auth.token) }
+        );
+        const data = await res.json().catch(() => ({}));
+        if (cancelled || !res.ok || !data.success) return;
+        const incoming = Array.isArray(
+          (data as { futureJobsProfiles?: { data?: { docs?: SessionResultDoc[] } } })
+            .futureJobsProfiles?.data?.docs
+        )
+          ? ((data as { futureJobsProfiles: { data: { docs: SessionResultDoc[] } } })
+              .futureJobsProfiles.data.docs)
+          : [];
+        if (incoming.length > 0) {
+          setSessionResultDocs((prev) => {
+            const next = mergePollSessionResultDocs(
+              prev,
+              incoming,
+              SESSION_RESULTS_FIRST_PAGE_LIMIT
+            );
+            if (next.length >= SESSION_RESULTS_FIRST_PAGE_LIMIT) {
+              queueMicrotask(stopPolling);
+            }
+            return next;
+          });
+        }
+        if (attempts >= MAX_ATTEMPTS) {
+          stopPolling();
+        }
+      } catch {
+        if (attempts >= MAX_ATTEMPTS) stopPolling();
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    void mergeFromApi();
+    const timer = window.setInterval(() => {
+      void mergeFromApi();
+    }, 3000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [sessionSearchPolling]);
 
   const handleAddToCampaignConfirm = useCallback(
     async (
@@ -4207,6 +4628,13 @@ export function UserDashboardPage() {
     return revealedContactValues[key]?.phone || candidate.phone || "";
   };
 
+  useLayoutEffect(() => {
+    setSidebarCollapsed(readSidebarCollapsedPreference());
+    // Enable width transition only after the preferred collapsed state is applied.
+    const frame = window.requestAnimationFrame(() => setSidebarAnimated(true));
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+
   const toggleSidebarCollapsed = () => {
     setSidebarCollapsed((prev) => {
       const next = !prev;
@@ -4333,7 +4761,7 @@ export function UserDashboardPage() {
         <aside
           className={`dashboard-sidebar dashboard-sidebar--compact hidden flex-col lg:flex${
             sidebarCollapsed ? " dashboard-sidebar--collapsed" : ""
-          }`}
+          }${sidebarAnimated ? " dashboard-sidebar--animated" : ""}`}
         >
           <div className="dashboard-sidebar-brand">
             <div className="dashboard-sidebar-brand-head">
@@ -4681,6 +5109,12 @@ export function UserDashboardPage() {
                       onClick={() => navigateToTab(sessionResultsBackTab)}
                       className="dashboard-btn-secondary dashboard-btn-icon"
                       aria-label={`Back to ${sessionResultsBackTab}`}
+                      disabled={sessionSearchPolling || applyFiltersLoading}
+                      title={
+                        sessionSearchPolling || applyFiltersLoading
+                          ? "Please wait — results are still loading"
+                          : undefined
+                      }
                     >
                       <MaterialIcon name="arrow_back" className="text-xl" />
                     </button>
@@ -4695,11 +5129,33 @@ export function UserDashboardPage() {
                     </div>
                   </div>
                   <div className="dashboard-results-toolbar-actions">
-                    {showSessionResultsGrid ? (
+                    {showSessionResultsGrid ||
+                    sessionSearchPolling ||
+                    applyFiltersLoading ? (
                       <div className="dashboard-results-toolbar-meta">
-                        <span className="dashboard-results-toolbar-badge tabular-nums">
-                          {sessionResultDocs.length.toLocaleString()} candidate
-                          {sessionResultDocs.length === 1 ? "" : "s"}
+                        <span
+                          className={`dashboard-results-toolbar-badge tabular-nums${
+                            sessionSearchPolling || applyFiltersLoading
+                              ? " dashboard-results-toolbar-badge--polling"
+                              : ""
+                          }`}
+                        >
+                          {sessionSearchPolling || applyFiltersLoading ? (
+                            <>
+                              <span
+                                className="dashboard-results-toolbar-badge-spinner"
+                                aria-hidden
+                              />
+                              {sessionToolbarCount > 0
+                                ? `${sessionToolbarCount.toLocaleString()} · Loading…`
+                                : "Loading…"}
+                            </>
+                          ) : (
+                            <>
+                              {sessionToolbarCount.toLocaleString()} candidate
+                              {sessionToolbarCount === 1 ? "" : "s"}
+                            </>
+                          )}
                         </span>
                         {sessionResultSelectedKeys.length > 0 ? (
                           <span className="dashboard-results-toolbar-badge dashboard-results-toolbar-badge--selected tabular-nums">
@@ -4751,6 +5207,7 @@ export function UserDashboardPage() {
                         type="button"
                         onClick={() => openEditFiltersDrawer()}
                         className="dashboard-btn-secondary"
+                        disabled={sessionSearchPolling || applyFiltersLoading}
                       >
                         <MaterialIcon name="tune" aria-hidden />
                         Edit filter
@@ -4790,6 +5247,7 @@ export function UserDashboardPage() {
 
                 {!showSessionResultsSkeleton &&
                 !applyFiltersLoading &&
+                !sessionSearchPolling &&
                 sessionResultDocs.length === 0 &&
                 !sessionResultError &&
                 !sessionResultsOutOfSync ? (
@@ -4866,7 +5324,7 @@ export function UserDashboardPage() {
                         const phoneRevealBusy = isRevealContactBusy(revealCandidate, "PHONE");
                         return (
                           <article
-                            key={doc._id || `session-doc-${idx}`}
+                            key={sessionResultDocIdentityKey(doc) || `session-doc-${idx}`}
                             role="button"
                             tabIndex={0}
                             onClick={() => openSessionCandidateDetail(doc, revealCandidate)}

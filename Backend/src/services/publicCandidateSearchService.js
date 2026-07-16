@@ -19,8 +19,9 @@ const { logApi, safeJsonPreview } = require("../utils/logger");
 const POST_SESSION_CREATE_PROFILES_WAIT_MS = 20_000;
 
 /** Same pagination as dashboard session profile load. */
-const PROFILE_FETCH_PAGE_LIMIT = 100;
-const PROFILE_FETCH_MAX_PAGES = 50;
+const PROFILE_FETCH_PAGE_LIMIT = 200;
+/** Public preview: single page only (max 200), same as dashboard initial search. */
+const PROFILE_FETCH_MAX_PAGES = 1;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -149,7 +150,7 @@ function buildProfilesResWithDocs(baseRes, allDocs) {
   };
 }
 
-/** Load every profile page Future Jobs exposes for this session (same as dashboard). */
+/** Load session profiles for public preview (first page only — max 200). */
 async function fetchAllPublicSessionProfiles(sessionId, pollOptions = {}) {
   const allDocs = [];
   const seen = new Set();
@@ -173,6 +174,7 @@ async function fetchAllPublicSessionProfiles(sessionId, pollOptions = {}) {
     const docs = profilesRes?.data?.docs;
     if (Array.isArray(docs)) {
       for (const doc of docs) {
+        if (allDocs.length >= PROFILE_FETCH_PAGE_LIMIT) break;
         const id = doc?._id != null ? String(doc._id) : "";
         const linkedin = String(doc?.profile?.linkedin_profile_url || "")
           .trim()
@@ -186,14 +188,7 @@ async function fetchAllPublicSessionProfiles(sessionId, pollOptions = {}) {
       }
     }
 
-    const hasNext = profilesRes?.data?.hasNextPage === true;
-    const totalPages =
-      typeof profilesRes?.data?.totalPages === "number"
-        ? profilesRes.data.totalPages
-        : null;
-    if (!hasNext) break;
-    if (totalPages != null && page >= totalPages) break;
-    page += 1;
+    break;
   }
 
   return buildProfilesResWithDocs(lastRes || {}, allDocs);

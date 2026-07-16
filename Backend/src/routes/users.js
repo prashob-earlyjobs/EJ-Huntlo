@@ -20,6 +20,7 @@ const {
   removeMyProfilePhoto,
   completeMyOnboarding,
   changeMyPassword,
+  resetUserPasswordByAdmin,
 } = require("../controllers/userController");
 const {
   getUsageAnalyticsSummary,
@@ -115,6 +116,12 @@ router.patch(
   authenticate,
   requireAdmin,
   updateUserPlan
+);
+router.post(
+  "/:id/reset-password",
+  authenticate,
+  requireAdmin,
+  resetUserPasswordByAdmin
 );
 router.get(
   "/:id/credits/history",

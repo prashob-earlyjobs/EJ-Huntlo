@@ -226,6 +226,7 @@ export function VideoScreeningBuilder({ onBack, onSaveDraft, onLaunch, onToast }
               },
               { label: "Evaluation criteria", value: enabledCriteria || "—" },
             ]}
+            onBack={goBack}
             onSaveDraft={onSaveDraft}
             onLaunch={onLaunch}
             launchLabel="Launch video screening"

@@ -933,6 +933,11 @@ export function AdminDashboardPage() {
   const [planSaving, setPlanSaving] = useState(false);
   const [manageModalUser, setManageModalUser] = useState<TeamUserRow | null>(null);
   const [planManageError, setPlanManageError] = useState("");
+  const [resetPasswordDraft, setResetPasswordDraft] = useState("");
+  const [resetPasswordConfirm, setResetPasswordConfirm] = useState("");
+  const [resetPasswordSaving, setResetPasswordSaving] = useState(false);
+  const [resetPasswordError, setResetPasswordError] = useState("");
+  const [resetPasswordSuccess, setResetPasswordSuccess] = useState("");
   const [utilisationHistory, setUtilisationHistory] = useState<UtilisationHistoryRow[]>([]);
   const [utilisationHistoryLoading, setUtilisationHistoryLoading] = useState(false);
   const [teamUtilisationHistory, setTeamUtilisationHistory] = useState<
@@ -1756,6 +1761,54 @@ export function AdminDashboardPage() {
     setManageModalUser(user);
     setPlanDraftId(user.planId || "trial");
     setPlanManageError("");
+    setResetPasswordDraft("");
+    setResetPasswordConfirm("");
+    setResetPasswordError("");
+    setResetPasswordSuccess("");
+  };
+
+  const handleResetUserPassword = async () => {
+    if (!auth || !manageModalUser) return;
+    setResetPasswordError("");
+    setResetPasswordSuccess("");
+    if (resetPasswordDraft.length < 6) {
+      setResetPasswordError("Password must be at least 6 characters");
+      return;
+    }
+    if (resetPasswordDraft !== resetPasswordConfirm) {
+      setResetPasswordError("Password and confirm password must match");
+      return;
+    }
+    setResetPasswordSaving(true);
+    try {
+      const res = await fetch(
+        `${apiBase}/api/users/${manageModalUser.id}/reset-password`,
+        {
+          method: "POST",
+          headers: authHeaders(auth.token),
+          body: JSON.stringify({
+            password: resetPasswordDraft,
+            confirmPassword: resetPasswordConfirm,
+          }),
+        }
+      );
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || "Could not reset password");
+      }
+      setResetPasswordDraft("");
+      setResetPasswordConfirm("");
+      setResetPasswordSuccess(
+        "Password reset. The user must sign in with the new password."
+      );
+      window.setTimeout(() => setResetPasswordSuccess(""), 4000);
+    } catch (err) {
+      setResetPasswordError(
+        err instanceof Error ? err.message : "Password reset failed"
+      );
+    } finally {
+      setResetPasswordSaving(false);
+    }
   };
 
   const handleSaveUserPlan = async () => {
@@ -2886,6 +2939,10 @@ export function AdminDashboardPage() {
                       setUtilisationHistory([]);
                       setPlanChangeHistory([]);
                       setUserPlanDetails(null);
+                      setResetPasswordDraft("");
+                      setResetPasswordConfirm("");
+                      setResetPasswordError("");
+                      setResetPasswordSuccess("");
                     }}
                     className="rounded-md border border-slate-300 px-3 py-1 text-sm text-slate-700 hover:bg-slate-50"
                   >
@@ -2935,6 +2992,58 @@ export function AdminDashboardPage() {
                       {planManageError}
                     </p>
                   ) : null}
+
+                  <div>
+                    <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                      Reset password
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      <input
+                        type="password"
+                        placeholder="New password"
+                        autoComplete="new-password"
+                        value={resetPasswordDraft}
+                        onChange={(e) => setResetPasswordDraft(e.target.value)}
+                        className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm outline-none focus:border-black focus:ring-2 focus:ring-slate-300"
+                      />
+                      <input
+                        type="password"
+                        placeholder="Confirm password"
+                        autoComplete="new-password"
+                        value={resetPasswordConfirm}
+                        onChange={(e) => setResetPasswordConfirm(e.target.value)}
+                        className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm outline-none focus:border-black focus:ring-2 focus:ring-slate-300"
+                      />
+                      <button
+                        type="button"
+                        disabled={
+                          resetPasswordSaving ||
+                          !resetPasswordDraft ||
+                          !resetPasswordConfirm
+                        }
+                        onClick={() => void handleResetUserPassword()}
+                        className="dashboard-btn-primary py-2.5 disabled:opacity-60"
+                      >
+                        <ButtonLoadingContent
+                          loading={resetPasswordSaving}
+                          loadingLabel="Resetting"
+                        >
+                          Reset password
+                        </ButtonLoadingContent>
+                      </button>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Sets a new password and signs the user out of all active sessions.
+                    </p>
+                    {resetPasswordError ? (
+                      <p className="dashboard-alert-error mt-2">{resetPasswordError}</p>
+                    ) : null}
+                    {resetPasswordSuccess ? (
+                      <p className="mt-2 text-sm font-medium text-emerald-600">
+                        {resetPasswordSuccess}
+                      </p>
+                    ) : null}
+                  </div>
                 </div>
 
                 <div className="mt-6 space-y-6 border-t border-slate-200 pt-5">

@@ -314,12 +314,12 @@ const getSourcingSessionCandidateDetails = async (candidateId) => {
 /**
  * GET /wl/sourcing-session/:sessionId/profiles — paginated profiles for a session.
  * @param {string} sessionId
- * @param {{ page?: number, limit?: number }} [opts]
+ * @param {{ page?: number, limit?: number, pollAttempt?: number }} [opts]
  * @returns {Promise<object>} Parsed JSON response body
  */
 const getSourcingSessionProfiles = async (
   sessionId,
-  { page = 1, limit = 20 } = {},
+  { page = 1, limit = 20, pollAttempt } = {},
 ) => {
   const { baseUrl, apiKey } = getFutureJobsConfig();
 
@@ -342,7 +342,7 @@ const getSourcingSessionProfiles = async (
 
   const params = new URLSearchParams({
     page: String(Math.max(1, Math.floor(Number(page)) || 1)),
-    limit: String(Math.min(100, Math.max(1, Math.floor(Number(limit)) || 20))),
+    limit: String(Math.min(200, Math.max(1, Math.floor(Number(limit)) || 20))),
   });
 
   const url = `${baseUrl}/wl/sourcing-session/${encodeURIComponent(sessionId)}/profiles?${params}`;
@@ -415,7 +415,7 @@ function profilesResponseTotalDocs(profilesRes) {
  * docs immediately after session create while profileMatchingStatus is "processing".
  *
  * @param {string} sessionId
- * @param {{ page?: number, limit?: number, maxWaitMs?: number, intervalMs?: number, expectedProfileCount?: number|null, profileMatchingStatus?: string|null }} [opts]
+ * @param {{ page?: number, limit?: number, maxWaitMs?: number, intervalMs?: number, expectedProfileCount?: number|null, profileMatchingStatus?: string|null, onPoll?: Function }} [opts]
  */
 async function getSourcingSessionProfilesWhenReady(
   sessionId,
@@ -426,6 +426,7 @@ async function getSourcingSessionProfilesWhenReady(
     intervalMs = 3000,
     expectedProfileCount = null,
     profileMatchingStatus = null,
+    onPoll = null,
   } = {},
 ) {
   const expected =
@@ -442,8 +443,30 @@ async function getSourcingSessionProfilesWhenReady(
     status === "pending" ||
     status === "in_progress";
 
+  const notifyPoll = (payload) => {
+    if (typeof onPoll !== "function") return;
+    try {
+      onPoll(payload);
+    } catch {
+      /* ignore listener errors */
+    }
+  };
+
   if (!shouldPoll) {
-    return getSourcingSessionProfiles(sessionId, { page, limit });
+    const res = await getSourcingSessionProfiles(sessionId, {
+      page,
+      limit,
+      pollAttempt: 1,
+    });
+    notifyPoll({
+      sessionId,
+      attempt: 1,
+      docs: Array.isArray(res?.data?.docs) ? res.data.docs : [],
+      totalDocs: profilesResponseTotalDocs(res),
+      done: false,
+      polling: true,
+    });
+    return res;
   }
 
   const started = Date.now();
@@ -452,9 +475,23 @@ async function getSourcingSessionProfilesWhenReady(
 
   while (Date.now() - started <= maxWaitMs) {
     attempt += 1;
-    lastRes = await getSourcingSessionProfiles(sessionId, { page, limit });
+    lastRes = await getSourcingSessionProfiles(sessionId, {
+      page,
+      limit,
+      pollAttempt: attempt,
+    });
     const docCount = profilesResponseDocCount(lastRes);
     const totalDocs = profilesResponseTotalDocs(lastRes);
+    const docs = Array.isArray(lastRes?.data?.docs) ? lastRes.data.docs : [];
+
+    notifyPoll({
+      sessionId,
+      attempt,
+      docs,
+      totalDocs: totalDocs || docCount,
+      done: false,
+      polling: true,
+    });
 
     if (docCount > 0 || totalDocs > 0) {
       logOutbound("futurejobs", "profiles ready after poll", {
@@ -490,7 +527,11 @@ async function getSourcingSessionProfilesWhenReady(
   });
   return (
     lastRes ||
-    (await getSourcingSessionProfiles(sessionId, { page, limit }))
+    (await getSourcingSessionProfiles(sessionId, {
+      page,
+      limit,
+      pollAttempt: attempt + 1,
+    }))
   );
 }
 
@@ -898,6 +939,48 @@ const getSourcingSessionAnnotation = async (body) => {
   return data;
 };
 
+/**
+ * GET /wl/sourcing-session/filters/autocomplete — suggest filter values (e.g. region).
+ * @param {{ filterType?: string, query: string, limit?: number }} params
+ */
+const getFilterAutocomplete = async (
+  { filterType = "region", query, limit = 10 } = {},
+  opts = {},
+) => {
+  const { baseUrl, apiKey } = getFutureJobsConfig();
+
+  try {
+    assertFutureJobsApiKey(apiKey);
+  } catch (e) {
+    logOutbound("futurejobs", "getFilterAutocomplete aborted — missing API key", {});
+    throw e;
+  }
+
+  const q = String(query || "").trim();
+  if (!q) {
+    const err = new Error("query is required");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const cappedLimit = Math.min(Math.max(Number(limit) || 10, 1), 25);
+  const params = new URLSearchParams({
+    filter_type: String(filterType || "region").trim() || "region",
+    query: q,
+    limit: String(cappedLimit),
+  });
+  const url = `${baseUrl}/wl/sourcing-session/filters/autocomplete?${params}`;
+
+  return futureJobsHttpRequest({
+    method: "GET",
+    url,
+    apiKey,
+    traceId: opts.traceId,
+    fjOperation: "GET /wl/sourcing-session/filters/autocomplete",
+    defaultErrorPrefix: "Future Jobs autocomplete",
+  });
+};
+
 module.exports = {
   createSourcingSession,
   updateSourcingSession,
@@ -911,4 +994,5 @@ module.exports = {
   scoutPeopleLookup,
   scoutPeopleRevealContact,
   getSourcingSessionAnnotation,
+  getFilterAutocomplete,
 };
